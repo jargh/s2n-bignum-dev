@@ -316,17 +316,11 @@ let bytes_mod_blocks = define
   `bytes_mod_blocks (m : byte list) : byte list =
     drop ((LENGTH m DIV num_bytes_per_block) * num_bytes_per_block) m`;;
 
-let sha512_ctx_inv_from = define
-  `sha512_ctx_inv_from (m : byte list) =
+let sha512_ctx_from = define
+  `sha512_ctx_from (m : byte list) =
     (sha512 (bytes_to_blocks m) (LENGTH m DIV num_bytes_per_block),
      word ((LENGTH m * 8) MOD (2 EXP 64)) : int64, word ((LENGTH m * 8) DIV (2 EXP 64)) : int64,
      bytes_mod_blocks m)`;;
-
-let sha512_ctx_inv = define
-  `sha512_ctx_inv (m : byte list) (h : hash_t) (msg_len_lo : int64) (msg_len_hi : int64) (cur_block : byte list) =
-    (sha512 (bytes_to_blocks m) (LENGTH m DIV num_bytes_per_block) = h
-      /\ bytes_mod_blocks m = cur_block
-      /\ LENGTH m * 8 = val msg_len_hi * 2 EXP 64 + val msg_len_lo)`;;
 
 (*****************************************************************************)
 
@@ -363,22 +357,14 @@ let msg_blocks_at = define
   `msg_blocks_at (m : num -> num -> int64) (l : num) (m_p : int64) s =
     ! i. i < l ==> msg_block_at (m i) (word_add m_p (word (num_bytes_per_block * i))) s`;;
 
-let sha512_ctx_at2 = define
-  `sha512_ctx_at2 (m : byte list) (ctx_p : int64) s =
-    let h, msg_len_lo, msg_len_hi, cur_block = sha512_ctx_inv_from m in
+let sha512_ctx_at = define
+  `sha512_ctx_at (m : byte list) (ctx_p : int64) s =
+    let h, msg_len_lo, msg_len_hi, cur_block = sha512_ctx_from m in
     (hash_buffer_at h ctx_p s /\
      read (memory :> bytes64 (word_add ctx_p (word (8 * 8)))) s = msg_len_lo /\
      read (memory :> bytes64 (word_add ctx_p (word (8 * 9)))) s = msg_len_hi /\
      take (LENGTH cur_block) (read (memory :> bytelist (word_add ctx_p (word (8 * 10)), num_bytes_per_block)) s) = cur_block /\
      read (memory :> bytes8 (word_add ctx_p (word 208))) s = word (LENGTH cur_block))`;;
-
-let sha512_ctx_at = define
-  `sha512_ctx_at (h : hash_t) (msg_len_lo : int64) (msg_len_hi : int64) (cur_block : byte list) (cur_pos : byte) (ctx_p : int64) s =
-    (hash_buffer_at h ctx_p s /\
-     read (memory :> bytes64 (word_add ctx_p (word (8 * 8)))) s = msg_len_lo /\
-     read (memory :> bytes64 (word_add ctx_p (word (8 * 9)))) s = msg_len_hi /\
-     take (val cur_pos) (read (memory :> bytelist (word_add ctx_p (word (8 * 10)), num_bytes_per_block)) s) = cur_block /\
-     read (memory :> bytes8 (word_add ctx_p (word 208))) s = cur_pos)`;;
 
 (*****************************************************************************)
 
@@ -1101,6 +1087,7 @@ let a_mc,a_constants_data = define_assert_relocs_from_elf "a_mc"
 
 let EXEC = ARM_MK_EXEC_RULE a_mc;;
 
+(* sha512_init *)
 let SHA512_INIT = prove(`! ctx_p pc retpc K.
   nonoverlapping (word pc : int64, 2748) (ctx_p, 216) ==>
   ensures arm
@@ -1109,47 +1096,32 @@ let SHA512_INIT = prove(`! ctx_p pc retpc K.
          read X30 s = retpc /\
          read X0 s = ctx_p)
     (\s. read PC s = retpc /\
-         sha512_ctx_at h_init (word 0) (word 0) [] (word 0) ctx_p s)
+         sha512_ctx_at [] ctx_p s)
     (MAYCHANGE [X1; X2; X3; X4; X5; X6; X7; PC] ,,
      MAYCHANGE [memory :> bytes(ctx_p, 216)] ,, MAYCHANGE [events])`,
   REWRITE_TAC [NONOVERLAPPING_CLAUSES] THEN REPEAT STRIP_TAC THEN
     ENSURES_INIT_TAC "s185" THEN ARM_STEPS_TAC EXEC (186--225) THEN
     ENSURES_FINAL_STATE_TAC THEN
-    ASM_REWRITE_TAC [sha512_ctx_at; hash_buffer_at; h_init; h_a; h_b; h_c; h_d; h_e; h_f; h_g; h_h;
-                     take; VAL_WORD_0; SUB_LIST_CLAUSES; ARITH]);;
-
-let SHA512_INIT_CTX_SAT_INV = prove(`sha512_ctx_inv [] h_init (word 0) (word 0) []`,
-  REWRITE_TAC [sha512_ctx_inv; sha512; bytes_to_blocks; num_bytes_per_block; bytes_mod_blocks;
-               take; drop; LENGTH; VAL_WORD_0; MULT; DIV_0; sha512'; SUB_LIST_CLAUSES; ARITH]);;
-
-
-let SHA512_INIT2 = prove(`! ctx_p pc retpc K.
-  nonoverlapping (word pc : int64, 2748) (ctx_p, 216) ==>
-  ensures arm
-    (\s. aligned_bytes_loaded s (word pc) (a_mc pc K) /\
-         read PC s = word (pc + 0x2b0) /\
-         read X30 s = retpc /\
-         read X0 s = ctx_p)
-    (\s. read PC s = retpc /\
-         sha512_ctx_at2 [] ctx_p s)
-    (MAYCHANGE [X1; X2; X3; X4; X5; X6; X7; PC] ,,
-     MAYCHANGE [memory :> bytes(ctx_p, 216)] ,, MAYCHANGE [events])`,
-  REWRITE_TAC [NONOVERLAPPING_CLAUSES] THEN REPEAT STRIP_TAC THEN
-    ENSURES_INIT_TAC "s185" THEN ARM_STEPS_TAC EXEC (186--225) THEN
-    ENSURES_FINAL_STATE_TAC THEN
-    ASM_REWRITE_TAC [sha512_ctx_at2; sha512_ctx_inv_from; hash_buffer_at; h_init; h_a; h_b; h_c; h_d; h_e; h_f; h_g; h_h;
+    ASM_REWRITE_TAC [sha512_ctx_at; sha512_ctx_from; hash_buffer_at; h_init; h_a; h_b; h_c; h_d; h_e; h_f; h_g; h_h;
                      sha512; sha512'; bytes_to_blocks; num_bytes_per_block; bytes_mod_blocks; take; drop;
                      LENGTH; VAL_WORD_0; MULT; DIV_0; SUB_LIST_CLAUSES; ARITH] THEN
     CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
     REWRITE_TAC[LENGTH; SUB_LIST_CLAUSES; MOD_0]);;
 
-     
+let READ_MEMORY_SPLIT_CONV =
+  let baseconv =
+    GEN_REWRITE_CONV I [READ_MEMORY_BYTESIZED_UNSPLIT] THENC
+    BINOP_CONV(LAND_CONV(LAND_CONV(RAND_CONV(RAND_CONV
+     (TRY_CONV(GEN_REWRITE_CONV I [GSYM WORD_ADD_ASSOC] THENC
+               RAND_CONV WORD_ADD_CONV)))))) in
+  let rec conv n tm =
+    if n = 0 then REFL tm else
+    (baseconv THENC BINOP_CONV (conv(n - 1))) tm in
+  conv;;
 
-
-
-
-
-(*********** ??? work in progress ***********)
+let FORALL_LT_SUC = prove
+ (`!P n. (!i. i < n + 1 ==> P i) <=> (!i. i < n ==> P i) /\ P n`,
+  REWRITE_TAC[GSYM ADD1] THEN MESON_TAC[LT]);;
 
 (* msg_schedule *)
 g `! sch_p m_p m pc retpc K.
@@ -1172,34 +1144,27 @@ e (REWRITE_TAC[SOME_FLAGS]);;
 e (REWRITE_TAC[NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; num_bytes_per_block]);;
 e (REPEAT STRIP_TAC);;
 
-e (ENSURES_WHILE_AUP_TAC
-`0` `16` `pc + 4` `pc + 88`
+e (ENSURES_WHILE_UP_TAC
+`16` `pc + 0x4` `pc + 0x58`
 `\i s. // loop invariant
-           (read X3 s = word i /\ read X30 s = word retpc /\
-            read X0 s = sch_p /\ read X1 s = word_add m_p (word (8 * i)) /\ msg_block_at m m_p s) /\
-           (! j. j < i ==> read (memory :> bytes64(word_add sch_p (word (8 * j)))) s = msg_schedule m j)`);;
+    (read X30 s = word retpc /\ read X0 s = sch_p /\
+    read X1 s = word_add m_p (word (8 * i)) /\ read X3 s = word i /\ msg_block_at m m_p s) /\
+    (! j. j < i ==> read (memory :> bytes64(word_add sch_p (word (8 * j)))) s = msg_schedule m j)`);;
 e (REPEAT CONJ_TAC);;
 
-
+(* Subgoal 1: upper bound of counter is non-zero *)
 e ARITH_TAC;;
 
+(* Subgoal 2: initialization *)
+e (REWRITE_TAC[msg_block_at] THEN
+   CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
+   ARM_SIM_TAC EXEC [1] THEN ASM_REWRITE_TAC [LT]);;
 
-e (REWRITE_TAC[msg_block_at]);;
-e (CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV));;
-e (ENSURES_INIT_TAC "s0");;
-e (ARM_STEPS_TAC EXEC [1]);;
-e ENSURES_FINAL_STATE_TAC;;
-e (ASM_REWRITE_TAC [LT]);;
-
-
-e (REPEAT STRIP_TAC);;
-e (REWRITE_TAC[msg_block_at]);;
-e (CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV));;
+(* Subgoal 3: loop body *)
+e (REPEAT STRIP_TAC THEN REWRITE_TAC[msg_block_at] THEN
+   CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV));;
 e (ENSURES_INIT_TAC "s1");;
-let lemma = prove
- (`!P n. (!i. i < n + 1 ==> P i) <=> (!i. i < n ==> P i) /\ P n`,
-  REWRITE_TAC[GSYM ADD1] THEN MESON_TAC[LT]);;
-e (ASM_REWRITE_TAC [lemma]);;
+e (ASM_REWRITE_TAC [FORALL_LT_SUC]);;
 e (SUBGOAL_THEN
 `!i. i < 16
       ==> !j. j < 8
@@ -1209,14 +1174,14 @@ e (SUBGOAL_THEN
 e (RULE_ASSUM_TAC(REWRITE_RULE[READ_MEMORY_SPLIT_CONV 3 `read (memory :> bytes64 a) s = m`]));;
 e (RULE_ASSUM_TAC(CONV_RULE(ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV)));;
 e (CONV_TAC EXPAND_CASES_CONV THEN REPEAT CONJ_TAC THEN
-   CONV_TAC EXPAND_CASES_CONV THEN ASM_REWRITE_TAC[] THEN
+   CONV_TAC EXPAND_CASES_CONV THEN
    CONV_TAC NUM_REDUCE_CONV THEN
    ASM_REWRITE_TAC[WORD_ADD_0] THEN CONV_TAC WORD_BLAST);;
 
-CONV_TAC(LAND_CONV EXPAND_CASES_CONV) THEN
-REWRITE_TAC[ADD_CLAUSES]
-
-
+e (ASM_REWRITE_TAC []);;
+e (CONV_TAC(LAND_CONV EXPAND_CASES_CONV) THEN
+   REWRITE_TAC[ADD_CLAUSES]);;
+e STRIP_TAC;;
 
 e (REWRITE_TAC[GSYM CONJ_ASSOC]);;
 e (VAL_INT64_TAC `i:num`);;
@@ -1229,51 +1194,99 @@ e (ONCE_ASM_REWRITE_TAC[msg_schedule]);;
 e (ASM_REWRITE_TAC[]);;
 e (CONV_TAC WORD_BLAST);;
 
-let READ_MEMORY_SPLIT_CONV =
-  let baseconv =
-    GEN_REWRITE_CONV I [READ_MEMORY_BYTESIZED_UNSPLIT] THENC
-    BINOP_CONV(LAND_CONV(LAND_CONV(RAND_CONV(RAND_CONV
-     (TRY_CONV(GEN_REWRITE_CONV I [GSYM WORD_ADD_ASSOC] THENC
-               RAND_CONV WORD_ADD_CONV)))))) in
-  let rec conv n tm =
-    if n = 0 then REFL tm else
-    (baseconv THENC BINOP_CONV (conv(n - 1))) tm in
-  conv;;
-
+(* Subgoal 4: backedge *)
 e (REPEAT STRIP_TAC);;
 e (REWRITE_TAC[msg_block_at]);;
 e (CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV));;
-e (ENSURES_INIT_TAC "s0");;
 e (REWRITE_TAC[GSYM CONJ_ASSOC]);;
 e (VAL_INT64_TAC `i:num`);;
-e (ARM_STEPS_TAC EXEC (1--2));;
-e ENSURES_FINAL_STATE_TAC;;
-e (ASM_REWRITE_TAC[WORD_SUB_EQ_0; VAL_EQ_0]);;
-e (ASM_REWRITE_TAC[GSYM VAL_EQ]);;
+e (ARM_SIM_TAC EXEC (1--2));;
 e (CONV_TAC WORD_REDUCE_CONV);;
 e (ASM_SIMP_TAC[LT_IMP_NE]);;
 e (CHEAT_TAC);;
 
+(* After the first loop *)
+e (ENSURES_WHILE_AUP_TAC
+   `16` `80` `pc + 0x80` `pc + 0xc8`
+   `\k s. // loop invariant
+      (read X30 s = word retpc /\ read X2 s = word_add sch_p (word (8 * (k - 15))) /\
+      read X11 s = word_add sch_p (word (8 * 65)) /\
+      read X0 s = msg_schedule m (k - 1) /\ read X3 s = msg_schedule m (k - 2) /\ read X4 s = msg_schedule m (k - 16) /\
+      read X6 s = msg_schedule m (k - 3)/\ read X7 s = msg_schedule m (k - 4) /\ read X8 s = msg_schedule m (k - 5)/\
+      read X9 s = msg_schedule m (k - 6) /\ read X10 s = msg_schedule m (k - 7) /\
+      (! j. j < k ==> read (memory :> bytes64(word_add sch_p (word (8 * j)))) s = msg_schedule m j))`);;
+e (REPEAT CONJ_TAC);;
+
+(* Subgoal 1: upper bound of counter is non-zero *)
+e ARITH_TAC;;
+
+(* Subgoal 2: initialization *)
+e (ENSURES_INIT_TAC "s22");;
+e (RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)));;
+e (RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV NUM_REDUCE_CONV)));;
+e (RULE_ASSUM_TAC(REWRITE_RULE [WORD_ADD_0]));;
+e (ARM_STEPS_TAC EXEC (23--32));;
+e ENSURES_FINAL_STATE_TAC;;
+e (ASM_REWRITE_TAC []);;
+e (CONV_TAC NUM_REDUCE_CONV);;
+e (CONV_TAC (ONCE_DEPTH_CONV EXPAND_CASES_CONV));;
+e (CONV_TAC NUM_REDUCE_CONV);;
+e (ASM_REWRITE_TAC [WORD_ADD_0]);;
+
+(* Subgoal 3: loop body *)
+e (REPEAT STRIP_TAC);;
+e (ENSURES_INIT_TAC "s32");;
+e (FIRST_ASSUM(fun th -> 
+    MAP_EVERY (MP_TAC o C SPEC th) [`i - 2`; `i - 7`; `i - 15`; `i - 16`]));;
+e (REPEAT(ANTS_TAC THENL [SIMPLE_ARITH_TAC; DISCH_TAC]));;
+e (ARM_STEPS_TAC EXEC (33--50));;
+e ENSURES_FINAL_STATE_TAC;;
+e (ASM_REWRITE_TAC []);;
+e CONJ_TAC;;
+e (ASM_SIMP_TAC[ARITH_RULE `16 <= i ==> (i + 1) - 15 = (i - 15) + 1`]);;
+e (CONV_TAC WORD_RULE);;
+e CONJ_TAC;;
+e (REWRITE_TAC [ADD_SUB]);;
+e (GEN_REWRITE_TAC RAND_CONV [msg_schedule]);;
+e (ASM_REWRITE_TAC[GSYM NOT_LE]);;
+e (REWRITE_TAC [msg_schedule_word; sigma0_DEF; sigma1_DEF]);;
+e (CONV_TAC WORD_BLAST);;
+
+e (REPEAT (CONJ_TAC THENL [AP_TERM_TAC THEN SIMPLE_ARITH_TAC; ALL_TAC]));;
+e (ASM_REWRITE_TAC [FORALL_LT_SUC] THEN CONJ_TAC THENL [CHEAT_TAC; ALL_TAC]);;
+e (SUBGOAL_THEN `8 * i = 8 * (i - 15) + 120` SUBST1_TAC THENL [SIMPLE_ARITH_TAC; ASM_REWRITE_TAC[]]);;
+e (GEN_REWRITE_TAC RAND_CONV [msg_schedule]);;
+e (ASM_REWRITE_TAC[GSYM NOT_LE]);;
+e (REWRITE_TAC [msg_schedule_word; sigma0_DEF; sigma1_DEF]);;
+e (CONV_TAC WORD_BLAST);;
+
+(* Subgoal 4: backedge *)
+e (REPEAT STRIP_TAC);;
+e (ARM_SIM_TAC EXEC (1--2));;
+e (CONJ_TAC THENL [ALL_TAC; CHEAT_TAC]);;
+e (REWRITE_TAC [VAL_EQ]);;
+e (REWRITE_TAC[WORD_RULE `word_add x y = word_add x z <=> y = z`]);;
+e (REWRITE_TAC [GSYM VAL_EQ]);;
+e (VAL_INT64_TAC `8 * (i - 15)`);;
+e (ASM_REWRITE_TAC []);;
+e (CONV_TAC WORD_REDUCE_CONV);;
+e (ASM_SIMP_TAC[ARITH_RULE `i < 80 ==> ~(520 = 8 * (i - 15))`]);;
+
+e (ARM_SIM_TAC EXEC (51--53));;
+e CHEAT_TAC;;
+
+
+
+     
 
 
 
 
 
+(*********** ??? work in progress ***********)
+let rec back_up n = if n > 1 then (b(); back_up (n-1)) else b();;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+(*
 (* void sha512_process_block(uint64_t h[8], const uint8_t *in_data) *)
 g `! h_p h m_p m pc retpc K sp.
   PAIRWISE nonoverlapping
@@ -1358,3 +1371,4 @@ g `! ctx_p (h : hash_t) (msg_len_lo : int64) (msg_len_hi : int64) (cur_block : b
         hash_buffer_at (sha512 (bytes_to_blocks (pad m)) (LENGTH (pad m) DIV num_bytes_per_block)) out_p s)
     (MAYCHANGE [X0; X1; X2; ???; PC] ,, MAYCHANGE [memory :> bytes(h_p, 64)] ,,
      MAYCHANGE [memory :> bytes(word sp, ???)] ,, MAYCHANGE [events])`
+     *)
