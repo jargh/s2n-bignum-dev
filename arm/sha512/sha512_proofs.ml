@@ -1100,8 +1100,7 @@ let SHA512_INIT = prove(`! ctx_p pc retpc K.
     (MAYCHANGE [X1; X2; X3; X4; X5; X6; X7; PC] ,,
      MAYCHANGE [memory :> bytes(ctx_p, 216)] ,, MAYCHANGE [events])`,
   REWRITE_TAC [NONOVERLAPPING_CLAUSES] THEN REPEAT STRIP_TAC THEN
-    ENSURES_INIT_TAC "s185" THEN ARM_STEPS_TAC EXEC (186--225) THEN
-    ENSURES_FINAL_STATE_TAC THEN
+    ARM_SIM_TAC EXEC (173--212) THEN
     ASM_REWRITE_TAC [sha512_ctx_at; sha512_ctx_from; hash_buffer_at; h_init; h_a; h_b; h_c; h_d; h_e; h_f; h_g; h_h;
                      sha512; sha512'; bytes_to_blocks; num_bytes_per_block; bytes_mod_blocks; take; drop;
                      LENGTH; VAL_WORD_0; MULT; DIV_0; SUB_LIST_CLAUSES; ARITH] THEN
@@ -1124,7 +1123,7 @@ let FORALL_LT_SUC = prove
   REWRITE_TAC[GSYM ADD1] THEN MESON_TAC[LT]);;
 
 (* msg_schedule *)
-g `! sch_p m_p m pc retpc K.
+let MSG_SCHEDULE = prove(`! sch_p m_p m pc retpc K.
   PAIRWISE nonoverlapping
     [(word pc : int64, 2748); (sch_p, 640); (m_p, num_bytes_per_block)] ==>
   ensures arm
@@ -1138,142 +1137,132 @@ g `! sch_p m_p m pc retpc K.
          ! i. i < 80 ==> read (memory :> bytes64(word_add sch_p (word (8 * i)))) s = msg_schedule m i)
     (MAYCHANGE [X0; X1; X2; X3; X4; X5; X6; X7; X8; X9; X10; X11; PC] ,,
      MAYCHANGE [memory :> bytes(sch_p, 640)] ,, MAYCHANGE SOME_FLAGS ,,
-     MAYCHANGE [events])`;;
+     MAYCHANGE [events])`,
+  REWRITE_TAC[SOME_FLAGS] THEN
+  REWRITE_TAC[NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; num_bytes_per_block] THEN
+  REPEAT STRIP_TAC THEN
+  ENSURES_WHILE_UP_TAC
+    `16` `pc + 0x4` `pc + 0x58`
+      `\i s. // loop invariant
+        (read X30 s = word retpc /\ read X0 s = sch_p /\
+          read X1 s = word_add m_p (word (8 * i)) /\ read X3 s = word i /\ msg_block_at m m_p s) /\
+        (! j. j < i ==> read (memory :> bytes64(word_add sch_p (word (8 * j)))) s = msg_schedule m j)` THEN
+  REPEAT CONJ_TAC THENL
+  [ (* Subgoal 1: upper bound of counter is non-zero *)
+    ARITH_TAC;
+    (* Subgoal 2: initialization *)
+    REWRITE_TAC [msg_block_at] THEN
+      CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
+      ARM_SIM_TAC EXEC [1] THEN ASM_REWRITE_TAC [LT];
+    (* Subgoal 3: loop body *)
+    REPEAT STRIP_TAC THEN REWRITE_TAC [msg_block_at] THEN
+      CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
+      ENSURES_INIT_TAC "s1" THEN ASM_REWRITE_TAC [FORALL_LT_SUC] THEN
+      SUBGOAL_THEN
+        `!i. i < 16
+          ==> !j. j < 8
+            ==> read (memory :> bytes8(word_add m_p (word(8 * i + j)))) s1 =
+              word_subword (m i:int64) (8 * j,8)`
+        (MP_TAC o SPEC `i:num`) THENL
+        [ RULE_ASSUM_TAC (REWRITE_RULE[READ_MEMORY_SPLIT_CONV 3 `read (memory :> bytes64 a) s = m`]) THEN
+          RULE_ASSUM_TAC (CONV_RULE(ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV)) THEN
+          CONV_TAC EXPAND_CASES_CONV THEN REPEAT CONJ_TAC THEN
+          CONV_TAC EXPAND_CASES_CONV THEN
+          CONV_TAC NUM_REDUCE_CONV THEN
+          ASM_REWRITE_TAC[WORD_ADD_0] THEN CONV_TAC WORD_BLAST; ALL_TAC] THEN
+      ASM_REWRITE_TAC [] THEN
+      CONV_TAC (LAND_CONV EXPAND_CASES_CONV) THEN
+      REWRITE_TAC [ADD_CLAUSES] THEN STRIP_TAC THEN
+      REWRITE_TAC [GSYM CONJ_ASSOC] THEN
+      VAL_INT64_TAC `i:num` THEN
+      ARM_STEPS_TAC EXEC (2--22) THEN ENSURES_FINAL_STATE_TAC THEN
+      ASM_REWRITE_TAC [] THEN
+      REPLICATE_TAC 2 (CONJ_TAC THENL [CONV_TAC WORD_RULE; ALL_TAC]) THEN
+      CONJ_TAC THENL [CHEAT_TAC; ALL_TAC] THEN
+      ONCE_ASM_REWRITE_TAC[msg_schedule] THEN
+      ASM_REWRITE_TAC[] THEN CONV_TAC WORD_BLAST;
+    (* Subgoal 4: backedge *)
+    REPEAT STRIP_TAC THEN REWRITE_TAC[msg_block_at] THEN
+      CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
+      REWRITE_TAC[GSYM CONJ_ASSOC] THEN
+      VAL_INT64_TAC `i:num` THEN
+      ARM_SIM_TAC EXEC (1--2) THEN
+      CONV_TAC WORD_REDUCE_CONV THEN
+      ASM_SIMP_TAC[LT_IMP_NE] THEN
+      CHEAT_TAC; ALL_TAC] THEN
+  (* After the first loop *)
+  ENSURES_WHILE_AUP_TAC
+    `16` `80` `pc + 0x80` `pc + 0xc8`
+    `\k s. // loop invariant
+        (read X30 s = word retpc /\ read X2 s = word_add sch_p (word (8 * (k - 15))) /\
+        read X11 s = word_add sch_p (word (8 * 65)) /\
+        read X0 s = msg_schedule m (k - 1) /\ read X3 s = msg_schedule m (k - 2) /\ read X4 s = msg_schedule m (k - 16) /\
+        read X6 s = msg_schedule m (k - 3)/\ read X7 s = msg_schedule m (k - 4) /\ read X8 s = msg_schedule m (k - 5)/\
+        read X9 s = msg_schedule m (k - 6) /\ read X10 s = msg_schedule m (k - 7) /\
+        (! j. j < k ==> read (memory :> bytes64(word_add sch_p (word (8 * j)))) s = msg_schedule m j))` THEN
+  REPEAT CONJ_TAC THENL
+  [ (* Subgoal 1: upper bound of counter is non-zero *)
+    ARITH_TAC;
+    (* Subgoal 2: initialization *)
+    ENSURES_INIT_TAC "s22" THEN
+      RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)) THEN
+      RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV NUM_REDUCE_CONV)) THEN
+      RULE_ASSUM_TAC(REWRITE_RULE [WORD_ADD_0]) THEN
+      ARM_STEPS_TAC EXEC (23--32) THEN
+      ENSURES_FINAL_STATE_TAC THEN
+      ASM_REWRITE_TAC [] THEN
+      CONV_TAC NUM_REDUCE_CONV THEN
+      CONV_TAC (ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
+      CONV_TAC NUM_REDUCE_CONV THEN
+      ASM_REWRITE_TAC [WORD_ADD_0];
+    (* Subgoal 3: loop body *)
+    REPEAT STRIP_TAC THEN
+      ENSURES_INIT_TAC "s32" THEN
+      FIRST_ASSUM(fun th -> 
+        MAP_EVERY (MP_TAC o C SPEC th) [`i - 2`; `i - 7`; `i - 15`; `i - 16`]) THEN
+      REPEAT(ANTS_TAC THENL [SIMPLE_ARITH_TAC; DISCH_TAC]) THEN
+      ARM_STEPS_TAC EXEC (33--50) THEN
+      ENSURES_FINAL_STATE_TAC THEN
+      ASM_REWRITE_TAC [] THEN
+      CONJ_TAC THENL
+      [ ASM_SIMP_TAC[ARITH_RULE `16 <= i ==> (i + 1) - 15 = (i - 15) + 1`] THEN
+          CONV_TAC WORD_RULE;
+        ALL_TAC ] THEN
+      CONJ_TAC THENL
+      [ REWRITE_TAC [ADD_SUB] THEN
+          GEN_REWRITE_TAC RAND_CONV [msg_schedule] THEN
+          ASM_REWRITE_TAC[GSYM NOT_LE] THEN
+          REWRITE_TAC [msg_schedule_word; sigma0_DEF; sigma1_DEF] THEN
+          CONV_TAC WORD_BLAST;
+        ALL_TAC ] THEN
+      REPEAT (CONJ_TAC THENL [AP_TERM_TAC THEN SIMPLE_ARITH_TAC; ALL_TAC]) THEN
+      ASM_REWRITE_TAC [FORALL_LT_SUC] THEN CONJ_TAC THENL [CHEAT_TAC; ALL_TAC] THEN
+      SUBGOAL_THEN `8 * i = 8 * (i - 15) + 120` SUBST1_TAC THENL [SIMPLE_ARITH_TAC; ASM_REWRITE_TAC[]] THEN
+      GEN_REWRITE_TAC RAND_CONV [msg_schedule] THEN
+      ASM_REWRITE_TAC[GSYM NOT_LE] THEN
+      REWRITE_TAC [msg_schedule_word; sigma0_DEF; sigma1_DEF] THEN
+      CONV_TAC WORD_BLAST;
+    (* Subgoal 4: backedge *)
+    REPEAT STRIP_TAC THEN
+      ARM_SIM_TAC EXEC (1--2) THEN
+      CONJ_TAC THENL [ALL_TAC; CHEAT_TAC] THEN
+      REWRITE_TAC [VAL_EQ] THEN
+      REWRITE_TAC[WORD_RULE `word_add x y = word_add x z <=> y = z`] THEN
+      REWRITE_TAC [GSYM VAL_EQ] THEN
+      VAL_INT64_TAC `8 * (i - 15)` THEN
+      ASM_REWRITE_TAC [] THEN
+      CONV_TAC WORD_REDUCE_CONV THEN
+      ASM_SIMP_TAC[ARITH_RULE `i < 80 ==> ~(520 = 8 * (i - 15))`];
+    ALL_TAC ] THEN
+  (* After the second loop *)
+  ARM_SIM_TAC EXEC (51--53) THEN
+  CHEAT_TAC);;
 
-e (REWRITE_TAC[SOME_FLAGS]);;
-e (REWRITE_TAC[NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; num_bytes_per_block]);;
-e (REPEAT STRIP_TAC);;
 
-e (ENSURES_WHILE_UP_TAC
-`16` `pc + 0x4` `pc + 0x58`
-`\i s. // loop invariant
-    (read X30 s = word retpc /\ read X0 s = sch_p /\
-    read X1 s = word_add m_p (word (8 * i)) /\ read X3 s = word i /\ msg_block_at m m_p s) /\
-    (! j. j < i ==> read (memory :> bytes64(word_add sch_p (word (8 * j)))) s = msg_schedule m j)`);;
-e (REPEAT CONJ_TAC);;
 
-(* Subgoal 1: upper bound of counter is non-zero *)
-e ARITH_TAC;;
 
-(* Subgoal 2: initialization *)
-e (REWRITE_TAC[msg_block_at] THEN
-   CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
-   ARM_SIM_TAC EXEC [1] THEN ASM_REWRITE_TAC [LT]);;
 
-(* Subgoal 3: loop body *)
-e (REPEAT STRIP_TAC THEN REWRITE_TAC[msg_block_at] THEN
-   CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV));;
-e (ENSURES_INIT_TAC "s1");;
-e (ASM_REWRITE_TAC [FORALL_LT_SUC]);;
-e (SUBGOAL_THEN
-`!i. i < 16
-      ==> !j. j < 8
-              ==> read (memory :> bytes8(word_add m_p (word(8 * i + j)))) s1 =
-                  word_subword (m i:int64) (8 * j,8)`
- (MP_TAC o SPEC `i:num`));;
-e (RULE_ASSUM_TAC(REWRITE_RULE[READ_MEMORY_SPLIT_CONV 3 `read (memory :> bytes64 a) s = m`]));;
-e (RULE_ASSUM_TAC(CONV_RULE(ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV)));;
-e (CONV_TAC EXPAND_CASES_CONV THEN REPEAT CONJ_TAC THEN
-   CONV_TAC EXPAND_CASES_CONV THEN
-   CONV_TAC NUM_REDUCE_CONV THEN
-   ASM_REWRITE_TAC[WORD_ADD_0] THEN CONV_TAC WORD_BLAST);;
 
-e (ASM_REWRITE_TAC []);;
-e (CONV_TAC(LAND_CONV EXPAND_CASES_CONV) THEN
-   REWRITE_TAC[ADD_CLAUSES]);;
-e STRIP_TAC;;
-
-e (REWRITE_TAC[GSYM CONJ_ASSOC]);;
-e (VAL_INT64_TAC `i:num`);;
-e (ARM_STEPS_TAC EXEC (2--22));;
-e ENSURES_FINAL_STATE_TAC;;
-e (ASM_REWRITE_TAC []);;
-e (REPLICATE_TAC 2 (CONJ_TAC THENL [CONV_TAC WORD_RULE; ALL_TAC]));;
-e (CONJ_TAC THENL [CHEAT_TAC; ALL_TAC]);;
-e (ONCE_ASM_REWRITE_TAC[msg_schedule]);;
-e (ASM_REWRITE_TAC[]);;
-e (CONV_TAC WORD_BLAST);;
-
-(* Subgoal 4: backedge *)
-e (REPEAT STRIP_TAC);;
-e (REWRITE_TAC[msg_block_at]);;
-e (CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV));;
-e (REWRITE_TAC[GSYM CONJ_ASSOC]);;
-e (VAL_INT64_TAC `i:num`);;
-e (ARM_SIM_TAC EXEC (1--2));;
-e (CONV_TAC WORD_REDUCE_CONV);;
-e (ASM_SIMP_TAC[LT_IMP_NE]);;
-e (CHEAT_TAC);;
-
-(* After the first loop *)
-e (ENSURES_WHILE_AUP_TAC
-   `16` `80` `pc + 0x80` `pc + 0xc8`
-   `\k s. // loop invariant
-      (read X30 s = word retpc /\ read X2 s = word_add sch_p (word (8 * (k - 15))) /\
-      read X11 s = word_add sch_p (word (8 * 65)) /\
-      read X0 s = msg_schedule m (k - 1) /\ read X3 s = msg_schedule m (k - 2) /\ read X4 s = msg_schedule m (k - 16) /\
-      read X6 s = msg_schedule m (k - 3)/\ read X7 s = msg_schedule m (k - 4) /\ read X8 s = msg_schedule m (k - 5)/\
-      read X9 s = msg_schedule m (k - 6) /\ read X10 s = msg_schedule m (k - 7) /\
-      (! j. j < k ==> read (memory :> bytes64(word_add sch_p (word (8 * j)))) s = msg_schedule m j))`);;
-e (REPEAT CONJ_TAC);;
-
-(* Subgoal 1: upper bound of counter is non-zero *)
-e ARITH_TAC;;
-
-(* Subgoal 2: initialization *)
-e (ENSURES_INIT_TAC "s22");;
-e (RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)));;
-e (RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV NUM_REDUCE_CONV)));;
-e (RULE_ASSUM_TAC(REWRITE_RULE [WORD_ADD_0]));;
-e (ARM_STEPS_TAC EXEC (23--32));;
-e ENSURES_FINAL_STATE_TAC;;
-e (ASM_REWRITE_TAC []);;
-e (CONV_TAC NUM_REDUCE_CONV);;
-e (CONV_TAC (ONCE_DEPTH_CONV EXPAND_CASES_CONV));;
-e (CONV_TAC NUM_REDUCE_CONV);;
-e (ASM_REWRITE_TAC [WORD_ADD_0]);;
-
-(* Subgoal 3: loop body *)
-e (REPEAT STRIP_TAC);;
-e (ENSURES_INIT_TAC "s32");;
-e (FIRST_ASSUM(fun th -> 
-    MAP_EVERY (MP_TAC o C SPEC th) [`i - 2`; `i - 7`; `i - 15`; `i - 16`]));;
-e (REPEAT(ANTS_TAC THENL [SIMPLE_ARITH_TAC; DISCH_TAC]));;
-e (ARM_STEPS_TAC EXEC (33--50));;
-e ENSURES_FINAL_STATE_TAC;;
-e (ASM_REWRITE_TAC []);;
-e CONJ_TAC;;
-e (ASM_SIMP_TAC[ARITH_RULE `16 <= i ==> (i + 1) - 15 = (i - 15) + 1`]);;
-e (CONV_TAC WORD_RULE);;
-e CONJ_TAC;;
-e (REWRITE_TAC [ADD_SUB]);;
-e (GEN_REWRITE_TAC RAND_CONV [msg_schedule]);;
-e (ASM_REWRITE_TAC[GSYM NOT_LE]);;
-e (REWRITE_TAC [msg_schedule_word; sigma0_DEF; sigma1_DEF]);;
-e (CONV_TAC WORD_BLAST);;
-
-e (REPEAT (CONJ_TAC THENL [AP_TERM_TAC THEN SIMPLE_ARITH_TAC; ALL_TAC]));;
-e (ASM_REWRITE_TAC [FORALL_LT_SUC] THEN CONJ_TAC THENL [CHEAT_TAC; ALL_TAC]);;
-e (SUBGOAL_THEN `8 * i = 8 * (i - 15) + 120` SUBST1_TAC THENL [SIMPLE_ARITH_TAC; ASM_REWRITE_TAC[]]);;
-e (GEN_REWRITE_TAC RAND_CONV [msg_schedule]);;
-e (ASM_REWRITE_TAC[GSYM NOT_LE]);;
-e (REWRITE_TAC [msg_schedule_word; sigma0_DEF; sigma1_DEF]);;
-e (CONV_TAC WORD_BLAST);;
-
-(* Subgoal 4: backedge *)
-e (REPEAT STRIP_TAC);;
-e (ARM_SIM_TAC EXEC (1--2));;
-e (CONJ_TAC THENL [ALL_TAC; CHEAT_TAC]);;
-e (REWRITE_TAC [VAL_EQ]);;
-e (REWRITE_TAC[WORD_RULE `word_add x y = word_add x z <=> y = z`]);;
-e (REWRITE_TAC [GSYM VAL_EQ]);;
-e (VAL_INT64_TAC `8 * (i - 15)`);;
-e (ASM_REWRITE_TAC []);;
-e (CONV_TAC WORD_REDUCE_CONV);;
-e (ASM_SIMP_TAC[ARITH_RULE `i < 80 ==> ~(520 = 8 * (i - 15))`]);;
-
-e (ARM_SIM_TAC EXEC (51--53));;
-e CHEAT_TAC;;
 
 
 
@@ -1286,17 +1275,17 @@ e CHEAT_TAC;;
 (*********** ??? work in progress ***********)
 let rec back_up n = if n > 1 then (b(); back_up (n-1)) else b();;
 
-(*
 (* void sha512_process_block(uint64_t h[8], const uint8_t *in_data) *)
-g `! h_p h m_p m pc retpc K sp.
+g `! sp h_p h m_p m pc retpc K.
   PAIRWISE nonoverlapping
-    [(word pc : int64, 2748); (h_p, 640); (m_p, num_bytes_per_block);
-    (word sp : int64, 720)] ==>
+    [(word pc : int64, 2748); (h_p, 64);
+     (m_p, num_bytes_per_block); (word_sub sp (word 720), 720)] ==>
     ensures arm
     (\s. aligned_bytes_loaded s (word pc) (a_mc pc K) /\
-         read PC s = word pc + ??? /\
+         read PC s = word (pc + 0xe0) /\
          read X30 s = retpc /\
-         aligned 16 (word sp : int64) /\
+         read SP s = sp /\
+         aligned 16 sp /\
          read X0 s = h_p /\
          read X1 s = m_p /\
          hash_buffer_at h h_p s /\
@@ -1304,13 +1293,29 @@ g `! h_p h m_p m pc retpc K sp.
     (\s. read PC s = retpc /\
          hash_buffer_at (sha512_block m h) h_p s)
     (MAYCHANGE [X0; X1; X2; X3; X4; X5; X6; X7; X8; X9; X10; X11;
-                X12; X13; X14; X15; X16; X17; X18; PC] ,, MAYCHANGE [memory :> bytes(h_p, 64)] ,,
-                 MAYCHANGE [memory :> bytes(word sp, 720)] ,, MAYCHANGE [events])`
+                X12; X13; X14; X15; X16; X17; X18; PC] ,,
+     MAYCHANGE [memory :> bytes(h_p, 64)] ,,
+     MAYCHANGE [memory :> bytes(word_sub sp (word 720), 720)] ,,
+     MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`;;
 
+e (REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; num_bytes_per_block]);;
+e (WORD_FORALL_OFFSET_TAC 720);;
+e (REPEAT STRIP_TAC);;
 e (ENSURES_EXISTING_PRESERVED_TAC `SP`);;
-e (ENSURES_EXISTING_PRESERVED_TAC `X30`);;
 e (ENSURES_PRESERVED_TAC "x29_init" `X29`);;
+e (ENSURES_EXISTING_PRESERVED_TAC `X30`);;
 
+e (ENSURES_INIT_TAC "s56");;
+e (ARM_STEPS_TAC EXEC (57--61));;
+
+
+
+
+
+
+
+
+(*
 (* void sha512_process_blocks(uint64_t h[8], const uint8_t *in_data, size_t num_blocks) *)
 g `! h_p h m_p m l pc retpc K sp.
   PAIRWISE nonoverlapping
