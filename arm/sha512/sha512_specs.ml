@@ -223,7 +223,7 @@ let compression_until = define
       if i < j then
         let ki = K i in
         let wi = msg_schedule m i in
-        let update = compression_update hash (K i) wi in
+        let update = compression_update hash ki wi in
         compression_until j (i + 1) update m
       else 
         hash`;;
@@ -372,3 +372,7 @@ let sha512_ctx_at = define
 let msg_schedule_at = define
   `msg_schedule_at (m : num -> int64) (sch_p : int64) s =
     ! i. i < 80 ==> read (memory :> bytes64(word_add sch_p (word (8 * i)))) s = msg_schedule m i`;;
+
+let constants_at = define
+  `constants_at (K_base : int64) s =
+    ! i. i < 80 ==> read (memory :> bytes64(word_add K_base (word (8 * i)))) s = K i`;;
