@@ -945,15 +945,15 @@ let COMPRESSION_STEP = prove(`! i j h m.
              `h:hash_t`; `m:num->int64`] COMPRESSION_STEP_AUX) THEN
     IMP_REWRITE_TAC [ARITH_RULE `i <= j ==> i+j-i=j`]);;
 
-
-
-
-
-(*********** ??? work in progress ***********)
-let rec back_up n = if n > 1 then (b(); back_up (n-1)) else b();;
+let WORD_ADD1_SHL3_SUB8 = prove
+ (`(b + word_shl (word (i + 1)) 3) + word 18446744073709551608:int64 =
+   b + word (8 * i)`,
+  REWRITE_TAC[WORD_RULE
+   `(b + word_shl (word (i + 1)) 3) + x =  b + word(8 * i) + (x + word 8)`] THEN
+  CONV_TAC WORD_REDUCE_CONV THEN CONV_TAC WORD_RULE);;
 
 (* void sha512_process_block(uint64_t h[8], const uint8_t *in_data) *)
-g `! sp h_p h m_p m pc retpc K_base.
+let SHA512_PROCESS_BLOCK = prove(`! sp h_p h m_p m pc retpc K_base.
   aligned 16 sp /\
   adrp_within_bounds (word K_base) (word (pc + 0x120)) /\
   PAIRWISE nonoverlapping
@@ -976,126 +976,94 @@ g `! sp h_p h m_p m pc retpc K_base.
                 X12; X13; X14; X15; X16; X17; X18; PC] ,,
      MAYCHANGE [memory :> bytes(h_p, 64)] ,,
      MAYCHANGE [memory :> bytes(word_sub sp (word 720), 720)] ,,
-     MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`;;
-
-REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; num_bytes_per_block] THEN
-WORD_FORALL_OFFSET_TAC 720 THEN
-REPEAT STRIP_TAC THEN
-ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
-ENSURES_PRESERVED_TAC "x29_init" `X29` THEN
-ENSURES_EXISTING_PRESERVED_TAC `X30` THEN
-
-ENSURES_WHILE_UP_TAC
-  `79` `pc + 0x158` `pc + 0x158`
-  `\i s. // loop invariant
-    (read (memory :> bytes64(sp)) s = x29_init /\
-    read (memory :> bytes64(sp + word 8)) s = word retpc /\
-    read SP s = sp /\ read X12 s = h_p /\
-    read X14 s = word K_base /\ read X6 s = word (i + 1) /\
-    (read X5 s, read X8 s, read X7 s, read X13 s,
-      read X3 s, read X10 s, read X9 s, read X11 s) =
-      compression_until i 0 h m /\
-    msg_schedule_at m (sp + word 0x50) s /\
-    hash_buffer_at h h_p s /\
-    constants_at (word K_base) s)` THEN
-REPEAT CONJ_TAC THENL
-
-[ (* Subgoal 1: upper bound of counter is non-zero *)
-  ARITH_TAC;
-   ;
-  ;
-  ;
-  ;
-]
-  (* Subgoal 2: initialization *)
-  REWRITE_TAC [msg_block_at; hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
-    ENSURES_INIT_TAC "s56" THEN
-    (* ??? Once the bounding machinary is ready, should be able to avoid the expansion and make stepping faster *)
-    RULE_ASSUM_TAC (REWRITE_RULE [constants_at]) THEN
-    RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)) THEN
-
-    ARM_STEPS_TAC EXEC (57--62) THEN
-    ARM_SUBROUTINE_SIM_TAC
-      (SPEC_ALL a_mc, EXEC, 0, SPEC_ALL a_mc, REWRITE_RULE [num_bytes_per_block; msg_block_at] MSG_SCHEDULE)
-      [`sp + word 80 : int64 `;`m_p : int64`;`m : num -> int64`;
-        `pc : num`; `pc + 0xf8 : num`; `K_base : num`] 63 THEN
-    RENAME_TAC `s63:armstate` `s62:armstate` THEN
-    (* ??? Once the bounding machinary is ready, should be able to avoid the expansion and make stepping faster *)
-    RULE_ASSUM_TAC (REWRITE_RULE [msg_schedule_at]) THEN
-    RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)) THEN
-    RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
-
-    ARM_STEPS_TAC EXEC (63--64) THEN
-    FIRST_X_ASSUM MP_TAC THEN COND_CASES_TAC THENL
-    [
-    (* Case: jump *)
-      STRIP_TAC THEN
-      ARM_STEPS_TAC EXEC (139--149) THEN
-      ARM_STEPS_TAC EXEC (73--75) THEN (* break here for ADRP-ADD *)
-      FIRST_X_ASSUM (fun th -> MP_TAC th THEN IMP_REWRITE_TAC[ADRP_ADD_FOLD] THEN DISCH_TAC) THEN
-      ARM_STEPS_TAC EXEC (76--80) THEN
-      ENSURES_FINAL_STATE_TAC THEN
-      ONCE_ASM_REWRITE_TAC [compression_until] THEN
-      ASM_REWRITE_TAC[LT; msg_schedule_at; constants_at; ARITH] THEN
+     MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`,
+  REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; num_bytes_per_block] THEN
+  WORD_FORALL_OFFSET_TAC 720 THEN
+  REPEAT STRIP_TAC THEN
+  ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
+  ENSURES_PRESERVED_TAC "x29_init" `X29` THEN
+  ENSURES_EXISTING_PRESERVED_TAC `X30` THEN
+  ENSURES_WHILE_UP_TAC
+    `79` `pc + 0x158` `pc + 0x158`
+    `\i s. // loop invariant
+      (read (memory :> bytes64(sp)) s = x29_init /\
+      read (memory :> bytes64(sp + word 8)) s = word retpc /\
+      read SP s = sp /\ read X12 s = h_p /\
+      read X14 s = word K_base /\ read X6 s = word (i + 1) /\
+      (read X5 s, read X8 s, read X7 s, read X13 s,
+        read X3 s, read X10 s, read X9 s, read X11 s) =
+        compression_until i 0 h m /\
+      msg_schedule_at m (sp + word 0x50) s /\
+      hash_buffer_at h h_p s /\
+      constants_at (word K_base) s)` THEN
+  REPEAT CONJ_TAC THENL
+  [ (* Subgoal 1: upper bound of counter is non-zero *)
+    ARITH_TAC;
+    (* Subgoal 2: initialization *)
+    REWRITE_TAC [msg_block_at; hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
+      ENSURES_INIT_TAC "s56" THEN
       (* ??? Once the bounding machinary is ready, should be able to avoid the expansion and make stepping faster *)
-      CONJ_TAC THEN CONV_TAC EXPAND_CASES_CONV THEN
-      CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
-      ASM_REWRITE_TAC [];
-
-      (* Case: no jump *)
-      STRIP_TAC THEN
-      ARM_STEPS_TAC EXEC (65--75) THEN
-      FIRST_X_ASSUM (fun th -> MP_TAC th THEN IMP_REWRITE_TAC[ADRP_ADD_FOLD] THEN DISCH_TAC) THEN
-      ARM_STEPS_TAC EXEC (76--79) THEN
-      ARM_STEPS_TAC EXEC [86] THEN
-      ENSURES_FINAL_STATE_TAC THEN
-      ONCE_ASM_REWRITE_TAC [compression_until] THEN
-      ASM_REWRITE_TAC[LT; msg_schedule_at; constants_at; ARITH] THEN
+      RULE_ASSUM_TAC (REWRITE_RULE [constants_at]) THEN
+      RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)) THEN
+      ARM_STEPS_TAC EXEC (57--62) THEN
+      ARM_SUBROUTINE_SIM_TAC
+        (SPEC_ALL a_mc, EXEC, 0, SPEC_ALL a_mc, REWRITE_RULE [num_bytes_per_block; msg_block_at] MSG_SCHEDULE)
+        [`sp + word 80 : int64 `;`m_p : int64`;`m : num -> int64`;
+          `pc : num`; `pc + 0xf8 : num`; `K_base : num`] 63 THEN
+      RENAME_TAC `s63:armstate` `s62:armstate` THEN
       (* ??? Once the bounding machinary is ready, should be able to avoid the expansion and make stepping faster *)
-      CONJ_TAC THEN CONV_TAC EXPAND_CASES_CONV THEN
-      CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
-      ASM_REWRITE_TAC [] ]
-
+      RULE_ASSUM_TAC (REWRITE_RULE [msg_schedule_at]) THEN
+      RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)) THEN
+      RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
+      ARM_STEPS_TAC EXEC (63--64) THEN
+      FIRST_X_ASSUM MP_TAC THEN COND_CASES_TAC THENL
+      [ (* Case: jump *)
+        STRIP_TAC THEN
+          ARM_STEPS_TAC EXEC (139--149) THEN
+          ARM_STEPS_TAC EXEC (73--75) THEN (* break here for ADRP-ADD *)
+          FIRST_X_ASSUM (fun th -> MP_TAC th THEN IMP_REWRITE_TAC[ADRP_ADD_FOLD] THEN DISCH_TAC) THEN
+          ARM_STEPS_TAC EXEC (76--80) THEN
+          ENSURES_FINAL_STATE_TAC THEN
+          ONCE_ASM_REWRITE_TAC [compression_until] THEN
+          ASM_REWRITE_TAC[LT; msg_schedule_at; constants_at; ARITH] THEN
+          (* ??? Once the bounding machinary is ready, should be able to avoid the expansion and make stepping faster *)
+          CONJ_TAC THEN CONV_TAC EXPAND_CASES_CONV THEN
+          CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
+          ASM_REWRITE_TAC [];
+        (* Case: no jump *)
+        STRIP_TAC THEN
+          ARM_STEPS_TAC EXEC (65--75) THEN
+          FIRST_X_ASSUM (fun th -> MP_TAC th THEN IMP_REWRITE_TAC[ADRP_ADD_FOLD] THEN DISCH_TAC) THEN
+          ARM_STEPS_TAC EXEC (76--79) THEN
+          ARM_STEPS_TAC EXEC [86] THEN
+          ENSURES_FINAL_STATE_TAC THEN
+          ONCE_ASM_REWRITE_TAC [compression_until] THEN
+          ASM_REWRITE_TAC[LT; msg_schedule_at; constants_at; ARITH] THEN
+          (* ??? Once the bounding machinary is ready, should be able to avoid the expansion and make stepping faster *)
+          CONJ_TAC THEN CONV_TAC EXPAND_CASES_CONV THEN
+          CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
+          ASM_REWRITE_TAC [] ];
     (* Subgoal 3: loop body *)
     REPEAT STRIP_TAC THEN
-    REWRITE_TAC [hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
-    ENSURES_INIT_TAC "s86" THEN
-    RULE_ASSUM_TAC (REWRITE_RULE [msg_schedule_at; constants_at]) THEN
-    RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)) THEN
-    RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
-
-    gl
-    (* SUBGOAL_THEN
-      `(b + word_shl (word (i + 1)) 3) + word 18446744073709551608:int64 =
-          b + word (8 * i)`
-    (fun th -> ASSUME_TAC(GEN_ALL th)) THENL
-    [ REWRITE_TAC[WORD_RULE
-        `(b + word_shl (word (i + 1)) 3) + x =  b + word(8 * i) + (x + word 8)`] THEN
-        CONV_TAC WORD_REDUCE_CONV THEN CONV_TAC WORD_RULE;
-      ALL_TAC] THEN *)
-
-let lemma = prove
- (`(b + word_shl (word (i + 1)) 3) + word 18446744073709551608:int64 =
-   b + word (8 * i)`,
-  REWRITE_TAC[WORD_RULE
-   `(b + word_shl (word (i + 1)) 3) + x =  b + word(8 * i) + (x + word 8)`] THEN
-  CONV_TAC WORD_REDUCE_CONV THEN CONV_TAC WORD_RULE);;
-
-ASSUME_TAC(GEN_ALL lemma) THEN
-RULE_ASSUM_TAC (CONV_RULE(ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV)) THEN
-SUBGOAL_THEN
- `read (memory :> bytes64 (word K_base + word (8 * i))) s86 = K i /\
-  read (memory :> bytes64 (sp + word (80 + 8 * i))) s86 = msg_schedule m i`
-STRIP_ASSUME_TAC THENL
- [CONJ_TAC THEN UNDISCH_TAC `i < 79` THEN SPEC_TAC(`i:num`,`i:num`) THEN
-  CONV_TAC EXPAND_CASES_CONV THEN CONV_TAC(ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
-  CONV_TAC(ONCE_DEPTH_CONV NUM_ADD_CONV) THEN ASM_REWRITE_TAC[];
-  ALL_TAC] THEN
-  ASSUME_TAC(WORD_RULE `(sp + word 80) + word(8 * i):int64 = sp + word(80 + 8 * i)`) THEN
-
-    ARM_STEPS_TAC EXEC (87--117) THEN
-    SUBGOAL_THEN `~(val ((word (i + 1) : int64) + word 18446744073709551536) = 0)`
-      MP_TAC THENL
+      REWRITE_TAC [hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
+      ENSURES_INIT_TAC "s86" THEN
+      RULE_ASSUM_TAC (REWRITE_RULE [msg_schedule_at; constants_at]) THEN
+      RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)) THEN
+      RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
+      ASSUME_TAC(GEN_ALL WORD_ADD1_SHL3_SUB8) THEN
+      RULE_ASSUM_TAC (CONV_RULE(ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV)) THEN
+      SUBGOAL_THEN
+      `read (memory :> bytes64 (word K_base + word (8 * i))) s86 = K i /\
+        read (memory :> bytes64 (sp + word (80 + 8 * i))) s86 = msg_schedule m i`
+      STRIP_ASSUME_TAC THENL
+      [CONJ_TAC THEN UNDISCH_TAC `i < 79` THEN SPEC_TAC(`i:num`,`i:num`) THEN
+        CONV_TAC EXPAND_CASES_CONV THEN CONV_TAC(ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
+        CONV_TAC(ONCE_DEPTH_CONV NUM_ADD_CONV) THEN ASM_REWRITE_TAC[];
+        ALL_TAC] THEN
+        ASSUME_TAC(WORD_RULE `(sp + word 80) + word(8 * i):int64 = sp + word(80 + 8 * i)`) THEN
+      ARM_STEPS_TAC EXEC (87--117) THEN
+      SUBGOAL_THEN `~(val ((word (i + 1) : int64) + word 18446744073709551536) = 0)`
+        MP_TAC THENL
       [ REWRITE_TAC[VAL_EQ_0] THEN
           REWRITE_TAC[WORD_RULE `word_add x y = word 0 <=> x = word_neg y`] THEN
           CONV_TAC WORD_REDUCE_CONV THEN
@@ -1105,54 +1073,59 @@ STRIP_ASSUME_TAC THENL
           CONV_TAC WORD_REDUCE_CONV THEN
           ASM_SIMP_TAC[ARITH_RULE `i < 79 ==> ~(i + 1 = 80)`];
         DISCH_THEN (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th])) ] THEN
-    ARM_STEPS_TAC EXEC (81--85) THEN
-    ARM_STEPS_TAC EXEC [87] THEN
-    RENAME_TAC `s87:armstate` `s86':armstate` THEN
-    ENSURES_FINAL_STATE_TAC THEN
-    ASM_REWRITE_TAC[LT; msg_schedule_at; constants_at; ARITH; WORD_ADD] THEN
-    MP_TAC (SPECL [`0`; `i:num`; `h:hash_t`; `m:num->int64`] COMPRESSION_STEP) THEN
-    REWRITE_TAC [LE_0] THEN
-    DISCH_THEN (fun th -> REWRITE_TAC [th]) THEN
-    REWRITE_TAC [compression_update; compression_t1; compression_t2; Sigma0_DEF; Sigma1_DEF; Ch_DEF; Maj_DEF] THEN
-    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
-    REWRITE_TAC [SHA512_A; SHA512_B; SHA512_C;
-      SHA512_D; SHA512_E; SHA512_F; SHA512_G; SHA512_H] THEN
-    CONJ_TAC
-      let gl = !current_goalstack;;
-        First two bit ops
-        Last two solvable this way:
-      CONV_TAC EXPAND_CASES_CONV THEN
+      ARM_STEPS_TAC EXEC (81--85) THEN
+      ARM_STEPS_TAC EXEC [87] THEN
+      RENAME_TAC `s87:armstate` `s86':armstate` THEN
+      ENSURES_FINAL_STATE_TAC THEN
+      ASM_REWRITE_TAC[LT; msg_schedule_at; constants_at; ARITH; WORD_ADD] THEN
+      MP_TAC (SPECL [`0`; `i:num`; `h:hash_t`; `m:num->int64`] COMPRESSION_STEP) THEN
+      REWRITE_TAC [LE_0] THEN
+      DISCH_THEN (fun th -> REWRITE_TAC [th]) THEN
+      REWRITE_TAC [compression_update; compression_t1; compression_t2; Sigma0_DEF; Sigma1_DEF; Ch_DEF; Maj_DEF] THEN
+      CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+      REWRITE_TAC [SHA512_A; SHA512_B; SHA512_C;
+        SHA512_D; SHA512_E; SHA512_F; SHA512_G; SHA512_H] THEN
+      CONJ_TAC THENL [ CONV_TAC WORD_BLAST; ALL_TAC ] THEN
+      CONJ_TAC THENL [ CONV_TAC WORD_BLAST; ALL_TAC ] THEN
+      CONJ_TAC THEN CONV_TAC EXPAND_CASES_CONV THEN
       CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
       CONV_TAC(ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV) THEN
-      ASM_REWRITE_TAC [] THEN
-
-(* Subgoal 4: backedge *)
-  REPEAT STRIP_TAC THEN ARM_SIM_TAC EXEC []
-
-(* After the loop *)
-REWRITE_TAC [hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
-ENSURES_INIT_TAC "s86" THEN
-    (* ??? copied from above*)
-    RULE_ASSUM_TAC (REWRITE_RULE [msg_schedule_at; constants_at]) THEN
-    RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)) THEN
-    RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
-    RULE_ASSUM_TAC (CONV_RULE(ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV)) THEN
-ARM_STEPS_TAC EXEC (87--117) THEN (* Do not branch *)
-CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
-ARM_STEPS_TAC EXEC (118--138) THEN
-ENSURES_FINAL_STATE_TAC THEN
-ASM_REWRITE_TAC [sha512_block; compression] THEN
-CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
-REWRITE_TAC [ARITH_RULE `80 = 79 + 1`] THEN
-MP_TAC (SPECL [`0`; `79`; `h:hash_t`; `m:num->int64`] COMPRESSION_STEP) THEN
+      ASM_REWRITE_TAC [];
+    (* Subgoal 4: backedge *)
+    REPEAT STRIP_TAC THEN ARM_SIM_TAC EXEC [];
+    ALL_TAC;
+  ] THEN
+  (* After the loop *)
+  REWRITE_TAC [hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
+  ENSURES_INIT_TAC "s86" THEN
+  RULE_ASSUM_TAC (REWRITE_RULE [msg_schedule_at; constants_at]) THEN
+  RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)) THEN
+  RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
+  RULE_ASSUM_TAC (CONV_RULE(ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV)) THEN
+  ARM_STEPS_TAC EXEC (87--117) THEN (* Do not branch *)
+  CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
+  ARM_STEPS_TAC EXEC (118--138) THEN
+  ENSURES_FINAL_STATE_TAC THEN
+  ASM_REWRITE_TAC [sha512_block; compression] THEN
+  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+  REWRITE_TAC [ARITH_RULE `80 = 79 + 1`] THEN
+  MP_TAC (SPECL [`0`; `79`; `h:hash_t`; `m:num->int64`] COMPRESSION_STEP) THEN
   REWRITE_TAC [LE_0] THEN
   DISCH_THEN (fun th -> REWRITE_TAC [th]) THEN
-REWRITE_TAC [add8; compression_update; compression_t1; compression_t2; Sigma0_DEF; Sigma1_DEF; Ch_DEF; Maj_DEF] THEN
-    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
-    REWRITE_TAC [SHA512_A; SHA512_B; SHA512_C;
-      SHA512_D; SHA512_E; SHA512_F; SHA512_G; SHA512_H; WORD_ADD_SYM] THEN
-CONJ_TAC THENL the two special hash components again
+  REWRITE_TAC [add8; compression_update; compression_t1; compression_t2; Sigma0_DEF; Sigma1_DEF; Ch_DEF; Maj_DEF] THEN
+  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+  REWRITE_TAC [SHA512_A; SHA512_B; SHA512_C;
+    SHA512_D; SHA512_E; SHA512_F; SHA512_G; SHA512_H; WORD_ADD_SYM] THEN
+  CONV_TAC WORD_BLAST);;
 
+
+
+
+
+  
+
+(*********** ??? work in progress ***********)
+let rec back_up n = if n > 1 then (b(); back_up (n-1)) else b();;
 (*
 (* void sha512_process_blocks(uint64_t h[8], const uint8_t *in_data, size_t num_blocks) *)
 g `! h_p h m_p m l pc retpc K_base sp.
