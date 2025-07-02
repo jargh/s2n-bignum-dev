@@ -721,7 +721,7 @@ let a_mc,a_constants_data = define_assert_relocs_from_elf "a_mc"
 
 let EXEC = ARM_MK_EXEC_RULE a_mc;;
 
-(* sha512_init *)
+(* void sha512_init(sha512_ctx *sha) *)
 let SHA512_INIT = prove(`! ctx_p pc retpc K_base.
   nonoverlapping (word pc : int64, 2748) (ctx_p, 216) ==>
   ensures arm
@@ -756,7 +756,7 @@ let FORALL_LT_SUC = prove
  (`!P n. (!i. i < n + 1 ==> P i) <=> (!i. i < n ==> P i) /\ P n`,
   REWRITE_TAC[GSYM ADD1] THEN MESON_TAC[LT]);;
 
-(* msg_schedule *)
+(* void msg_schedule(uint64_t schedule[80], const uint8_t *in_data) *)
 let MSG_SCHEDULE = prove(`! sch_p m_p m pc retpc K_base.
   PAIRWISE nonoverlapping
     [(word pc : int64, 2748); (sch_p, 640); (m_p, num_bytes_per_block)] ==>
@@ -1118,6 +1118,130 @@ let SHA512_PROCESS_BLOCK = prove(`! sp h_p h m_p m pc retpc K_base.
     SHA512_D; SHA512_E; SHA512_F; SHA512_G; SHA512_H; WORD_ADD_SYM] THEN
   CONV_TAC WORD_BLAST);;
 
+(* void sha512_process_blocks(uint64_t h[8], const uint8_t *in_data, size_t num_blocks) *)
+let SHA512_PROCESS_BLOCKS = prove(
+  `! sp h_p h m_p m l pc retpc K_base.
+    aligned 16 sp /\
+    adrp_within_bounds (word K_base) (word (pc + 0x120)) /\
+    PAIRWISE nonoverlapping
+      [(word pc : int64, 2748); (h_p, 640); (m_p, num_bytes_per_block * val l);
+      (word_sub sp (word 768), 768); (word K_base, 640)] ==>
+      ensures arm
+      (\s. aligned_bytes_loaded s (word pc) (a_mc pc K_base) /\
+          read PC s = word (pc + 0x260) /\
+          read X30 s = word retpc /\
+          read SP s = sp /\
+          aligned 16 sp /\
+          read X0 s = h_p /\
+          read X1 s = m_p /\
+          read X2 s = l /\
+          hash_buffer_at h h_p s /\
+          msg_blocks_at m (val l) m_p s /\
+          constants_at (word K_base) s)
+      (\s. read PC s = word retpc /\
+          hash_buffer_at (sha512' h m (val l)) h_p s)
+      (MAYCHANGE [X0; X1; X2; X3; X4; X5; X6; X7; X8; X9; X10;
+                  X11; X12; X13; X14; X15; X16; X17; X18; PC] ,,
+      MAYCHANGE [memory :> bytes(h_p, 64)] ,,
+      MAYCHANGE [memory :> bytes(word_sub sp (word 768), 768)] ,,
+      MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`,
+  REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; num_bytes_per_block] THEN
+    WORD_FORALL_OFFSET_TAC 768 THEN
+    REPEAT STRIP_TAC THEN
+    ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
+    ENSURES_PRESERVED_TAC "x29_init" `X29` THEN
+    ENSURES_EXISTING_PRESERVED_TAC `X30` THEN
+    ENSURES_PRESERVED_TAC "x19_init" `X19` THEN
+    ENSURES_PRESERVED_TAC "x20_init" `X20` THEN
+    ENSURES_PRESERVED_TAC "x21_init" `X21` THEN
+    REWRITE_TAC [hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
+    (* The input data is empty *)
+    ASM_CASES_TAC `l : int64 = word 0` THENL
+    [ ENSURES_INIT_TAC "s152" THEN
+        ARM_STEPS_TAC EXEC [153] THEN
+        ARM_STEPS_TAC EXEC [171] THEN
+        ENSURES_FINAL_STATE_TAC THEN
+        ONCE_REWRITE_TAC [sha512'] THEN
+        ASM_REWRITE_TAC [VAL_WORD_0];
+      ALL_TAC ] THEN
+    (* The input data is non-empty *)
+    ENSURES_WHILE_UP_TAC
+      `val (l : int64)` `pc + 0x280` `pc + 0x294`
+      `\i s. // loop invariant
+        (read (memory :> bytes64(sp + word 720)) s = x29_init /\
+        read (memory :> bytes64(sp + word 728)) s = word retpc /\
+        read (memory :> bytes64(sp + word 736)) s = x19_init /\
+        read (memory :> bytes64(sp + word 744)) s = x20_init /\
+        read (memory :> bytes64(sp + word 752)) s = x21_init /\
+        read SP s = sp + word 720 /\ read X21 s = h_p /\
+        read X19 s = m_p + word (0x80 * i) /\ read X20 s = word_sub l (word (i + 1)) /\
+        hash_buffer_at (sha512' h m i) h_p s /\
+          msg_blocks_at m (val l) m_p s /\
+        constants_at (word K_base) s)` THEN
+  REPEAT CONJ_TAC THENL
+  [ (* Subgoal 1: upper bound of counter is non-zero *)
+    ASM_REWRITE_TAC [VAL_EQ_0];
+    (* Subgoal 2: initialization *)
+    REWRITE_TAC [msg_blocks_at; constants_at] THEN
+      ENSURES_INIT_TAC "s152" THEN
+      ARM_STEPS_TAC EXEC [153] THEN
+      SUBGOAL_THEN `~(val (l:int64) = 0)` (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th])) THENL
+      [ ASM_REWRITE_TAC [VAL_EQ_0]; ALL_TAC ] THEN
+      ARM_STEPS_TAC EXEC (154--160) THEN
+      ENSURES_FINAL_STATE_TAC THEN
+      ONCE_REWRITE_TAC [sha512'] THEN
+      ASM_REWRITE_TAC [hash_buffer_at; EXPAND_HASH_THM; WORD_ADD_0; ARITH] THEN
+      CHEAT_TAC (* ??? waiting for the machinery *);
+    (* Subgoal 3: loop body *)
+    REPEAT STRIP_TAC THEN
+      ENSURES_INIT_TAC "s160" THEN
+      RULE_ASSUM_TAC (REWRITE_RULE [msg_blocks_at; constants_at; hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC]) THEN
+      RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)) THEN
+      FIRST_X_ASSUM (MP_TAC o SPEC `i:num`) THEN
+      ASM_REWRITE_TAC [msg_block_at; num_bytes_per_block; GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
+      DISCH_TAC THEN
+      ARM_STEPS_TAC EXEC (161--165) THEN
+      ARM_SUBROUTINE_SIM_TAC
+        (SPEC_ALL a_mc, EXEC, 0, SPEC_ALL a_mc,
+          CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)
+          (REWRITE_RULE [num_bytes_per_block; hash_buffer_at; EXPAND_HASH_THM;
+                        msg_block_at; constants_at; GSYM CONJ_ASSOC] SHA512_PROCESS_BLOCK))
+        [ `sp + word 720 : int64`; `h_p:int64`; `sha512' h m i`;
+          `m_p + word (128 * i) : int64`; `m (i : num) : num -> int64`;
+          `pc : num`; `pc + 0x294`; `K_base : num`] 166 THEN
+      ENSURES_FINAL_STATE_TAC THEN
+      ASM_REWRITE_TAC [msg_blocks_at; constants_at; hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
+      REPLICATE_TAC 2 (CONJ_TAC THENL [ CONV_TAC WORD_RULE; ALL_TAC ]) THEN
+      REPLICATE_TAC 8 (CONJ_TAC THENL
+      [ GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [sha512'] THEN
+          REWRITE_TAC [ARITH_RULE `~(i + 1 = 0) /\ (i + 1) - 1 = i`];
+        ALL_TAC ]) THEN
+      CHEAT_TAC;
+    (* Subgoal 4: backedge *)
+    REPEAT STRIP_TAC THEN
+      REWRITE_TAC [msg_blocks_at; constants_at; hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
+      ENSURES_INIT_TAC "s165" THEN
+      ARM_STEPS_TAC EXEC (166--167) THEN
+      ENSURES_FINAL_STATE_TAC THEN
+      ASM_REWRITE_TAC [] THEN
+      REWRITE_TAC [VAL_EQ_0] THEN
+      REWRITE_TAC [WORD_RULE `(word_sub l (word(i + 1))) + word 1 = word 0 <=> word i = l`] THEN
+      ASM_SIMP_TAC [MESON[VAL_BOUND; VAL_WORD_GALOIS; LT_TRANS; LT_REFL] `i < val(l:int64) ==> ~(word i = l)`] THEN
+      CHEAT_TAC (*??? waiting for machinery *);
+    ALL_TAC ] THEN
+  (* After the loop *)
+  REWRITE_TAC [msg_blocks_at; constants_at; hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
+    ENSURES_INIT_TAC "s165" THEN
+    ARM_STEPS_TAC EXEC (166--167) THEN
+    POP_ASSUM MP_TAC THEN
+    REWRITE_TAC [WORD_RULE `word_sub l (word (val l + 1)) + word 1 : int64 = word 0`] THEN
+    REWRITE_TAC [VAL_EQ_0] THEN DISCH_TAC THEN
+    ARM_STEPS_TAC EXEC (168--171) THEN
+    ENSURES_FINAL_STATE_TAC THEN
+    ASM_REWRITE_TAC []);;
+
+
+
 
 
 
@@ -1127,151 +1251,44 @@ let SHA512_PROCESS_BLOCK = prove(`! sp h_p h m_p m pc retpc K_base.
 (*********** ??? work in progress ***********)
 let rec back_up n = if n > 1 then (b(); back_up (n-1)) else b();;
 
-(* void sha512_process_blocks(uint64_t h[8], const uint8_t *in_data, size_t num_blocks) *)
-g `! sp h_p h m_p m l pc retpc K_base.
-  aligned 16 sp /\
-  adrp_within_bounds (word K_base) (word (pc + 0x120)) /\
-  PAIRWISE nonoverlapping
-    [(word pc : int64, 2748); (h_p, 640); (m_p, num_bytes_per_block * val l);
-    (word_sub sp (word 768), 768); (word K_base, 640)] ==>
-    ensures arm
-    (\s. aligned_bytes_loaded s (word pc) (a_mc pc K_base) /\
-         read PC s = word (pc + 0x260) /\
-         read X30 s = word retpc /\
-         read SP s = sp /\
-         aligned 16 sp /\
-         read X0 s = h_p /\
-         read X1 s = m_p /\
-         read X2 s = l /\
-         hash_buffer_at h h_p s /\
-         msg_blocks_at m (val l) m_p s /\
-         constants_at (word K_base) s)
-    (\s. read PC s = word retpc /\
-        hash_buffer_at (sha512' h m (val l)) h_p s)
-    (MAYCHANGE [X0; X1; X2; X3; X4; X5; X6; X7; X8; X9; X10;
-                X11; X12; X13; X14; X15; X16; X17; X18; PC] ,,
-     MAYCHANGE [memory :> bytes(h_p, 64)] ,,
-     MAYCHANGE [memory :> bytes(word_sub sp (word 768), 768)] ,,
-     MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`;;
 
-REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; num_bytes_per_block] THEN
-  WORD_FORALL_OFFSET_TAC 768 THEN
-  REPEAT STRIP_TAC THEN
-  ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
-  ENSURES_PRESERVED_TAC "x29_init" `X29` THEN
-  ENSURES_EXISTING_PRESERVED_TAC `X30` THEN
-  ENSURES_PRESERVED_TAC "x19_init" `X19` THEN
-  ENSURES_PRESERVED_TAC "x20_init" `X20` THEN
-  ENSURES_PRESERVED_TAC "x21_init" `X21` THEN
-  REWRITE_TAC [hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
-  (* The input data is empty *)
-  ASM_CASES_TAC `l : int64 = word 0` THENL
-  [ ENSURES_INIT_TAC "s152" THEN
-      ARM_STEPS_TAC EXEC [153] THEN
-      ARM_STEPS_TAC EXEC [171] THEN
-      ENSURES_FINAL_STATE_TAC THEN
-      ONCE_REWRITE_TAC [sha512'] THEN
-      ASM_REWRITE_TAC [VAL_WORD_0];
-    ALL_TAC ] THEN
-  (* The input data is non-empty *)
-  ENSURES_WHILE_UP_TAC
-    `val (l : int64)` `pc + 0x280` `pc + 0x294`
-    `\i s. // loop invariant
-      (read (memory :> bytes64(sp + word 720)) s = x29_init /\
-      read (memory :> bytes64(sp + word 728)) s = word retpc /\
-      read (memory :> bytes64(sp + word 736)) s = x19_init /\
-      read (memory :> bytes64(sp + word 744)) s = x20_init /\
-      read (memory :> bytes64(sp + word 752)) s = x21_init /\
-      read SP s = sp + word 720 /\ read X21 s = h_p /\
-      read X19 s = m_p + word (0x80 * i) /\ read X20 s = word_sub l (word (i + 1)) /\
-      hash_buffer_at (sha512' h m i) h_p s /\
-         msg_blocks_at m (val l) m_p s /\
-      constants_at (word K_base) s)` THEN
-REPEAT CONJ_TAC THENL
-[ (* Subgoal 1: upper bound of counter is non-zero *)
-  ASM_REWRITE_TAC [VAL_EQ_0];
-  (* Subgoal 2: initialization *)
-  REWRITE_TAC [msg_blocks_at; constants_at] THEN
-    ENSURES_INIT_TAC "s152" THEN
-    ARM_STEPS_TAC EXEC [153] THEN
-    SUBGOAL_THEN `~(val (l:int64) = 0)` (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th])) THENL
-    [ ASM_REWRITE_TAC [VAL_EQ_0]; ALL_TAC ] THEN
-    ARM_STEPS_TAC EXEC (154--160) THEN
-    ENSURES_FINAL_STATE_TAC THEN
-    ONCE_REWRITE_TAC [sha512'] THEN
-    ASM_REWRITE_TAC [hash_buffer_at; EXPAND_HASH_THM; WORD_ADD_0; ARITH] THEN
-    CHEAT_TAC (* ??? waiting for the machinery *);
-  (* Subgoal 3: loop body *)
-  REPEAT STRIP_TAC THEN
-    ENSURES_INIT_TAC "s160" THEN
-    RULE_ASSUM_TAC (REWRITE_RULE [msg_blocks_at; constants_at; hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC]) THEN
-    RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)) THEN
-    FIRST_X_ASSUM (MP_TAC o SPEC `i:num`) THEN
-    ASM_REWRITE_TAC [msg_block_at; num_bytes_per_block; GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
-    DISCH_TAC THEN
-    ARM_STEPS_TAC EXEC (161--165) THEN
-    ARM_SUBROUTINE_SIM_TAC
-      (SPEC_ALL a_mc, EXEC, 0, SPEC_ALL a_mc,
-        CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)
-        (REWRITE_RULE [num_bytes_per_block; hash_buffer_at; EXPAND_HASH_THM;
-                      msg_block_at; constants_at; GSYM CONJ_ASSOC] SHA512_PROCESS_BLOCK))
-      [ `sp + word 720 : int64`; `h_p:int64`; `sha512' h m i`;
-        `m_p + word (128 * i) : int64`; `m (i : num) : num -> int64`;
-        `pc : num`; `pc + 0x294`; `K_base : num`] 166 THEN
-    ENSURES_FINAL_STATE_TAC THEN
-    ASM_REWRITE_TAC [msg_blocks_at; constants_at; hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
-    REPLICATE_TAC 2 (CONJ_TAC THENL [ CONV_TAC WORD_RULE; ALL_TAC ]) THEN
-    REPLICATE_TAC 8 (CONJ_TAC THENL
-    [ GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [sha512'] THEN
-        REWRITE_TAC [ARITH_RULE `~(i + 1 = 0) /\ (i + 1) - 1 = i`];
-      ALL_TAC ]) THEN
-    CHEAT_TAC;
-  (* Subgoal 4: backedge *)
-  REPEAT STRIP_TAC THEN
-    REWRITE_TAC [msg_blocks_at; constants_at; hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
-    ENSURES_INIT_TAC "s165" THEN
-    ARM_STEPS_TAC EXEC (166--167) THEN
-    ENSURES_FINAL_STATE_TAC THEN
-    ASM_REWRITE_TAC [] THEN
-    REWRITE_TAC [VAL_EQ_0] THEN
-    REWRITE_TAC [WORD_RULE `(word_sub l (word(i + 1))) + word 1 = word 0 <=> word i = l`] THEN
-    ASM_SIMP_TAC [MESON[VAL_BOUND; VAL_WORD_GALOIS; LT_TRANS; LT_REFL] `i < val(l:int64) ==> ~(word i = l)`] THEN
-    CHEAT_TAC (*??? waiting for machinery *);
-  ALL_TAC ] THEN
-(* After the loop *)
-REWRITE_TAC [msg_blocks_at; constants_at; hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
-  ENSURES_INIT_TAC "s165" THEN
-  ARM_STEPS_TAC EXEC (166--167) THEN
-  POP_ASSUM MP_TAC THEN
-  REWRITE_TAC [WORD_RULE `word_sub l (word (val l + 1)) + word 1 : int64 = word 0`] THEN
-  REWRITE_TAC [VAL_EQ_0] THEN DISCH_TAC THEN
-  ARM_STEPS_TAC EXEC (168--171) THEN
-  ENSURES_FINAL_STATE_TAC THEN
-  ASM_REWRITE_TAC []
-(*
 (* void sha512_update(sha512_ctx *sha, const void *in_data, size_t in_len) *)
-g `! ctx_p (h : hash_t) (msg_len_lo : int64) (msg_len_hi : int64) (cur_block : byte list) (cur_pos : byte) (ctx_p : int64)
-     m0 m_p m l pc retpc K_base sp.
-    nonoverlapping pc, h_p, m_p, stack??? ==>
-    LENGTH m = l ==>
-    sha512_ctx_inv m0 msg_len_lo msg_len_hi cur_block ==>
+g `! sp ctx_p m0 m_p m l pc retpc K_base.
+    aligned 16 sp /\
+    adrp_within_bounds (word K_base) (word (pc + 0x120)) /\
+    PAIRWISE nonoverlapping
+      [(word pc : int64, 2748); (ctx_p, 216); (m_p, val l);
+       (word_sub sp (word 816), 816); (word K_base, 640)] /\
+    LENGTH m0 + LENGTH m < 2 EXP 125 ==>
     ensures arm
     (\s. aligned_bytes_loaded s (word pc) (a_mc pc K_base) /\
-         read PC s = word pc + ??? /\
-         read X30 s = retpc /\
-         aligned 16 (word sp : int64) /\
+         read PC s = word (pc + 0x350) /\
+         read X30 s = word retpc /\
+         aligned 16 sp /\
          read X0 s = ctx_p /\
          read X1 s = m_p /\
          read X2 s = l /\
-         sha512_ctx_at h msg_len_lo msg_len_hi cur_block cur_pos ctx_p s /\
-         byte_list_at m l m_p s)
-    (\s. read PC s = retpc /\
-        ! (h' : hash_t) (msg_len_lo' : int64) (msg_len_hi' : int64) (cur_block' : byte list),
-        sha512_ctx_inv (m0 ++ m) h' msg_len_lo' msg_len_hi' cur_block' ==>
-        sha512_ctx_at h' msg_len_lo' msg_len_hi' cur_block' (LENGTH cur_block') ctx_p s)
-    (MAYCHANGE [X0; X1; X2; ???; PC] ,, MAYCHANGE [memory :> bytes(h_p, 64)] ,,
-     MAYCHANGE [memory :> bytes(word sp, 768)] ,, MAYCHANGE [events])`
+         sha512_ctx_at m0 ctx_p s /\
+         byte_list_at m (val l) m_p s /\
+         constants_at (word K_base) s)
+    (\s. read PC s = word retpc /\
+         sha512_ctx_at (m0 ++ m) ctx_p s)
+    (MAYCHANGE [X0; X1; X2; X3; X4; X5; X6; X7; X8; X9; X10;
+                  X11; X12; X13; X14; X15; X16; X17; X18; PC] ,,
+                  MAYCHANGE [memory :> bytes(ctx_p, 216)] ,,
+     MAYCHANGE [memory :> bytes(word_sub sp (word 816), 816)] ,,
+     MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`;;
 
+
+
+
+
+
+
+
+
+
+(*
 (* void sha512_final(uint8_t out[SHA512_DIGEST_LENGTH], sha512_ctx *sha) *)
 g `! ctx_p (h : hash_t) (msg_len_lo : int64) (msg_len_hi : int64) (cur_block : byte list) (cur_pos : byte) (ctx_p : int64)
      m out_p pc retpc K_base sp.
@@ -1280,8 +1297,8 @@ g `! ctx_p (h : hash_t) (msg_len_lo : int64) (msg_len_hi : int64) (cur_block : b
     ensures arm
     (\s. aligned_bytes_loaded s (word pc) (a_mc pc K_base) /\
          read PC s = word pc + ??? /\
-         read X30 s = retpc /\
-         aligned 16 (word sp : int64) /\
+         read X30 s = word retpc /\
+         aligned 16 sp /\
          read X0 s = out_p /\
          read X1 s = ctx_p /\
          sha512_ctx_at h msg_len_lo msg_len_hi cur_block cur_pos ctx_p s /\)
