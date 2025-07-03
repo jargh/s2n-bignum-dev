@@ -226,7 +226,7 @@ void sha512_final(uint8_t out[SHA512_DIGEST_LENGTH], sha512_ctx *sha) {
   if (sha->cur_pos > (SHA512_BLOCK_LENGTH - 16)) {
     // Need two more blocks
     memset_u8(sha->cur_block + sha->cur_pos, 0, SHA512_BLOCK_LENGTH - sha->cur_pos);
-    sha512_process_blocks(sha->h, sha->cur_block, 1);
+    sha512_process_block(sha->h, sha->cur_block);
     sha->cur_pos = 0;
   }
 
@@ -237,7 +237,7 @@ void sha512_final(uint8_t out[SHA512_DIGEST_LENGTH], sha512_ctx *sha) {
   store_u64_swap_endian(sha->cur_block + SHA512_BLOCK_LENGTH - 16, sha->msg_len_hi);
   store_u64_swap_endian(sha->cur_block + SHA512_BLOCK_LENGTH - 8, sha->msg_len_lo);
 
-  sha512_process_blocks(sha->h, sha->cur_block, 1);
+  sha512_process_block(sha->h, sha->cur_block);
 
   // Copy the message digest into out
   for(uint64_t i = 0; i < 8; i++) {

@@ -712,10 +712,9 @@ sha512_final:
 	cmp	x4, x2
 	bhi	.L122
 .L120:
-	mov	x2, 1
 	mov	x1, x21
 	mov	x0, x19
-	bl	sha512_process_blocks
+	bl	sha512_process_block
 	neg	x0, x21
 	mov	x1, 112
 	strb	wzr, [x19, 208]
@@ -771,14 +770,13 @@ sha512_final:
 .L131:
 	ldr	x0, [x19, 72]
 	mov	x1, x21
-	mov	x2, 1
 	rev	x0, x0
 	str	x0, [x19, 192]
 	ldr	x0, [x19, 64]
 	rev	x0, x0
 	str	x0, [x19, 200]
 	mov	x0, x19
-	bl	sha512_process_blocks
+	bl	sha512_process_block
 	ldr	x0, [x19]
 	rev	x0, x0
 	str	x0, [x20]
