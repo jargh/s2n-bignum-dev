@@ -282,349 +282,72 @@ sha512_init:
 	.type	sha512_update, %function
 sha512_update:
 .LFB15:
-	.cfi_startproc
 	stp	x29, x30, [sp, -48]!
-	.cfi_def_cfa_offset 48
-	.cfi_offset 29, -48
-	.cfi_offset 30, -40
 	mov	x29, sp
-	lsl	x3, x2, 3
-	lsr	x5, x2, 61
 	stp	x19, x20, [sp, 16]
-	.cfi_offset 19, -32
-	.cfi_offset 20, -24
-	mov	x20, x2
-	mov	x19, x1
 	str	x21, [sp, 32]
-	.cfi_offset 21, -16
 	mov	x21, x0
-	ldrb	w4, [x0, 208]
-	ldr	x0, [x0, 64]
+	mov	x19, x1
+	mov	x20, x2
+	lsl	x3, x20, 3
+	lsr	x5, x20, 61
+	ldr	x0, [x21, 64]
 	ldr	x2, [x21, 72]
 	adds	x0, x0, x3
 	adc	x2, x2, x5
-	stp	x0, x2, [x21, 64]
-	cbz	w4, .L29
-	mov	w3, 128
-	add	x1, x21, 80
-	sub	w3, w3, w4
-	and	x5, x4, 255
-	sxtw	x3, w3
-	cmp	x20, x3
-	bcc	.L108
-	cbz	x3, .L41
-	add	x2, x5, 80
-	add	x0, x19, 1
-	add	x2, x21, x2
-	sub	x6, x3, #1
-	sub	x0, x2, x0
-	orr	x4, x19, x2
-	cmp	x0, 6
-	and	x0, x4, 7
-	ccmp	x6, 6, 0, hi
-	ccmp	x0, 0, 0, hi
-	bne	.L50
-	and	x6, x3, -8
-	mov	x0, 0
-	.p2align 5,,15
-.L39:
-	ldr	x4, [x19, x0]
-	str	x4, [x2, x0]
-	add	x0, x0, 8
-	cmp	x6, x0
-	bne	.L39
-	and	x2, x3, -8
-	tst	x3, 7
-	beq	.L41
-	ldrb	w6, [x19, x2]
-	add	x0, x1, x5
-	add	x4, x2, 1
-	strb	w6, [x0, x2]
-	cmp	x3, x4
-	bls	.L41
-	ldrb	w6, [x19, x4]
-	add	x5, x2, 2
-	strb	w6, [x0, x4]
-	cmp	x3, x5
-	bls	.L41
-	ldrb	w6, [x19, x5]
-	add	x4, x2, 3
-	strb	w6, [x0, x5]
-	cmp	x3, x4
-	bls	.L41
-	ldrb	w6, [x19, x4]
-	add	x5, x2, 4
-	strb	w6, [x0, x4]
-	cmp	x3, x5
-	bls	.L41
-	ldrb	w6, [x19, x5]
-	add	x4, x2, 5
-	strb	w6, [x0, x5]
-	cmp	x3, x4
-	bls	.L41
-	ldrb	w5, [x19, x4]
-	add	x2, x2, 6
-	strb	w5, [x0, x4]
-	cmp	x3, x2
-	bls	.L41
-	ldrb	w4, [x19, x2]
-	strb	w4, [x0, x2]
-.L41:
-	mov	x2, 1
-	mov	x0, x21
-	sub	x20, x20, x3
-	add	x19, x19, x3
-	bl	sha512_process_blocks
-	strb	wzr, [x21, 208]
-.L29:
-	cmp	x20, 127
-	bhi	.L109
-	cbz	x20, .L25
-.L110:
-	add	x1, x21, 80
-	add	x0, x19, 1
-	orr	x2, x19, x1
-	sub	x0, x1, x0
-	tst	x2, 7
-	sub	x2, x20, #1
-	ccmp	x0, 6, 0, eq
-	ccmp	x2, 6, 0, hi
-	bls	.L51
-	ldr	x2, [x19]
-	lsr	x0, x20, 3
-	str	x2, [x21, 80]
-	cmp	x0, 1
-	beq	.L46
-	ldr	x2, [x19, 8]
-	str	x2, [x21, 88]
-	cmp	x0, 2
-	beq	.L46
-	ldr	x2, [x19, 16]
-	str	x2, [x21, 96]
-	cmp	x0, 3
-	beq	.L46
-	ldr	x2, [x19, 24]
-	str	x2, [x21, 104]
-	cmp	x0, 4
-	beq	.L46
-	ldr	x2, [x19, 32]
-	str	x2, [x21, 112]
-	cmp	x0, 5
-	beq	.L46
-	ldr	x2, [x19, 40]
-	str	x2, [x21, 120]
-	cmp	x0, 6
-	beq	.L46
-	ldr	x2, [x19, 48]
-	str	x2, [x21, 128]
-	cmp	x0, 7
-	beq	.L46
-	ldr	x2, [x19, 56]
-	str	x2, [x21, 136]
-	cmp	x0, 8
-	beq	.L46
-	ldr	x2, [x19, 64]
-	str	x2, [x21, 144]
-	cmp	x0, 9
-	beq	.L46
-	ldr	x2, [x19, 72]
-	str	x2, [x21, 152]
-	cmp	x0, 10
-	beq	.L46
-	ldr	x2, [x19, 80]
-	str	x2, [x21, 160]
-	cmp	x0, 11
-	beq	.L46
-	ldr	x2, [x19, 88]
-	str	x2, [x21, 168]
-	cmp	x0, 12
-	beq	.L46
-	ldr	x2, [x19, 96]
-	str	x2, [x21, 176]
-	cmp	x0, 13
-	beq	.L46
-	ldr	x2, [x19, 104]
-	str	x2, [x21, 184]
-	cmp	x0, 15
-	bne	.L46
-	ldr	x0, [x19, 112]
-	str	x0, [x21, 192]
-	.p2align 5,,15
-.L46:
-	and	x0, x20, -8
-	tst	x20, 7
-	beq	.L48
-	ldrb	w3, [x19, x0]
-	add	x2, x0, 1
-	strb	w3, [x1, x0]
-	cmp	x20, x2
-	bls	.L48
-	ldrb	w4, [x19, x2]
-	add	x3, x0, 2
-	strb	w4, [x1, x2]
-	cmp	x20, x3
-	bls	.L48
-	ldrb	w4, [x19, x3]
-	add	x2, x0, 3
-	strb	w4, [x1, x3]
-	cmp	x20, x2
-	bls	.L48
-	ldrb	w4, [x19, x2]
-	add	x3, x0, 4
-	strb	w4, [x1, x2]
-	cmp	x20, x3
-	bls	.L48
-	ldrb	w4, [x19, x3]
-	add	x2, x0, 5
-	strb	w4, [x1, x3]
-	cmp	x20, x2
-	bls	.L48
-	ldrb	w3, [x19, x2]
-	add	x0, x0, 6
-	strb	w3, [x1, x2]
-	cmp	x20, x0
-	bls	.L48
-	ldrb	w2, [x19, x0]
-	strb	w2, [x1, x0]
-.L48:
-	strb	w20, [x21, 208]
-.L25:
-	ldp	x19, x20, [sp, 16]
-	ldr	x21, [sp, 32]
-	ldp	x29, x30, [sp], 48
-	.cfi_remember_state
-	.cfi_restore 30
-	.cfi_restore 29
-	.cfi_restore 21
-	.cfi_restore 19
-	.cfi_restore 20
-	.cfi_def_cfa_offset 0
-	ret
-	.p2align 2,,3
-.L109:
-	.cfi_restore_state
-	lsr	x2, x20, 7
-	mov	x1, x19
-	mov	x0, x21
-	bl	sha512_process_blocks
-	and	x0, x20, -128
-	and	x20, x20, 127
-	add	x19, x19, x0
-	cbz	x20, .L25
-	b	.L110
-	.p2align 2,,3
-.L108:
-	cbz	x20, .L31
-	add	x2, x5, 80
-	add	x0, x19, 1
-	add	x2, x21, x2
-	sub	x4, x20, #1
-	sub	x0, x2, x0
-	orr	x3, x19, x2
-	cmp	x0, 6
-	and	x0, x3, 7
-	ccmp	x4, 6, 0, hi
-	ccmp	x0, 0, 0, hi
-	bne	.L49
-	and	x4, x20, -8
-	mov	x0, 0
-	.p2align 5,,15
-.L33:
-	ldr	x3, [x19, x0]
-	str	x3, [x2, x0]
-	add	x0, x0, 8
-	cmp	x4, x0
-	bne	.L33
-	and	x0, x20, -8
-	tst	x20, 7
-	beq	.L35
-	ldrb	w3, [x19, x0]
-	add	x4, x1, x5
-	add	x2, x0, 1
-	strb	w3, [x4, x0]
-	cmp	x20, x2
-	bls	.L35
-	ldrb	w6, [x19, x2]
-	add	x2, x1, x2
-	add	x3, x0, 2
-	strb	w6, [x2, x5]
-	cmp	x20, x3
-	bls	.L35
-	ldrb	w6, [x19, x3]
-	add	x3, x1, x3
-	add	x2, x0, 3
-	strb	w6, [x3, x5]
-	cmp	x20, x2
-	bls	.L35
-	ldrb	w3, [x19, x2]
-	add	x2, x1, x2
-	add	x1, x0, 4
-	strb	w3, [x2, x5]
-	cmp	x20, x1
-	bls	.L35
-	ldrb	w3, [x19, x1]
-	add	x2, x0, 5
-	strb	w3, [x4, x1]
-	cmp	x20, x2
-	bls	.L35
-	ldrb	w1, [x19, x2]
-	add	x0, x0, 6
-	strb	w1, [x4, x2]
-	cmp	x20, x0
-	bls	.L35
-	ldrb	w1, [x19, x0]
-	strb	w1, [x4, x0]
-.L35:
-	ldrb	w4, [x21, 208]
-.L31:
-	add	w4, w4, w20
-	strb	w4, [x21, 208]
-	ldp	x19, x20, [sp, 16]
-	ldr	x21, [sp, 32]
-	ldp	x29, x30, [sp], 48
-	.cfi_remember_state
-	.cfi_restore 30
-	.cfi_restore 29
-	.cfi_restore 21
-	.cfi_restore 19
-	.cfi_restore 20
-	.cfi_def_cfa_offset 0
-	ret
-	.p2align 2,,3
-.L51:
-	.cfi_restore_state
-	mov	x0, 0
-	.p2align 5,,15
-.L45:
-	ldrb	w2, [x19, x0]
-	strb	w2, [x1, x0]
-	add	x0, x0, 1
-	cmp	x20, x0
-	bne	.L45
-	strb	w20, [x21, 208]
-	b	.L25
-	.p2align 2,,3
-.L50:
-	mov	x0, 0
-	.p2align 5,,15
-.L38:
-	ldrb	w4, [x19, x0]
-	strb	w4, [x2, x0]
-	add	x0, x0, 1
-	cmp	x3, x0
-	bne	.L38
-	b	.L41
-.L49:
-	mov	x0, 0
-	.p2align 5,,15
+    stp	x0, x2, [x21, 64]   // Update message length information
+	ldrb	w4, [x21, 208]  // x4 contains cur_pos
+    cbz	x4, .L29            // Jump if cur_pos == 0
+    mov x0, 128
+    sub x0, x0, x4          // x0 contains the number of vacant bytes in cur_block
+    cmp x0, x20
+    bls .L30                // Jump if in_data can fill up cur_block
+    mov x0, x20             // x0 contains the number of bytes to move to cur_block
+.L30:
+    add x1, x21, 80         // x1 contains cur_block
+    mov x2, xzr             // x2 is the loop counter
+    b .L31                  // Start memcpy loop
 .L32:
-	ldrb	w1, [x19, x0]
-	strb	w1, [x2, x0]
-	add	x0, x0, 1
-	cmp	x20, x0
-	bne	.L32
-	b	.L35
-	.cfi_endproc
+    ldrb w3, [x19, x2]      // While counter < number of bytes to move
+    strb w3, [x1, x4]       //      Move a byte from in_data to cur_block[cur_pos]
+    add x2, x2, 1           //      Increment counter and cur_pos
+    add x4, x4, 1
+.L31:
+    cmp x2, x0
+    bne .L32
+    add x19, x19, x0        // Update in_data and in_len
+    sub x20, x20, x0
+    cmp x4, 128
+    bne .L33                // Jump if cur_pos < 128 (iff in_data could not fill up cur_block)
+    mov x0, x21
+    bl sha512_process_block // Process the filled block
+.L29:
+    cmp x20, 128
+    blo .L34                // Jump if in_len < SHA512_BLOCK_LENGTH
+    mov x0, x21
+    mov x1, x19
+    lsr x2, x20, 7          // Compute the number of blocks to process
+    lsl x3, x2, 7
+    add x19, x19, x3        // x19 points to the data to be copied to cur_block later 
+    and x20, x20, 127       // in_len mod 128
+    bl sha512_process_blocks
+.L34:                       // Move the leftover data to cur_block (x20 < SHA512_BLOCK_LENGTH == 128)
+    mov x4, xzr             // x4 is the loop counter
+    add x1, x21, 80         // x1 contains to cur_block
+    b .L35
+.L36:
+    ldrb w2, [x19, x4]
+    strb w2, [x1, x4]
+    add x4, x4, 1
+.L35:
+    cmp x4, x20
+    bne .L36
+.L33:
+    strb w4, [x21, 208]     // Store cur_pos
+	ldp	x19, x20, [sp, 16]
+	ldr	x21, [sp, 32]
+	ldp	x29, x30, [sp], 48
+    ret
 .LFE15:
 	.size	sha512_update, .-sha512_update
 	.align	2
@@ -633,151 +356,48 @@ sha512_update:
 	.type	sha512_final, %function
 sha512_final:
 .LFB16:
-	.cfi_startproc
 	stp	x29, x30, [sp, -48]!
-	.cfi_def_cfa_offset 48
-	.cfi_offset 29, -48
-	.cfi_offset 30, -40
 	mov	x29, sp
-	mov	w3, -128
 	stp	x19, x20, [sp, 16]
-	.cfi_offset 19, -32
-	.cfi_offset 20, -24
-	mov	x20, x0
-	mov	x19, x1
+	mov	x20, x0                 // x20 points to output buffer
+	mov	x19, x1                 // x19 points to sha context
 	str	x21, [sp, 32]
-	.cfi_offset 21, -16
-	add	x21, x19, 80
-	ldrb	w2, [x1, 208]
-	add	x1, x1, w2, sxtw
-	strb	w3, [x1, 80]
-	add	w0, w2, 1
-	and	w0, w0, 255
-	and	x2, x0, 255
-	strb	w0, [x19, 208]
-	cmp	w0, 112
-	bls	.L112
-	mov	w1, 128
-	sub	w0, w1, w0
-	sxtw	x4, w0
-	cbz	w0, .L120
-	add	x0, x2, 80
-	sub	x3, x4, #1
-	add	x5, x19, x0
-	neg	x1, x5
-	and	x1, x1, 7
-	cmp	x3, 17
-	bls	.L137
-	cbz	x1, .L138
-	strb	wzr, [x21, x2]
-	cmp	x1, 1
-	beq	.L143
-	add	x3, x21, x2
-	strb	wzr, [x3, 1]
-	cmp	x1, 2
-	beq	.L143
-	strb	wzr, [x3, 2]
-	cmp	x1, 3
-	beq	.L143
-	strb	wzr, [x3, 3]
-	cmp	x1, 4
-	beq	.L143
-	strb	wzr, [x3, 4]
-	cmp	x1, 5
-	beq	.L143
-	strb	wzr, [x3, 5]
-	cmp	x1, 7
-	bne	.L144
-	mov	x2, 7
-	strb	wzr, [x3, 6]
-.L116:
-	add	x0, x0, x1
-	sub	x1, x4, x1
-	add	x0, x19, x0
-	and	x3, x1, -8
-	add	x3, x3, x0
-	.p2align 5,,15
-.L118:
-	str	xzr, [x0], 8
-	cmp	x3, x0
-	bne	.L118
-	and	x0, x1, -8
-	add	x2, x2, x0
-	cmp	x1, x0
-	beq	.L120
-	.p2align 5,,15
-.L122:
-	strb	wzr, [x5, x2]
-	add	x2, x2, 1
-	cmp	x4, x2
-	bhi	.L122
-.L120:
-	mov	x1, x21
-	mov	x0, x19
-	bl	sha512_process_block
-	neg	x0, x21
-	mov	x1, 112
-	strb	wzr, [x19, 208]
-	and	x0, x0, 7
-	mov	x4, x1
-	mov	x6, x21
-	mov	x2, 0
-	mov	x3, 80
+	add	x21, x19, 80            // x21 contains cur_block
+	ldrb	w2, [x19, 208]      // x2 contains cur_pos
+    mov	w3, 0x80
+    strb    w3, [x21, x2] // First byte of padding is 0x80
+    add x2, x2, 1               // Increment cur_pos
+    cmp x2, 112                 // Compare cur_pos with SHA512_BLOCK_LENGTH - 16
+    bls .L112                   // Jump if there is only one block left
+    b .L113                     // Start of memset loop
 .L114:
-	cbz	x0, .L146
-	strb	wzr, [x21, x2]
-	cmp	x0, 1
-	beq	.L151
-	add	x5, x21, x2
-	strb	wzr, [x5, 1]
-	cmp	x0, 2
-	beq	.L151
-	strb	wzr, [x5, 2]
-	cmp	x0, 3
-	beq	.L151
-	strb	wzr, [x5, 3]
-	cmp	x0, 4
-	beq	.L151
-	strb	wzr, [x5, 4]
-	cmp	x0, 5
-	beq	.L151
-	strb	wzr, [x5, 5]
-	cmp	x0, 7
-	bne	.L152
-	mov	x2, x0
-	strb	wzr, [x5, 6]
-.L127:
-	add	x3, x3, x0
-	sub	x1, x1, x0
-	add	x3, x19, x3
-	and	x0, x1, -8
-	add	x0, x0, x3
-	.p2align 5,,15
-.L129:
-	str	xzr, [x3], 8
-	cmp	x3, x0
-	bne	.L129
-	and	x0, x1, -8
-	add	x2, x2, x0
-	cmp	x1, x0
-	beq	.L131
-	.p2align 5,,15
-.L133:
-	strb	wzr, [x6, x2]
-	add	x2, x2, 1
-	cmp	x2, x4
-	bcc	.L133
-.L131:
-	ldr	x0, [x19, 72]
+    strb	wzr, [x21, x2]      // While cur_pos < SHA512_BLOCK_LENGTH
+    add x2, x2, 1               //   store a zero byte at cur_block[cur_pos] and increment cur_pos
+.L113:
+    cmp x2, 128
+    bne .L114
+	mov	x0, x19                 // Prepare to call subroutine
 	mov	x1, x21
+    bl	sha512_process_block    // Process the second last block
+    mov x2, xzr                 // Set cur_pos to zero
+.L112:
+    b .L115                     // Start memset loop
+.L116:
+    strb    wzr, [x21, x2]      // While cur_pos < SHA512_BLOCK_LENGTH - 16
+    add x2, x2, 1               //   store a zero byte at cur_block[cur_pos] and increment cur_pos
+.L115:
+    cmp x2, 112
+    bne .L116
+    ldr	x0, [x19, 72]           // Move message length information into the block
 	rev	x0, x0
 	str	x0, [x19, 192]
 	ldr	x0, [x19, 64]
 	rev	x0, x0
 	str	x0, [x19, 200]
-	mov	x0, x19
-	bl	sha512_process_block
-	ldr	x0, [x19]
+	mov	x0, x19                 // Prepare to call subroutine
+	mov	x1, x21
+	bl	sha512_process_block    // Process the last block
+    ldr	x0, [x19]               // Store the digest in big-endian in output buffer
 	rev	x0, x0
 	str	x0, [x20]
 	ldr	x0, [x19, 8]
@@ -804,51 +424,7 @@ sha512_final:
 	ldp	x19, x20, [sp, 16]
 	ldr	x21, [sp, 32]
 	ldp	x29, x30, [sp], 48
-	.cfi_remember_state
-	.cfi_restore 30
-	.cfi_restore 29
-	.cfi_restore 21
-	.cfi_restore 19
-	.cfi_restore 20
-	.cfi_def_cfa_offset 0
 	ret
-.L112:
-	.cfi_restore_state
-	mov	w1, 112
-	sub	w0, w1, w0
-	sxtw	x4, w0
-	cbz	w0, .L131
-	add	x3, x2, 80
-	mov	x1, x4
-	add	x6, x19, x3
-	neg	x0, x6
-	and	x0, x0, 7
-	cmp	x4, 18
-	bhi	.L114
-	mov	x2, 0
-	b	.L133
-.L151:
-	mov	x2, x0
-	b	.L127
-.L143:
-	mov	x2, x1
-	b	.L116
-.L146:
-	mov	x2, 0
-	b	.L127
-.L138:
-	mov	x2, 0
-	b	.L116
-.L137:
-	mov	x2, 0
-	b	.L122
-.L152:
-	mov	x2, 6
-	b	.L127
-.L144:
-	mov	x2, 6
-	b	.L116
-	.cfi_endproc
 .LFE16:
 	.size	sha512_final, .-sha512_final
 	.global	K

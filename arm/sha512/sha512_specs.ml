@@ -291,16 +291,12 @@ let pad = define
     REPLICATE ((ceil_div (LENGTH m + 1 + 16) num_bytes_per_block) * num_bytes_per_block - (LENGTH m + 1 + 16)) (word 0) ++
     int128_to_bytes (word_bytereverse (word (LENGTH m * 8)))`;;
 
-let take = define
-  `take (n : num) (l : A list) : A list =
-    SUB_LIST (0, n) l`;;
-
 let drop = define
   `drop (n : num) (l : A list) : A list =
     SUB_LIST (n, LENGTH l - n) l`;;
 
 let join_bytes_to_int64 = define
-  `join_bytes_to_int64  (bs : byte list) : int64 =
+  `join_bytes_to_int64 (bs : byte list) : int64 =
     word_join
       (word_join (word_join (EL 7 bs) (EL 6 bs) : int16) (word_join (EL 5 bs) (EL 4 bs) : int16) : int32)
       (word_join (word_join (EL 3 bs) (EL 2 bs) : int16) (word_join (EL 1 bs) (EL 0 bs) : int16) : int32)`;;
@@ -324,6 +320,24 @@ let sha512_ctx_from = define
     (sha512 (bytes_to_blocks m) (LENGTH m DIV num_bytes_per_block),
      word ((LENGTH m * 8) MOD (2 EXP 64)) : int64, word ((LENGTH m * 8) DIV (2 EXP 64)) : int64,
      bytes_mod_blocks m)`;;
+
+let int64_to_bytes = define
+  `int64_to_bytes (w : int64) : byte list =
+    [word_subword w (0, 8); word_subword w (8, 8);
+     word_subword w (16, 8); word_subword w (24, 8);
+     word_subword w (32, 8); word_subword w (40, 8);
+     word_subword w (48, 8); word_subword w (56, 8)]`;;
+    
+let hash_buffer_to_byte_list = define
+  `hash_buffer_to_byte_list (h : hash_t) : byte list =
+    int64_to_bytes (word_bytereverse (SHA512_A h)) ++
+    int64_to_bytes (word_bytereverse (SHA512_B h)) ++
+    int64_to_bytes (word_bytereverse (SHA512_C h)) ++
+    int64_to_bytes (word_bytereverse (SHA512_D h)) ++
+    int64_to_bytes (word_bytereverse (SHA512_E h)) ++
+    int64_to_bytes (word_bytereverse (SHA512_F h)) ++
+    int64_to_bytes (word_bytereverse (SHA512_G h)) ++
+    int64_to_bytes (word_bytereverse (SHA512_H h))`;;
 
 (*****************************************************************************)
 
@@ -366,7 +380,7 @@ let sha512_ctx_at = define
     (hash_buffer_at h ctx_p s /\
      read (memory :> bytes64 (word_add ctx_p (word (8 * 8)))) s = msg_len_lo /\
      read (memory :> bytes64 (word_add ctx_p (word (8 * 9)))) s = msg_len_hi /\
-     take (LENGTH cur_block) (read (memory :> bytelist (word_add ctx_p (word (8 * 10)), num_bytes_per_block)) s) = cur_block /\
+     read (memory :> bytelist (word_add ctx_p (word (8 * 10)), LENGTH cur_block)) s = cur_block /\
      read (memory :> bytes8 (word_add ctx_p (word 208))) s = word (LENGTH cur_block))`;;
 
 let msg_schedule_at = define
