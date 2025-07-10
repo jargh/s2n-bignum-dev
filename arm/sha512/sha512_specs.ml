@@ -295,6 +295,10 @@ let drop = define
   `drop (n : num) (l : A list) : A list =
     SUB_LIST (n, LENGTH l - n) l`;;
 
+let take = define
+  `take (n : num) (l : A list) : A list =
+    SUB_LIST (0, n) l`;;
+
 let join_bytes_to_int64 = define
   `join_bytes_to_int64 (bs : byte list) : int64 =
     word_join
