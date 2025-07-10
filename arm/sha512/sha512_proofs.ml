@@ -1107,7 +1107,7 @@ REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; num_bytes_per_blo
         CHEAT_TAC;
       (* Some zero padding *)
       ENSURES_WHILE_AUP_TAC
-        `LENGTH (bytes_mod_blocks m) + 1` `112` `pc + 0x49c` `pc + 0x4a4`
+        `LENGTH (bytes_mod_blocks m) + 1` `112` `pc + 0x4a4` `pc + 0x4a4`
         `\i s. // loop invariant
           read SP s = sp + word 720 /\ read X2 s = word i /\ read X19 s = ctx_p /\
           read X20 s = out_p /\ read X21 s = ctx_p + word 80 /\
@@ -1150,20 +1150,22 @@ REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; num_bytes_per_blo
             IMP_REWRITE_TAC [GSYM WORD_ADD; VAL_WORD_EQ; DIMINDEX_64] THEN
             ANTS_TAC THENL [SIMPLE_ARITH_TAC; ALL_TAC] THEN
             STRIP_TAC THEN
-            ARM_STEPS_TAC EXEC (294--296) THEN
-            POP_ASSUM MP_TAC THEN
-            SIMP_TAC [BITBLAST_RULE `!x:int64. x + word 18446744073709551505 = word_sub (x + word 1) (word 112)`] THEN
-            VAL_INT64_TAC `LENGTH (bytes_mod_blocks m) + 1` THEN
-            ASM_REWRITE_TAC [VAL_WORD_SUB_EQ_0] THEN
-            CONV_TAC WORD_REDUCE_CONV THEN
-            ASM_REWRITE_TAC [GSYM WORD_ADD] THEN STRIP_TAC THEN
-            ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC [WORD_ADD; REPLICATE; APPEND_NIL] THEN
+            ARM_STEPS_TAC EXEC [294] THEN
+            ENSURES_FINAL_STATE_TAC THEN
+            ASM_REWRITE_TAC [WORD_ADD; REPLICATE; APPEND_NIL] THEN
             CHEAT_TAC;
           (* Subgoal 3 : loop body *)
           REPEAT STRIP_TAC THEN
-            ENSURES_INIT_TAC "s295" THEN
+            ENSURES_INIT_TAC "s297_0" THEN
             RULE_ASSUM_TAC (REWRITE_RULE[constants_at; hash_buffer_at; EXPAND_HASH_THM]) THEN
             RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
+            ARM_STEPS_TAC EXEC (298--299) THEN
+            POP_ASSUM MP_TAC THEN
+            SIMP_TAC [BITBLAST_RULE `!x:int64. x + word 18446744073709551505 = word_sub (x + word 1) (word 112)`] THEN
+            VAL_INT64_TAC `i:num` THEN
+            ASM_REWRITE_TAC [VAL_WORD_SUB_EQ_0] THEN
+            CONV_TAC WORD_REDUCE_CONV THEN
+            ASM_REWRITE_TAC [GSYM WORD_ADD] THEN STRIP_TAC THEN
             ARM_STEPS_TAC EXEC (296--297) THEN
             ENSURES_FINAL_STATE_TAC THEN
             ASM_REWRITE_TAC [WORD_ADD] THEN
@@ -1177,18 +1179,8 @@ REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; num_bytes_per_blo
           (* Subgoal 4: backedge *)
           REPEAT STRIP_TAC THEN
             ENSURES_INIT_TAC "s297" THEN
-            RULE_ASSUM_TAC (REWRITE_RULE[constants_at; hash_buffer_at; EXPAND_HASH_THM]) THEN
-            RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
-            ARM_STEPS_TAC EXEC (298--299) THEN
-            POP_ASSUM MP_TAC THEN
-            VAL_INT64_TAC `i : num` THEN
-            ASM_REWRITE_TAC [VAL_WORD_SUB_EQ_0] THEN
-            CONV_TAC WORD_REDUCE_CONV THEN
-            ASM_REWRITE_TAC [] THEN STRIP_TAC THEN
             ENSURES_FINAL_STATE_TAC THEN
-            CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
-            ASM_REWRITE_TAC [] THEN
-            CHEAT_TAC;
+            ASM_REWRITE_TAC [];
           ALL_TAC ] THEN
         (* After the final loop *)
         ENSURES_INIT_TAC "s297" THEN
@@ -1229,7 +1221,7 @@ REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; num_bytes_per_blo
     (* The padding cannot fit into one final block *)
     (* ??? ALSO NEED TO SPLIT LENGTH (bytes_mod_blocks m) + 1 = 128 vs < 128 *)
     ENSURES_WHILE_AUP_TAC
-      `LENGTH (bytes_mod_blocks m) + 1` `128` `pc + 0x478` `pc + 0x480`
+      `LENGTH (bytes_mod_blocks m) + 1` `128` `pc + 0x480` `pc + 0x480`
       `\i s. // loop invariant
           read SP s = sp + word 720 /\ read X2 s = word i /\ read X19 s = ctx_p /\
           read X20 s = out_p /\ read X21 s = ctx_p + word 80 /\
@@ -1272,20 +1264,21 @@ REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; num_bytes_per_blo
         IMP_REWRITE_TAC [GSYM WORD_ADD; VAL_WORD_EQ; DIMINDEX_64] THEN
         ANTS_TAC THENL [SIMPLE_ARITH_TAC; ALL_TAC] THEN
         STRIP_TAC THEN
-        ARM_STEPS_TAC EXEC (288--290) THEN
+        ARM_STEPS_TAC EXEC [288] THEN
+        ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC [WORD_ADD; REPLICATE; APPEND_NIL] THEN
+        CHEAT_TAC;
+      (* Subgoal 3: loop body *)
+      REPEAT STRIP_TAC THEN
+        ENSURES_INIT_TAC "s288_0" THEN
+        RULE_ASSUM_TAC (REWRITE_RULE[constants_at; hash_buffer_at; EXPAND_HASH_THM]) THEN
+        RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
+        ARM_STEPS_TAC EXEC (289--290) THEN
         POP_ASSUM MP_TAC THEN
         SIMP_TAC [BITBLAST_RULE `!x:int64. x + word 18446744073709551489 = word_sub (x + word 1) (word 128)`] THEN
-        VAL_INT64_TAC `LENGTH (bytes_mod_blocks m) + 1` THEN
+        VAL_INT64_TAC `i : num` THEN
         ASM_REWRITE_TAC [VAL_WORD_SUB_EQ_0] THEN
         CONV_TAC WORD_REDUCE_CONV THEN
         ASM_REWRITE_TAC [GSYM WORD_ADD] THEN STRIP_TAC THEN
-        ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC [WORD_ADD; REPLICATE; APPEND_NIL] THEN
-        (* ??? Can't reach initialization point without strict inequality *) CHEAT_TAC;
-      (* Subgoal 3: loop body *)
-      REPEAT STRIP_TAC THEN
-        ENSURES_INIT_TAC "s286" THEN
-        RULE_ASSUM_TAC (REWRITE_RULE[constants_at; hash_buffer_at; EXPAND_HASH_THM]) THEN
-        RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
         ARM_STEPS_TAC EXEC (287--288) THEN
         ENSURES_FINAL_STATE_TAC THEN
         ASM_REWRITE_TAC [WORD_ADD] THEN
@@ -1293,23 +1286,12 @@ REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; num_bytes_per_blo
       (* Subgoal 4: backedge *)
       REPEAT STRIP_TAC THEN
         ENSURES_INIT_TAC "s288" THEN
-        RULE_ASSUM_TAC (REWRITE_RULE[constants_at; hash_buffer_at; EXPAND_HASH_THM]) THEN
-        RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
-        ARM_STEPS_TAC EXEC (289--290) THEN
-        POP_ASSUM MP_TAC THEN
-        VAL_INT64_TAC `i : num` THEN
-        ASM_REWRITE_TAC [VAL_WORD_SUB_EQ_0] THEN
-        CONV_TAC WORD_REDUCE_CONV THEN
-        ASM_REWRITE_TAC [] THEN STRIP_TAC THEN
         ENSURES_FINAL_STATE_TAC THEN
-        REWRITE_TAC [hash_buffer_at; EXPAND_HASH_THM] THEN
-        CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
-        ASM_REWRITE_TAC [] THEN
-        CHEAT_TAC;
+        ASM_REWRITE_TAC [];
       ALL_TAC ] THEN
     (* After the first loop *)
     ENSURES_WHILE_UP_TAC
-      `112` `pc + 0x49c` `pc + 0x4a4`
+      `112` `pc + 0x4a4` `pc + 0x4a4`
       `\i s. // loop invariant
           read SP s = sp + word 720 /\ read X2 s = word i /\ read X19 s = ctx_p /\
           read X20 s = out_p /\ read X21 s = ctx_p + word 80 /\
@@ -1353,11 +1335,73 @@ REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; num_bytes_per_blo
               REPLICATE (128 - (LENGTH (bytes_mod_blocks m) + 1)) (word 0))`;
             `pc : num`; `pc + 0x494`; `K_base : num`] 294 THEN
         RENAME_TAC `s294:armstate` `s293_ret:armstate` THEN
-        ARM_STEPS_TAC EXEC (294--decide whether to start the loop at cmp or below b)
-      ;
-      (* Subgoal 3: loop body *);
-      (* Subgoal 4: backedge *);
+        ARM_STEPS_TAC EXEC (294--295) THEN
+        ENSURES_FINAL_STATE_TAC THEN
+        ASM_REWRITE_TAC [WORD_ADD];
+      (* Subgoal 3: loop body *)
+      REPEAT STRIP_TAC THEN
+        ENSURES_INIT_TAC "s297_0" THEN
+        RULE_ASSUM_TAC (REWRITE_RULE[constants_at; hash_buffer_at; EXPAND_HASH_THM]) THEN
+        RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
+        ARM_STEPS_TAC EXEC (298--299) THEN
+        POP_ASSUM MP_TAC THEN
+        SIMP_TAC [BITBLAST_RULE `!x:int64. x + word 18446744073709551505 = word_sub (x + word 1) (word 112)`] THEN
+        VAL_INT64_TAC `i:num` THEN
+        ASM_REWRITE_TAC [VAL_WORD_SUB_EQ_0] THEN
+        CONV_TAC WORD_REDUCE_CONV THEN
+        ASM_REWRITE_TAC [GSYM WORD_ADD] THEN STRIP_TAC THEN
+        ARM_STEPS_TAC EXEC (296--297) THEN
+        ENSURES_FINAL_STATE_TAC THEN
+        ASM_REWRITE_TAC [WORD_ADD] THEN
+        CHEAT_TAC;
+      (* Subgoal 4: backedge *)
+      REPEAT STRIP_TAC THEN
+        ENSURES_INIT_TAC "s297" THEN
+        ENSURES_FINAL_STATE_TAC THEN
+        ASM_REWRITE_TAC [];
       ALL_TAC ]
+      (* After the final loop *)
+      ENSURES_INIT_TAC "s297" THEN
+        RULE_ASSUM_TAC (REWRITE_RULE[constants_at; hash_buffer_at; EXPAND_HASH_THM]) THEN
+        RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
+        ARM_STEPS_TAC EXEC (298--308) THEN
+        SUBGOAL_THEN
+        `hash_buffer_at
+          (sha512
+            (bytes_to_blocks
+              (m ++ [word 128] ++
+                REPLICATE (128 - (LENGTH (bytes_mod_blocks m) + 1)) (word 0)))
+            (LENGTH m DIV 128 + 1)) ctx_p s308` ASSUME_TAC THENL
+        [ REWRITE_TAC [hash_buffer_at; EXPAND_HASH_THM] THEN
+            CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
+            ASM_REWRITE_TAC [];
+          ALL_TAC] THEN
+        SUBGOAL_THEN `constants_at (word K_base) s308` ASSUME_TAC THENL [CHEAT_TAC; ALL_TAC] THEN
+        SUBGOAL_THEN
+          `msg_block_at
+            (bytes_to_one_block (REPLICATE 112 (word 0) ++
+              int128_to_bytes (word_bytereverse (word (LENGTH (m : byte list) * 8)))))
+            (ctx_p + word 80) s308` ASSUME_TAC THENL [CHEAT_TAC; ALL_TAC] THEN
+        ARM_SUBROUTINE_SIM_TAC
+          (SPEC_ALL sha512_mc, EXEC, 0, SPEC_ALL sha512_mc,
+            REWRITE_RULE [num_bytes_per_block] SHA512_PROCESS_BLOCK)
+          [ `sp + word 720 : int64`; `ctx_p:int64`; `sha512 (bytes_to_blocks
+              (m ++ [word 128] ++
+                REPLICATE (128 - (LENGTH (bytes_mod_blocks m) + 1)) (word 0)))
+            (LENGTH m DIV 128 + 1)`;
+            `ctx_p + word 80 : int64`;
+            `bytes_to_one_block (REPLICATE 112 (word 0) ++
+              int128_to_bytes (word_bytereverse (word (LENGTH (m : byte list) * 8))))`;
+            `pc : num`; `pc + 0x4d0`; `K_base : num`] 309 THEN
+        RENAME_TAC `s309:armstate` `s308_ret:armstate` THEN
+        (* ??? similar to the equality case *)
+        SUBGOAL_THEN `hash_buffer_at (sha512 (bytes_to_blocks (pad m)) (LENGTH (pad m) DIV 128)) ctx_p s308_ret`
+          (ASSUME_TAC o CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV) o REWRITE_RULE [hash_buffer_at; EXPAND_HASH_THM]) THENL
+        [ CHEAT_TAC; ALL_TAC ] THEN
+        ARM_STEPS_TAC EXEC (309--336) THEN
+        ENSURES_FINAL_STATE_TAC THEN
+        ASM_REWRITE_TAC [hash_buffer_to_byte_list]
+
   ]
 
 
