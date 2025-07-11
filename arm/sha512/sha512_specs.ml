@@ -359,9 +359,8 @@ let hash_buffer_at = define
      read (memory :> bytes64 (word_add h_p (word (8 * 6)))) s, read (memory :> bytes64 (word_add h_p (word (8 * 7)))) s) = h`;;
 
 let byte_list_at = define
-  `byte_list_at (m : byte list) (l : num) (m_p : int64) s =
-    (LENGTH m = l /\
-     ! i. i < l ==> read (memory :> bytes8(word_add m_p (word i))) s = EL i m)`;;
+  `byte_list_at (m : byte list) (m_p : int64) s =
+    ! i. i < LENGTH m ==> read (memory :> bytes8(word_add m_p (word i))) s = EL i m`;;
 
 let msg_block_at = define
   `msg_block_at (m : num -> int64) (m_p : int64) s =
@@ -384,7 +383,7 @@ let sha512_ctx_at = define
     (hash_buffer_at h ctx_p s /\
      read (memory :> bytes64 (word_add ctx_p (word (8 * 8)))) s = msg_len_lo /\
      read (memory :> bytes64 (word_add ctx_p (word (8 * 9)))) s = msg_len_hi /\
-     read (memory :> bytelist (word_add ctx_p (word (8 * 10)), LENGTH cur_block)) s = cur_block /\
+     byte_list_at cur_block (word_add ctx_p (word (8 * 10))) s /\
      read (memory :> bytes8 (word_add ctx_p (word 208))) s = word (LENGTH cur_block))`;;
 
 let msg_schedule_at = define

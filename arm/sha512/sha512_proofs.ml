@@ -374,10 +374,11 @@ let SHA512_INIT = prove(`! ctx_p pc retpc K_base.
   REWRITE_TAC [NONOVERLAPPING_CLAUSES] THEN REPEAT STRIP_TAC THEN
     ARM_SIM_TAC EXEC (173--212) THEN
     ASM_REWRITE_TAC [sha512_ctx_at; sha512_ctx_from; hash_buffer_at; h_init; h_a; h_b; h_c; h_d; h_e; h_f; h_g; h_h;
-                     sha512; sha512'; bytes_to_blocks; num_bytes_per_block; bytes_mod_blocks; drop;
+                     sha512; sha512'; bytes_to_blocks; num_bytes_per_block; bytes_mod_blocks; drop; byte_list_at;
                      LENGTH; VAL_WORD_0; MULT; DIV_0; SUB_LIST_CLAUSES; ARITH] THEN
     CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
-    REWRITE_TAC[LENGTH; SUB_LIST_CLAUSES; MOD_0; GSYM bytes_loaded; bytes_loaded_nil]);;
+    REWRITE_TAC[LENGTH; MOD_0] THEN
+    CONV_TAC EXPAND_CASES_CONV);;
 
 let READ_MEMORY_SPLIT_CONV =
   let baseconv =
@@ -762,7 +763,7 @@ let SHA512_PROCESS_BLOCKS = prove(
     aligned 16 sp /\
     adrp_within_bounds (word K_base) (word (pc + 0x120)) /\
     PAIRWISE nonoverlapping
-      [(word pc : int64, 1344); (h_p, 640); (m_p, num_bytes_per_block * val l);
+      [(word pc : int64, 1344); (h_p, 64); (m_p, num_bytes_per_block * val l);
       (word_sub sp (word 768), 768); (word K_base, 640)] ==>
       ensures arm
       (\s. aligned_bytes_loaded s (word pc) (sha512_mc pc K_base) /\
@@ -890,6 +891,238 @@ let SHA512_PROCESS_BLOCKS = prove(
 let rec back_up n = if n > 1 then (b(); back_up (n-1)) else b();;
 
 
+let pth = prove
+   (`!k pc1 pc2 (loopinvariant:num->A->bool).
+       C ,, C = C /\
+       ~(k = 0) /\
+       ensures step (\s. program_decodes s /\
+                         read pcounter s = word pc /\
+                         precondition s)
+                    (\s. program_decodes s /\
+                         read pcounter s = word pc1 /\
+                         loopinvariant 0 s)
+                    C /\
+       (!i. i < k /\ ~(i = k) /\ ~(k = 0) /\ 0 < k
+            ==> ensures step (\s. program_decodes s /\
+                                  read pcounter s = word pc1 /\
+                                  loopinvariant i s)
+                             (\s. program_decodes s /\
+                                  read pcounter s = word pc2 /\
+                                  loopinvariant (i + 1) s)
+                             C) /\
+       (!i. 0 < i /\ i < k /\ ~(i = k) /\ ~(i = 0) /\ ~(k = 0) /\ 0 < k
+            ==> ensures step (\s. program_decodes s /\
+                                  read pcounter s = word pc2 /\
+                                  loopinvariant i s)
+                             (\s. program_decodes s /\
+                                  read pcounter s = word pc1 /\
+                                  loopinvariant i s)
+                             C) /\
+       ensures step (\s. program_decodes s /\
+                         read pcounter s = word pc2 /\
+                         loopinvariant k s)
+                     postcondition
+                     C
+       ==> ensures step
+             (\s. program_decodes s /\
+                  read pcounter s = word pc /\
+                  precondition s)
+             postcondition
+             C`,
+    REPEAT GEN_TAC THEN GEN_REWRITE_TAC I [IMP_CONJ] THEN
+    DISCH_THEN(LABEL_TAC "*" o MATCH_MP
+      (ONCE_REWRITE_RULE[IMP_CONJ] ENSURES_TRANS_SIMPLE)) THEN
+    REWRITE_TAC[CONJ_ASSOC] THEN
+    DISCH_THEN(CONJUNCTS_THEN2 ASSUME_TAC MP_TAC) THEN
+    USE_THEN "*" (fun th ->
+      MATCH_MP_TAC(REWRITE_RULE[IMP_CONJ] th)) THEN
+    POP_ASSUM MP_TAC THEN REWRITE_TAC[GSYM CONJ_ASSOC] THEN
+    DISCH_THEN(CONJUNCTS_THEN2 ASSUME_TAC MP_TAC) THEN
+    DISCH_THEN(CONJUNCTS_THEN2 MP_TAC ASSUME_TAC) THEN
+    USE_THEN "*" (fun th ->
+      MATCH_MP_TAC(REWRITE_RULE[IMP_CONJ_ALT] th)) THEN
+    FIRST_ASSUM(SUBST1_TAC o MATCH_MP (ARITH_RULE
+     `~(k = 0) ==> k = (k - 1) + 1`)) THEN
+    FIRST_X_ASSUM(MP_TAC o MATCH_MP (ARITH_RULE `~(k = 0) ==> k - 1 < k`)) THEN
+    SPEC_TAC(`k - 1`,`j:num`) THEN MATCH_MP_TAC num_INDUCTION THEN
+    ASM_REWRITE_TAC[ADD1] THEN CONJ_TAC THENL
+     [STRIP_TAC THEN FIRST_X_ASSUM(MATCH_MP_TAC o SPEC `0` o CONJUNCT1) THEN
+      ASM_ARITH_TAC;
+      X_GEN_TAC `i:num`] THEN
+    ASM_CASES_TAC `i + 1 < k` THEN ASM_REWRITE_TAC[] THEN
+    FIRST_ASSUM(ASSUME_TAC o MATCH_MP (ARITH_RULE `i + 1 < k ==> i < k`)) THEN
+    ASM_REWRITE_TAC[] THEN
+    USE_THEN "*" (fun th ->
+      MATCH_MP_TAC(REWRITE_RULE[IMP_CONJ_ALT] th)) THEN
+    FIRST_X_ASSUM(CONJUNCTS_THEN (MP_TAC o SPEC `i + 1`)) THEN
+    MATCH_MP_TAC(TAUT
+     `(p /\ r) /\ (q /\ s ==> t) ==> (p ==> q) ==> (r ==> s) ==> t`) THEN
+    ASM_REWRITE_TAC[ENSURES_TRANS_SIMPLE] THEN ASM_ARITH_TAC);;
+
+  let pth_0 = prove
+ (`!k pc1 pc2 (loopinvariant:num->A->bool).
+     C ,, C = C /\
+     ensures step (\s. program_decodes s /\
+                       read pcounter s:N word = word pc /\
+                       precondition s)
+                  (\s. program_decodes s /\
+                       read pcounter s = word pc2 /\
+                       loopinvariant 0 s)
+                  C /\
+     (!i. i < k /\ ~(i = k) /\ ~(k = 0) /\ 0 < k
+          ==> ensures step (\s. program_decodes s /\
+                                read pcounter s = word pc1 /\
+                                loopinvariant i s)
+                           (\s. program_decodes s /\
+                                read pcounter s = word pc2 /\
+                                loopinvariant (i + 1) s)
+                           C) /\
+     (!i. i < k /\ ~(i = k) /\ ~(k = 0) /\ 0 < k
+          ==> ensures step (\s. program_decodes s /\
+                                read pcounter s = word pc2 /\
+                                loopinvariant i s)
+                           (\s. program_decodes s /\
+                                read pcounter s = word pc1 /\
+                                loopinvariant i s)
+                           C) /\
+     ensures step (\s. program_decodes s /\
+                       read pcounter s = word pc2 /\
+                       loopinvariant k s)
+                   postcondition
+                   C
+     ==> ensures step
+           (\s. program_decodes s /\
+                read pcounter s = word pc /\
+                precondition s)
+           postcondition
+           C`,
+  REPEAT GEN_TAC THEN ASM_CASES_TAC `k = 0` THENL
+   [ASM_REWRITE_TAC[] THEN ASM_MESON_TAC[ENSURES_TRANS];
+    STRIP_TAC THEN MATCH_MP_TAC pth THEN
+    MAP_EVERY EXISTS_TAC
+     [`k:num`; `pc1:num`; `pc2:num`; `loopinvariant:num->A->bool`] THEN
+    ASM_SIMP_TAC[] THEN
+    FIRST_ASSUM(MATCH_MP_TAC o MATCH_MP
+     (REWRITE_RULE[TAUT `p /\ q /\ r ==> s <=> q ==> p /\ r ==> s`]
+        ENSURES_TRANS_SIMPLE)) THEN
+    ASM_REWRITE_TAC[] THEN
+    FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]);;
+
+let ENSURES_WHILE_UP_OR_0_TAC =
+ fun k pc1 pc2 iv ->
+    (MATCH_MP_TAC pth_0 THEN
+     MAP_EVERY EXISTS_TAC [k; pc1; pc2; iv] THEN
+     BETA_TAC THEN
+     CONJ_TAC THENL [MAYCHANGE_IDEMPOT_TAC; ALL_TAC]);;
+
+
+let rth = prove
+   (`!a b pc1 pc2 (loopinvariant:num->A->bool).
+       C ,, C = C /\
+       a < b /\
+       ensures step (\s. program_decodes s /\
+                         read pcounter s = word pc /\
+                         precondition s)
+                    (\s. program_decodes s /\
+                         read pcounter s = word pc1 /\
+                         loopinvariant a s)
+                    C /\
+       (!i. a <= i /\ i < b /\ ~(i = b) /\ ~(b = 0) /\ 0 < b
+            ==> ensures step (\s. program_decodes s /\
+                                  read pcounter s = word pc1 /\
+                                  loopinvariant i s)
+                             (\s. program_decodes s /\
+                                  read pcounter s = word pc2 /\
+                                  loopinvariant (i + 1) s)
+                             C) /\
+       (!i. a < i /\ i < b /\ ~(i = b) /\ ~(i = 0) /\
+            ~(i = a) /\ ~(b = 0) /\ 0 < b
+            ==> ensures step (\s. program_decodes s /\
+                                  read pcounter s = word pc2 /\
+                                  loopinvariant i s)
+                             (\s. program_decodes s /\
+                                  read pcounter s = word pc1 /\
+                                  loopinvariant i s)
+                             C) /\
+       ensures step (\s. program_decodes s /\
+                         read pcounter s = word pc2 /\
+                         loopinvariant b s)
+                     postcondition
+                     C
+       ==> ensures step
+             (\s. program_decodes s /\
+                  read pcounter s = word pc /\
+                  precondition s)
+             postcondition
+             C`,
+    REPEAT STRIP_TAC THEN MATCH_MP_TAC pth THEN
+    MAP_EVERY EXISTS_TAC [`b - a:num`; `pc1:num`; `pc2:num`;
+                          `\i. (loopinvariant:num->A->bool) (a + i)`] THEN
+    ASM_REWRITE_TAC[SUB_EQ_0; NOT_LE; ADD_CLAUSES] THEN
+    ASM_SIMP_TAC[ARITH_RULE `a:num < b ==> a + b - a = b`] THEN
+    REWRITE_TAC[ADD_ASSOC] THEN REPEAT STRIP_TAC THEN
+    FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC);;
+
+
+let rth_0 = prove
+   (`!a b pc1 pc2 (loopinvariant:num->A->bool).
+       C ,, C = C /\
+       a <= b /\
+       ensures step (\s. program_decodes s /\
+                         read pcounter s : N word = word pc /\
+                         precondition s)
+                    (\s. program_decodes s /\
+                         read pcounter s = word pc2 /\
+                         loopinvariant a s)
+                    C /\
+       (!i. a <= i /\ i < b /\ ~(i = b) /\ ~(b = 0) /\ 0 < b
+            ==> ensures step (\s. program_decodes s /\
+                                  read pcounter s = word pc1 /\
+                                  loopinvariant i s)
+                             (\s. program_decodes s /\
+                                  read pcounter s = word pc2 /\
+                                  loopinvariant (i + 1) s)
+                             C) /\
+       (!i. a <= i /\ i < b /\ ~(i = b) /\
+            ~(b = 0) /\ 0 < b
+            ==> ensures step (\s. program_decodes s /\
+                                  read pcounter s = word pc2 /\
+                                  loopinvariant i s)
+                             (\s. program_decodes s /\
+                                  read pcounter s = word pc1 /\
+                                  loopinvariant i s)
+                             C) /\
+       ensures step (\s. program_decodes s /\
+                         read pcounter s = word pc2 /\
+                         loopinvariant b s)
+                     postcondition
+                     C
+       ==> ensures step
+             (\s. program_decodes s /\
+                  read pcounter s = word pc /\
+                  precondition s)
+             postcondition
+             C`,
+  REPEAT GEN_TAC THEN ASM_CASES_TAC `a:num = b` THENL
+   [ASM_REWRITE_TAC[] THEN ASM_MESON_TAC[ENSURES_TRANS];
+    STRIP_TAC THEN MATCH_MP_TAC rth THEN
+    MAP_EVERY EXISTS_TAC
+     [`a:num`; `b:num`; `pc1:num`; `pc2:num`; `loopinvariant:num->A->bool`] THEN
+    ASM_SIMP_TAC[LT_LE] THEN
+    FIRST_ASSUM(MATCH_MP_TAC o MATCH_MP
+     (REWRITE_RULE[TAUT `p /\ q /\ r ==> s <=> q ==> p /\ r ==> s`]
+        ENSURES_TRANS_SIMPLE)) THEN
+    ASM_REWRITE_TAC[] THEN
+    FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]);;
+
+let ENSURES_WHILE_AUP_OR_0_TAC =
+  fun a b pc1 pc2 iv ->
+    (MATCH_MP_TAC rth_0 THEN
+     MAP_EVERY EXISTS_TAC [a; b; pc1; pc2; iv] THEN
+     BETA_TAC THEN
+     CONJ_TAC THENL [MAYCHANGE_IDEMPOT_TAC; ALL_TAC]);;
+
+
 let BYTES_MOD_BLOCKS_SUB_LIST = prove(
   `! m. bytes_mod_blocks m =
     SUB_LIST
@@ -912,69 +1145,6 @@ let BLS_LS = prove(
   `! x y : (N)word.
     ~(val y <= val x /\ ~(val(word_sub x y) = 0)) <=> val x <= val y`,
   WORD_ARITH_TAC);;
-
-  (*
-(* void sha512_update(sha512_ctx *sha, const void *in_data, size_t in_len) *)
-g `! sp ctx_p m0 m_p m l pc retpc K_base.
-    aligned 16 sp /\
-    adrp_within_bounds (word K_base) (word (pc + 0x120)) /\
-    PAIRWISE nonoverlapping
-      [(word pc : int64, 1344); (ctx_p, 216); (m_p, val l);
-       (word_sub sp (word 816), 816); (word K_base, 640)] /\
-    LENGTH m0 + LENGTH m < 2 EXP 125 ==>
-    ensures arm
-    (\s. aligned_bytes_loaded s (word pc) (sha512_mc pc K_base) /\
-         read PC s = word (pc + 0x350) /\
-         read X30 s = word retpc /\
-         read SP s = sp /\
-         read X0 s = ctx_p /\
-         read X1 s = m_p /\
-         read X2 s = l /\
-         sha512_ctx_at m0 ctx_p s /\
-         byte_list_at m (val l) m_p s /\
-         constants_at (word K_base) s)
-    (\s. read PC s = word retpc /\
-         sha512_ctx_at (m0 ++ m) ctx_p s)
-    (MAYCHANGE [X0; X1; X2; X3; X4; X5; X6; X7; X8; X9; X10;
-                  X11; X12; X13; X14; X15; X16; X17; X18; PC] ,,
-                  MAYCHANGE [memory :> bytes(ctx_p, 216)] ,,
-     MAYCHANGE [memory :> bytes(word_sub sp (word 816), 816)] ,,
-     MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`;;
-
-  REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL] THEN
-    WORD_FORALL_OFFSET_TAC 816 THEN
-    REPEAT STRIP_TAC THEN
-    ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
-    ENSURES_PRESERVED_TAC "x29_init" `X29` THEN
-    ENSURES_EXISTING_PRESERVED_TAC `X30` THEN
-    ENSURES_PRESERVED_TAC "x19_init" `X19` THEN
-    ENSURES_PRESERVED_TAC "x20_init" `X20` THEN
-    ENSURES_PRESERVED_TAC "x21_init" `X21` THEN
-
-    ENSURES_INIT_TAC "s212" THEN
-    RULE_ASSUM_TAC (REWRITE_RULE[sha512_ctx_at; byte_list_at; constants_at;
-                    sha512_ctx_from; num_bytes_per_block;
-                    hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC]) THEN
-    RULE_ASSUM_TAC (CONV_RULE (TOP_DEPTH_CONV let_CONV)) THEN
-    RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV))
-    POP_ASSUM_LIST (MP_TAC o end_itlist CONJ o rev) THEN
-    STRIP_TAC THEN
-    ARM_STEPS_TAC EXEC (213--228) THEN
-    POP_ASSUM MP_TAC THEN
-    IMP_REWRITE_TAC [word_zx; VAL_WORD_EQ; DIMINDEX_8; DIMINDEX_32; DIMINDEX_64] THEN
-    ASSUME_TAC (REWRITE_RULE [num_bytes_per_block] (SPEC `m0 : byte list` LENGTH_BYTES_MOD_BLOCKS_LT)) THEN
-    REPEAT (ANTS_TAC THENL [SIMPLE_ARITH_TAC; ALL_TAC]) THEN
-    COND_CASES_TAC THENL
-    [ (* `bytes_mod_blocks m0` is empty *)
-      STRIP_TAC THEN
-      ARM_STEPS_TAC EXEC (297--298) THEN
-      POP_ASSUM MP_TAC THEN COND_CASES_TAC THENL
-      [ STRIP_TAC THEN
-        ARM_STEPS_TAC EXEC (409--412) THEN
-        ;
-      ]
-      ;
-    ] *)
 
 let DOUBLE_INCL = prove(
   `! x y. (x <=> y) <=> ((x ==> y) /\ (y ==> x))`,
@@ -1007,6 +1177,214 @@ let BYTELIST_APPEND = prove(
     REPEAT STRIP_TAC THEN
     ASM_REWRITE_TAC [bytes_loaded_append]);;
 
+
+(* void sha512_update(sha512_ctx *sha, const void *in_data, size_t in_len) *)
+g `! sp ctx_p m0 m_p m pc retpc K_base.
+    aligned 16 sp /\
+    adrp_within_bounds (word K_base) (word (pc + 0x120)) /\
+    PAIRWISE nonoverlapping
+      [(word pc : int64, 1344); (ctx_p, 216); (m_p, LENGTH m);
+       (word_sub sp (word 816), 816); (word K_base, 640)] /\
+    LENGTH m < 2 EXP 64 /\
+    LENGTH m0 + LENGTH m < 2 EXP 125 ==>
+    ensures arm
+    (\s. aligned_bytes_loaded s (word pc) (sha512_mc pc K_base) /\
+         read PC s = word (pc + 0x350) /\
+         read X30 s = word retpc /\
+         read SP s = sp /\
+         read X0 s = ctx_p /\
+         read X1 s = m_p /\
+         read X2 s = word (LENGTH m) /\
+         sha512_ctx_at m0 ctx_p s /\
+         byte_list_at m m_p s /\
+         constants_at (word K_base) s)
+    (\s. read PC s = word retpc /\
+         sha512_ctx_at (m0 ++ m) ctx_p s)
+    (MAYCHANGE [X0; X1; X2; X3; X4; X5; X6; X7; X8; X9; X10;
+                  X11; X12; X13; X14; X15; X16; X17; X18; PC] ,,
+                  MAYCHANGE [memory :> bytes(ctx_p, 216)] ,,
+     MAYCHANGE [memory :> bytes(word_sub sp (word 816), 816)] ,,
+     MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`;;
+
+  REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL] THEN
+    WORD_FORALL_OFFSET_TAC 816 THEN
+    REPEAT STRIP_TAC THEN
+    ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
+    ENSURES_PRESERVED_TAC "x29_init" `X29` THEN
+    ENSURES_EXISTING_PRESERVED_TAC `X30` THEN
+    ENSURES_PRESERVED_TAC "x19_init" `X19` THEN
+    ENSURES_PRESERVED_TAC "x20_init" `X20` THEN
+    ENSURES_PRESERVED_TAC "x21_init" `X21` THEN
+
+    ASM_CASES_TAC `LENGTH (bytes_mod_blocks m0) = 0` THENL
+    [ (* cur_pos is zero *)
+      SUBGOAL_THEN `LENGTH (bytes_mod_blocks m) > 0` ASSUME_TAC THENL
+        [ CHEAT_TAC; ALL_TAC ] THEN
+        ENSURES_WHILE_UP_TAC
+          `LENGTH (bytes_mod_blocks m)` `pc + 0x41c` `pc + 0x41c`
+          `\i s. // loop invariant
+            read SP s = sp + word 768 /\ read X1 s = ctx_p + word 80 /\
+            read X4 s = word i /\ read X19 s = m_p + word (LENGTH m DIV 128 * 128) /\
+            read X20 s = word (LENGTH (bytes_mod_blocks m)) /\ read X21 s = ctx_p /\
+            read (memory :> bytes64 (sp + word 784)) s = x19_init /\
+            read (memory :> bytes64 (sp + word 792)) s = x20_init /\
+            read (memory :> bytes64 (sp + word 800)) s = x21_init /\
+            read (memory :> bytes64 (sp + word 768)) s = x29_init /\
+            read (memory :> bytes64 (sp + word 776)) s = word retpc /\
+            read (memory :> bytelist (word_add ctx_p (word 80), i)) s = take i (bytes_mod_blocks m) /\
+            byte_list_at m m_p s /\
+            ???? Should I change the definition of byte_list_at to
+            use bytelist? Does that cause problem with symbolic simulation where a single byte in the list is accessed? But bytelist may work better with symbolic simulation?
+            hash_buffer_at (sha512 (bytes_to_blocks (m0 ++ m)) (LENGTH (m0 ++ m) DIV 128)) ctx_p s /\
+            read (memory :> bytes64 (ctx_p + word 64)) s = word ((LENGTH (m0 ++ m) * 8) MOD 2 EXP 64) /\
+            read (memory :> bytes64 (ctx_p + word 72)) s = word ((LENGTH (m0 ++ m) * 8) DIV 2 EXP 64)` THEN
+        REPEAT CONJ_TAC THENL
+        [ (* Subgoal 1: non-zero iterations *)
+          SIMPLE_ARITH_TAC;
+          (* Subgoal 2: initialization *)
+          ENSURES_INIT_TAC "s212" THEN
+            RULE_ASSUM_TAC (REWRITE_RULE[sha512_ctx_at; byte_list_at; constants_at;
+                            sha512_ctx_from; num_bytes_per_block;
+                            hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC]) THEN
+            RULE_ASSUM_TAC (CONV_RULE (TOP_DEPTH_CONV let_CONV)) THEN
+            RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
+            POP_ASSUM_LIST (MP_TAC o end_itlist CONJ o rev) THEN
+            STRIP_TAC THEN
+            ARM_STEPS_TAC EXEC (213--228) THEN
+            ARM_STEPS_TAC EXEC (249--250) THEN
+            POP_ASSUM MP_TAC THEN
+            COND_CASES_TAC THENL
+            [ (* No new block to be processed *)
+              STRIP_TAC THEN
+                ARM_STEPS_TAC EXEC (258--260) THEN
+                ENSURES_FINAL_STATE_TAC THEN
+                ASM_REWRITE_TAC [take; SUB_LIST_CLAUSES; component_compose; o_DEF; read; bytelist_clauses] THEN
+                CHEAT_TAC;
+              (* Some new block to be processed *)
+              STRIP_TAC THEN
+                ARM_STEPS_TAC EXEC (251--257) THEN
+                RULE_ASSUM_TAC (REWRITE_RULE [WORD_BLAST `!l:int64. word_ushr l 7 = word (val l DIV 128)`]) THEN
+                VAL_INT64_TAC `LENGTH (m:byte list)` THEN
+                POP_ASSUM (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th])) THEN
+                SUBGOAL_THEN `hash_buffer_at (sha512 (bytes_to_blocks m0) (LENGTH m0 DIV 128)) ctx_p s257 /\
+                    msg_blocks_at (bytes_to_blocks m) (LENGTH (m:byte list) DIV 128) m_p s257 /\
+                    constants_at (word K_base) s257` ASSUME_TAC THENL
+                  [CHEAT_TAC; ALL_TAC] THEN
+                SUBGOAL_THEN `128 * val (word (LENGTH (m:byte list) DIV 128):int64) <= LENGTH m` ASSUME_TAC THENL
+                [ CHEAT_TAC; ALL_TAC ] THEN
+                VAL_INT64_TAC `LENGTH (m:byte list) DIV 128` THEN
+                SUBGOAL_THEN `aligned 16 ((sp:int64) + word 768)` ASSUME_TAC THENL
+                [ CHEAT_TAC; ALL_TAC ] THEN ?????
+                ARM_SUBROUTINE_SIM_TAC
+                  (SPEC_ALL sha512_mc, EXEC, 0, SPEC_ALL sha512_mc,
+                    REWRITE_RULE [num_bytes_per_block] SHA512_PROCESS_BLOCKS)
+                  [ `sp + word 768 : int64`; `ctx_p:int64`; `sha512 (bytes_to_blocks m0) (LENGTH m0 DIV 128)`;
+                    `m_p : int64`; `bytes_to_blocks m`; `word (LENGTH (m:byte list) DIV 128) : int64`;
+                    `pc : num`; `pc + 0x404`; `K_base : num`] 258 THEN
+                RENAME_TAC `s258:armstate` `s257_ret:armstate` THEN
+                ARM_STEPS_TAC EXEC (258--260) THEN
+                ENSURES_FINAL_STATE_TAC THEN
+                ASM_REWRITE_TAC [take; SUB_LIST_CLAUSES; component_compose; o_DEF; read; bytelist_clauses] THEN
+                CHEAT_TAC
+            ];
+          (* Subgoal 3: loop body *)
+          REPEAT STRIP_TAC THEN
+            ENSURES_INIT_TAC "s263_0" THEN
+            ARM_STEPS_TAC EXEC (264--265) THEN
+            POP_ASSUM MP_TAC THEN
+            ASSUME_TAC (REWRITE_RULE [num_bytes_per_block]
+              (SPEC `m : byte list` LENGTH_BYTES_MOD_BLOCKS_LT)) THEN
+            VAL_INT64_TAC `i:num` THEN
+            VAL_INT64_TAC `LENGTH (bytes_mod_blocks m)` THEN
+            ASM_REWRITE_TAC [VAL_WORD_SUB_EQ_0] THEN STRIP_TAC
+            ARM_STEPS_TAC EXEC (261--263) THEN
+            ENSURES_FINAL_STATE_TAC THEN
+            ASM_REWRITE_TAC [] THEN
+            CHEAT_TAC;
+          (* Subgoal 4: back edge *);
+          REPEAT STRIP_TAC THEN
+            ENSURES_INIT_TAC "s263" THEN
+            ENSURES_FINAL_STATE_TAC THEN
+            ASM_REWRITE_TAC []
+          ALL_TAC ] THEN
+        (* After the only loop *)
+        ASSUME_TAC (REWRITE_RULE [num_bytes_per_block]
+          (SPEC `m : byte list` LENGTH_BYTES_MOD_BLOCKS_LT)) THEN
+        REWRITE_TAC [sha512_ctx_at; byte_list_at; constants_at;
+                        sha512_ctx_from; num_bytes_per_block;
+                        hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
+        CONV_TAC (TOP_DEPTH_CONV let_CONV) THEN
+        CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
+        ENSURES_INIT_TAC "s263" THEN
+        ARM_STEPS_TAC EXEC (264--270) THEN
+        ENSURES_FINAL_STATE_TAC THEN
+        ASM_REWRITE_TAC [] THEN
+        CHEAT_TAC
+      (* cur_pos is non-zero *)
+      ENSURES_WHILE_UP_TAC
+        `MIN (128 - LENGTH (bytes_mod_blocks m0)) (LENGTH (m:byte list))` `pc + 0x3c0` `pc + 0x3c0`
+        `\i s. // loop invariant
+          read SP s = sp + word 768 /\
+          read X0 s = word (MIN (128 - LENGTH (bytes_mod_blocks m0)) (LENGTH m)) /\ 
+          read X1 s = ctx_p + word 80 /\ read X2 s = word i /\
+          read X4 s = word (LENGTH (bytes_mod_blocks m0) + i) /\ read X19 s = m_p /\
+          read X20 s = word (LENGTH m) /\ read X21 s = ctx_p /\
+          read (memory :> bytes64 (sp + word 784)) s = x19_init /\
+          read (memory :> bytes64 (sp + word 792)) s = x20_init /\
+          read (memory :> bytes64 (sp + word 800)) s = x21_init /\
+          read (memory :> bytes64 (sp + word 768)) s = x29_init /\
+          read (memory :> bytes64 (sp + word 776)) s = word retpc /\
+          read (memory :> bytelist (word_add ctx_p (word 80), LENGTH (bytes_mod_blocks m0) + i)) s
+            = bytes_mod_blocks m0 ++ take i m /\
+          byte_list_at m m_p s /\
+          hash_buffer_at (sha512 (bytes_to_blocks (m0 ++ m)) (LENGTH (m0 ++ m) DIV 128)) ctx_p s /\
+          read (memory :> bytes64 (ctx_p + word 64)) s = word ((LENGTH (m0 ++ m) * 8) MOD 2 EXP 64) /\
+          read (memory :> bytes64 (ctx_p + word 72)) s = word ((LENGTH (m0 ++ m) * 8) DIV 2 EXP 64)` THEN
+      REPEAT CONJ_TAC THENL
+      [ (* Subgoal 1: non-zero iterations ???*)
+        CHEAT_TAC;
+        (* Subgoal 2: initialization *)
+        CHEAT_TAC;
+        (* Subgoal 3: loop body *)
+        CHEAT_TAC;
+        (* Subgoal 4: backedge *)
+        CHEAT_TAC;
+        ALL_TAC ] THEN
+      (* After the first loop *)
+      ASM_CASES_TAC `LENGTH (m:byte list) < 128 - LENGTH (bytes_mod_blocks m0)` THENL
+      [ (* All input transferred, no processing required *)
+        CHEAT_TAC;
+        (* Need to process the filled block buffer *)
+        ENSURES_WHILE_UP_TAC
+          `LENGTH (bytes_mod_blocks (m0 ++ m))` `pc + 0x41c` `pc + 0x41c`
+          `\i s. // loop invariant
+            read SP s = sp + word 768 /\ read X1 s = ctx_p + word 80 /\
+            read X4 s = word i /\ read X19 s = m_p + word (LENGTH (m0 ++ m) DIV 128 * 128 - LENGTH m0) /\
+            read X20 s = word (LENGTH (bytes_mod_blocks (m0 ++ m))) /\ read X21 s = ctx_p /\
+            read (memory :> bytes64 (sp + word 784)) s = x19_init /\
+            read (memory :> bytes64 (sp + word 792)) s = x20_init /\
+            read (memory :> bytes64 (sp + word 800)) s = x21_init /\
+            read (memory :> bytes64 (sp + word 768)) s = x29_init /\
+            read (memory :> bytes64 (sp + word 776)) s = word retpc /\
+            read (memory :> bytelist (word_add ctx_p (word 80), i)) s = take i (bytes_mod_blocks (m0 ++ m)) /\
+            byte_list_at m m_p s /\
+            hash_buffer_at (sha512 (bytes_to_blocks (m0 ++ m)) (LENGTH (m0 ++ m) DIV 128)) ctx_p s /\
+            read (memory :> bytes64 (ctx_p + word 64)) s = word ((LENGTH (m0 ++ m) * 8) MOD 2 EXP 64) /\
+            read (memory :> bytes64 (ctx_p + word 72)) s = word ((LENGTH (m0 ++ m) * 8) DIV 2 EXP 64)` THEN
+          REPEAT CONJ_TAC THENL
+          [ (* Subgoal 1: non-zero iterations ???*)
+            CHEAT_TAC;
+            (* Subgoal 2: initialization *)
+            CHEAT_TAC; (* Will need to use a COND_CASES_TAC here *)
+            (* Subgoal 3: loop body *)
+            CHEAT_TAC;
+            (* Subgoal 4: backedge *)
+            CHEAT_TAC;
+            ALL_TAC ] THEN
+          (* After the second loop *)
+          CHEAT_TAC ] ]
+
+
 (* void sha512_final(uint8_t out[SHA512_DIGEST_LENGTH], sha512_ctx *sha) *)
 g `! sp out_p ctx_p m pc retpc K_base.
     aligned 16 sp /\
@@ -1027,7 +1405,7 @@ g `! sp out_p ctx_p m pc retpc K_base.
     (\s. read PC s = word retpc /\
         byte_list_at (hash_buffer_to_byte_list
           (sha512 (bytes_to_blocks (pad m)) (LENGTH (pad m) DIV num_bytes_per_block)))
-          64 out_p s)
+          out_p s)
     (MAYCHANGE [X0; X1; X2; X3; X4; X5; X6; X7; X8; X9; X10; X11;
                 X12; X13; X14; X15; X16; X17; X18; PC] ,,
      MAYCHANGE [memory :> bytes(ctx_p, 216)] ,,
@@ -1102,7 +1480,7 @@ REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; num_bytes_per_blo
         ENSURES_FINAL_STATE_TAC THEN
         ASM_REWRITE_TAC [hash_buffer_to_byte_list] THEN
         (* ???
-        SUBGOAL_THEN `!w p s. byte_list_at (int64_to_bytes w) 8 p s <=> read (memory :> bytes64(p)) s = w` ASSUME_TAC
+        SUBGOAL_THEN `!w p s. byte_list_at (int64_to_bytes w) p s <=> read (memory :> bytes64(p)) s = w` ASSUME_TAC
         RULE_ASSUM_TAC (REWRITE_RULE [READ_MEMORY_BYTESIZED_UNSPLIT]) *)
         CHEAT_TAC;
       (* Some zero padding *)
