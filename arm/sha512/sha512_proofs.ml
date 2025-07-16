@@ -1363,7 +1363,6 @@ let AND_127_MOD_128 = prove(
     REWRITE_TAC[VAL_WORD; MOD_MOD_EXP_MIN; DIMINDEX_64] THEN
     ARITH_TAC);;
 
-    >>>>
 let SUB_LIST_1 = prove
  (`!(l:A list) n. SUB_LIST(n,1) l = if n < LENGTH l then [EL n l] else []`,
   MATCH_MP_TAC list_INDUCT THEN
@@ -1385,7 +1384,7 @@ let EL_SUB_LIST = prove(`!a b i (m:A list).
     GEN_TAC THEN GEN_TAC THEN LIST_INDUCT_TAC THEN
     REWRITE_TAC[SUB_LIST_CLAUSES; LENGTH] THEN
     ASM_SIMP_TAC[LE_SUC; ADD_CLAUSES; EL; TL; ARITH_RULE `~(SUC n <= 0)`]]);;
-
+>>>
 let SUB_LIST_SUB_LIST = (`!a b c d (m:A list).
   a + b <= d ==>
   SUB_LIST (a, b) (SUB_LIST (c,d) m) = SUB_LIST (c + a, b) m`,
@@ -1415,24 +1414,41 @@ CONV_TAC (ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
 CONV_TAC NUM_REDUCE_CONV THEN
 REWRITE_TAC [WORD_ADD_0]);;
 
-let JOIN_BYTES_TO_INT64_SPLIT = prove
- (`!l a s. LENGTH l = 8
-   ==> (read (memory :> bytes64 a) s = join_bytes_to_int64 l <=>
-       !i. i < 8 ==> read (memory :> bytes8 (word_add a (word i))) s = EL i l)`,
-  CHEAT_TAC);;
-
-
 let QUANTIFIER_SPLIT = prove
  (`!m n P.
     (!i. i < m * n ==> P i) <=>
     (!i. i < m ==> !j. j < n ==> P (n * i + j))`,
-  CHEAT_TAC);;
-
-(* let QUANTIFIER_SPLIT_ALT = prove
- (`!m n P.
-    (!i. i < m * n ==> P i (i DIV n) (i MOD n)) <=>
-    (!i. i < m ==> !j. j < n ==> P (n * i + j) i j)`,
-  CHEAT_TAC);; *)
+  REWRITE_TAC [DOUBLE_INCL] THEN
+    REPEAT STRIP_TAC THENL
+    [ FIRST_X_ASSUM (MP_TAC o SPEC `n * i + j`) THEN
+        ANTS_TAC THENL
+        [ SUBGOAL_THEN `n*i+j < n*i+n /\ n*i+n <= m*n`
+            (fun th -> REWRITE_TAC [MATCH_MP LTE_TRANS th]) THEN
+            ASM_REWRITE_TAC [LT_ADD_LCANCEL] THEN
+            REWRITE_TAC [ARITH_RULE `n*i+n = (SUC i)*n`] THEN
+            ASM_REWRITE_TAC [LE_MULT_RCANCEL; LE_SUC_LT];
+          ITAUT_TAC ];
+      SUBGOAL_THEN `i = n * (i DIV n) + i MOD n` (fun th -> ONCE_REWRITE_TAC [th]) THENL
+        [ MP_TAC (SPECL [`i:num`; `n:num`] DIVISION) THEN
+            ANTS_TAC THENL
+            [ DISCH_THEN (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th; MULT_0; LT])) THEN
+                ASM_REWRITE_TAC [];
+              SIMPLE_ARITH_TAC ];
+          ALL_TAC ] THEN
+        FIRST_X_ASSUM (MP_TAC o SPEC `i DIV n`) THEN
+        ANTS_TAC THENL
+        [ IMP_REWRITE_TAC [RDIV_LT_EQ] THEN
+            ASM_REWRITE_TAC [MULT_SYM] THEN
+            DISCH_THEN (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th; MULT_0; LT])) THEN
+            ASM_REWRITE_TAC [];
+          ALL_TAC ] THEN
+        DISCH_THEN (MP_TAC o SPEC `i MOD n`) THEN
+        REWRITE_TAC [MOD_LT_EQ] THEN
+        ANTS_TAC THENL
+        [ ASM_REWRITE_TAC [MULT_SYM] THEN
+            DISCH_THEN (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th; MULT_0; LT])) THEN
+            ASM_REWRITE_TAC [];
+          ITAUT_TAC ] ]);;
 
 let BYTE_LIST_AT_MSG_BLOCK_AT = prove(
 `!m m_p s.
@@ -1453,7 +1469,7 @@ REWRITE_TAC [ADD_0] THEN STRIP_TAC THEN
 CONV_TAC (READ_MEMORY_SPLIT_CONV 3) THEN
 REPEAT CONJ_TAC THEN
 REWRITE_TAC [bytes_to_one_block; join_bytes_to_int64] THEN
-IMP_REWRITE_TAC [EL_SUB_LIST] THEN REPEAT CONJ_TAC THEN REPEAT SIMPLE_ARITH_TAC
+IMP_REWRITE_TAC [EL_SUB_LIST] THEN REPEAT CONJ_TAC THEN TRY_TAC SIMPLE_ARITH_TAC
         CHEAT_TAC);;
   0 [`128 <= LENGTH m`]
   1 [`i < 16`]
@@ -1528,7 +1544,7 @@ let BYTE_LIST_AT_MSG_BLOCKS_AT = prove(
     ASM_REWRITE_TAC [GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
     REPEAT CONJ_TAC THEN
     REWRITE_TAC [bytes_to_one_block; join_bytes_to_int64] THEN
-    IMP_REWRITE_TAC [EL_SUB_LIST] THEN REPEAT CONJ_TAC THEN REPEAT SIMPLE_ARITH_TAC
+    IMP_REWRITE_TAC [EL_SUB_LIST] THEN REPEAT CONJ_TAC THEN TRY_TAC SIMPLE_ARITH_TAC
     CHEAT_TAC )
 
 let BYTE_LIST_AT_MSG_BLOCKS_AT = prove(
