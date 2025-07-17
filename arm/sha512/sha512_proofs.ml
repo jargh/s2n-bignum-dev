@@ -1384,12 +1384,43 @@ let EL_SUB_LIST = prove(`!a b i (m:A list).
     GEN_TAC THEN GEN_TAC THEN LIST_INDUCT_TAC THEN
     REWRITE_TAC[SUB_LIST_CLAUSES; LENGTH] THEN
     ASM_SIMP_TAC[LE_SUC; ADD_CLAUSES; EL; TL; ARITH_RULE `~(SUC n <= 0)`]]);;
->>>
-let SUB_LIST_SUB_LIST = (`!a b c d (m:A list).
-  a + b <= d ==>
-  SUB_LIST (a, b) (SUB_LIST (c,d) m) = SUB_LIST (c + a, b) m`,
-  (* LIST_EQ? *)
-  CHEAT_TAC);;
+
+let SUB_LIST_SUB_LIST = prove
+  (`!(m:A list) a b c d.
+    a + b <= d ==>
+    SUB_LIST (a, b) (SUB_LIST (c,d) m) = SUB_LIST (c + a, b) m`,
+  LIST_INDUCT_TAC THENL
+    [ REWRITE_TAC [SUB_LIST_CLAUSES]; ALL_TAC ] THEN
+    REPEAT GEN_TAC THEN
+    SPEC_TAC (`a:num`, `a:num`) THEN
+    SPEC_TAC (`c:num`, `c:num`) THEN
+    SPEC_TAC (`b:num`, `b:num`) THEN
+    SPEC_TAC (`d:num`, `d:num`) THEN
+    INDUCT_TAC THENL
+    [ REPEAT STRIP_TAC THEN
+        MP_TAC (ARITH_RULE `a+b <= 0 ==> a=0 /\ b=0`) THEN
+        ASM_REWRITE_TAC [] THEN STRIP_TAC THEN
+        ASM_REWRITE_TAC [SUB_LIST_CLAUSES];
+      POP_ASSUM (K ALL_TAC) THEN
+        INDUCT_TAC THENL
+        [ REWRITE_TAC [SUB_LIST_CLAUSES];
+          POP_ASSUM (K ALL_TAC) THEN
+            INDUCT_TAC THENL
+            [ INDUCT_TAC THENL
+              [ FIRST_ASSUM (MP_TAC o SPECL [`0`; `b:num`; `0`; `d:num`]) THEN
+                  REWRITE_TAC [ADD; LE_SUC; SUB_LIST_CLAUSES] THEN
+                  REPEAT DISCH_TAC THEN
+                  ASM_SIMP_TAC [];
+                POP_ASSUM (K ALL_TAC) THEN
+                  FIRST_ASSUM (MP_TAC o SPECL [`a:num`; `SUC b`; `0`; `d:num`]) THEN  
+                  REWRITE_TAC [ADD; SUB_LIST_CLAUSES; LE_SUC] ];
+              POP_ASSUM (K ALL_TAC) THEN
+                INDUCT_TAC THENL
+                [ FIRST_ASSUM (MP_TAC o SPECL [`0`; `SUC b`; `c:num`; `SUC d`]) THEN
+                    REWRITE_TAC [ADD; ADD_0; LE_SUC; SUB_LIST_CLAUSES];
+                  POP_ASSUM (K ALL_TAC) THEN
+                    FIRST_ASSUM (MP_TAC o SPECL [`SUC a`; `SUC b`; `c:num`; `SUC d`]) THEN
+                    REWRITE_TAC [ADD; LE_SUC; SUB_LIST_CLAUSES] ] ] ] ]);;
 
 let MSG_BLOCK_AT_ALT = prove
   (`!m m_p s.
@@ -1572,7 +1603,15 @@ let DIV_MULT_LE = prove
     ASM_REWRITE_TAC [] THEN
     DISCH_THEN (fun th -> GEN_REWRITE_TAC RAND_CONV [th]) THEN
     REWRITE_TAC [LE_ADD]
-  )
+  );;
+
+let BYTES_TO_BLOCKS_TAKE_BLOCKS = prove
+  (`!i l. i < l /\ l <= LENGTH m DIV 128 ==>
+    bytes_to_blocks (take (l * 128) m) i = bytes_to_blocks m i`,
+  REPEAT STRIP_TAC THEN
+    REWRITE_TAC [take; bytes_to_blocks; num_bytes_per_block] THEN
+    FIRST_X_ASSUM (ASSUME_TAC o MATCH_MP (ARITH_RULE `i < l ==> i*128 + 128 <= l*128`)) THEN
+    ASM_SIMP_TAC [SUB_LIST_SUB_LIST; ADD]);;
 
 let SHA512'_BLOCKS_STEP = prove
   (`!h m0 m:byte list.
@@ -1610,23 +1649,28 @@ let SHA512'_BLOCKS_STEP = prove
             `bytes_to_blocks (m0 ++ take (i * 128) m)`; 
             `bytes_to_blocks (m0 ++ m)`; `LENGTH (m0:byte list) DIV 128 + i`]
             BLOCKS_EQ_SHA512'_EQ] THEN
-          REPEAT DISCH_TAC THEN CONJ_TAC THEN 
-        CHEAT_TAC (* forall i. i < l /\ l <= LENGTH m DIV 128 ==>
-          bytes_to_blocks (take (l * 128) m) i = bytes_to_blocks m i] *)
-        ]);;
+          REPEAT DISCH_TAC THEN CONJ_TAC THEN REPEAT STRIP_TAC THENL
+          [ SUBGOAL_THEN `(m0:byte list ++ take (i*128) m) = take (LENGTH m0 + i*128) (m0 ++ m)`
+                (fun th -> REWRITE_TAC [th]) THENL
+              [ SIMP_TAC [TAKE_APPEND; LE_ADD; ADD_SUB2]; ALL_TAC ] THEN
+              SUBGOAL_THEN `LENGTH (m0:byte list) + i * 128 = (LENGTH m0 DIV 128 + i) * 128`
+                (fun th -> REWRITE_TAC [th]) THENL
+              [ SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+              IMP_REWRITE_TAC [BYTES_TO_BLOCKS_TAKE_BLOCKS] THEN
+              REWRITE_TAC [LENGTH_APPEND] THEN
+              SIMPLE_ARITH_TAC;
+            IMP_REWRITE_TAC [BYTES_TO_BLOCKS_TAKE_BLOCKS] THEN
+              ARITH_TAC] ]);;
 
 let SHA512_BLOCK_BYTES_MOD_BLOCKS_STEP = prove
   (`!m0 m.
-LENGTH m = 128 - LENGTH (bytes_mod_blocks m0) ==>
-sha512_block
- (bytes_to_one_block
- (bytes_mod_blocks m0 ++ m))
- (sha512 (bytes_to_blocks m0)
- (LENGTH m0 DIV 128)) =
- sha512
- (bytes_to_blocks
- (m0 ++ m))
- (LENGTH (m0 ++ m) DIV 128)`,
+    LENGTH m = 128 - LENGTH (bytes_mod_blocks m0) ==>
+    sha512_block
+      (bytes_to_one_block (bytes_mod_blocks m0 ++ m))
+      (sha512 (bytes_to_blocks m0) (LENGTH m0 DIV 128)) =
+    sha512
+      (bytes_to_blocks (m0 ++ m))
+      (LENGTH (m0 ++ m) DIV 128)`,
  CHEAT_TAC);;
       
 
