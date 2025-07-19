@@ -1743,8 +1743,118 @@ let ADD_MODULUS_MOD = prove
   [ REWRITE_TAC [ADD_MOD_MOD_REFL]; ALL_TAC ] THEN
   REWRITE_TAC [MOD_REFL; ADD_0]);;
 
-`l <= LENGTH m ==> byte_list_at m m_p s ==>
-                    byte_list_at (drop l m) (m_p + l) s`>>>
+let SHIFT_BYTE_LIST_AT = prove
+  (`!l m. LENGTH m < 2 EXP 64 /\
+    l <= LENGTH m /\
+    byte_list_at m m_p s ==>
+    byte_list_at (drop l m) (m_p + word l) s`,
+  REWRITE_TAC [byte_list_at; drop; LENGTH_SUB_LIST; MIN; LE_REFL] THEN
+    REPEAT STRIP_TAC THEN
+    REWRITE_TAC [GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
+    IMP_REWRITE_TAC [EL_SUB_LIST] THEN
+    SIMPLE_ARITH_TAC);;
+
+let NEW_INPUT_FILLS_CUR_BLOCK_ONCE_ARITH = prove
+  (`!x y. 128 - x MOD 128 <= y ==>
+    y - (128 - x MOD 128) < 128 ==>
+    128 - x MOD 128 = (x + y) DIV 128 * 128 - x /\
+    y - (128 - x MOD 128) = (x + y) MOD 128`,
+  REPEAT STRIP_TAC THENL
+  [ SUBGOAL_THEN `128 <= y + x MOD 128 /\ y + x MOD 128 < 256` STRIP_ASSUME_TAC THENL
+      [ SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+      SUBGOAL_THEN `x = x DIV 128 * 128 + x MOD 128` ASSUME_TAC THENL
+      [ SIMP_TAC [DIVISION; ARITH]; ALL_TAC ] THEN
+      SUBGOAL_THEN `(x + y) DIV 128 = x DIV 128 + 1` ASSUME_TAC THENL
+      [ SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+      SIMPLE_ARITH_TAC;
+    SUBGOAL_THEN `(y + x MOD 128) MOD 128 + 128 = y + x MOD 128` MP_TAC THENL
+      [ REWRITE_TAC[ARITH_RULE `y MOD 128 + 128 = y <=> y DIV 128 = 1`] THEN
+          ASM_ARITH_TAC;
+        CONV_TAC MOD_DOWN_CONV THEN REWRITE_TAC[ADD_SYM] THEN
+          ASM_ARITH_TAC ] ]);;
+
+let WORD_USHR_64 = prove
+  (`!x. x < 2 EXP 64 ==>
+    word_ushr (word x) 7 =
+    word (x DIV 128) : int64`,
+  REPEAT STRIP_TAC THEN
+    REWRITE_TAC [word_ushr; VAL_WORD; DIMINDEX_64] THEN
+    ASM_SIMP_TAC [MOD_LT] THEN
+    ARITH_TAC);;
+
+let ADD_128_SUB_MOD_0 = prove
+  (`!x. (x + 128 - x MOD 128) MOD 128 = 0`,
+  STRIP_TAC THEN
+    REWRITE_TAC[ARITH_RULE `n + 128 - n MOD 128 = 128 * 1 + n - n MOD 128`] THEN
+    REWRITE_TAC[MOD_MULT_ADD] THEN
+    SIMP_TAC [SUB_MOD_MOD; ARITH]);;
+
+let SHA512'_BLOCKS_TAKE_DROP_STEP = prove
+  (`!h m0 m.
+    128 - LENGTH (bytes_mod_blocks m0) <= LENGTH m ==>
+    sha512'
+      (sha512' h
+        (bytes_to_blocks (m0 ++ take (128 - LENGTH (bytes_mod_blocks m0)) m))
+        (LENGTH (m0 ++ take (128 - LENGTH (bytes_mod_blocks m0)) m) DIV 128))
+      (bytes_to_blocks (drop (128 - LENGTH (bytes_mod_blocks m0)) m))
+      ((LENGTH m - (128 - LENGTH (bytes_mod_blocks m0))) DIV 128) =
+    sha512' h (bytes_to_blocks (m0 ++ m)) (LENGTH (m0 ++ m) DIV 128)`,
+  REPEAT STRIP_TAC THEN
+    SUBGOAL_THEN `LENGTH (m:byte list) - (128 - LENGTH (bytes_mod_blocks m0)) =
+      LENGTH (drop (128 - LENGTH (bytes_mod_blocks m0)) m)`
+      (fun th -> REWRITE_TAC [th]) THENL
+    [  REWRITE_TAC [drop; LENGTH_SUB_LIST] THEN ARITH_TAC; ALL_TAC ] THEN
+    IMP_REWRITE_TAC [SPECL [`h:hash_t`; `m0 ++ take (128 - LENGTH (bytes_mod_blocks m0)) m`;
+      `drop (128 - LENGTH (bytes_mod_blocks m0)) m:byte list`] SHA512'_BLOCKS_STEP] THEN
+    REWRITE_TAC [GSYM APPEND_ASSOC; take; drop; SUB_LIST_TOPSPLIT] THEN
+    ASM_REWRITE_TAC [LENGTH_APPEND; LENGTH_SUB_LIST; MIN; SUB_0] THEN
+    REWRITE_TAC [LENGTH_BYTES_MOD_BLOCKS_LENGTH_MOD] THEN
+    REWRITE_TAC[ADD_128_SUB_MOD_0]);;
+
+let NEW_INPUT_FILLS_CUR_BLOCK_ARITH1 = prove
+  (`!x y. y < 2 EXP 64 /\ 128 - x MOD 128 <= y ==>
+    word (128 - x MOD 128) +
+    word_shl (word ((y - (128 - x MOD 128)) DIV 128)) 7 =
+    word ((x + y) DIV 128 * 128 - x) : int64`,
+  REPEAT STRIP_TAC THEN
+    REWRITE_TAC [WORD_RULE `word_shl (word n) 7 = word(128 * n)`] THEN
+    REWRITE_TAC [GSYM WORD_ADD] THEN
+    AP_TERM_TAC THEN
+    ASSUME_TAC (SPEC `x:num` ADD_128_SUB_MOD_0) THEN
+    SUBGOAL_THEN `y = 128 - x MOD 128 + (y - (128 - x MOD 128))`
+      (fun th -> ONCE_REWRITE_TAC [th]) THENL
+    [ ASM_ARITH_TAC; ALL_TAC ] THEN
+    REWRITE_TAC [ADD_ASSOC] THEN
+    W(MP_TAC o PART_MATCH (lhand o rand) MOD_0_ADD_DIV o
+      lhand o lhand o rand o snd) THEN
+    ANTS_TAC THENL
+    [ ASM_REWRITE_TAC [ARITH]; ALL_TAC ] THEN
+    DISCH_THEN (fun th -> REWRITE_TAC [th]) THEN
+    REWRITE_TAC [RIGHT_ADD_DISTRIB] THEN
+    FIRST_ASSUM (ASSUME_TAC o REWRITE_RULE [GSYM DIVIDES_MOD; DIVIDES_DIV_MULT]) THEN
+    ASM_REWRITE_TAC [] THEN
+    ASM_SIMP_TAC [ARITH_RULE `!x y. x <= y ==> x + y - x = y`] THEN
+    ARITH_TAC);;
+
+let NEW_INPUT_FILLS_CUR_BLOCK_ARITH2 = prove
+  (`!x y. y < 2 EXP 64 /\ 128 - x MOD 128 <= y ==>
+    word_and (word (y - (128 - x MOD 128))) (word 127) =
+    word ((x + y) MOD 128) : int64`,
+  REPEAT STRIP_TAC THEN
+    REWRITE_TAC [AND_127_MOD_128] THEN
+    AP_TERM_TAC THEN
+    SUBGOAL_THEN `y = 128 - x MOD 128 + (y - (128 - x MOD 128))`
+      (fun th -> ONCE_REWRITE_TAC [th]) THENL
+    [ ASM_ARITH_TAC; ALL_TAC ] THEN
+    REWRITE_TAC [ADD_ASSOC] THEN
+    GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [GSYM MOD_ADD_MOD] THEN
+    REWRITE_TAC [ADD_128_SUB_MOD_0; ADD] THEN
+    CONV_TAC MOD_DOWN_CONV THEN
+    SUBGOAL_THEN `y = 128 - x MOD 128 + (y - (128 - x MOD 128))`
+      (fun th -> ONCE_REWRITE_TAC [th]) THEN
+    ASM_SIMP_TAC [ARITH_RULE `!x y. x <= y ==> x + y - x = y`] THEN
+    ARITH_TAC);;
+
 
 (* void sha512_update(sha512_ctx *sha, const void *in_data, size_t in_len) *)
 g `! sp ctx_p m0 m_p m pc retpc K_base.
@@ -2097,13 +2207,8 @@ g `! sp ctx_p m0 m_p m pc retpc K_base.
                     ASM_REWRITE_TAC [take; SUB_LIST_CLAUSES; LENGTH] THEN
                     CONV_TAC (ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
                     REWRITE_TAC [LENGTH_BYTES_MOD_BLOCKS_LENGTH_MOD; LENGTH_APPEND] THEN
-                    SUBGOAL_THEN `!x y. 128 - x MOD 128 <= y ==>
-                      y - (128 - x MOD 128) < 128 ==>
-                      128 - x MOD 128 = (x+y) DIV 128 * 128 - x /\
-                      y - (128 - x MOD 128) = (x + y) MOD 128`
-                      MP_TAC THENL
-                    [ CHEAT_TAC; ALL_TAC ] THEN (* ??? *)
                     RULE_ASSUM_TAC (REWRITE_RULE [LENGTH_BYTES_MOD_BLOCKS_LENGTH_MOD]) THEN
+                    MP_TAC NEW_INPUT_FILLS_CUR_BLOCK_ONCE_ARITH THEN
                     DISCH_THEN (fun th -> ASM_SIMP_TAC
                       [SPECL [`LENGTH (m0:byte list)`; `LENGTH (m:byte list)`] th]) THEN
                     CHEAT_TAC (* Waiting for machinery*);
@@ -2114,9 +2219,9 @@ g `! sp ctx_p m0 m_p m pc retpc K_base.
                     [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC [] THEN
                       CHEAT_TAC ; ALL_TAC] THEN (* Waiting for machinery *)
                     VAL_INT64_TAC `(LENGTH (m:byte list) - (128 - LENGTH (bytes_mod_blocks m0))) DIV 128` THEN
-                    SUBGOAL_THEN `word_ushr (word (LENGTH (m:byte list) - (128 - LENGTH (bytes_mod_blocks m0)))) 7 =
-                      word ((LENGTH m - (128 - LENGTH (bytes_mod_blocks m0))) DIV 128) : int64` ASSUME_TAC THENL
-                    [ CHEAT_TAC; ALL_TAC ] THEN
+                    MP_TAC (SPEC `LENGTH (m:byte list) - (128 - LENGTH (bytes_mod_blocks m0))` WORD_USHR_64) THEN
+                    ANTS_TAC THENL [ SIMPLE_ARITH_TAC ; ALL_TAC ] THEN
+                    DISCH_TAC THEN
                     SUBGOAL_THEN `aligned 16 ((sp:int64) + word 768)` ASSUME_TAC THENL
                     [ ALIGNED_16_TAC; ALL_TAC ] THEN (* ?????*)
                     ARM_SUBROUTINE_SIM_TAC
@@ -2127,27 +2232,20 @@ g `! sp ctx_p m0 m_p m pc retpc K_base.
                         `word ((LENGTH (m:byte list) - (128 - LENGTH (bytes_mod_blocks m0))) DIV 128) : int64`;
                         `pc : num`; `pc + 0x404`; `K_base : num`] 258 THEN
                     RENAME_TAC `s258:armstate` `s257_ret:armstate` THEN
-                    (* ??? TODO: apply the stepping lemma for sha512 *)
+                    MP_TAC (REWRITE_RULE [GSYM sha512]
+                      (SPECL [`h_init:hash_t`; `m0:byte list`; `m:byte list`] SHA512'_BLOCKS_TAKE_DROP_STEP)) THEN
+                    ASM_REWRITE_TAC [] THEN
+                    DISCH_THEN (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th])) THEN
+                    ASSUM_EXPAND_SHA512_SPECS_TAC THEN
                     ARM_STEPS_TAC EXEC (258--260) THEN
                     ENSURES_FINAL_STATE_TAC THEN
+                    EXPAND_SHA512_SPECS_TAC THEN
                     ASM_REWRITE_TAC [take; SUB_LIST_CLAUSES; byte_list_at; LENGTH] THEN
                     CONV_TAC (ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
-                    (* ???
-                    `(m_p + word (128 - LENGTH (bytes_mod_blocks m0))) +
- word_shl (word ((LENGTH m - (128 - LENGTH (bytes_mod_blocks m0))) DIV 128))
- 7 =
- m_p + word (LENGTH (m0 ++ m) DIV 128 * 128 - LENGTH m0) /\
- word_and (word (LENGTH m - (128 - LENGTH (bytes_mod_blocks m0)))) (word 127) =
- word (LENGTH (bytes_mod_blocks (m0 ++ m))) /\
- true /\
- (forall i.
-      i < LENGTH m ==> read (memory :> bytes8 (m_p + word i)) s260 = EL i m) /\
- hash_buffer_at
- (sha512 (bytes_to_blocks (m0 ++ m)) (LENGTH (m0 ++ m) DIV 128))
- ctx_p
- s260`
-  *)
-                    CHEAT_TAC ];
+                    RULE_ASSUM_TAC (REWRITE_RULE [LENGTH_BYTES_MOD_BLOCKS_LENGTH_MOD]) THEN
+                    REWRITE_TAC [LENGTH_BYTES_MOD_BLOCKS_LENGTH_MOD; LENGTH_APPEND; GSYM WORD_ADD_ASSOC] THEN
+                    ASM_SIMP_TAC [NEW_INPUT_FILLS_CUR_BLOCK_ARITH1; NEW_INPUT_FILLS_CUR_BLOCK_ARITH2] THEN
+                    CHEAT_TAC ]; (* Waiting for machinery *)
               (* Subgoal 2: loop body *)
               REPEAT STRIP_TAC THEN
                 ENSURES_INIT_TAC "s263_0" THEN
@@ -2184,7 +2282,9 @@ g `! sp ctx_p m0 m_p m pc retpc K_base.
           ENSURES_INIT_TAC "s240" THEN
             (* ??? TODO: replace
             sha512 (bytes_to_blocks m0) (LENGTH m0 DIV 128) with
-            sha512 (bytes_to_blocks (m0 ++ m)) (LENGTH (m0 ++ m) DIV 128)*)
+            sha512 (bytes_to_blocks (m0 ++ m)) (LENGTH (m0 ++ m) DIV 128)
+            SPECL [`bytes_to_blocks m0`; `bytes_to_blocks (m0 ++ m)`] BLOCKS_EQ_SHA512_EQ
+            *)
             ASSUM_EXPAND_SHA512_SPECS_TAC THEN
             ARM_STEPS_TAC EXEC (241--246) THEN
             POP_ASSUM MP_TAC THEN
