@@ -1,5 +1,10 @@
 needs "arm/proofs/base.ml";;
 
+parse_as_infix ("++", (13, "right"));;
+override_interface("++", `APPEND`);;
+
+overload_interface("+",`word_add:N word->N word->N word`);;
+
 (* ------------------------------------------------------------------------- *)
 (* Mathematical specifications of SHA-512.                                   *)
 (* ------------------------------------------------------------------------- *)
@@ -14,8 +19,6 @@ parse_as_infix("||",(13,"right"));;
 override_interface("||",`word_or:N word->N word->N word`);;
 parse_as_infix("^^",(13,"right"));;
 override_interface("^^",`word_xor:N word->N word->N word`);;
-
-overload_interface("+",`word_add:N word->N word->N word`);;
 
 let Ch_DEF = new_definition
  `Ch(x,y,z):int64 = (x && y) ^^ (~~x && z)`;;
@@ -43,7 +46,6 @@ unparse_as_infix("||");;
 remove_interface("||");;
 unparse_as_infix("^^");;
 remove_interface("^^");;
-remove_interface("++");;
 
 (* ------------------------------------------------------------------------- *)
 (* Section 4.2.3                                                             *)
@@ -269,9 +271,6 @@ let num_bytes_per_block = define
 
 let ceil_div = define
   `ceil_div (m : num) (n : num) = (m + n - 1) DIV n`;;
-
-parse_as_infix ("++", (13, "right"));;
-override_interface("++", `APPEND`);;
 
 let int128_to_bytes = define
   `int128_to_bytes (w : int128) : byte list =
