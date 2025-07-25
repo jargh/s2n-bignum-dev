@@ -1455,16 +1455,14 @@ let SHA512_FINAL = prove
          sha512_ctx_at m ctx_p s /\
          constants_at (word K_base) s)
     (\s. read PC s = word retpc /\
-        byte_list_at (hash_buffer_to_byte_list
-          (sha512 (bytes_to_blocks (pad m)) (LENGTH (pad m) DIV num_bytes_per_block)))
-          out_p s)
+        byte_list_at (sha512_pad m) out_p s)
     (MAYCHANGE [X0; X1; X2; X3; X4; X5; X6; X7; X8; X9; X10; X11;
                 X12; X13; X14; X15; X16; X17; X18; PC] ,,
      MAYCHANGE [memory :> bytes(ctx_p, 216)] ,,
      MAYCHANGE [memory :> bytes(out_p, 64)] ,,
      MAYCHANGE [memory :> bytes(word_sub sp (word 768), 768)] ,,
      MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`,
-  REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; num_bytes_per_block] THEN
+  REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL; sha512_pad; num_bytes_per_block] THEN
     WORD_FORALL_OFFSET_TAC 768 THEN
     REPEAT STRIP_TAC THEN
     ENSURES_EXISTING_PRESERVED_TAC `SP` THEN

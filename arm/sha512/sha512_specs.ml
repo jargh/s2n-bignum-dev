@@ -1,4 +1,4 @@
-needs "arm/proofs/base.ml";;
+needs "arm/sha512/utils.ml";;
 
 parse_as_infix ("++", (13, "right"));;
 override_interface("++", `APPEND`);;
@@ -269,8 +269,18 @@ let sha512 = define
 let num_bytes_per_block = define
   `num_bytes_per_block = 128`;;
 
-let ceil_div = define
-  `ceil_div (m : num) (n : num) = (m + n - 1) DIV n`;;
+let join_bytes_to_int64 = define
+  `join_bytes_to_int64 (bs : byte list) : int64 =
+    word_join
+      (word_join (word_join (EL 7 bs) (EL 6 bs) : int16) (word_join (EL 5 bs) (EL 4 bs) : int16) : int32)
+      (word_join (word_join (EL 3 bs) (EL 2 bs) : int16) (word_join (EL 1 bs) (EL 0 bs) : int16) : int32)`;;
+
+let int64_to_bytes = define
+  `int64_to_bytes (w : int64) : byte list =
+    [word_subword w (0, 8); word_subword w (8, 8);
+     word_subword w (16, 8); word_subword w (24, 8);
+     word_subword w (32, 8); word_subword w (40, 8);
+     word_subword w (48, 8); word_subword w (56, 8)]`;;
 
 let int128_to_bytes = define
   `int128_to_bytes (w : int128) : byte list =
@@ -289,20 +299,6 @@ let pad = define
   `pad (m : byte list) : byte list = m ++ [word 0x80] ++
     REPLICATE ((ceil_div (LENGTH m + 1 + 16) num_bytes_per_block) * num_bytes_per_block - (LENGTH m + 1 + 16)) (word 0) ++
     int128_to_bytes (word_bytereverse (word (LENGTH m * 8)))`;;
-
-let drop = define
-  `drop (n : num) (l : A list) : A list =
-    SUB_LIST (n, LENGTH l - n) l`;;
-
-let take = define
-  `take (n : num) (l : A list) : A list =
-    SUB_LIST (0, n) l`;;
-
-let join_bytes_to_int64 = define
-  `join_bytes_to_int64 (bs : byte list) : int64 =
-    word_join
-      (word_join (word_join (EL 7 bs) (EL 6 bs) : int16) (word_join (EL 5 bs) (EL 4 bs) : int16) : int32)
-      (word_join (word_join (EL 3 bs) (EL 2 bs) : int16) (word_join (EL 1 bs) (EL 0 bs) : int16) : int32)`;;
 
 (* Conversion from byte list to a block of 8-byte words *)
 let bytes_to_one_block = define
@@ -324,13 +320,6 @@ let sha512_ctx_from = define
      word ((LENGTH m * 8) MOD (2 EXP 64)) : int64, word ((LENGTH m * 8) DIV (2 EXP 64)) : int64,
      bytes_mod_blocks m)`;;
 
-let int64_to_bytes = define
-  `int64_to_bytes (w : int64) : byte list =
-    [word_subword w (0, 8); word_subword w (8, 8);
-     word_subword w (16, 8); word_subword w (24, 8);
-     word_subword w (32, 8); word_subword w (40, 8);
-     word_subword w (48, 8); word_subword w (56, 8)]`;;
-    
 let hash_buffer_to_byte_list = define
   `hash_buffer_to_byte_list (h : hash_t) : byte list =
     int64_to_bytes (word_bytereverse (SHA512_A h)) ++
@@ -341,6 +330,11 @@ let hash_buffer_to_byte_list = define
     int64_to_bytes (word_bytereverse (SHA512_F h)) ++
     int64_to_bytes (word_bytereverse (SHA512_G h)) ++
     int64_to_bytes (word_bytereverse (SHA512_H h))`;;
+
+let sha512_pad = define
+  `sha512_pad (m : byte list) : byte list =
+    hash_buffer_to_byte_list
+      (sha512 (bytes_to_blocks (pad m)) (LENGTH (pad m) DIV num_bytes_per_block))`;;
 
 (*****************************************************************************)
 

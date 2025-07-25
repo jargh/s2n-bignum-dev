@@ -1,5 +1,4 @@
 needs "arm/sha512/sha512_specs.ml";;
-needs "arm/sha512/utils.ml";;
 
 (* ===== thm ===== *)
 let EXPAND_HASH_THM = prove
@@ -73,90 +72,6 @@ let LENGTH_BYTES_MOD_BLOCKS_LT = prove
   STRIP_TAC THEN
   REWRITE_TAC [num_bytes_per_block; BYTES_MOD_BLOCKS_SUB_LIST; LENGTH_SUB_LIST] THEN
   ARITH_TAC);;
-
-(* ??? should drop and take be under utils or sha512_spec? *)
-let DROP_0 = prove(`! m. drop 0 m = m`,
-  STRIP_TAC THEN REWRITE_TAC [drop; SUB_0; SUB_LIST_LENGTH]);;
-
-let DROP_APPEND = prove
-  (`!l m (n:A list).
-    l <= LENGTH m  ==>
-    drop l (m ++ n) = drop l m ++ n`,
-  INDUCT_TAC THENL
-    [ REWRITE_TAC [drop; SUB_0; SUB_LIST_LENGTH];
-      REPEAT STRIP_TAC THEN
-      REWRITE_TAC [drop] THEN
-      SUBGOAL_THEN `~(m:A list = [])` ASSUME_TAC THENL
-      [ DISCH_THEN (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th; LENGTH])) THEN
-          POP_ASSUM MP_TAC THEN
-          REWRITE_TAC [LE; NOT_SUC];
-        ALL_TAC ] THEN
-      POP_ASSUM (fun th -> ONCE_REWRITE_TAC [MATCH_MP CONS_HD_TL th] THEN ASSUME_TAC th) THEN
-      REWRITE_TAC [APPEND; LENGTH; SUB_SUC; SUB_LIST] THEN
-      REWRITE_TAC [GSYM drop] THEN
-      FIRST_X_ASSUM (MP_TAC o SPECL [`TL m:A list`; `n:A list`]) THEN
-      POP_ASSUM (fun th -> ONCE_REWRITE_TAC [MATCH_MP LENGTH_TL th]) THEN
-      ANTS_TAC THENL
-      [ SIMPLE_ARITH_TAC; STRIP_TAC THEN ASM_REWRITE_TAC [] ] ]);;
-
-let SUB_LIST_DROP = prove
-  (`!p l (m:A list).
-    SUB_LIST (p, l) m = SUB_LIST (0, l) (drop p m)`,
-  REWRITE_TAC [drop] THEN INDUCT_TAC THENL
-  [ REWRITE_TAC [SUB_0; SUB_LIST_LENGTH];
-    REPEAT GEN_TAC THEN
-      ASM_CASES_TAC `(m:A list) = []` THENL
-      [ ASM_REWRITE_TAC [SUB_LIST_CLAUSES];
-        POP_ASSUM (fun th -> ONCE_REWRITE_TAC [MATCH_MP CONS_HD_TL th]) THEN
-          REWRITE_TAC [APPEND; LENGTH; SUB_SUC; SUB_LIST] THEN
-          FIRST_X_ASSUM
-            (fun th -> REWRITE_TAC [GSYM (SPECL [`l:num`; `TL m:A list`] th)]) ] ]);;
-
-let SUB_LIST_APPEND_L = prove
-  (`!p l m (n:A list).
-    p+l <= LENGTH m ==>
-    SUB_LIST (p, l) (m ++ n) = SUB_LIST (p, l) m`,
-  REPEAT STRIP_TAC THEN
-    ONCE_REWRITE_TAC [SUB_LIST_DROP] THEN
-    IMP_REWRITE_TAC [DROP_APPEND; SUB_LIST_0_APPEND] THEN
-    REWRITE_TAC [drop; LENGTH_SUB_LIST] THEN
-    SIMPLE_ARITH_TAC);;
-
-let SUB_LIST_APPEND_R = prove
-  (`!p l m n:A list.
-      LENGTH m <= p ==>
-      SUB_LIST (p, l) (m ++ n) = SUB_LIST (p - LENGTH m, l) n`,
-    INDUCT_TAC THENL
-    [ REWRITE_TAC [LE] THEN REPEAT STRIP_TAC THEN
-        ASM_REWRITE_TAC [] THEN
-        POP_ASSUM (fun th -> REWRITE_TAC [REWRITE_RULE [LENGTH_EQ_NIL] th]) THEN
-        REWRITE_TAC [APPEND; SUB];
-      GEN_TAC THEN LIST_INDUCT_TAC THENL
-        [ REWRITE_TAC [APPEND; LENGTH; SUB_0]; ALL_TAC ] THEN
-        ASM_REWRITE_TAC [LENGTH; SUB_SUC; APPEND; SUB_LIST; LE_SUC] ]);;
-
-let DROP_APPEND2 = prove
-  (`!l m n:A list. LENGTH m <= l ==> drop l (m++n) = drop (l - LENGTH m) n`,
-  REPEAT STRIP_TAC THEN
-  REWRITE_TAC [drop] THEN
-  IMP_REWRITE_TAC [SUB_LIST_APPEND_R] THEN
-  REWRITE_TAC [LENGTH_APPEND] THEN
-  MP_TAC (ARITH_RULE `!x y z. x <= y ==> (x + z) - y = z - (y - x)`) THEN
-  DISCH_THEN (fun th -> ASM_SIMP_TAC[th]));;
-
-let TAKE_APPEND = prove
-  (`!l m n:A list.
-      LENGTH m <= l ==>
-      take l (m ++ n) = m ++ (take (l - LENGTH m) n)`,
-    REPEAT STRIP_TAC THEN
-      REWRITE_TAC [take] THEN
-      SUBGOAL_THEN `l = LENGTH (m:A list) + (l - LENGTH m)`
-        (fun th -> GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [th]) THENL
-      [ SIMPLE_ARITH_TAC; ALL_TAC ] THEN
-      REWRITE_TAC [SUB_LIST_SPLIT] THEN
-      SIMP_TAC [SPECL [`0`; `LENGTH (m:A list)`] SUB_LIST_APPEND_L;
-        SPEC `0 + LENGTH (m:A list)` SUB_LIST_APPEND_R; LE_REFL; ADD_0; ADD] THEN
-      REWRITE_TAC [SUB_LIST_LENGTH; SUB_REFL]);;
 
 let BYTES_TO_BLOCKS_LAST = prove
   (`!m0 m:byte list.
@@ -364,6 +279,21 @@ let SHA512'_BLOCKS_TAKE_DROP_STEP = prove
     ASM_REWRITE_TAC [LENGTH_APPEND; LENGTH_SUB_LIST; MIN; SUB_0] THEN
     REWRITE_TAC [LENGTH_BYTES_MOD_BLOCKS_LENGTH_MOD] THEN
     REWRITE_TAC[ADD_128_SUB_MOD_0]);;
+
+let PAD_SOUND = prove
+  (`!m. LENGTH (pad m) MOD num_bytes_per_block = 0 /\
+    take (LENGTH m) (pad m) = m`,
+  REPEAT STRIP_TAC THENL
+    [ REWRITE_TAC [pad; num_bytes_per_block; LENGTH_REPLICATE; LENGTH_APPEND;
+          int128_to_bytes; LENGTH] THEN
+        REWRITE_TAC [ADD_AC] THEN
+        CONV_TAC NUM_REDUCE_CONV THEN
+        SIMP_TAC [SUB_ADD; LT_CEIL_DIV_MUL; ARITH] THEN
+        ONCE_REWRITE_TAC [MULT_SYM] THEN
+        REWRITE_TAC [MOD_MULT];
+      REWRITE_TAC [pad] THEN
+        SIMP_TAC [TAKE_APPEND; LE_REFL] THEN
+        REWRITE_TAC [SUB_REFL; take; SUB_LIST; APPEND_NIL] ]);;
 
 (* Lemmas involving data layout in memory *)
 
