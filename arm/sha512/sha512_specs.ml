@@ -1,10 +1,5 @@
 needs "arm/sha512/utils.ml";;
 
-parse_as_infix ("++", (13, "right"));;
-override_interface("++", `APPEND`);;
-
-overload_interface("+",`word_add:N word->N word->N word`);;
-
 (* ------------------------------------------------------------------------- *)
 (* Mathematical specifications of SHA-512.                                   *)
 (* ------------------------------------------------------------------------- *)

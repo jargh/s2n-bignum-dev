@@ -49,6 +49,13 @@ let COMPRESSION_STEP = prove(`! i j h m.
              `h:hash_t`; `m:num->int64`] COMPRESSION_STEP_AUX) THEN
     IMP_REWRITE_TAC [ARITH_RULE `i <= j ==> i+j-i=j`]);;
 
+let BYTES_MOD_BLOCKS_REFL = prove
+                (`!m. LENGTH m < 128 ==> bytes_mod_blocks m = m`,
+                  REPEAT STRIP_TAC THEN
+                    REWRITE_TAC [BYTES_MOD_BLOCKS_SUB_LIST; num_bytes_per_block] THEN
+                    ASM_SIMP_TAC [DIV_LT; MOD_LT] THEN
+                    REWRITE_TAC [MULT; SUB_LIST_LENGTH]);;
+
 let BYTES_MOD_BLOCKS_SUB_LIST = prove
   (`! m. bytes_mod_blocks m =
     SUB_LIST
