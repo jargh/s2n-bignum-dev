@@ -1,5 +1,5 @@
 (* Pre- and post-conditions of Ed25519 subroutines *)
-void ed25519_keypair_from_seed_s2n_bignum (
+void ed25519_public_key_from_seed_s2n_bignum (
   uint8_t out_public_key[ED25519_PUBLIC_KEY_LEN],
   const uint8_t seed[ED25519_SEED_LEN])
 Pre:

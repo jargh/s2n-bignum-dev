@@ -1,3 +1,4 @@
+needs "common/ecencoding.ml";;
 needs "EC/edwards25519.ml";;
 needs "arm/sha512/sha512_specs.ml";;
 

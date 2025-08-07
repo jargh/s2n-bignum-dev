@@ -2,20 +2,20 @@
 
 // ???TODO: use directives in _internal_s2n_bignum.h
 
-.global	ed25519_keypair_from_seed_s2n_bignum
+.global	ed25519_public_key_from_seed_s2n_bignum
 .balign 4
 // ----------------------------------------------------------------------------
 // Compute the public key A of an Ed25519 instance from the random seed
 // See Ed25519 key generation in rfc8032 5.1.5
 // Inputs: A[32], seed[32]
 // Outputs: write the public key to A
-//    extern void ed25519_keypair_from_seed_s2n_bignumed25519_keypair_from_seed_s2n_bignum (
+//    extern void ed25519_public_key_from_seed_s2n_bignum (
 // 						uint8_t A[ED25519_PUBLIC_KEY_LEN],
 // 						const uint8_t seed[ED25519_SEED_LEN]);
 //
 // Standard ARM ABI: X0 = A, X1 = seed
 // ----------------------------------------------------------------------------
-ed25519_keypair_from_seed_s2n_bignum:
+ed25519_public_key_from_seed_s2n_bignum:
 
 // Stack layout: X19, X20, X30, sha[216], h[64], s_B[64]
     stp x19, x20, [sp, #-368]!

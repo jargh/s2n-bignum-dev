@@ -4,7 +4,7 @@ ed25519.o:     file format elf64-littleaarch64
 
 Disassembly of section .text:
 
-0000000000000000 <ed25519_keypair_from_seed_s2n_bignum>:
+0000000000000000 <ed25519_public_key_from_seed_s2n_bignum>:
        0:	a9a953f3 	stp	x19, x20, [sp, #-368]!
        4:	f9000bfe 	str	x30, [sp, #16]
        8:	aa0003f3 	mov	x19, x0
@@ -3992,7 +3992,7 @@ Disassembly of section .text:
     3d9c:	6c4a2e3a 	ldnp	d26, d11, [x17, #160]
     3da0:	293e1c4e 	stp	w14, w7, [x2, #-16]
     3da4:	925112e1 	and	x1, x23, #0xf800000000000
-    3da8:	376e134b 	tbnz	w11, #13, 10 <ed25519_keypair_from_seed_s2n_bignum+0x10>
+    3da8:	376e134b 	tbnz	w11, #13, 10 <ed25519_public_key_from_seed_s2n_bignum+0x10>
     3dac:	dca15da0 	.inst	0xdca15da0 ; undefined
     3db0:	703778b5 	adr	x21, 72cc7 <sha512_final+0x5d563>
     3db4:	461c3111 	.inst	0x461c3111 ; undefined
@@ -21650,7 +21650,7 @@ Disassembly of section .text:
    15094:	a90217e4 	stp	x4, x5, [sp, #32]
    15098:	a9030fe2 	stp	x2, x3, [sp, #48]
    1509c:	a90407e0 	stp	x0, x1, [sp, #64]
-   150a0:	9000000e 	adrp	x14, 0 <ed25519_keypair_from_seed_s2n_bignum>
+   150a0:	9000000e 	adrp	x14, 0 <ed25519_public_key_from_seed_s2n_bignum>
    150a4:	d2800026 	mov	x6, #0x1                   	// #1
    150a8:	910001ce 	add	x14, x14, #0x0
    150ac:	a94123e5 	ldp	x5, x8, [sp, #16]

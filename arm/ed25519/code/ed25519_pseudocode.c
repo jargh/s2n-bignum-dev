@@ -1,6 +1,6 @@
 #include <stdint.h>
 
-void ed25519_keypair_from_seed_s2n_bignum (
+void ed25519_public_key_from_seed_s2n_bignum (
   uint8_t A[ED25519_PUBLIC_KEY_LEN],
   const uint8_t seed[ED25519_SEED_LEN]){
   // Ed25519 key generation: rfc8032 5.1.5
