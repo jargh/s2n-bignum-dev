@@ -49,13 +49,6 @@ let COMPRESSION_STEP = prove(`! i j h m.
              `h:hash_t`; `m:num->int64`] COMPRESSION_STEP_AUX) THEN
     IMP_REWRITE_TAC [ARITH_RULE `i <= j ==> i+j-i=j`]);;
 
-let BYTES_MOD_BLOCKS_REFL = prove
-                (`!m. LENGTH m < 128 ==> bytes_mod_blocks m = m`,
-                  REPEAT STRIP_TAC THEN
-                    REWRITE_TAC [BYTES_MOD_BLOCKS_SUB_LIST; num_bytes_per_block] THEN
-                    ASM_SIMP_TAC [DIV_LT; MOD_LT] THEN
-                    REWRITE_TAC [MULT; SUB_LIST_LENGTH]);;
-
 let BYTES_MOD_BLOCKS_SUB_LIST = prove
   (`! m. bytes_mod_blocks m =
     SUB_LIST
@@ -67,6 +60,13 @@ let BYTES_MOD_BLOCKS_SUB_LIST = prove
   GEN_REWRITE_TAC (LAND_CONV o LAND_CONV o RAND_CONV o LAND_CONV o ONCE_DEPTH_CONV)
     [MATCH_MP DIVISION (ARITH_RULE `~(128 = 0)`)] THEN
   REWRITE_TAC [ADD_SUB2]);;
+
+let BYTES_MOD_BLOCKS_REFL = prove
+                (`!m. LENGTH m < 128 ==> bytes_mod_blocks m = m`,
+                  REPEAT STRIP_TAC THEN
+                    REWRITE_TAC [BYTES_MOD_BLOCKS_SUB_LIST; num_bytes_per_block] THEN
+                    ASM_SIMP_TAC [DIV_LT; MOD_LT] THEN
+                    REWRITE_TAC [MULT; SUB_LIST_LENGTH]);;
 
 let LENGTH_BYTES_MOD_BLOCKS_LENGTH_MOD = prove
   (`! m. LENGTH (bytes_mod_blocks m) = LENGTH m MOD 128`,
