@@ -1,5 +1,3 @@
-needs "arm/proofs/base.ml";;
-needs "common/ecencoding.ml";; ?may not need this
 needs "EC/edwards25519.ml";;
 needs "arm/sha512/sha512_specs.ml";;
 
@@ -31,6 +29,11 @@ let secret_scalar_of_seed_digest = define
     [(HD h) && (word 0b11111000)] ++ SUB_LIST (1, 30) h ++
     [((EL 31 h) && (word 0b01111111)) || (word 0b01000000)]`;;
 
+unparse_as_infix("&&");;
+remove_interface("&&");;
+unparse_as_infix("||");;
+remove_interface("||");;
+
 let bignum_of_bytelist = define
   `bignum_of_bytelist [] = 0 /\
    bignum_of_bytelist (CONS h t : byte list) = val h + 2 EXP 8 * bignum_of_bytelist t`;;
@@ -55,11 +58,14 @@ let byte_of_char = define
 let dom2_prefix = define
   `dom2_prefix = MAP byte_of_char "SigEd25519 no Ed25519 collisions"`;;
 
+let max_dom2_size = define
+  `max_dom2_size = 279`;;
+
 let dom2_valid = define
-  `dom2_valid (alg : num) (ctxt : byte list) =
-    (LENGTH ctxt <= 255 /\
-     if alg = 0 then ctxt = []
-     else if alg = 1 then ~(ctxt = [])
+  `dom2_valid (alg : num) (ctx : byte list) =
+    (LENGTH ctx <= 255 /\
+     if alg = 0 then ctx = []
+     else if alg = 1 then ~(ctx = [])
      else alg = 2)`;;
 
 let public_key_of_seed = define
@@ -78,10 +84,10 @@ let ph = define
 let dom2_of = define
   `dom2_of alg ctx =
     if alg = 0 then []
-      else dom2_prefix ++ [word (phflag alg)] ++ [word (LENGTH ctxt)] ++ ctxt`;;
+      else dom2_prefix ++ [word (phflag alg)] ++ [word (LENGTH ctx)] ++ ctx`;;
 
 let sign = define
-  `sign (alg : num) (ctxt : byte list) (seed : byte list) (m : byte list) =
+  `sign (alg : num) (ctx : byte list) (seed : byte list) (m : byte list) =
     let h = sha512_pad seed in
     let bytelist_s = secret_scalar_of_seed_digest h in
     let secret_s = bignum_of_bytelist bytelist_s : num in
@@ -118,7 +124,7 @@ let verify_args_valid = define
      LENGTH bytelist_A = 32 /\ ed25519_valid_bytelist bytelist_A)`;;
 
 let verify = define
-  `verify (alg : num) (ctxt : byte list) (bytelist_A : byte list) (sig : byte list) (m : byte list) =
+  `verify (alg : num) (ctx : byte list) (bytelist_A : byte list) (sig : byte list) (m : byte list) =
     let bytelist_R = SUB_LIST (0, 32) sig in
     let bytelist_S = SUB_LIST (32, 32) sig in
     let enc_R = bignum_of_bytelist bytelist_R : num in
@@ -126,7 +132,7 @@ let verify = define
     let sig_S = bignum_of_bytelist bytelist_S : num in
     let enc_A = bignum_of_bytelist bytelist_A : num in
     let dec_A = ed25519_decode enc_A : int#int in
-    let dom2 = dom2_of alg ctxt in
+    let dom2 = dom2_of alg ctx in
     let bytelist_k = sha512_pad (dom2 ++ bytelist_R ++ bytelist_A ++ ph alg m) in
     let k = bignum_of_bytelist bytelist_k : num in
     let sig_S_B = group_pow edwards25519_group E_25519 sig_S in
