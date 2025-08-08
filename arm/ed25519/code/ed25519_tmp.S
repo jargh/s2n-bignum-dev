@@ -795,15 +795,12 @@ bignum_madd_n25519_alt:
 bignum_le:
     ret
 
-	.text
-	.align	2
-	.p2align 5,,15
+	.balign 4
 	.type	msg_schedule, %function
 msg_schedule:
 .LFB12:
 	.cfi_startproc
 	mov	x3, 0
-	.p2align 5,,15
 .L2:
 	ldrb	w5, [x1]
 	mov	x2, 0
@@ -835,7 +832,6 @@ msg_schedule:
 	ldp	x3, x0, [x0, 112]
 	ldr	x10, [x2, 72]
 	ldr	x4, [x2], 8
-	.p2align 5,,15
 .L3:
 	add	x5, x4, x10
 	ror	x1, x3, 61
@@ -861,8 +857,6 @@ msg_schedule:
 	.cfi_endproc
 .LFE12:
 	.size	msg_schedule, .-msg_schedule
-	.align	2
-	.p2align 5,,15
 	.type	sha512_process_block, %function
 sha512_process_block:
 .LFB13:
@@ -895,7 +889,6 @@ sha512_process_block:
 	ldp	x3, x10, [sp, 48]
 	ldp	x9, x11, [sp, 64]
 	b	.L10
-	.p2align 2,,3
 .L11:
 	mov	x7, x8
 	mov	x9, x10
@@ -976,8 +969,6 @@ sha512_process_block:
 	.cfi_endproc
 .LFE13:
 	.size	sha512_process_block, .-sha512_process_block
-	.align	2
-	.p2align 5,,15
 	.type	sha512_process_blocks, %function
 sha512_process_blocks:
 .LFB14:
@@ -996,7 +987,6 @@ sha512_process_blocks:
 	str	x21, [sp, 32]
 	.cfi_offset 21, -16
 	mov	x21, x0
-	.p2align 5,,15
 .L15:
 	mov	x1, x19
 	mov	x0, x21
@@ -1015,14 +1005,11 @@ sha512_process_blocks:
 	.cfi_restore 20
 	.cfi_def_cfa_offset 0
 	ret
-	.p2align 2,,3
 .L21:
 	ret
 	.cfi_endproc
 .LFE14:
 	.size	sha512_process_blocks, .-sha512_process_blocks
-	.align	2
-	.p2align 5,,15
 	.type	sha512_init, %function
 sha512_init:
 .LFB11:
@@ -1070,8 +1057,6 @@ sha512_init:
 	.cfi_endproc
 .LFE11:
 	.size	sha512_init, .-sha512_init
-	.align	2
-	.p2align 5,,15
 	.type	sha512_update, %function
 sha512_update:
 .LFB15:
@@ -1143,8 +1128,6 @@ sha512_update:
     ret
 .LFE15:
 	.size	sha512_update, .-sha512_update
-	.align	2
-	.p2align 5,,15
 	.type	sha512_final, %function
 sha512_final:
 .LFB16:

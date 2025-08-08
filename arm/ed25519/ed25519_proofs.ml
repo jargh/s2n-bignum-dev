@@ -23,14 +23,14 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xaa0003f3;         (* arm_MOV X19 X0 *)
   w 0xaa0103f4;         (* arm_MOV X20 X1 *)
   w 0x910063e0;         (* arm_ADD X0 SP (rvalue (word 24)) *)
-  w 0x94000237;         (* arm_BL (word 2268) *)
+  w 0x94000231;         (* arm_BL (word 2244) *)
   w 0x910063e0;         (* arm_ADD X0 SP (rvalue (word 24)) *)
   w 0xaa1403e1;         (* arm_MOV X1 X20 *)
   w 0xd2800402;         (* arm_MOV X2 (rvalue (word 32)) *)
-  w 0x9400025b;         (* arm_BL (word 2412) *)
+  w 0x94000255;         (* arm_BL (word 2388) *)
   w 0x9103c3e0;         (* arm_ADD X0 SP (rvalue (word 240)) *)
   w 0x910063e1;         (* arm_ADD X1 SP (rvalue (word 24)) *)
-  w 0x94000294;         (* arm_BL (word 2640) *)
+  w 0x9400028c;         (* arm_BL (word 2608) *)
   w 0x3943c3e0;         (* arm_LDRB W0 SP (Immediate_Offset (word 240)) *)
   w 0x121d1000;         (* arm_AND W0 W0 (rvalue (word 248)) *)
   w 0x3903c3e0;         (* arm_STRB W0 SP (Immediate_Offset (word 240)) *)
@@ -59,14 +59,14 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xaa0403f7;         (* arm_MOV X23 X4 *)
   w 0xaa0503f8;         (* arm_MOV X24 X5 *)
   w 0x9100e3e0;         (* arm_ADD X0 SP (rvalue (word 56)) *)
-  w 0x94000213;         (* arm_BL (word 2124) *)
+  w 0x9400020d;         (* arm_BL (word 2100) *)
   w 0x9100e3e0;         (* arm_ADD X0 SP (rvalue (word 56)) *)
   w 0xaa1603e1;         (* arm_MOV X1 X22 *)
   w 0xd2800402;         (* arm_MOV X2 (rvalue (word 32)) *)
-  w 0x94000237;         (* arm_BL (word 2268) *)
+  w 0x94000231;         (* arm_BL (word 2244) *)
   w 0x910443e0;         (* arm_ADD X0 SP (rvalue (word 272)) *)
   w 0x9100e3e1;         (* arm_ADD X1 SP (rvalue (word 56)) *)
-  w 0x94000270;         (* arm_BL (word 2496) *)
+  w 0x94000268;         (* arm_BL (word 2464) *)
   w 0x394443e0;         (* arm_LDRB W0 SP (Immediate_Offset (word 272)) *)
   w 0x121d1000;         (* arm_AND W0 W0 (rvalue (word 248)) *)
   w 0x390443e0;         (* arm_STRB W0 SP (Immediate_Offset (word 272)) *)
@@ -75,23 +75,23 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0x321a0000;         (* arm_ORR W0 W0 (rvalue (word 64)) *)
   w 0x3904bfe0;         (* arm_STRB W0 SP (Immediate_Offset (word 303)) *)
   w 0x9100e3e0;         (* arm_ADD X0 SP (rvalue (word 56)) *)
-  w 0x94000203;         (* arm_BL (word 2060) *)
+  w 0x940001fd;         (* arm_BL (word 2036) *)
   w 0xb40000b8;         (* arm_CBZ X24 (word 20) *)
   w 0x9100e3e0;         (* arm_ADD X0 SP (rvalue (word 56)) *)
   w 0xaa1703e1;         (* arm_MOV X1 X23 *)
   w 0xaa1803e2;         (* arm_MOV X2 X24 *)
-  w 0x94000226;         (* arm_BL (word 2200) *)
+  w 0x94000220;         (* arm_BL (word 2176) *)
   w 0x9100e3e0;         (* arm_ADD X0 SP (rvalue (word 56)) *)
   w 0x9104c3e1;         (* arm_ADD X1 SP (rvalue (word 304)) *)
   w 0xd2800402;         (* arm_MOV X2 (rvalue (word 32)) *)
-  w 0x94000222;         (* arm_BL (word 2184) *)
+  w 0x9400021c;         (* arm_BL (word 2160) *)
   w 0x9100e3e0;         (* arm_ADD X0 SP (rvalue (word 56)) *)
   w 0xaa1403e1;         (* arm_MOV X1 X20 *)
   w 0xaa1503e2;         (* arm_MOV X2 X21 *)
-  w 0x9400021e;         (* arm_BL (word 2168) *)
+  w 0x94000218;         (* arm_BL (word 2144) *)
   w 0x910543e0;         (* arm_ADD X0 SP (rvalue (word 336)) *)
   w 0x9100e3e1;         (* arm_ADD X1 SP (rvalue (word 56)) *)
-  w 0x94000257;         (* arm_BL (word 2396) *)
+  w 0x9400024f;         (* arm_BL (word 2364) *)
   w 0x910543e0;         (* arm_ADD X0 SP (rvalue (word 336)) *)
   w 0xd2800101;         (* arm_MOV X1 (rvalue (word 8)) *)
   w 0xaa0003e2;         (* arm_MOV X2 X0 *)
@@ -103,27 +103,27 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0x910643e1;         (* arm_ADD X1 SP (rvalue (word 400)) *)
   w 0x94000136;         (* arm_BL (word 1240) *)
   w 0x9100e3e0;         (* arm_ADD X0 SP (rvalue (word 56)) *)
-  w 0x940001e7;         (* arm_BL (word 1948) *)
+  w 0x940001e1;         (* arm_BL (word 1924) *)
   w 0xb40000b8;         (* arm_CBZ X24 (word 20) *)
   w 0x9100e3e0;         (* arm_ADD X0 SP (rvalue (word 56)) *)
   w 0xaa1703e1;         (* arm_MOV X1 X23 *)
   w 0xaa1803e2;         (* arm_MOV X2 X24 *)
-  w 0x9400020a;         (* arm_BL (word 2088) *)
+  w 0x94000204;         (* arm_BL (word 2064) *)
   w 0x9100e3e0;         (* arm_ADD X0 SP (rvalue (word 56)) *)
   w 0xaa1303e1;         (* arm_MOV X1 X19 *)
   w 0xd2800402;         (* arm_MOV X2 (rvalue (word 32)) *)
-  w 0x94000206;         (* arm_BL (word 2072) *)
+  w 0x94000200;         (* arm_BL (word 2048) *)
   w 0x9100e3e0;         (* arm_ADD X0 SP (rvalue (word 56)) *)
   w 0x910082c1;         (* arm_ADD X1 X22 (rvalue (word 32)) *)
   w 0xd2800402;         (* arm_MOV X2 (rvalue (word 32)) *)
-  w 0x94000202;         (* arm_BL (word 2056) *)
+  w 0x940001fc;         (* arm_BL (word 2032) *)
   w 0x9100e3e0;         (* arm_ADD X0 SP (rvalue (word 56)) *)
   w 0xaa1403e1;         (* arm_MOV X1 X20 *)
   w 0xaa1503e2;         (* arm_MOV X2 X21 *)
-  w 0x940001fe;         (* arm_BL (word 2040) *)
+  w 0x940001f8;         (* arm_BL (word 2016) *)
   w 0x910743e0;         (* arm_ADD X0 SP (rvalue (word 464)) *)
   w 0x9100e3e1;         (* arm_ADD X1 SP (rvalue (word 56)) *)
-  w 0x94000237;         (* arm_BL (word 2268) *)
+  w 0x9400022f;         (* arm_BL (word 2236) *)
   w 0x910743e0;         (* arm_ADD X0 SP (rvalue (word 464)) *)
   w 0xd2800101;         (* arm_MOV X1 (rvalue (word 8)) *)
   w 0xaa0003e2;         (* arm_MOV X2 X0 *)
@@ -174,27 +174,27 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0x940000f1;         (* arm_BL (word 964) *)
   w 0xb50006a0;         (* arm_CBNZ X0 (word 212) *)
   w 0x910263e0;         (* arm_ADD X0 SP (rvalue (word 152)) *)
-  w 0x940001a0;         (* arm_BL (word 1664) *)
+  w 0x9400019a;         (* arm_BL (word 1640) *)
   w 0xb40000b8;         (* arm_CBZ X24 (word 20) *)
   w 0x910263e0;         (* arm_ADD X0 SP (rvalue (word 152)) *)
   w 0xaa1703e1;         (* arm_MOV X1 X23 *)
   w 0xaa1803e2;         (* arm_MOV X2 X24 *)
-  w 0x940001c3;         (* arm_BL (word 1804) *)
+  w 0x940001bd;         (* arm_BL (word 1780) *)
   w 0x910263e0;         (* arm_ADD X0 SP (rvalue (word 152)) *)
   w 0xaa1503e1;         (* arm_MOV X1 X21 *)
   w 0xd2800402;         (* arm_MOV X2 (rvalue (word 32)) *)
-  w 0x940001bf;         (* arm_BL (word 1788) *)
+  w 0x940001b9;         (* arm_BL (word 1764) *)
   w 0x910263e0;         (* arm_ADD X0 SP (rvalue (word 152)) *)
   w 0xaa1603e1;         (* arm_MOV X1 X22 *)
   w 0xd2800402;         (* arm_MOV X2 (rvalue (word 32)) *)
-  w 0x940001bb;         (* arm_BL (word 1772) *)
+  w 0x940001b5;         (* arm_BL (word 1748) *)
   w 0x910263e0;         (* arm_ADD X0 SP (rvalue (word 152)) *)
   w 0xaa1303e1;         (* arm_MOV X1 X19 *)
   w 0xaa1403e2;         (* arm_MOV X2 X20 *)
-  w 0x940001b7;         (* arm_BL (word 1756) *)
+  w 0x940001b1;         (* arm_BL (word 1732) *)
   w 0x9105c3e0;         (* arm_ADD X0 SP (rvalue (word 368)) *)
   w 0x910263e1;         (* arm_ADD X1 SP (rvalue (word 152)) *)
-  w 0x940001f0;         (* arm_BL (word 1984) *)
+  w 0x940001e8;         (* arm_BL (word 1952) *)
   w 0x910163e0;         (* arm_ADD X0 SP (rvalue (word 88)) *)
   w 0xaa0003e1;         (* arm_MOV X1 X0 *)
   w 0x940000db;         (* arm_BL (word 876) *)
@@ -349,14 +349,14 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0x97ffff9b;         (* arm_BL (word 268435052) *)
   w 0xf900abe0;         (* arm_STR X0 SP (Immediate_Offset (word 336)) *)
   w 0x910563e0;         (* arm_ADD X0 SP (rvalue (word 344)) *)
-  w 0x940000f1;         (* arm_BL (word 964) *)
+  w 0x940000eb;         (* arm_BL (word 940) *)
   w 0x910563e0;         (* arm_ADD X0 SP (rvalue (word 344)) *)
   w 0xaa1403e1;         (* arm_MOV X1 X20 *)
   w 0xaa1503e2;         (* arm_MOV X2 X21 *)
-  w 0x94000115;         (* arm_BL (word 1108) *)
+  w 0x9400010f;         (* arm_BL (word 1084) *)
   w 0x9108c3e0;         (* arm_ADD X0 SP (rvalue (word 560)) *)
   w 0x910563e1;         (* arm_ADD X1 SP (rvalue (word 344)) *)
-  w 0x9400014e;         (* arm_BL (word 1336) *)
+  w 0x94000146;         (* arm_BL (word 1304) *)
   w 0xaa1303e0;         (* arm_MOV X0 X19 *)
   w 0x9108c3e1;         (* arm_ADD X1 SP (rvalue (word 560)) *)
   w 0xd2800802;         (* arm_MOV X2 (rvalue (word 64)) *)
@@ -389,14 +389,14 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0x97ffff73;         (* arm_BL (word 268434892) *)
   w 0xf900abe0;         (* arm_STR X0 SP (Immediate_Offset (word 336)) *)
   w 0x910563e0;         (* arm_ADD X0 SP (rvalue (word 344)) *)
-  w 0x940000c9;         (* arm_BL (word 804) *)
+  w 0x940000c3;         (* arm_BL (word 780) *)
   w 0x910563e0;         (* arm_ADD X0 SP (rvalue (word 344)) *)
   w 0xaa1303e1;         (* arm_MOV X1 X19 *)
   w 0xaa1403e2;         (* arm_MOV X2 X20 *)
-  w 0x940000ed;         (* arm_BL (word 948) *)
+  w 0x940000e7;         (* arm_BL (word 924) *)
   w 0x9108c3e0;         (* arm_ADD X0 SP (rvalue (word 560)) *)
   w 0x910563e1;         (* arm_ADD X1 SP (rvalue (word 344)) *)
-  w 0x94000126;         (* arm_BL (word 1176) *)
+  w 0x9400011e;         (* arm_BL (word 1144) *)
   w 0x9108c3e0;         (* arm_ADD X0 SP (rvalue (word 560)) *)
   w 0xd2800801;         (* arm_MOV X1 (rvalue (word 64)) *)
   w 0xaa1503e2;         (* arm_MOV X2 X21 *)
@@ -471,15 +471,12 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xeb02017f;         (* arm_CMP X11 X2 *)
   w 0x54fffda1;         (* arm_BNE (word 2097076) *)
   w 0xd65f03c0;         (* arm_RET X30 *)
-  w 0xd503201f;         (* arm_NOP *)
-  w 0xd503201f;         (* arm_NOP *)
-  w 0xd503201f;         (* arm_NOP *)
   w 0xd10b43ff;         (* arm_SUB SP SP (rvalue (word 720)) *)
   w 0xaa0003ec;         (* arm_MOV X12 X0 *)
   w 0x910143e0;         (* arm_ADD X0 SP (rvalue (word 80)) *)
   w 0xa9007bfd;         (* arm_STP X29 X30 SP (Immediate_Offset (iword (&0))) *)
   w 0x910003fd;         (* arm_ADD X29 SP (rvalue (word 0)) *)
-  w 0x97ffffc4;         (* arm_BL (word 268435216) *)
+  w 0x97ffffc7;         (* arm_BL (word 268435228) *)
   w 0xf2400d9f;         (* arm_TST X12 (rvalue (word 15)) *)
   w 0x54000961;         (* arm_BNE (word 300) *)
   w 0xa9401d86;         (* arm_LDP X6 X7 X12 (Immediate_Offset (iword (&0))) *)
@@ -490,7 +487,7 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xa90217e4;         (* arm_STP X4 X5 SP (Immediate_Offset (iword (&32))) *)
   w 0xa9030fe2;         (* arm_STP X2 X3 SP (Immediate_Offset (iword (&48))) *)
   w 0xa90407e0;         (* arm_STP X0 X1 SP (Immediate_Offset (iword (&64))) *)
-  ADRP (mk_var("K",`:num`),0,1888,14);
+  ADRP (mk_var("K",`:num`),0,1876,14);
   w 0xd2800026;         (* arm_MOV X6 (rvalue (word 1)) *)
   ADD_rri64 (mk_var("K",`:num`),0,14,14);
   w 0xa94123e5;         (* arm_LDP X5 X8 SP (Immediate_Offset (iword (&16))) *)
@@ -567,9 +564,6 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xf9001fe2;         (* arm_STR X2 SP (Immediate_Offset (word 56)) *)
   w 0xa90403e1;         (* arm_STP X1 X0 SP (Immediate_Offset (iword (&64))) *)
   w 0x17ffffb4;         (* arm_B (word 268435152) *)
-  w 0xd503201f;         (* arm_NOP *)
-  w 0xd503201f;         (* arm_NOP *)
-  w 0xd503201f;         (* arm_NOP *)
   w 0xb4000262;         (* arm_CBZ X2 (word 76) *)
   w 0xa9bd7bfd;         (* arm_STP X29 X30 SP (Preimmediate_Offset (iword (-- &48))) *)
   w 0x910003fd;         (* arm_ADD X29 SP (rvalue (word 0)) *)
@@ -582,7 +576,7 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xaa1503e0;         (* arm_MOV X0 X21 *)
   w 0xd1000694;         (* arm_SUB X20 X20 (rvalue (word 1)) *)
   w 0x91020273;         (* arm_ADD X19 X19 (rvalue (word 128)) *)
-  w 0x97ffff94;         (* arm_BL (word 268435024) *)
+  w 0x97ffff97;         (* arm_BL (word 268435036) *)
   w 0xb100069f;         (* arm_CMN X20 (rvalue (word 1)) *)
   w 0x54ffff41;         (* arm_BNE (word 2097128) *)
   w 0xa94153f3;         (* arm_LDP X19 X20 SP (Immediate_Offset (iword (&16))) *)
@@ -665,7 +659,7 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xf102009f;         (* arm_CMP X4 (rvalue (word 128)) *)
   w 0x54000281;         (* arm_BNE (word 80) *)
   w 0xaa1503e0;         (* arm_MOV X0 X21 *)
-  w 0x97ffff41;         (* arm_BL (word 268434692) *)
+  w 0x97ffff44;         (* arm_BL (word 268434704) *)
   w 0xf102029f;         (* arm_CMP X20 (rvalue (word 128)) *)
   w 0x54000103;         (* arm_BCC (word 32) *)
   w 0xaa1503e0;         (* arm_MOV X0 X21 *)
@@ -688,8 +682,6 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xf94013f5;         (* arm_LDR X21 SP (Immediate_Offset (word 32)) *)
   w 0xa8c37bfd;         (* arm_LDP X29 X30 SP (Postimmediate_Offset (iword (&48))) *)
   w 0xd65f03c0;         (* arm_RET X30 *)
-  w 0xd503201f;         (* arm_NOP *)
-  w 0xd503201f;         (* arm_NOP *)
   w 0xa9bd7bfd;         (* arm_STP X29 X30 SP (Preimmediate_Offset (iword (-- &48))) *)
   w 0x910003fd;         (* arm_ADD X29 SP (rvalue (word 0)) *)
   w 0xa90153f3;         (* arm_STP X19 X20 SP (Immediate_Offset (iword (&16))) *)
@@ -710,7 +702,7 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0x54ffffa1;         (* arm_BNE (word 2097140) *)
   w 0xaa1303e0;         (* arm_MOV X0 X19 *)
   w 0xaa1503e1;         (* arm_MOV X1 X21 *)
-  w 0x97ffff14;         (* arm_BL (word 268434512) *)
+  w 0x97ffff19;         (* arm_BL (word 268434532) *)
   w 0xaa1f03e2;         (* arm_MOV X2 XZR *)
   w 0x14000003;         (* arm_B (word 12) *)
   w 0x38226abf;         (* arm_STRB WZR X21 (Register_Offset X2) *)
@@ -725,7 +717,7 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xf9006660;         (* arm_STR X0 X19 (Immediate_Offset (word 200)) *)
   w 0xaa1303e0;         (* arm_MOV X0 X19 *)
   w 0xaa1503e1;         (* arm_MOV X1 X21 *)
-  w 0x97ffff05;         (* arm_BL (word 268434452) *)
+  w 0x97ffff0a;         (* arm_BL (word 268434472) *)
   w 0xf9400260;         (* arm_LDR X0 X19 (Immediate_Offset (word 0)) *)
   w 0xdac00c00;         (* arm_REV X0 X0 *)
   w 0xf9000280;         (* arm_STR X0 X20 (Immediate_Offset (word 0)) *)
@@ -988,8 +980,9 @@ let BIGNUM_LE_SUBROUTINE_CORRECT = prove
 let ED25519_PUBLIC_KEY_FROM_SEED_S2N_BIGNUM_CORRECT = prove
   (`!sp A_p seed_p seed pc retpc K_base.
     aligned 16 sp /\
-    adrp_within_bounds (word K_base) (word (pc + 0x760)) /\
-    PAIRWISE nonoverlapping [(word pc, 2944); (A_p, 32); (seed_p, 32); (word_sub sp (word 1184), 1184); (word K_base, 640)] /\
+    adrp_within_bounds (word K_base) (word (pc + 0x754)) /\
+    PAIRWISE nonoverlapping [(word pc, 0xb60); (A_p, 32); (seed_p, 32);
+      (word_sub sp (word 1184), 1184); (word K_base, 640)] /\
     LENGTH seed = 32 ==>
     ensures arm
       (\s. aligned_bytes_loaded s (word pc) (ed25519_mc pc K_base) /\
@@ -1015,11 +1008,15 @@ let ED25519_PUBLIC_KEY_FROM_SEED_S2N_BIGNUM_CORRECT = prove
 
     ENSURES_INIT_TAC "s0" THEN
     ARM_STEPS_TAC ED25519_EXEC (1--6) THEN
+    (* SUBGOAL_THEN `word (pc + 2264) = word ((pc + 1604) + 660):int64` ASSUME_TAC THENL
+    [ CHEAT_TAC; ALL_TAC ] THEN
+    SUBGOAL_THEN `aligned_bytes_loaded s6 (word (pc + 1604)) (sha512_mc (pc + 1604) K_base)` ASSUME_TAC THENL
+    [ CHEAT_TAC; ALL_TAC ] THEN *)
     ARM_SUBROUTINE_SIM_TAC
       (SPEC_ALL ed25519_mc, ED25519_EXEC, 0x644,
         TRIM_LIST_CONV
         (mk_comb (`TRIM_LIST (0x644,0):byte list -> byte list`, rand (concl (SPEC_ALL ed25519_mc)))), SHA512_INIT)
-      [`sp + word 24 : int64`; `pc + 0x644`; `pc + 0x18`; `K_base : num`] 7 THEN
+      [`sp + word 840 : int64`; `pc + 0x644`; `pc + 0x18`; `K_base : num`] 7 THEN
     RENAME_TAC `s7:armstate` `s6_ret:armstate` THEN
   );;
 
@@ -1148,14 +1145,17 @@ let DOM2_COMMON_CORRECT = prove
     uint8_t *dom2_buffer, size_t dom2_buffer_len) *)
 let ED25519_SIGN_COMMON_CORRECT = prove
   (`!sp sig_p msg_p msg priv_key_p seed A dom2_buf_p alg ctx pc retpc.
-    PAIRWISE nonoverlapping [(word pc, 2944); (sig_p, 64); (msg_p; LENGTH (ph alg msg)); (priv_key_p, 64); (dom2_buf_p, max_dom2_size); (word_sub sp (word ???), ???)] /\
+    aligned 16 sp /\
+    adrp_within_bounds (word K_base) (word (pc + 0x754)) /\
+    PAIRWISE nonoverlapping [(word pc, 0xb60); (sig_p, 64); (msg_p; LENGTH (ph alg msg)); (priv_key_p, 64);
+      (dom2_buf_p, max_dom2_size); (word_sub sp (word ???), ???)] /\
     LENGTH (ph alg msg) < 2 EXP 64 /\
     LENGTH seed = 32 /\
     A = public_key_of_seed seed /\
     dom2_valid alg ctx ==>
     ensures arm
-    (\s. aligned_bytes_loaded s (word pc) (ed25519_mc pc ???) /\
-         read PC s = word (pc + ???) /\
+    (\s. aligned_bytes_loaded s (word pc) (ed25519_mc pc K_base) /\
+         read PC s = word (pc + 0x74) /\
          read SP s = sp /\
          read X30 s = word retpc /\
          C_ARGUMENTS [sig_p; msg_p; word (LENGTH (ph alg msg)); priv_key_p; dom2_buf_p, word (LENGTH (dom2_of alg ctx))] s /\
