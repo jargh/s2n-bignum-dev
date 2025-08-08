@@ -608,7 +608,7 @@ let SHA512_PROCESS_BLOCK = prove(`! sp h_p h m_p m pc retpc K_base.
       ASSUME_TAC(GEN_ALL WORD_ADD1_SHL3_SUB8) THEN
       RULE_ASSUM_TAC (CONV_RULE(ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV)) THEN
       SUBGOAL_THEN
-        `read (memory :> bytes64 (word K_base + word (8 * i))) s86 = K i /\
+        `read (memory :> bytes64 (word K_base + word (8 * i))) s86 = K_tbl i /\
           read (memory :> bytes64 (sp + word (80 + 8 * i))) s86 = msg_schedule m i`
         STRIP_ASSUME_TAC THENL
       [ RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)) THEN
@@ -656,7 +656,7 @@ let SHA512_PROCESS_BLOCK = prove(`! sp h_p h m_p m pc retpc K_base.
   RULE_ASSUM_TAC (REWRITE_RULE [msg_schedule_at; constants_at]) THEN
   RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
   RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV)) THEN
-  SUBGOAL_THEN `read (memory :> bytes64 (word K_base + word 632)) s86 = K 79 /\
+  SUBGOAL_THEN `read (memory :> bytes64 (word K_base + word 632)) s86 = K_tbl 79 /\
     read (memory :> bytes64 (sp + word 712)) s86 = msg_schedule m 79` STRIP_ASSUME_TAC THENL
   [ REPEAT (FIRST_X_ASSUM (ASSUME_TAC o SPEC `79`)) THEN
       RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN

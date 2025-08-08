@@ -16,7 +16,7 @@ let COMPRESSION_STEP_AUX = prove(`! r i j h m.
     compression_until (j + 1) i h m
       = compression_update
           (compression_until j i h m)
-          (K j)
+          (K_tbl j)
           (msg_schedule m j)`,
   INDUCT_TAC THENL
   [ (* Base case *)
@@ -34,7 +34,7 @@ let COMPRESSION_STEP_AUX = prove(`! r i j h m.
       MP_TAC (ARITH_RULE `(i + 1) + r = j ==> i < j + 1 /\ i < j`) THEN
       ASM_REWRITE_TAC [] THEN DISCH_TAC THEN ASM_REWRITE_TAC [] THEN
       CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
-      FIRST_X_ASSUM (MP_TAC o SPECL [`i + 1`; `j : num`; `compression_update h (K i) (msg_schedule m i)`; `m : num -> int64`]) THEN
+      FIRST_X_ASSUM (MP_TAC o SPECL [`i + 1`; `j : num`; `compression_update h (K_tbl i) (msg_schedule m i)`; `m : num -> int64`]) THEN
       SUBGOAL_THEN `i + 1 <= j` STRIP_ASSUME_TAC THENL [ASM_ARITH_TAC; ASM_REWRITE_TAC[]] ]);;
 
 let COMPRESSION_STEP = prove(`! i j h m.
@@ -42,7 +42,7 @@ let COMPRESSION_STEP = prove(`! i j h m.
     compression_until (j + 1) i h m
       = compression_update
         (compression_until j i h m)
-        (K j)
+        (K_tbl j)
         (msg_schedule m j)`,
   REPEAT STRIP_TAC THEN
     MP_TAC (SPECL [`j - i`; `i:num`; `j:num`;
@@ -373,46 +373,6 @@ let BYTE_LIST_AT_MSG_BLOCKS_AT = prove
     CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
     GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [MULT_SYM] THEN
     REFL_TAC);;
-
-let SHIFT_BYTE_LIST_AT = prove
-  (`!l m. LENGTH m < 2 EXP 64 /\
-    l <= LENGTH m /\
-    byte_list_at m m_p s ==>
-    byte_list_at (drop l m) (m_p + word l) s`,
-  REWRITE_TAC [byte_list_at; drop; LENGTH_SUB_LIST; MIN; LE_REFL] THEN
-    REPEAT STRIP_TAC THEN
-    REWRITE_TAC [GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
-    IMP_REWRITE_TAC [EL_SUB_LIST] THEN
-    SIMPLE_ARITH_TAC);;
-
-let BYTE_LIST_AT_APPEND = prove
-  (`!m n p s.
-    byte_list_at (m ++ n) p s <=> byte_list_at m p s /\ byte_list_at n (p + word (LENGTH m)) s`,
-  REPEAT STRIP_TAC THEN
-    REWRITE_TAC [byte_list_at] THEN
-    REWRITE_TAC [TAUT `!P Q. (P <=> Q) <=> (P ==> Q) /\ (Q ==> P)`] THEN
-    REPEAT STRIP_TAC THENL
-    [ FIRST_X_ASSUM (MP_TAC o SPEC `i:num`) THEN
-        DISCH_THEN (fun th -> IMP_REWRITE_TAC [th]) THEN
-        ASM_REWRITE_TAC [LENGTH_APPEND; EL_APPEND] THEN
-        SIMPLE_ARITH_TAC;
-      FIRST_X_ASSUM (MP_TAC o SPEC `LENGTH (m:byte list) + i`) THEN
-        REWRITE_TAC [LENGTH_APPEND; GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
-        DISCH_THEN (fun th -> IMP_REWRITE_TAC [th]) THEN
-        REWRITE_TAC [EL_APPEND] THEN
-        REWRITE_TAC [ARITH_RULE `!x y. ~(x + y < x)`; ADD_SUB2] THEN
-        SIMPLE_ARITH_TAC;
-      REWRITE_TAC [EL_APPEND] THEN
-        COND_CASES_TAC THENL
-        [ FIRST_X_ASSUM MATCH_MP_TAC THEN
-            ASM_REWRITE_TAC [];
-          FIRST_X_ASSUM (MP_TAC o SPEC `(i - LENGTH (m:byte list))`) THEN
-          ANTS_TAC THENL
-          [ RULE_ASSUM_TAC (REWRITE_RULE [LENGTH_APPEND]) THEN
-              SIMPLE_ARITH_TAC;
-            ALL_TAC ] THEN
-          REWRITE_TAC [GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
-          ASM_SIMP_TAC [ARITH_RULE `!x y. ~(x < y) ==> y + x - y = x`] ] ]);;
 
 let INT64_BYTE_LIST = prove
   (`!w p s. read (memory :> bytes64 p) s = w <=> byte_list_at (int64_to_bytes w) p s`,

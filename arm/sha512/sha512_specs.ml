@@ -142,7 +142,7 @@ let ktbl_list = new_definition `ktbl_list : ((64)word)list =
                  K_60; K_61; K_62; K_63; K_64; K_65; K_66; K_67; K_68; K_69;
                  K_70; K_71; K_72; K_73; K_74; K_75; K_76; K_77; K_78; K_79 ]`;;
 
-let K_DEF = new_definition `K i:int64 = EL i ktbl_list`;;
+let K_DEF = new_definition `K_tbl i:int64 = EL i ktbl_list`;;
 
 (* ------------------------------------------------------------------------- *)
 (* Section 5.3.5: the initial value of the 8 hash variables.                 *)
@@ -218,7 +218,7 @@ let compression_update = define
 let compression_until = define
   `compression_until (j:num) (i:num) hash (m:num->int64) =
       if i < j then
-        let ki = K i in
+        let ki = K_tbl i in
         let wi = msg_schedule m i in
         let update = compression_update hash ki wi in
         compression_until j (i + 1) update m
@@ -346,10 +346,6 @@ let hash_buffer_at = define
      read (memory :> bytes64 (word_add h_p (word (8 * 4)))) s, read (memory :> bytes64 (word_add h_p (word (8 * 5)))) s,
      read (memory :> bytes64 (word_add h_p (word (8 * 6)))) s, read (memory :> bytes64 (word_add h_p (word (8 * 7)))) s) = h`;;
 
-let byte_list_at = define
-  `byte_list_at (m : byte list) (m_p : int64) s =
-    ! i. i < LENGTH m ==> read (memory :> bytes8(word_add m_p (word i))) s = EL i m`;;
-
 let msg_block_at = define
   `msg_block_at (m : num -> int64) (m_p : int64) s =
     (read (memory :> bytes64(m_p)) s = m 0                            /\ read (memory :> bytes64(word_add m_p (word 8))) s = m 1 /\
@@ -380,4 +376,4 @@ let msg_schedule_at = define
 
 let constants_at = define
   `constants_at (K_base : int64) s =
-    ! i. i < 80 ==> read (memory :> bytes64(word_add K_base (word (8 * i)))) s = K i`;;
+    ! i. i < 80 ==> read (memory :> bytes64(word_add K_base (word (8 * i)))) s = K_tbl i`;;

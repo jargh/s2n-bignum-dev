@@ -18,6 +18,10 @@ let take = define
 let ceil_div = define
   `ceil_div (m : num) (n : num) = (m + n - 1) DIV n`;;
 
+let byte_list_at = define
+  `byte_list_at (m : byte list) (m_p : int64) s =
+    ! i. i < LENGTH m ==> read (memory :> bytes8(word_add m_p (word i))) s = EL i m`;;
+
 (* ===== thm ===== *)
 
 let DOUBLE_INCL = prove
@@ -332,6 +336,46 @@ let BYTELIST_APPEND = prove
     REWRITE_TAC [GSYM LENGTH_APPEND; GSYM bytes_loaded] THEN
     REPEAT STRIP_TAC THEN
     ASM_REWRITE_TAC [bytes_loaded_append]);;
+
+let SHIFT_BYTE_LIST_AT = prove
+  (`!l m. LENGTH m < 2 EXP 64 /\
+    l <= LENGTH m /\
+    byte_list_at m m_p s ==>
+    byte_list_at (drop l m) (m_p + word l) s`,
+  REWRITE_TAC [byte_list_at; drop; LENGTH_SUB_LIST; MIN; LE_REFL] THEN
+    REPEAT STRIP_TAC THEN
+    REWRITE_TAC [GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
+    IMP_REWRITE_TAC [EL_SUB_LIST] THEN
+    SIMPLE_ARITH_TAC);;
+
+let BYTE_LIST_AT_APPEND = prove
+  (`!m n p s.
+    byte_list_at (m ++ n) p s <=> byte_list_at m p s /\ byte_list_at n (p + word (LENGTH m)) s`,
+  REPEAT STRIP_TAC THEN
+    REWRITE_TAC [byte_list_at] THEN
+    REWRITE_TAC [TAUT `!P Q. (P <=> Q) <=> (P ==> Q) /\ (Q ==> P)`] THEN
+    REPEAT STRIP_TAC THENL
+    [ FIRST_X_ASSUM (MP_TAC o SPEC `i:num`) THEN
+        DISCH_THEN (fun th -> IMP_REWRITE_TAC [th]) THEN
+        ASM_REWRITE_TAC [LENGTH_APPEND; EL_APPEND] THEN
+        SIMPLE_ARITH_TAC;
+      FIRST_X_ASSUM (MP_TAC o SPEC `LENGTH (m:byte list) + i`) THEN
+        REWRITE_TAC [LENGTH_APPEND; GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
+        DISCH_THEN (fun th -> IMP_REWRITE_TAC [th]) THEN
+        REWRITE_TAC [EL_APPEND] THEN
+        REWRITE_TAC [ARITH_RULE `!x y. ~(x + y < x)`; ADD_SUB2] THEN
+        SIMPLE_ARITH_TAC;
+      REWRITE_TAC [EL_APPEND] THEN
+        COND_CASES_TAC THENL
+        [ FIRST_X_ASSUM MATCH_MP_TAC THEN
+            ASM_REWRITE_TAC [];
+          FIRST_X_ASSUM (MP_TAC o SPEC `(i - LENGTH (m:byte list))`) THEN
+          ANTS_TAC THENL
+          [ RULE_ASSUM_TAC (REWRITE_RULE [LENGTH_APPEND]) THEN
+              SIMPLE_ARITH_TAC;
+            ALL_TAC ] THEN
+          REWRITE_TAC [GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
+          ASM_SIMP_TAC [ARITH_RULE `!x y. ~(x < y) ==> y + x - y = x`] ] ]);;
 
 
 (* ===== conv ===== *)
