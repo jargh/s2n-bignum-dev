@@ -50,7 +50,6 @@ let sha512_mc,sha512_constants_data = define_assert_relocs_from_elf "sha512_mc"
   w 0xa9470003;         (* arm_LDP X3 X0 X0 (Immediate_Offset (iword (&112))) *)
   w 0xf940244a;         (* arm_LDR X10 X2 (Immediate_Offset (word 72)) *)
   w 0xf8408444;         (* arm_LDR X4 X2 (Postimmediate_Offset (word 8)) *)
-  w 0xd503201f;         (* arm_NOP *)
   w 0x8b0a0085;         (* arm_ADD X5 X4 X10 *)
   w 0x93c3f461;         (* arm_ROR X1 X3 61 *)
   w 0xf9400044;         (* arm_LDR X4 X2 (Immediate_Offset (word 0)) *)
@@ -72,15 +71,12 @@ let sha512_mc,sha512_constants_data = define_assert_relocs_from_elf "sha512_mc"
   w 0xeb02017f;         (* arm_CMP X11 X2 *)
   w 0x54fffda1;         (* arm_BNE (word 2097076) *)
   w 0xd65f03c0;         (* arm_RET X30 *)
-  w 0xd503201f;         (* arm_NOP *)
-  w 0xd503201f;         (* arm_NOP *)
-  w 0xd503201f;         (* arm_NOP *)
   w 0xd10b43ff;         (* arm_SUB SP SP (rvalue (word 720)) *)
   w 0xaa0003ec;         (* arm_MOV X12 X0 *)
   w 0x910143e0;         (* arm_ADD X0 SP (rvalue (word 80)) *)
   w 0xa9007bfd;         (* arm_STP X29 X30 SP (Immediate_Offset (iword (&0))) *)
   w 0x910003fd;         (* arm_ADD X29 SP (rvalue (word 0)) *)
-  w 0x97ffffc3;         (* arm_BL (word 268435212) *)
+  w 0x97ffffc7;         (* arm_BL (word 268435228) *)
   w 0xf2400d9f;         (* arm_TST X12 (rvalue (word 15)) *)
   w 0x54000961;         (* arm_BNE (word 300) *)
   w 0xa9401d86;         (* arm_LDP X6 X7 X12 (Immediate_Offset (iword (&0))) *)
@@ -91,7 +87,7 @@ let sha512_mc,sha512_constants_data = define_assert_relocs_from_elf "sha512_mc"
   w 0xa90217e4;         (* arm_STP X4 X5 SP (Immediate_Offset (iword (&32))) *)
   w 0xa9030fe2;         (* arm_STP X2 X3 SP (Immediate_Offset (iword (&48))) *)
   w 0xa90407e0;         (* arm_STP X0 X1 SP (Immediate_Offset (iword (&64))) *)
-  ADRP (mk_var("K",`:num`),0,288,14);
+  ADRP (mk_var("K",`:num`),0,272,14);
   w 0xd2800026;         (* arm_MOV X6 (rvalue (word 1)) *)
   ADD_rri64 (mk_var("K",`:num`),0,14,14);
   w 0xa94123e5;         (* arm_LDP X5 X8 SP (Immediate_Offset (iword (&16))) *)
@@ -168,9 +164,6 @@ let sha512_mc,sha512_constants_data = define_assert_relocs_from_elf "sha512_mc"
   w 0xf9001fe2;         (* arm_STR X2 SP (Immediate_Offset (word 56)) *)
   w 0xa90403e1;         (* arm_STP X1 X0 SP (Immediate_Offset (iword (&64))) *)
   w 0x17ffffb4;         (* arm_B (word 268435152) *)
-  w 0xd503201f;         (* arm_NOP *)
-  w 0xd503201f;         (* arm_NOP *)
-  w 0xd503201f;         (* arm_NOP *)
   w 0xb4000262;         (* arm_CBZ X2 (word 76) *)
   w 0xa9bd7bfd;         (* arm_STP X29 X30 SP (Preimmediate_Offset (iword (-- &48))) *)
   w 0x910003fd;         (* arm_ADD X29 SP (rvalue (word 0)) *)
@@ -183,7 +176,7 @@ let sha512_mc,sha512_constants_data = define_assert_relocs_from_elf "sha512_mc"
   w 0xaa1503e0;         (* arm_MOV X0 X21 *)
   w 0xd1000694;         (* arm_SUB X20 X20 (rvalue (word 1)) *)
   w 0x91020273;         (* arm_ADD X19 X19 (rvalue (word 128)) *)
-  w 0x97ffff94;         (* arm_BL (word 268435024) *)
+  w 0x97ffff97;         (* arm_BL (word 268435036) *)
   w 0xb100069f;         (* arm_CMN X20 (rvalue (word 1)) *)
   w 0x54ffff41;         (* arm_BNE (word 2097128) *)
   w 0xa94153f3;         (* arm_LDP X19 X20 SP (Immediate_Offset (iword (&16))) *)
@@ -266,7 +259,7 @@ let sha512_mc,sha512_constants_data = define_assert_relocs_from_elf "sha512_mc"
   w 0xf102009f;         (* arm_CMP X4 (rvalue (word 128)) *)
   w 0x54000281;         (* arm_BNE (word 80) *)
   w 0xaa1503e0;         (* arm_MOV X0 X21 *)
-  w 0x97ffff41;         (* arm_BL (word 268434692) *)
+  w 0x97ffff44;         (* arm_BL (word 268434704) *)
   w 0xf102029f;         (* arm_CMP X20 (rvalue (word 128)) *)
   w 0x54000103;         (* arm_BCC (word 32) *)
   w 0xaa1503e0;         (* arm_MOV X0 X21 *)
@@ -289,8 +282,6 @@ let sha512_mc,sha512_constants_data = define_assert_relocs_from_elf "sha512_mc"
   w 0xf94013f5;         (* arm_LDR X21 SP (Immediate_Offset (word 32)) *)
   w 0xa8c37bfd;         (* arm_LDP X29 X30 SP (Postimmediate_Offset (iword (&48))) *)
   w 0xd65f03c0;         (* arm_RET X30 *)
-  w 0xd503201f;         (* arm_NOP *)
-  w 0xd503201f;         (* arm_NOP *)
   w 0xa9bd7bfd;         (* arm_STP X29 X30 SP (Preimmediate_Offset (iword (-- &48))) *)
   w 0x910003fd;         (* arm_ADD X29 SP (rvalue (word 0)) *)
   w 0xa90153f3;         (* arm_STP X19 X20 SP (Immediate_Offset (iword (&16))) *)
@@ -311,7 +302,7 @@ let sha512_mc,sha512_constants_data = define_assert_relocs_from_elf "sha512_mc"
   w 0x54ffffa1;         (* arm_BNE (word 2097140) *)
   w 0xaa1303e0;         (* arm_MOV X0 X19 *)
   w 0xaa1503e1;         (* arm_MOV X1 X21 *)
-  w 0x97ffff14;         (* arm_BL (word 268434512) *)
+  w 0x97ffff19;         (* arm_BL (word 268434532) *)
   w 0xaa1f03e2;         (* arm_MOV X2 XZR *)
   w 0x14000003;         (* arm_B (word 12) *)
   w 0x38226abf;         (* arm_STRB WZR X21 (Register_Offset X2) *)
@@ -326,7 +317,7 @@ let sha512_mc,sha512_constants_data = define_assert_relocs_from_elf "sha512_mc"
   w 0xf9006660;         (* arm_STR X0 X19 (Immediate_Offset (word 200)) *)
   w 0xaa1303e0;         (* arm_MOV X0 X19 *)
   w 0xaa1503e1;         (* arm_MOV X1 X21 *)
-  w 0x97ffff05;         (* arm_BL (word 268434452) *)
+  w 0x97ffff0a;         (* arm_BL (word 268434472) *)
   w 0xf9400260;         (* arm_LDR X0 X19 (Immediate_Offset (word 0)) *)
   w 0xdac00c00;         (* arm_REV X0 X0 *)
   w 0xf9000280;         (* arm_STR X0 X20 (Immediate_Offset (word 0)) *)
@@ -360,19 +351,20 @@ let sha512_mc,sha512_constants_data = define_assert_relocs_from_elf "sha512_mc"
 let SHA512_EXEC = ARM_MK_EXEC_RULE sha512_mc;;
 
 (* void sha512_init(sha512_ctx *sha) *)
-let SHA512_INIT = prove(`! ctx_p pc retpc K_base.
-  nonoverlapping (word pc : int64, 1344) (ctx_p, 216) ==>
-  ensures arm
-    (\s. aligned_bytes_loaded s (word pc) (sha512_mc pc K_base) /\
-         read PC s = word (pc + 0x2b0) /\
-         read X30 s = word retpc /\
-         read X0 s = ctx_p)
-    (\s. read PC s = word retpc /\
-         sha512_ctx_at [] ctx_p s)
-    (MAYCHANGE [X1; X2; X3; X4; X5; X6; X7; PC] ,,
-     MAYCHANGE [memory :> bytes(ctx_p, 216)] ,, MAYCHANGE [events])`,
+let SHA512_INIT = prove
+  (`!ctx_p pc retpc K_base.
+    nonoverlapping (word pc : int64, 1308) (ctx_p, 216) ==>
+    ensures arm
+      (\s. aligned_bytes_loaded s (word pc) (sha512_mc pc K_base) /\
+          read PC s = word (pc + 0x294) /\
+          read X30 s = word retpc /\
+          read X0 s = ctx_p)
+      (\s. read PC s = word retpc /\
+          sha512_ctx_at [] ctx_p s)
+      (MAYCHANGE [X1; X2; X3; X4; X5; X6; X7; PC] ,,
+      MAYCHANGE [memory :> bytes(ctx_p, 216)] ,, MAYCHANGE [events])`,
   REWRITE_TAC [NONOVERLAPPING_CLAUSES] THEN REPEAT STRIP_TAC THEN
-    ARM_SIM_TAC SHA512_EXEC (173--212) THEN
+    ARM_SIM_TAC SHA512_EXEC (166--205) THEN
     ASM_REWRITE_TAC [sha512_ctx_at; sha512_ctx_from; hash_buffer_at; h_init; h_a; h_b; h_c; h_d; h_e; h_f; h_g; h_h;
                      sha512; sha512'; bytes_to_blocks; num_bytes_per_block; bytes_mod_blocks; drop; byte_list_at;
                      LENGTH; VAL_WORD_0; MULT; DIV_0; SUB_LIST_CLAUSES; ARITH] THEN
@@ -381,21 +373,22 @@ let SHA512_INIT = prove(`! ctx_p pc retpc K_base.
     CONV_TAC EXPAND_CASES_CONV);;
 
 (* void msg_schedule(uint64_t schedule[80], const uint8_t *in_data) *)
-let MSG_SCHEDULE = prove(`! sch_p m_p m pc retpc K_base.
-  PAIRWISE nonoverlapping
-    [(word pc : int64, 1344); (sch_p, 640); (m_p, num_bytes_per_block)] ==>
-  ensures arm
-    (\s. aligned_bytes_loaded s (word pc) (sha512_mc pc K_base) /\
-         read PC s = word pc /\
-         read X30 s = word retpc /\
-         read X0 s = sch_p /\ 
-         read X1 s = m_p /\
-         msg_block_at m m_p s)
-    (\s. read PC s = word retpc /\
-         msg_schedule_at m sch_p s)
-    (MAYCHANGE [X0; X1; X2; X3; X4; X5; X6; X7; X8; X9; X10; X11; PC] ,,
-     MAYCHANGE [memory :> bytes(sch_p, 640)] ,, MAYCHANGE SOME_FLAGS ,,
-     MAYCHANGE [events])`,
+let MSG_SCHEDULE = prove
+  (`!sch_p m_p m pc retpc K_base.
+    PAIRWISE nonoverlapping
+      [(word pc : int64, 1308); (sch_p, 640); (m_p, num_bytes_per_block)] ==>
+    ensures arm
+      (\s. aligned_bytes_loaded s (word pc) (sha512_mc pc K_base) /\
+          read PC s = word pc /\
+          read X30 s = word retpc /\
+          read X0 s = sch_p /\ 
+          read X1 s = m_p /\
+          msg_block_at m m_p s)
+      (\s. read PC s = word retpc /\
+          msg_schedule_at m sch_p s)
+      (MAYCHANGE [X0; X1; X2; X3; X4; X5; X6; X7; X8; X9; X10; X11; PC] ,,
+      MAYCHANGE [memory :> bytes(sch_p, 640)] ,, MAYCHANGE SOME_FLAGS ,,
+      MAYCHANGE [events])`,
   REWRITE_TAC[SOME_FLAGS; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL;
               num_bytes_per_block; msg_schedule_at] THEN
   REPEAT STRIP_TAC THEN
@@ -404,7 +397,7 @@ let MSG_SCHEDULE = prove(`! sch_p m_p m pc retpc K_base.
       `\i s. // loop invariant
         (read X30 s = word retpc /\ read X0 s = sch_p /\
           read X1 s = word_add m_p (word (8 * i)) /\ read X3 s = word i /\ msg_block_at m m_p s) /\
-        (! j. j < i ==> read (memory :> bytes64(word_add sch_p (word (8 * j)))) s = msg_schedule m j)` THEN
+        (!j. j < i ==> read (memory :> bytes64(word_add sch_p (word (8 * j)))) s = msg_schedule m j)` THEN
   REPEAT CONJ_TAC THENL
   [ (* Subgoal 1: upper bound of counter is non-zero *)
     ARITH_TAC;
@@ -449,14 +442,14 @@ let MSG_SCHEDULE = prove(`! sch_p m_p m pc retpc K_base.
     ALL_TAC] THEN
   (* After the first loop *)
   ENSURES_WHILE_AUP_TAC
-    `16` `80` `pc + 0x80` `pc + 0xc8`
+    `16` `80` `pc + 0x7c` `pc + 0xc4`
     `\k s. // loop invariant
         (read X30 s = word retpc /\ read X2 s = word_add sch_p (word (8 * (k - 15))) /\
         read X11 s = word_add sch_p (word (8 * 65)) /\
         read X0 s = msg_schedule m (k - 1) /\ read X3 s = msg_schedule m (k - 2) /\ read X4 s = msg_schedule m (k - 16) /\
         read X6 s = msg_schedule m (k - 3)/\ read X7 s = msg_schedule m (k - 4) /\ read X8 s = msg_schedule m (k - 5)/\
         read X9 s = msg_schedule m (k - 6) /\ read X10 s = msg_schedule m (k - 7) /\
-        (! j. j < k ==> read (memory :> bytes64(word_add sch_p (word (8 * j)))) s = msg_schedule m j))` THEN
+        (!j. j < k ==> read (memory :> bytes64(word_add sch_p (word (8 * j)))) s = msg_schedule m j))` THEN
   REPEAT CONJ_TAC THENL
   [ (* Subgoal 1: upper bound of counter is non-zero *)
     ARITH_TAC;
@@ -465,7 +458,7 @@ let MSG_SCHEDULE = prove(`! sch_p m_p m pc retpc K_base.
       RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)) THEN
       RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV NUM_REDUCE_CONV)) THEN
       RULE_ASSUM_TAC(REWRITE_RULE [WORD_ADD_0]) THEN
-      ARM_STEPS_TAC SHA512_EXEC (23--32) THEN
+      ARM_STEPS_TAC SHA512_EXEC (23--31) THEN
       ENSURES_FINAL_STATE_TAC THEN
       ASM_REWRITE_TAC [] THEN
       CONV_TAC NUM_REDUCE_CONV THEN
@@ -474,11 +467,11 @@ let MSG_SCHEDULE = prove(`! sch_p m_p m pc retpc K_base.
       ASM_REWRITE_TAC [WORD_ADD_0];
     (* Subgoal 3: loop body *)
     REPEAT STRIP_TAC THEN
-      ENSURES_INIT_TAC "s32" THEN
+      ENSURES_INIT_TAC "s31" THEN
       FIRST_ASSUM(fun th -> 
         MAP_EVERY (MP_TAC o C SPEC th) [`i - 2`; `i - 7`; `i - 15`; `i - 16`]) THEN
       REPEAT(ANTS_TAC THENL [SIMPLE_ARITH_TAC; DISCH_TAC]) THEN
-      ARM_STEPS_TAC SHA512_EXEC (33--50) THEN
+      ARM_STEPS_TAC SHA512_EXEC (32--49) THEN
       ENSURES_FINAL_STATE_TAC THEN
       ASM_REWRITE_TAC [] THEN
       CONJ_TAC THENL
@@ -511,7 +504,7 @@ let MSG_SCHEDULE = prove(`! sch_p m_p m pc retpc K_base.
       ASM_SIMP_TAC[ARITH_RULE `i < 80 ==> ~(520 = 8 * (i - 15))`];
     ALL_TAC ] THEN
   (* After the second loop *)
-  ARM_SIM_TAC SHA512_EXEC (51--53));;
+  ARM_SIM_TAC SHA512_EXEC (50--52));;
 
 let WORD_ADD1_SHL3_SUB8 = prove
   (`(b + word_shl (word (i + 1)) 3) + word 18446744073709551608:int64 =
@@ -521,16 +514,17 @@ let WORD_ADD1_SHL3_SUB8 = prove
   CONV_TAC WORD_REDUCE_CONV THEN CONV_TAC WORD_RULE);;
 
 (* void sha512_process_block(uint64_t h[8], const uint8_t *in_data) *)
-let SHA512_PROCESS_BLOCK = prove(`! sp h_p h m_p m pc retpc K_base.
+let SHA512_PROCESS_BLOCK = prove
+  (`!sp h_p h m_p m pc retpc K_base.
   aligned 16 sp /\
-  adrp_within_bounds (word K_base) (word (pc + 0x120)) /\
+  adrp_within_bounds (word K_base) (word (pc + 0x110)) /\
   PAIRWISE nonoverlapping
-    [(word pc : int64, 1344); (h_p, 64);
+    [(word pc : int64, 1308); (h_p, 64);
      (m_p, num_bytes_per_block); (word_sub sp (word 720), 720);
      (word K_base, 640)] ==>
     ensures arm
     (\s. aligned_bytes_loaded s (word pc) (sha512_mc pc K_base) /\
-         read PC s = word (pc + 0xe0) /\
+         read PC s = word (pc + 0xd0) /\
          read X30 s = word retpc /\
          read SP s = sp /\
          read X0 s = h_p /\
@@ -552,7 +546,7 @@ let SHA512_PROCESS_BLOCK = prove(`! sp h_p h m_p m pc retpc K_base.
   ENSURES_PRESERVED_TAC "x29_init" `X29` THEN
   ENSURES_EXISTING_PRESERVED_TAC `X30` THEN
   ENSURES_WHILE_UP_TAC
-    `79` `pc + 0x158` `pc + 0x158`
+    `79` `pc + 0x148` `pc + 0x148`
     `\i s. // loop invariant
       (read (memory :> bytes64(sp)) s = x29_init /\
       read (memory :> bytes64(sp + word 8)) s = word retpc /\
@@ -569,47 +563,47 @@ let SHA512_PROCESS_BLOCK = prove(`! sp h_p h m_p m pc retpc K_base.
     ARITH_TAC;
     (* Subgoal 2: initialization *)
     REWRITE_TAC [msg_block_at; hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
-      ENSURES_INIT_TAC "s56" THEN
+      ENSURES_INIT_TAC "s52" THEN
       RULE_ASSUM_TAC (REWRITE_RULE [constants_at]) THEN
-      ARM_STEPS_TAC SHA512_EXEC (57--62) THEN
+      ARM_STEPS_TAC SHA512_EXEC (53--58) THEN
       ARM_SUBROUTINE_SIM_TAC
         (SPEC_ALL sha512_mc, SHA512_EXEC, 0, SPEC_ALL sha512_mc, REWRITE_RULE [num_bytes_per_block; msg_block_at] MSG_SCHEDULE)
         [`sp + word 80 : int64 `;`m_p : int64`;`m : num -> int64`;
-          `pc : num`; `pc + 0xf8 : num`; `K_base : num`] 63 THEN
-      RENAME_TAC `s63:armstate` `s62:armstate` THEN
+          `pc : num`; `pc + 0xe8 : num`; `K_base : num`] 59 THEN
+      RENAME_TAC `s59:armstate` `s58_ret:armstate` THEN
       RULE_ASSUM_TAC (REWRITE_RULE [msg_schedule_at]) THEN
       RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
-      ARM_STEPS_TAC SHA512_EXEC (63--64) THEN
+      ARM_STEPS_TAC SHA512_EXEC (59--60) THEN
       FIRST_X_ASSUM MP_TAC THEN COND_CASES_TAC THENL
       [ (* Case: jump *)
         STRIP_TAC THEN
-          ARM_STEPS_TAC SHA512_EXEC (139--149) THEN
-          ARM_STEPS_TAC SHA512_EXEC (73--75) THEN (* break here for ADRP-ADD *)
+          ARM_STEPS_TAC SHA512_EXEC (135--145) THEN
+          ARM_STEPS_TAC SHA512_EXEC (69--71) THEN (* break here for ADRP-ADD *)
           FIRST_X_ASSUM (fun th -> MP_TAC th THEN IMP_REWRITE_TAC[ADRP_ADD_FOLD] THEN DISCH_TAC) THEN
-          ARM_STEPS_TAC SHA512_EXEC (76--80) THEN
+          ARM_STEPS_TAC SHA512_EXEC (72--76) THEN
           ENSURES_FINAL_STATE_TAC THEN
           ONCE_ASM_REWRITE_TAC [compression_until] THEN
           ASM_REWRITE_TAC[LT; msg_schedule_at; constants_at; ARITH];
         (* Case: no jump *)
         STRIP_TAC THEN
-          ARM_STEPS_TAC SHA512_EXEC (65--75) THEN
+          ARM_STEPS_TAC SHA512_EXEC (61--71) THEN
           FIRST_X_ASSUM (fun th -> MP_TAC th THEN IMP_REWRITE_TAC[ADRP_ADD_FOLD] THEN DISCH_TAC) THEN
-          ARM_STEPS_TAC SHA512_EXEC (76--79) THEN
-          ARM_STEPS_TAC SHA512_EXEC [86] THEN
+          ARM_STEPS_TAC SHA512_EXEC (72--75) THEN
+          ARM_STEPS_TAC SHA512_EXEC [82] THEN
           ENSURES_FINAL_STATE_TAC THEN
           ONCE_ASM_REWRITE_TAC [compression_until] THEN
           ASM_REWRITE_TAC[LT; msg_schedule_at; constants_at; ARITH] ];
     (* Subgoal 3: loop body *)
     REPEAT STRIP_TAC THEN
       REWRITE_TAC [hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
-      ENSURES_INIT_TAC "s86" THEN
+      ENSURES_INIT_TAC "s82" THEN
       RULE_ASSUM_TAC (REWRITE_RULE [msg_schedule_at; constants_at]) THEN
       RULE_ASSUM_TAC(CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
       ASSUME_TAC(GEN_ALL WORD_ADD1_SHL3_SUB8) THEN
       RULE_ASSUM_TAC (CONV_RULE(ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV)) THEN
       SUBGOAL_THEN
-        `read (memory :> bytes64 (word K_base + word (8 * i))) s86 = K_tbl i /\
-          read (memory :> bytes64 (sp + word (80 + 8 * i))) s86 = msg_schedule m i`
+        `read (memory :> bytes64 (word K_base + word (8 * i))) s82 = K_tbl i /\
+          read (memory :> bytes64 (sp + word (80 + 8 * i))) s82 = msg_schedule m i`
         STRIP_ASSUME_TAC THENL
       [ RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV EXPAND_CASES_CONV)) THEN
           RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
@@ -619,7 +613,7 @@ let SHA512_PROCESS_BLOCK = prove(`! sp h_p h m_p m pc retpc K_base.
           CONV_TAC(ONCE_DEPTH_CONV NUM_ADD_CONV) THEN ASM_REWRITE_TAC[];
         ALL_TAC] THEN
       ASSUME_TAC(WORD_RULE `(sp + word 80) + word(8 * i):int64 = sp + word(80 + 8 * i)`) THEN
-      ARM_STEPS_TAC SHA512_EXEC (87--117) THEN
+      ARM_STEPS_TAC SHA512_EXEC (83--113) THEN
       SUBGOAL_THEN `~(val ((word (i + 1) : int64) + word 18446744073709551536) = 0)`
         MP_TAC THENL
       [ REWRITE_TAC[VAL_EQ_0] THEN
@@ -631,9 +625,9 @@ let SHA512_PROCESS_BLOCK = prove(`! sp h_p h m_p m pc retpc K_base.
           CONV_TAC WORD_REDUCE_CONV THEN
           ASM_SIMP_TAC[ARITH_RULE `i < 79 ==> ~(i + 1 = 80)`];
         DISCH_THEN (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th])) ] THEN
-      ARM_STEPS_TAC SHA512_EXEC (81--85) THEN
-      ARM_STEPS_TAC SHA512_EXEC [87] THEN
-      RENAME_TAC `s87:armstate` `s86':armstate` THEN
+      ARM_STEPS_TAC SHA512_EXEC (77--81) THEN
+      ARM_STEPS_TAC SHA512_EXEC [83] THEN
+      RENAME_TAC `s83:armstate` `s82':armstate` THEN
       ENSURES_FINAL_STATE_TAC THEN
       ASM_REWRITE_TAC [LT; msg_schedule_at; constants_at; ARITH; WORD_ADD] THEN
       CONV_TAC (ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV) THEN
@@ -652,19 +646,19 @@ let SHA512_PROCESS_BLOCK = prove(`! sp h_p h m_p m pc retpc K_base.
   ] THEN
   (* After the loop *)
   REWRITE_TAC [hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
-  ENSURES_INIT_TAC "s86" THEN
+  ENSURES_INIT_TAC "s82" THEN
   RULE_ASSUM_TAC (REWRITE_RULE [msg_schedule_at; constants_at]) THEN
   RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
   RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV)) THEN
-  SUBGOAL_THEN `read (memory :> bytes64 (word K_base + word 632)) s86 = K_tbl 79 /\
-    read (memory :> bytes64 (sp + word 712)) s86 = msg_schedule m 79` STRIP_ASSUME_TAC THENL
+  SUBGOAL_THEN `read (memory :> bytes64 (word K_base + word 632)) s82 = K_tbl 79 /\
+    read (memory :> bytes64 (sp + word 712)) s82 = msg_schedule m 79` STRIP_ASSUME_TAC THENL
   [ REPEAT (FIRST_X_ASSUM (ASSUME_TAC o SPEC `79`)) THEN
       RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
       RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NUM_ADD_CONV)) THEN
       ASM_SIMP_TAC [ARITH];
     ALL_TAC ] THEN
-  ARM_STEPS_TAC SHA512_EXEC (87--117) THEN (* Do not branch *)
-  ARM_STEPS_TAC SHA512_EXEC (118--138) THEN
+  ARM_STEPS_TAC SHA512_EXEC (83--113) THEN (* Do not branch *)
+  ARM_STEPS_TAC SHA512_EXEC (114--134) THEN
   ENSURES_FINAL_STATE_TAC THEN
   CONV_TAC (ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
   ASM_REWRITE_TAC [sha512_block; compression] THEN
@@ -681,15 +675,15 @@ let SHA512_PROCESS_BLOCK = prove(`! sp h_p h m_p m pc retpc K_base.
 
 (* void sha512_process_blocks(uint64_t h[8], const uint8_t *in_data, size_t num_blocks) *)
 let SHA512_PROCESS_BLOCKS = prove
-  (`! sp h_p h m_p m l pc retpc K_base.
+  (`!sp h_p h m_p m l pc retpc K_base.
     aligned 16 sp /\
-    adrp_within_bounds (word K_base) (word (pc + 0x120)) /\
+    adrp_within_bounds (word K_base) (word (pc + 0x110)) /\
     PAIRWISE nonoverlapping
-      [(word pc : int64, 1344); (h_p, 64); (m_p, num_bytes_per_block * val l);
+      [(word pc : int64, 1308); (h_p, 64); (m_p, num_bytes_per_block * val l);
       (word_sub sp (word 768), 768); (word K_base, 640)] ==>
       ensures arm
       (\s. aligned_bytes_loaded s (word pc) (sha512_mc pc K_base) /\
-          read PC s = word (pc + 0x260) /\
+          read PC s = word (pc + 0x244) /\
           read X30 s = word retpc /\
           read SP s = sp /\
           aligned 16 sp /\
@@ -718,16 +712,16 @@ let SHA512_PROCESS_BLOCKS = prove
     REWRITE_TAC [hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
     (* The input data is empty *)
     ASM_CASES_TAC `l : int64 = word 0` THENL
-    [ ENSURES_INIT_TAC "s152" THEN
-        ARM_STEPS_TAC SHA512_EXEC [153] THEN
-        ARM_STEPS_TAC SHA512_EXEC [171] THEN
+    [ ENSURES_INIT_TAC "s145" THEN
+        ARM_STEPS_TAC SHA512_EXEC [146] THEN
+        ARM_STEPS_TAC SHA512_EXEC [164] THEN
         ENSURES_FINAL_STATE_TAC THEN
         ONCE_REWRITE_TAC [sha512'] THEN
         ASM_REWRITE_TAC [VAL_WORD_0];
       ALL_TAC ] THEN
     (* The input data is non-empty *)
     ENSURES_WHILE_UP_TAC
-      `val (l : int64)` `pc + 0x280` `pc + 0x294`
+      `val (l : int64)` `pc + 0x264` `pc + 0x278`
       `\i s. // loop invariant
         (read (memory :> bytes64(sp + word 720)) s = x29_init /\
         read (memory :> bytes64(sp + word 728)) s = word retpc /\
@@ -744,33 +738,33 @@ let SHA512_PROCESS_BLOCKS = prove
     ASM_REWRITE_TAC [VAL_EQ_0];
     (* Subgoal 2: initialization *)
     REWRITE_TAC [msg_blocks_at; constants_at; num_bytes_per_block] THEN
-      ENSURES_INIT_TAC "s152" THEN
+      ENSURES_INIT_TAC "s145" THEN
       RULE_ASSUM_TAC (REWRITE_RULE [msg_block_at]) THEN
       RULE_ASSUM_TAC (CONV_RULE (ONCE_DEPTH_CONV NUM_MULT_CONV)) THEN
-      ARM_STEPS_TAC SHA512_EXEC [153] THEN
+      ARM_STEPS_TAC SHA512_EXEC [146] THEN
       SUBGOAL_THEN `~(val (l:int64) = 0)` (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th])) THENL
       [ ASM_REWRITE_TAC [VAL_EQ_0]; ALL_TAC ] THEN
-      ARM_STEPS_TAC SHA512_EXEC (154--160) THEN
+      ARM_STEPS_TAC SHA512_EXEC (147--153) THEN
       ENSURES_FINAL_STATE_TAC THEN
       ONCE_REWRITE_TAC [sha512'] THEN
       ASM_REWRITE_TAC [msg_block_at; hash_buffer_at; EXPAND_HASH_THM; WORD_ADD_0; ARITH];
     (* Subgoal 3: loop body *)
     REPEAT STRIP_TAC THEN
-      ENSURES_INIT_TAC "s160" THEN
+      ENSURES_INIT_TAC "s153" THEN
       RULE_ASSUM_TAC (REWRITE_RULE [msg_blocks_at; msg_block_at; num_bytes_per_block;
         hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC]) THEN
       FIRST_X_ASSUM (fun th -> MP_TAC th THEN MP_TAC (SPEC `i:num` th)) THEN
       ASM_REWRITE_TAC [msg_block_at; num_bytes_per_block; GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
       RULE_ASSUM_TAC (REWRITE_RULE [constants_at]) THEN
       REPEAT DISCH_TAC THEN
-      ARM_STEPS_TAC SHA512_EXEC (161--165) THEN
+      ARM_STEPS_TAC SHA512_EXEC (154--158) THEN
       ARM_SUBROUTINE_SIM_TAC
         (SPEC_ALL sha512_mc, SHA512_EXEC, 0, SPEC_ALL sha512_mc,
           (REWRITE_RULE [num_bytes_per_block; hash_buffer_at; EXPAND_HASH_THM;
                         msg_block_at; constants_at; GSYM CONJ_ASSOC] SHA512_PROCESS_BLOCK))
         [ `sp + word 720 : int64`; `h_p:int64`; `sha512' h m i`;
           `m_p + word (128 * i) : int64`; `m (i : num) : num -> int64`;
-          `pc : num`; `pc + 0x294`; `K_base : num`] 166 THEN
+          `pc : num`; `pc + 0x278`; `K_base : num`] 159 THEN
       ENSURES_FINAL_STATE_TAC THEN
       ASM_REWRITE_TAC [msg_blocks_at; msg_block_at; num_bytes_per_block;
         GSYM WORD_ADD_ASSOC; GSYM WORD_ADD;
@@ -783,7 +777,7 @@ let SHA512_PROCESS_BLOCKS = prove
     REPEAT STRIP_TAC THEN
       REWRITE_TAC [msg_blocks_at; msg_block_at; constants_at; hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
       ENSURES_INIT_TAC "s165" THEN
-      ARM_STEPS_TAC SHA512_EXEC (166--167) THEN
+      ARM_STEPS_TAC SHA512_EXEC (159--160) THEN
       ENSURES_FINAL_STATE_TAC THEN
       ASM_REWRITE_TAC [] THEN
       REWRITE_TAC [VAL_EQ_0] THEN
@@ -792,12 +786,12 @@ let SHA512_PROCESS_BLOCKS = prove
     ALL_TAC ] THEN
   (* After the loop *)
   REWRITE_TAC [msg_blocks_at; constants_at; hash_buffer_at; EXPAND_HASH_THM; GSYM CONJ_ASSOC] THEN
-    ENSURES_INIT_TAC "s165" THEN
-    ARM_STEPS_TAC SHA512_EXEC (166--167) THEN
+    ENSURES_INIT_TAC "s158" THEN
+    ARM_STEPS_TAC SHA512_EXEC (159--160) THEN
     POP_ASSUM MP_TAC THEN
     REWRITE_TAC [WORD_RULE `word_sub l (word (val l + 1)) + word 1 : int64 = word 0`] THEN
     REWRITE_TAC [VAL_EQ_0] THEN DISCH_TAC THEN
-    ARM_STEPS_TAC SHA512_EXEC (168--171) THEN
+    ARM_STEPS_TAC SHA512_EXEC (161--164) THEN
     ENSURES_FINAL_STATE_TAC THEN
     ASM_REWRITE_TAC []);;
 
@@ -945,17 +939,17 @@ let NEW_INPUT_FILLS_CUR_BLOCK_ARITH2 = prove
 
 (* void sha512_update(sha512_ctx *sha, const void *in_data, size_t in_len) *)
 let SHA512_UPDATE = prove
-  (`! sp ctx_p m0 m_p m pc retpc K_base.
+  (`!sp ctx_p m0 m_p m pc retpc K_base.
     aligned 16 sp /\
-    adrp_within_bounds (word K_base) (word (pc + 0x120)) /\
+    adrp_within_bounds (word K_base) (word (pc + 0x110)) /\
     PAIRWISE nonoverlapping
-      [(word pc : int64, 1344); (ctx_p, 216); (m_p, LENGTH m);
+      [(word pc : int64, 1308); (ctx_p, 216); (m_p, LENGTH m);
        (word_sub sp (word 816), 816); (word K_base, 640)] /\
     LENGTH m < 2 EXP 64 /\
     LENGTH m0 + LENGTH m < 2 EXP 125 ==>
     ensures arm
     (\s. aligned_bytes_loaded s (word pc) (sha512_mc pc K_base) /\
-         read PC s = word (pc + 0x350) /\
+         read PC s = word (pc + 0x334) /\
          read X30 s = word retpc /\
          read SP s = sp /\
          read X0 s = ctx_p /\
@@ -989,7 +983,7 @@ let SHA512_UPDATE = prove
             ASM_REWRITE_TAC [];
           ALL_TAC] THEN
         ENSURES_WHILE_UP_OR_0_TAC
-        `LENGTH (bytes_mod_blocks m)` `pc + 0x41c` `pc + 0x41c`
+        `LENGTH (bytes_mod_blocks m)` `pc + 0x400` `pc + 0x400`
         `\i s. // loop invariant
           read SP s = sp + word 768 /\ read X1 s = ctx_p + word 80 /\
           read X4 s = word i /\ read X19 s = m_p + word (LENGTH m DIV 128 * 128) /\
@@ -1555,16 +1549,16 @@ let PAD_TWO_BLOCKS_ARITH = prove
 
 (* void sha512_final(uint8_t out[SHA512_DIGEST_LENGTH], sha512_ctx *sha) *)
 let SHA512_FINAL = prove
-  (`! sp out_p ctx_p m pc retpc K_base.
+  (`!sp out_p ctx_p m pc retpc K_base.
     aligned 16 sp /\
-    adrp_within_bounds (word K_base) (word (pc + 0x120)) /\
+    adrp_within_bounds (word K_base) (word (pc + 0x110)) /\
     PAIRWISE nonoverlapping
-      [(word pc : int64, 1344); (out_p, 64); (ctx_p, 216);
+      [(word pc : int64, 1308); (out_p, 64); (ctx_p, 216);
        (word_sub sp (word 768), 768); (word K_base, 640)] /\
     LENGTH m < 2 EXP 125 ==>
     ensures arm
     (\s. aligned_bytes_loaded s (word pc) (sha512_mc pc K_base) /\
-         read PC s = word (pc + 0x440) /\
+         read PC s = word (pc + 0x41c) /\
          read X30 s = word retpc /\
          read SP s = sp /\
          read X0 s = out_p /\
