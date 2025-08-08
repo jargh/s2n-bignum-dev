@@ -60,7 +60,7 @@ let dom2_prefix = define
   `dom2_prefix = MAP byte_of_char "SigEd25519 no Ed25519 collisions"`;;
 
 let max_dom2_size = define
-  `max_dom2_size = 279`;;
+  `max_dom2_size = 289`;;
 
 let dom2_valid = define
   `dom2_valid (alg : num) (ctx : byte list) =
