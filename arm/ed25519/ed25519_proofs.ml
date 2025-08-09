@@ -1014,8 +1014,10 @@ let ED25519_PUBLIC_KEY_FROM_SEED_S2N_BIGNUM_CORRECT = prove
     [ CHEAT_TAC; ALL_TAC ] THEN *)
     ARM_SUBROUTINE_SIM_TAC
       (SPEC_ALL ed25519_mc, ED25519_EXEC, 0x644,
-        TRIM_LIST_CONV
-        (mk_comb (`TRIM_LIST (0x644,0):byte list -> byte list`, rand (concl (SPEC_ALL ed25519_mc)))), SHA512_INIT)
+       CONV_RULE (TOP_DEPTH_CONV NUM_ADD_CONV)
+        (GEN_REWRITE_RULE TOP_DEPTH_CONV [GSYM ADD_ASSOC]
+          (SPECL [`pc + 0x644:num`; `K:num`] sha512_mc)),
+        SHA512_INIT)
       [`sp + word 840 : int64`; `pc + 0x644`; `pc + 0x18`; `K_base : num`] 7 THEN
     RENAME_TAC `s7:armstate` `s6_ret:armstate` THEN
   );;
@@ -1030,7 +1032,7 @@ let LENGTH_DOM2_PREFIX = prove
     const uint8_t *context, size_t context_len) *)
 let DOM2_COMMON_CORRECT = prove
   (`!dom2_buf_p flag ctx_p ctx pc retpc K_base.
-    PAIRWISE nonoverlapping [(word pc, 2944); (dom2_buf_p, max_dom2_size); (ctx_p, LENGTH ctx)] /\
+    PAIRWISE nonoverlapping [(word pc, 0xb60); (dom2_buf_p, max_dom2_size); (ctx_p, LENGTH ctx)] /\
     LENGTH ctx <= 255 ==>
     ensures arm
     (\s. aligned_bytes_loaded s (word pc) (ed25519_mc pc K_base) /\
@@ -1139,71 +1141,151 @@ let DOM2_COMMON_CORRECT = prove
         ASM_REWRITE_TAC [] THEN
         CONV_TAC WORD_RULE ]);;
 
+let LENGTH_ED25519_SIGN = prove
+  (`!alg ctx seed m. LENGTH (sign alg ctx seed m) = 64`,
+  REWRITE_TAC [sign] THEN
+    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+    REWRITE_TAC [LENGTH_APPEND; LENGTH_BYTELIST_OF_NUM] THEN
+    ARITH_TAC);;
+
+let LENGTH_ED25519_PUBLIC_KEY = prove
+  (`!seed. LENGTH (public_key_of_seed seed) = 32`,
+  ASM_REWRITE_TAC [LENGTH_APPEND; public_key_of_seed] THEN
+    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+    REWRITE_TAC [LENGTH_BYTELIST_OF_NUM]);;
+
+let ED25519_PH = prove
+  (`!m. ph 0 m = m /\ ph 1 m = m /\ ph 2 m = sha512_pad m`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC [ph; ARITH]);;
+
+let LENGTH_SHA512_PAD = prove
+  (`!m. LENGTH (sha512_pad m) = 64`,
+  STRIP_TAC THEN
+    REWRITE_TAC [sha512_pad; hash_buffer_to_byte_list; int64_to_bytes;
+    LENGTH_APPEND; LENGTH; ARITH]);;
+
+let BYTE_LIST_AT_NIL = prove
+  (`!addr s. byte_list_at [] addr s`,
+  REWRITE_TAC [byte_list_at; LENGTH] THEN
+    REPEAT STRIP_TAC THEN
+    SIMPLE_ARITH_TAC);;
+
+let NONOVERLAPPING_MODULO_LEN_0 = prove
+  (`!len addr1 addr2 n. nonoverlapping_modulo n (addr1, len) (addr2, 0) /\
+      nonoverlapping_modulo n (addr1, 0) (addr2, len)`,
+  REWRITE_TAC [nonoverlapping_modulo] THEN
+    REPEAT STRIP_TAC THEN
+    SIMPLE_ARITH_TAC);;
+
 (* void ed25519_sign_common(
     uint8_t out_sig[ED25519_SIGNATURE_LEN], const uint8_t *message,
     size_t message_len, const uint8_t private_key[ED25519_PRIVATE_KEY_LEN],
     uint8_t *dom2_buffer, size_t dom2_buffer_len) *)
 let ED25519_SIGN_COMMON_CORRECT = prove
-  (`!sp sig_p msg_p msg priv_key_p seed A dom2_buf_p alg ctx pc retpc.
+  (`!sp sig_p msg_p msg priv_key_p seed dom2_buf_p alg ctx pc retpc K_base.
     aligned 16 sp /\
     adrp_within_bounds (word K_base) (word (pc + 0x754)) /\
-    PAIRWISE nonoverlapping [(word pc, 0xb60); (sig_p, 64); (msg_p; LENGTH (ph alg msg)); (priv_key_p, 64);
-      (dom2_buf_p, max_dom2_size); (word_sub sp (word ???), ???)] /\
+    PAIRWISE nonoverlapping [(word pc, 0xb60); (sig_p, 64); (msg_p, LENGTH (ph alg msg)); (priv_key_p, 64);
+      (dom2_buf_p, LENGTH (dom2_of alg ctx)); (word_sub sp (word 1344), 1344); (word K_base, 640)] /\
     LENGTH (ph alg msg) < 2 EXP 64 /\
     LENGTH seed = 32 /\
-    A = public_key_of_seed seed /\
     dom2_valid alg ctx ==>
     ensures arm
     (\s. aligned_bytes_loaded s (word pc) (ed25519_mc pc K_base) /\
          read PC s = word (pc + 0x74) /\
          read SP s = sp /\
          read X30 s = word retpc /\
-         C_ARGUMENTS [sig_p; msg_p; word (LENGTH (ph alg msg)); priv_key_p; dom2_buf_p, word (LENGTH (dom2_of alg ctx))] s /\
+         C_ARGUMENTS [sig_p; msg_p; word (LENGTH (ph alg msg)); priv_key_p; dom2_buf_p; word (LENGTH (dom2_of alg ctx))] s /\
          byte_list_at (ph alg msg) msg_p s /\
-         byte_list_at (seed ++ A) priv_key_p s /\
-         byte_list_at (dom2_of alg ctx) dom2_buf_p s)
+         byte_list_at (seed ++ public_key_of_seed seed) priv_key_p s /\
+         byte_list_at (dom2_of alg ctx) dom2_buf_p s /\
+         constants_at (word K_base) s)
     (\s. read PC s = word retpc /\
-         byte_list_at (sign alg seed msg) sig_p s)
+         byte_list_at (sign alg ctx seed msg) sig_p s)
     (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
      MAYCHANGE [memory :> bytes(sig_p, 64)] ,,
-     MAYCHANGE [memory :> bytes(word_sub sp (word ???), ???)])`,
-  );;
+     MAYCHANGE [memory :> bytes(word_sub sp (word 1344), 1344)])`,
+  CHEAT_TAC);;
 
 (* int ed25519_sign_no_self_test_s2n_bignum(
     uint8_t out_sig[ED25519_SIGNATURE_LEN], const uint8_t *message,
     size_t message_len, const uint8_t private_key[ED25519_PRIVATE_KEY_LEN]) *)
 let ED25519_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
-  (`!sp sig_p msg_p msg priv_key_p seed A pc retpc.
-    PAIRWISE nonoverlapping [(word pc, ???); (sig_p, 64); (msg_p; LENGTH msg); (priv_key_p, 64); (word_sub sp (word ???), ???)] /\
+  (`!sp sig_p msg_p msg priv_key_p seed pc retpc.
+    aligned 16 sp /\
+    adrp_within_bounds (word K_base) (word (pc + 0x754)) /\
+    PAIRWISE nonoverlapping [(word pc, 0xb60); (sig_p, 64); (msg_p, LENGTH msg);
+      (priv_key_p, 64); (word_sub sp (word 1360), 1360); (word K_base, 640)] /\
     LENGTH msg < 2 EXP 64 /\
-    LENGTH seed = 32 /\
-    A = public_key_of_seed seed ==>
+    LENGTH seed = 32 ==>
     ensures arm
-    (\s. aligned_bytes_loaded s (word pc) (ed25519_mc pc ???) /\
-         read PC s = word (pc + ???) /\
+    (\s. aligned_bytes_loaded s (word pc) (ed25519_mc pc K_base) /\
+         read PC s = word (pc + 0x358) /\
          read SP s = sp /\
          read X30 s = word retpc /\
          C_ARGUMENTS [sig_p; msg_p; word (LENGTH msg); priv_key_p] s /\
          byte_list_at msg msg_p s /\
-         byte_list_at (seed ++ A) priv_key_p s)
+         byte_list_at (seed ++ public_key_of_seed seed) priv_key_p s /\
+         constants_at (word K_base) s)
     (\s. read PC s = word retpc /\
          byte_list_at (sign 0 [] seed msg) sig_p s /\
          C_RETURN s = word 1)
     (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
      MAYCHANGE [memory :> bytes(sig_p, 64)] ,,
-     MAYCHANGE [memory :> bytes(word_sub sp (word ???), ???)])`,
-     );;
+     MAYCHANGE [memory :> bytes(word_sub sp (word 1360), 1360)])`,
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL;
+      constants_at; C_ARGUMENTS; C_RETURN] THEN
+    WORD_FORALL_OFFSET_TAC 1360 THEN
+    REPEAT STRIP_TAC THEN
+    ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
+    ENSURES_EXISTING_PRESERVED_TAC `X30` THEN
+    ENSURES_PRESERVED_TAC "x29_init" `X29` THEN
+
+    ENSURES_INIT_TAC "s214" THEN
+    RULE_ASSUM_TAC (REWRITE_RULE [byte_list_at]) THEN
+    SUBGOAL_THEN `LENGTH (seed ++ public_key_of_seed seed : byte list) = 64`
+      (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th]) THEN ASSUME_TAC th) THENL
+    [ ASM_REWRITE_TAC [LENGTH_APPEND; LENGTH_ED25519_PUBLIC_KEY] THEN
+        ARITH_TAC;
+      ALL_TAC ] THEN
+    ARM_STEPS_TAC ED25519_EXEC (215--218) THEN
+    ASSUME_TAC ED25519_PH THEN
+    SUBGOAL_THEN `dom2_valid 0 [] /\ dom2_of 0 [] = []` ASSUME_TAC THENL
+    [ REWRITE_TAC [dom2_valid; dom2_of; ARITH; LENGTH]; ALL_TAC ] THEN
+    ASSUME_TAC (CONJUNCT1 LENGTH) THEN
+    ASSUME_TAC NONOVERLAPPING_MODULO_LEN_0 THEN
+    ASSUME_TAC (REWRITE_RULE [byte_list_at; LENGTH] BYTE_LIST_AT_NIL) THEN
+    SUBGOAL_THEN `aligned 16 (sp + word 1344:int64)` ASSUME_TAC THENL
+    [ ALIGNED_16_TAC; ALL_TAC ] THEN
+
+    SUBGOAL_THEN  `nonoverlapping_modulo (2 EXP 64) (pc,2912) (val (sp:int64),1344) /\
+ nonoverlapping_modulo (2 EXP 64) (val (sig_p:int64),64) (val sp,1344) /\
+ nonoverlapping_modulo (2 EXP 64) (val (msg_p:int64),LENGTH (msg:byte list)) (val sp,1344) /\
+ nonoverlapping_modulo (2 EXP 64) (val (priv_key_p:int64),64) (val sp,1344) /\
+ nonoverlapping_modulo (2 EXP 64) (val sp,1344) (K_base,640)` ASSUME_TAC THENL
+    [ CHEAT_TAC; ALL_TAC ] THEN (* ??? *)
+
+    ARM_SUBROUTINE_SIM_TAC
+      (SPEC_ALL ed25519_mc, ED25519_EXEC, 0,
+        SPEC_ALL ed25519_mc, (REWRITE_RULE [byte_list_at; constants_at] ED25519_SIGN_COMMON_CORRECT))
+      [`sp + word 1344 : int64`; `sig_p:int64`; `msg_p:int64`; `msg:byte list`; `priv_key_p:int64`; `seed:byte list`;
+        `word 0:int64`; `0`; `[]:byte list`; `pc:num`; `pc + 872`; `K_base : num`] 219 THEN
+    RENAME_TAC `s219:armstate` `s218_ret:armstate` THEN
+    RULE_ASSUM_TAC (REWRITE_RULE [byte_list_at]) THEN
+    ASSUME_TAC LENGTH_ED25519_SIGN THEN
+    ARM_STEPS_TAC ED25519_EXEC (219--221) THEN
+    ENSURES_FINAL_STATE_TAC THEN
+    ASM_REWRITE_TAC [byte_list_at]);;
 
 (* int ed25519ctx_sign_no_self_test_s2n_bignum(
     uint8_t out_sig[ED25519_SIGNATURE_LEN], const uint8_t *message,
     size_t message_len, const uint8_t private_key[ED25519_PRIVATE_KEY_LEN],
     const uint8_t *context, size_t context_len) *)
 let ED25519CTX_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
-  (`!sp sig_p msg_p msg priv_key_p seed A ctx_p ctx pc retpc.
-    PAIRWISE nonoverlapping [(word pc, ???); (sig_p, 64); (msg_p; LENGTH msg); (priv_key_p, 64); (ctx_p, LENGTH ctx); (word_sub sp (word ???), ???)] /\
+  (`!sp sig_p msg_p msg priv_key_p seed ctx_p ctx pc retpc.
+    PAIRWISE nonoverlapping [(word pc, ???); (sig_p, 64); (msg_p, LENGTH msg); (priv_key_p, 64); (ctx_p, LENGTH ctx); (word_sub sp (word ???), ???)] /\
     LENGTH msg < 2 EXP 64 /\
     LENGTH seed = 32 /\
-    A = public_key_of_seed seed /\
     LENGTH ctx < 2 EXP 64 ==>
     ensures arm
     (\s. aligned_bytes_loaded s (word pc) (ed25519_mc pc ???) /\
@@ -1212,7 +1294,7 @@ let ED25519CTX_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
          read X30 s = word retpc /\
          C_ARGUMENTS [sig_p; msg_p; word (LENGTH msg); priv_key_p; ctx_p, word (LENGTH ctx)] s /\
          byte_list_at msg msg_p s /\
-         byte_list_at (seed ++ A) priv_key_p s /\
+         byte_list_at (seed ++ public_key_of_seed seed) priv_key_p s /\
          byte_list_at ctx ctx_p s)
     (\s. read PC s = word retpc /\
       if dom_valid 1 ctx
@@ -1228,11 +1310,10 @@ let ED25519CTX_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     size_t message_len, const uint8_t private_key[ED25519_PRIVATE_KEY_LEN],
     const uint8_t *context, size_t context_len) *)
 let ED25519PH_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
-  (`!sp sig_p msg_p msg priv_key_p seed A ctx_p ctx pc retpc.
-    PAIRWISE nonoverlapping [(word pc, ???); (sig_p, 64); (msg_p; LENGTH msg); (priv_key_p, 64); (ctx_p, LENGTH ctx); (word_sub sp (word ???), ???)] /\
+  (`!sp sig_p msg_p msg priv_key_p seed ctx_p ctx pc retpc.
+    PAIRWISE nonoverlapping [(word pc, ???); (sig_p, 64); (msg_p, LENGTH msg); (priv_key_p, 64); (ctx_p, LENGTH ctx); (word_sub sp (word ???), ???)] /\
     LENGTH msg < 2 EXP 64 /\
     LENGTH seed = 32 /\
-    A = public_key_of_seed seed /\
     LENGTH ctx < 2 EXP 64 ==>
     ensures arm
     (\s. aligned_bytes_loaded s (word pc) (ed25519_mc pc ???) /\
@@ -1241,7 +1322,7 @@ let ED25519PH_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
          read X30 s = word retpc /\
          C_ARGUMENTS [sig_p; msg_p; word (LENGTH msg); priv_key_p; ctx_p, word (LENGTH ctx)] s /\
          byte_list_at msg msg_p s /\
-         byte_list_at (seed ++ A) priv_key_p s /\
+         byte_list_at (seed ++ public_key_of_seed seed) priv_key_p s /\
          byte_list_at ctx ctx_p s)
     (\s. read PC s = word retpc /\
       if dom_valid 2 ctx
@@ -1259,7 +1340,7 @@ let ED25519PH_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     uint8_t *dom2_buffer, size_t dom2_buffer_len) *)
 let ED25519_VERIFY_COMMON_CORRECT = prove
   (`!sp msg_p msg sig_p sig A_p A dom2_buf_p alg ctx pc retpc.
-    PAIRWISE nonoverlapping [(word pc, ???); (msg_p; LENGTH (ph alg msg)); (sig_p, 64); (A_p, 32); (dom2_buf_p, max_dom2_size); (word_sub sp (word ???), ???)] /\
+    PAIRWISE nonoverlapping [(word pc, ???); (msg_p, LENGTH (ph alg msg)); (sig_p, 64); (A_p, 32); (dom2_buf_p, LENGTH (dom2_of alg ctx)); (word_sub sp (word ???), ???)] /\
     LENGTH (ph alg msg) < 2 EXP 64 /\
     LENGTH sig = 64 /\
     LENGTH A = 32 /\
@@ -1269,7 +1350,7 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
          read PC s = word (pc + ???) /\
          read SP s = sp /\
          read X30 s = word retpc /\
-         C_ARGUMENTS [msg_p; word (LENGTH (ph alg msg)); sig_p; A_p; dom2_buf_p, word (LENGTH (dom2_of alg ctx))] s /\
+         C_ARGUMENTS [msg_p; word (LENGTH (ph alg msg)); sig_p; A_p; dom2_buf_p; word (LENGTH (dom2_of alg ctx))] s /\
          byte_list_at (ph alg msg) msg_p s /\
          byte_list_at A A_p s /\
          byte_list_at (dom2_of alg ctx) dom2_buf_p s)
@@ -1287,7 +1368,7 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
     const uint8_t public_key[ED25519_PUBLIC_KEY_LEN]) *)
 let ED25519_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
   (`!sp msg_p msg sig_p sig A_p A pc retpc.
-    PAIRWISE nonoverlapping [(word pc, ???); (msg_p; LENGTH msg); (sig_p, 64);
+    PAIRWISE nonoverlapping [(word pc, ???); (msg_p, LENGTH msg); (sig_p, 64);
       (A_p, 32); (word_sub sp (word ???), ???)] /\
     LENGTH msg < 2 EXP 64 /\
     LENGTH sig = 64 /\
@@ -1315,7 +1396,7 @@ let ED25519_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     size_t context_len) *)
 let ED25519CTX_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
   (`!sp msg_p msg sig_p sig A_p A ctx_p ctx pc retpc.
-    PAIRWISE nonoverlapping [(word pc, ???); (msg_p; LENGTH msg); (sig_p, 64);
+    PAIRWISE nonoverlapping [(word pc, ???); (msg_p, LENGTH msg); (sig_p, 64);
       (A_p, 32); (ctx_p, LENGTH ctx); (word_sub sp (word ???), ???)] /\
     LENGTH msg < 2 EXP 64 /\
     LENGTH sig = 64 /\
@@ -1346,7 +1427,7 @@ let ED25519CTX_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     size_t context_len) *)
 let ED25519PH_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
   (`!sp msg_p msg sig_p sig A_p A ctx_p ctx pc retpc.
-    PAIRWISE nonoverlapping [(word pc, ???); (msg_p; LENGTH msg); (sig_p, 64);
+    PAIRWISE nonoverlapping [(word pc, ???); (msg_p, LENGTH msg); (sig_p, 64);
       (A_p, 32); (ctx_p, LENGTH ctx); (word_sub sp (word ???), ???)] /\
     LENGTH msg < 2 EXP 64 /\
     LENGTH sig = 64 /\
