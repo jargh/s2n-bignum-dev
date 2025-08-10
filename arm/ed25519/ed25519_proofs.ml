@@ -1259,10 +1259,10 @@ let ED25519_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     [ ALIGNED_16_TAC; ALL_TAC ] THEN
 
     SUBGOAL_THEN  `nonoverlapping_modulo (2 EXP 64) (pc,2912) (val (sp:int64),1344) /\
- nonoverlapping_modulo (2 EXP 64) (val (sig_p:int64),64) (val sp,1344) /\
- nonoverlapping_modulo (2 EXP 64) (val (msg_p:int64),LENGTH (msg:byte list)) (val sp,1344) /\
- nonoverlapping_modulo (2 EXP 64) (val (priv_key_p:int64),64) (val sp,1344) /\
- nonoverlapping_modulo (2 EXP 64) (val sp,1344) (K_base,640)` ASSUME_TAC THENL
+      nonoverlapping_modulo (2 EXP 64) (val (sig_p:int64),64) (val sp,1344) /\
+      nonoverlapping_modulo (2 EXP 64) (val (msg_p:int64),LENGTH (msg:byte list)) (val sp,1344) /\
+      nonoverlapping_modulo (2 EXP 64) (val (priv_key_p:int64),64) (val sp,1344) /\
+      nonoverlapping_modulo (2 EXP 64) (val sp,1344) (K_base,640)` ASSUME_TAC THENL
     [ CHEAT_TAC; ALL_TAC ] THEN (* ??? *)
 
     ARM_SUBROUTINE_SIM_TAC
@@ -1282,27 +1282,101 @@ let ED25519_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     size_t message_len, const uint8_t private_key[ED25519_PRIVATE_KEY_LEN],
     const uint8_t *context, size_t context_len) *)
 let ED25519CTX_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
-  (`!sp sig_p msg_p msg priv_key_p seed ctx_p ctx pc retpc.
-    PAIRWISE nonoverlapping [(word pc, ???); (sig_p, 64); (msg_p, LENGTH msg); (priv_key_p, 64); (ctx_p, LENGTH ctx); (word_sub sp (word ???), ???)] /\
+  (`!sp sig_p msg_p msg priv_key_p seed ctx_p ctx pc retpc K_base.
+    aligned 16 sp /\
+    adrp_within_bounds (word K_base) (word (pc + 0x754)) /\
+    PAIRWISE nonoverlapping [(word pc, 0xb60); (sig_p, 64); (msg_p, LENGTH msg); (priv_key_p, 64);
+      (ctx_p, LENGTH ctx); (word_sub sp (word 1680), 1680); (word K_base, 640)] /\
     LENGTH msg < 2 EXP 64 /\
     LENGTH seed = 32 /\
     LENGTH ctx < 2 EXP 64 ==>
     ensures arm
-    (\s. aligned_bytes_loaded s (word pc) (ed25519_mc pc ???) /\
-         read PC s = word (pc + ???) /\
+    (\s. aligned_bytes_loaded s (word pc) (ed25519_mc pc K_base) /\
+         read PC s = word (pc + 0x404) /\
          read SP s = sp /\
          read X30 s = word retpc /\
-         C_ARGUMENTS [sig_p; msg_p; word (LENGTH msg); priv_key_p; ctx_p, word (LENGTH ctx)] s /\
+         C_ARGUMENTS [sig_p; msg_p; word (LENGTH msg); priv_key_p; ctx_p; word (LENGTH ctx)] s /\
          byte_list_at msg msg_p s /\
          byte_list_at (seed ++ public_key_of_seed seed) priv_key_p s /\
-         byte_list_at ctx ctx_p s)
+         byte_list_at ctx ctx_p s /\
+         constants_at (word K_base) s)
     (\s. read PC s = word retpc /\
-      if dom_valid 1 ctx
+      if dom2_valid 1 ctx
         then C_RETURN s = word 1 /\ byte_list_at (sign 1 ctx seed m) sig_p s
-        else C_RETURN s = 0)
+        else C_RETURN s = word 0)
     (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
      MAYCHANGE [memory :> bytes(sig_p, 64)] ,,
-     MAYCHANGE [memory :> bytes(word_sub sp (word ???), ???)])`,
+     MAYCHANGE [memory :> bytes(word_sub sp (word 1680), 1680)])`,
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL;
+      constants_at; C_ARGUMENTS; C_RETURN] THEN
+    WORD_FORALL_OFFSET_TAC 1680 THEN
+    REPEAT STRIP_TAC THEN
+    ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
+    ENSURES_EXISTING_PRESERVED_TAC `X30` THEN
+    ENSURES_PRESERVED_TAC "x19_init" `X19` THEN
+    ENSURES_PRESERVED_TAC "x20_init" `X20` THEN
+    ENSURES_PRESERVED_TAC "x21_init" `X21` THEN
+    ENSURES_PRESERVED_TAC "x22_init" `X22` THEN
+
+    ENSURES_INIT_TAC "s257" THEN
+    RULE_ASSUM_TAC (REWRITE_RULE [byte_list_at]) THEN
+    ASSUME_TAC LENGTH_ED25519_SIGN THEN
+    ARM_STEPS_TAC ED25519_EXEC (258--265) THEN
+    POP_ASSUM MP_TAC THEN
+    ASM_SIMP_TAC [VAL_WORD_EQ; DIMINDEX_64] THEN
+    COND_CASES_TAC THEN
+    DISCH_TAC THENL
+    [ (* LENGTH ctx = 0 *)
+        SUBGOAL_THEN `~(dom2_valid 1 ctx)` (fun th -> REWRITE_TAC [th]) THENL
+        [ ASM_REWRITE_TAC [dom2_valid; ARITH; GSYM LENGTH_EQ_NIL]; ALL_TAC ] THEN
+        ARM_STEPS_TAC ED25519_EXEC (282--286) THEN
+        ENSURES_FINAL_STATE_TAC THEN
+        ASM_REWRITE_TAC [];
+      ALL_TAC] THEN
+    (* ~(LENGTH ctx = 0) *)
+    ARM_STEPS_TAC ED25519_EXEC (266--267) THEN
+    POP_ASSUM MP_TAC THEN
+    ASM_SIMP_TAC [VAL_WORD_EQ; DIMINDEX_64; VAL_WORD_SUB_EQ_0] THEN
+    SIMP_TAC [VAL_WORD_EQ; DIMINDEX_64; ARITH] THEN
+    COND_CASES_TAC THEN
+    DISCH_TAC THENL
+    [ (* 255 < LENGTH ctx *)
+      SUBGOAL_THEN `~(dom2_valid 1 ctx)` (fun th -> REWRITE_TAC [th]) THENL
+        [ ASM_REWRITE_TAC [dom2_valid; ARITH; GSYM LENGTH_EQ_NIL] THEN
+            REWRITE_TAC [NOT_LE; LT_LE] THEN
+            ONCE_REWRITE_TAC [EQ_SYM] THEN
+            ASM_REWRITE_TAC [];
+          ALL_TAC ] THEN
+        ARM_STEPS_TAC ED25519_EXEC (282--286) THEN
+        ENSURES_FINAL_STATE_TAC THEN
+        ASM_REWRITE_TAC [];
+      ALL_TAC ] THEN
+    SUBGOAL_THEN `dom2_valid 1 ctx` (fun th -> REWRITE_TAC [th]) THENL
+    [ ASM_REWRITE_TAC [dom2_valid; ARITH; GSYM LENGTH_EQ_NIL] THEN
+          REWRITE_TAC [GSYM NOT_LT] THEN REWRITE_TAC [LT_LE] THEN
+          ONCE_REWRITE_TAC [ARITH_RULE `!x y:num. ~(x=y) <=> ~(y=x)`] THEN
+          ASM_REWRITE_TAC [];
+      ALL_TAC ] THEN
+    ARM_STEPS_TAC ED25519_EXEC (268--272) THEN
+    SUBGOAL_THEN `LENGTH (ctx:byte list) <= 255` ASSUME_TAC THENL
+    [ REWRITE_TAC [GSYM NOT_LT] THEN REWRITE_TAC [LT_LE] THEN
+        ONCE_REWRITE_TAC [ARITH_RULE `!x y:num. ~(x=y) <=> ~(y=x)`] THEN
+        ASM_REWRITE_TAC [] (* ??? make a lemma *);
+      ALL_TAC ] THEN
+    ARM_SUBROUTINE_SIM_TAC
+      (SPEC_ALL ed25519_mc, ED25519_EXEC, 0, SPEC_ALL ed25519_mc, REWRITE_RULE [max_dom2_size; byte_list_at] DOM2_COMMON_CORRECT)
+      [`sp + word 1384 : int64`; `word 0:int64`; `ctx_p:int64`; `ctx:byte list`; `pc:num`; `pc + 1088`; `K_base : num`] 273 THEN
+    RENAME_TAC `s273:armstate` `s272_ret:armstate` THEN
+    SUBGOAL_THEN `LENGTH (dom2_prefix ++ [word (val (word 0 : int64))] ++ [word (LENGTH ctx)] ++ ctx) <= 289` ASSUME_TAC THENL
+    [ REWRITE_TAC [LENGTH_APPEND; LENGTH; LENGTH_DOM2_PREFIX] THEN SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+    ARM_STEPS_TAC ED25519_EXEC (273--279) THEN
+>>>
+    ARM_SUBROUTINE_SIM_TAC
+      (SPEC_ALL ed25519_mc, ED25519_EXEC, 0,
+        SPEC_ALL ed25519_mc, (REWRITE_RULE [byte_list_at; constants_at] ED25519_SIGN_COMMON_CORRECT))
+      [`sp + word 1344 : int64`; `sig_p:int64`; `msg_p:int64`; `msg:byte list`; `priv_key_p:int64`; `seed:byte list`;
+        `word 0:int64`; `0`; `[]:byte list`; `pc:num`; `pc + 872`; `K_base : num`] 280 THEN
+    RENAME_TAC `s280:armstate` `s279_ret:armstate` THEN
   );;
 
 (* int ed25519ph_sign_no_self_test_s2n_bignum(
@@ -1310,7 +1384,7 @@ let ED25519CTX_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     size_t message_len, const uint8_t private_key[ED25519_PRIVATE_KEY_LEN],
     const uint8_t *context, size_t context_len) *)
 let ED25519PH_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
-  (`!sp sig_p msg_p msg priv_key_p seed ctx_p ctx pc retpc.
+  (`!sp sig_p msg_p msg priv_key_p seed ctx_p ctx pc retpc K_base.
     PAIRWISE nonoverlapping [(word pc, ???); (sig_p, 64); (msg_p, LENGTH msg); (priv_key_p, 64); (ctx_p, LENGTH ctx); (word_sub sp (word ???), ???)] /\
     LENGTH msg < 2 EXP 64 /\
     LENGTH seed = 32 /\
@@ -1320,14 +1394,14 @@ let ED25519PH_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
          read PC s = word (pc + ???) /\
          read SP s = sp /\
          read X30 s = word retpc /\
-         C_ARGUMENTS [sig_p; msg_p; word (LENGTH msg); priv_key_p; ctx_p, word (LENGTH ctx)] s /\
+         C_ARGUMENTS [sig_p; msg_p; word (LENGTH msg); priv_key_p; ctx_p; word (LENGTH ctx)] s /\
          byte_list_at msg msg_p s /\
          byte_list_at (seed ++ public_key_of_seed seed) priv_key_p s /\
          byte_list_at ctx ctx_p s)
     (\s. read PC s = word retpc /\
-      if dom_valid 2 ctx
+      if dom2_valid 2 ctx
         then C_RETURN s = word 1 /\ byte_list_at (sign 2 ctx seed m) sig_p s
-        else C_RETURN s = 0)
+        else C_RETURN s = word 0)
     (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
      MAYCHANGE [memory :> bytes(sig_p, 64)] ,,
      MAYCHANGE [memory :> bytes(word_sub sp (word ???), ???)])`,
