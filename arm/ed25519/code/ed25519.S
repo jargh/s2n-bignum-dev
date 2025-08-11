@@ -1,11 +1,8 @@
+#include "_internal_s2n_bignum.h"
 .text
-
-// ???TODO: use directives in _internal_s2n_bignum.h
-// ??? include just once
-// ??? balign just once
-
-.global	ed25519_public_key_from_seed_s2n_bignum
 .balign 4
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(ed25519_public_key_from_seed_s2n_bignum)
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(ed25519_public_key_from_seed_s2n_bignum)
 // ----------------------------------------------------------------------------
 // Compute the public key A of an Ed25519 instance from the random seed
 // See Ed25519 key generation in rfc8032 5.1.5
@@ -17,7 +14,7 @@
 //
 // Standard ARM ABI: X0 = A, X1 = seed
 // ----------------------------------------------------------------------------
-ed25519_public_key_from_seed_s2n_bignum:
+S2N_BN_SYMBOL(ed25519_public_key_from_seed_s2n_bignum):
 
 // Stack layout: X19, X20, X30, sha[216], h[64], s_B[64]
     stp x19, x20, [sp, #-368]!
@@ -70,7 +67,6 @@ ed25519_public_key_from_seed_s2n_bignum:
     ret
 
 
-.balign 4
 // ----------------------------------------------------------------------------
 // Auxiliary function that computes the Ed25519/Ed25519ctx/Ed25519ph signature of a message
 // See Ed25519 sign in rfc8032 5.1.6
@@ -224,7 +220,6 @@ ed25519_sign_common_pure2:
     ret
 
 
-.balign 4
 // ----------------------------------------------------------------------------
 // Auxiliary function that verifies the Ed25519/Ed25519ctx/Ed25519ph signature of a message
 // See Ed25519 verify in rfc8032 5.1.7
@@ -383,8 +378,8 @@ ed25519_verify_common_epilogue:
     ret
 
 
-.global	ed25519_sign_no_self_test_s2n_bignum
-.balign 4
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(ed25519_sign_no_self_test_s2n_bignum)
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(ed25519_sign_no_self_test_s2n_bignum)
 // ----------------------------------------------------------------------------
 // Compute the (pure) Ed25519 signature of a message
 // Inputs: out_sig[64], message[message_len], message_len, private_key[64]
@@ -396,7 +391,7 @@ ed25519_verify_common_epilogue:
 //
 // Standard ARM ABI: X0 = out_sig, X1 = message, X2 = message_len, X3 = private_key
 // ----------------------------------------------------------------------------
-ed25519_sign_no_self_test_s2n_bignum:
+S2N_BN_SYMBOL(ed25519_sign_no_self_test_s2n_bignum):
 
 // Stack layout: X29, X30
     stp x29, x30, [sp, #-16]!
@@ -412,8 +407,8 @@ ed25519_sign_no_self_test_s2n_bignum:
     ret
 
 
-.global	ed25519_verify_no_self_test_s2n_bignum
-.balign 4
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(ed25519_verify_no_self_test_s2n_bignum)
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(ed25519_verify_no_self_test_s2n_bignum)
 // ----------------------------------------------------------------------------
 // Verify the (pure) Ed25519 signature of a message
 // Inputs: message[message_len], message_len, signature[64], public_key[32]
@@ -425,7 +420,7 @@ ed25519_sign_no_self_test_s2n_bignum:
 //
 // Standard ARM ABI: X0 = message, X1 = message_len, X2 = signature, X3 = public_key
 // ----------------------------------------------------------------------------
-ed25519_verify_no_self_test_s2n_bignum:
+S2N_BN_SYMBOL(ed25519_verify_no_self_test_s2n_bignum):
   
 // Stack layout: X29, X30
     stp x29, x30, [sp, #-16]!
@@ -440,7 +435,6 @@ ed25519_verify_no_self_test_s2n_bignum:
     ret
 
 
-.balign 4
 // ----------------------------------------------------------------------------
 // Compute the dom2 given an Ed25519 variant (either Ed25519ctx or Ed25519ph) and the context
 // Inputs: dom2_buffer[MAX_DOM2_SIZE], phflag, context[context_len], context_len
@@ -492,8 +486,8 @@ dom2_common_loop:
     ret
 
 
-.global	ed25519ctx_sign_no_self_test_s2n_bignum
-.balign 4
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(ed25519ctx_sign_no_self_test_s2n_bignum)
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(ed25519ctx_sign_no_self_test_s2n_bignum)
 // ----------------------------------------------------------------------------
 // Compute the Ed25519ctx signature of a message
 // Inputs: out_sig[64], message[message_len], message_len, private_key[64],
@@ -509,7 +503,7 @@ dom2_common_loop:
 // Standard ARM ABI: X0 = out_sig, X1 = message, X2 = message_len,
 //	 	X3 = private_key, X4 = context, X5 = context_len
 // ----------------------------------------------------------------------------
-ed25519ctx_sign_no_self_test_s2n_bignum:
+S2N_BN_SYMBOL(ed25519ctx_sign_no_self_test_s2n_bignum):
 
 // Stack layout: X19, X20, X21, X22, X30, dom2_buffer[289], padding[7]
     stp x19, x20, [sp, #-336]!
@@ -556,8 +550,8 @@ ed25519ctx_sign_epilogue:
     ret
 
 
-.global	ed25519ctx_verify_no_self_test_s2n_bignum
-.balign 4
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(ed25519ctx_verify_no_self_test_s2n_bignum)
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(ed25519ctx_verify_no_self_test_s2n_bignum)
 // ----------------------------------------------------------------------------
 // Verify the Ed25519ctx signature of a message
 // Inputs: message[message_len], message_len, signature[64], public_key[32],
@@ -572,7 +566,7 @@ ed25519ctx_sign_epilogue:
 // Standard ARM ABI: X0 = message, X1 = message_len, X2 = signature, X3 = public_key,
 //		X4 = context, X5 = context_len
 // ----------------------------------------------------------------------------
-ed25519ctx_verify_no_self_test_s2n_bignum:
+S2N_BN_SYMBOL(ed25519ctx_verify_no_self_test_s2n_bignum):
 
 // Stack layout: X19, X20, X21, X22, X30, dom2_buffer[289], padding[7]
     stp x19, x20, [sp, #-336]!
@@ -618,8 +612,8 @@ ed25519ctx_verify_epilogue:
     ret
     
 
-.global	ed25519ph_sign_no_self_test_s2n_bignum
-.balign 4
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(ed25519ph_sign_no_self_test_s2n_bignum)
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(ed25519ph_sign_no_self_test_s2n_bignum)
 // ----------------------------------------------------------------------------
 // Compute the Ed25519ph signature of a message
 // Inputs: out_sig[64], message[message_len], message_len, private_key[64],
@@ -635,7 +629,7 @@ ed25519ctx_verify_epilogue:
 // Standard ARM ABI: X0 = out_sig, X1 = message, X2 = message_len,
 //	 	X3 = private_key, X4 = context, X5 = context_len
 // ----------------------------------------------------------------------------
-ed25519ph_sign_no_self_test_s2n_bignum:
+S2N_BN_SYMBOL(ed25519ph_sign_no_self_test_s2n_bignum):
 
 // Stack layout: X19, X20, X21, X22, X30, dom2_buffer[289], padding[7], dom2_buffer_len[8], sha[216], digest[64]
     sub sp, sp, #624
@@ -697,8 +691,8 @@ ed25519ph_sign_epilogue:
     ret
 
 
-.global	ed25519ph_verify_no_self_test_s2n_bignum
-.balign 4
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(ed25519ph_verify_no_self_test_s2n_bignum)
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(ed25519ph_verify_no_self_test_s2n_bignum)
 // ----------------------------------------------------------------------------
 // Verify the Ed25519ph signature of a message
 // Inputs: message[message_len], message_len, signature[64], public_key[32],
@@ -713,7 +707,7 @@ ed25519ph_sign_epilogue:
 // Standard ARM ABI: X0 = message, X1 = message_len, X2 = signature, X3 = public_key,
 //		X4 = context, X5 = context_len
 // ----------------------------------------------------------------------------
-ed25519ph_verify_no_self_test_s2n_bignum:
+S2N_BN_SYMBOL(ed25519ph_verify_no_self_test_s2n_bignum):
 
 // Stack layout: X19, X20, X21, X22, X30, dom2_buffer[289], padding[7], dom2_buffer_len[8], sha[216], digest[64]
     sub sp, sp, #624
@@ -775,7 +769,1282 @@ ed25519ph_verify_epilogue:
 
 
 
-// Copied code
+
+#define S2N_BN_HIDE_SYMBOLS
+
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
+
+// ----------------------------------------------------------------------------
+// Compare bignums, x <= y
+// Inputs x[m], y[n]; output function return
+//
+//    extern uint64_t bignum_le(uint64_t m, const uint64_t *x, uint64_t n,
+//                              const uint64_t *y);
+//
+// Standard ARM ABI: X0 = m, X1 = x, X2 = n, X3 = y, returns X0
+// ----------------------------------------------------------------------------
+#include "_internal_s2n_bignum.h"
+
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(bignum_le)
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_le)
+        .text
+        .balign 4
+
+#define m x0
+#define x x1
+#define n x2
+#define y x3
+#define i x4
+#define a x5
+#define d x6
+
+
+S2N_BN_SYMBOL(bignum_le):
+
+// Zero the main index counter for both branches
+
+        mov     i, xzr
+
+// Speculatively form n := n - m and do case split
+
+        subs    n, n, m
+        bcc     bignum_le_ylonger
+
+// The case where y is longer or of the same size (n >= m)
+// Note that CF=1 initially by the fact that we reach this point
+
+        cbz     m, bignum_le_xtest
+bignum_le_xmainloop:
+        ldr     a, [y, i, lsl #3]
+        ldr     d, [x, i, lsl #3]
+        sbcs    xzr, a, d
+        add     i, i, #1
+        sub     m, m, #1
+        cbnz    m, bignum_le_xmainloop
+bignum_le_xtest:
+        cbz     n, bignum_le_xskip
+bignum_le_xtoploop:
+        ldr     a, [y, i, lsl #3]
+        sbcs    xzr, a, xzr
+        add     i, i, #1
+        sub     n, n, #1
+        cbnz    n, bignum_le_xtoploop
+bignum_le_xskip:
+        cset    x0, cs
+        ret
+
+// The case where x is longer (m > n)
+// The first "adds" also makes sure CF=1 initially in this branch
+
+bignum_le_ylonger:
+        adds    n, n, m
+        cbz     n, bignum_le_ytoploop
+        sub     m, m, n
+bignum_le_ymainloop:
+        ldr     a, [y, i, lsl #3]
+        ldr     d, [x, i, lsl #3]
+        sbcs    xzr, a, d
+        add     i, i, #1
+        sub     n, n, #1
+        cbnz    n, bignum_le_ymainloop
+bignum_le_ytoploop:
+        ldr     a, [x, i, lsl #3]
+        sbcs    xzr, xzr, a
+        add     i, i, #1
+        sub     m, m, #1
+        cbnz    m, bignum_le_ytoploop
+
+        cset    x0, cs
+        ret
+
+#if defined(__linux__) && defined(__ELF__)
+.section .note.GNU-stack,"",%progbits
+#endif
+
+
+
+
+
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
+
+// ----------------------------------------------------------------------------
+// Multiply-add modulo the order of the curve25519/edwards25519 basepoint
+// Inputs x[4], y[4], c[4]; output z[4]
+//
+//    extern void bignum_madd_n25519_alt(uint64_t z[static 4],
+//                                       const uint64_t x[static 4],
+//                                       const uint64_t y[static 4],
+//                                       const uint64_t c[static 4]);
+//
+// Performs z := (x * y + c) mod n_25519, where the modulus is
+// n_25519 = 2^252 + 27742317777372353535851937790883648493, the
+// order of the curve25519/edwards25519 basepoint. The result z
+// and the inputs x, y and c are all 4 digits (256 bits).
+//
+// Standard ARM ABI: X0 = z, X1 = x, X2 = y, X3 = c
+// ----------------------------------------------------------------------------
+#include "_internal_s2n_bignum.h"
+
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(bignum_madd_n25519_alt)
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_madd_n25519_alt)
+        .text
+        .balign 4
+
+// Backup of the input pointer so we can modify x0
+
+#define z x19
+
+// Temporaries for reduction phase
+
+#define q   x2
+#define n0  x3
+#define n1  x4
+#define t0  x5
+#define t1  x6
+#define t2  x7
+
+// Loading large constants
+
+#define movbig(nn,n3,n2,n1,n0)                                      \
+        movz    nn, n0 __LF                                            \
+        movk    nn, n1, lsl #16 __LF                                   \
+        movk    nn, n2, lsl #32 __LF                                   \
+        movk    nn, n3, lsl #48
+
+// Single round of modular reduction mod_n25519, mapping
+// [m4;m3;m2;m1;m0] = m to [m3;m2;m1;m0] = m mod n_25519,
+// *assuming* the input m < 2^64 * n_25519. This is very
+// close to the loop body of the bignum_mod_n25519 function.
+
+#define reduce(m4,m3,m2,m1,m0)                          \
+        extr    q, m4, m3, #60 __LF                        \
+        and     m3, m3, #0x0FFFFFFFFFFFFFFF __LF           \
+        sub     q, q, m4, lsr #60 __LF                     \
+        and     t0, m4, #0xF000000000000000 __LF           \
+        add     m3, m3, t0 __LF                            \
+        mul     t0, n0, q __LF                             \
+        mul     t1, n1, q __LF                             \
+        umulh   t2, n0, q __LF                             \
+        adds    t1, t1, t2 __LF                            \
+        umulh   t2, n1, q __LF                             \
+        adc     t2, t2, xzr __LF                           \
+        subs    m0, m0, t0 __LF                            \
+        sbcs    m1, m1, t1 __LF                            \
+        sbcs    m2, m2, t2 __LF                            \
+        sbcs    m3, m3, xzr __LF                           \
+        csel    t0, n0, xzr, cc __LF                       \
+        csel    t1, n1, xzr, cc __LF                       \
+        adds    m0, m0, t0 __LF                            \
+        and     t2, t0, #0x1000000000000000 __LF           \
+        adcs    m1, m1, t1 __LF                            \
+        adcs    m2, m2, xzr __LF                           \
+        adc     m3, m3, t2
+
+// Special case of "reduce" with m4 = 0. As well as not using m4,
+// the quotient selection is slightly simpler, just floor(m/2^252)
+// versus min (floor(m/2^252)) (2^63-1).
+
+#define reduce0(m3,m2,m1,m0)                            \
+        lsr     q, m3, #60 __LF                            \
+        and     m3, m3, #0x0FFFFFFFFFFFFFFF __LF           \
+        mul     t0, n0, q __LF                             \
+        mul     t1, n1, q __LF                             \
+        umulh   t2, n0, q __LF                             \
+        adds    t1, t1, t2 __LF                            \
+        umulh   t2, n1, q __LF                             \
+        adc     t2, t2, xzr __LF                           \
+        subs    m0, m0, t0 __LF                            \
+        sbcs    m1, m1, t1 __LF                            \
+        sbcs    m2, m2, t2 __LF                            \
+        sbcs    m3, m3, xzr __LF                           \
+        csel    t0, n0, xzr, cc __LF                       \
+        csel    t1, n1, xzr, cc __LF                       \
+        adds    m0, m0, t0 __LF                            \
+        and     t2, t0, #0x1000000000000000 __LF           \
+        adcs    m1, m1, t1 __LF                            \
+        adcs    m2, m2, xzr __LF                           \
+        adc     m3, m3, t2
+
+S2N_BN_SYMBOL(bignum_madd_n25519_alt):
+
+        stp     x19, x20, [sp, -16]!
+
+// Back up the result pointer so we can overwrite x0 in intermediate steps
+
+        mov     z, x0
+
+// First compute [x15;x14;x13;x12;x11;x10;x9;x8] = x * y + c. This
+// is a basic schoolbook multiplier similar to the start of
+// bignum_mul_p25519_alt except for different registers, but it
+// also adds in the c term after the first row accumulation.
+
+        ldp     x13, x14, [x1]
+        ldp     x7, x0, [x2]
+        mul     x8, x13, x7
+        umulh   x9, x13, x7
+        mul     x16, x13, x0
+        umulh   x10, x13, x0
+        adds    x9, x9, x16
+        ldp     x4, x5, [x2, #16]
+        mul     x16, x13, x4
+        umulh   x11, x13, x4
+        adcs    x10, x10, x16
+        mul     x16, x13, x5
+        umulh   x12, x13, x5
+        adcs    x11, x11, x16
+        adc     x12, x12, xzr
+        ldp     x15, x6, [x3]
+        adds    x8, x8, x15
+        adcs    x9, x9, x6
+        ldp     x15, x6, [x3, #16]
+        adcs    x10, x10, x15
+        adcs    x11, x11, x6
+        adc     x12, x12, xzr
+        ldp     x15, x6, [x1, #16]
+        mul     x16, x14, x7
+        adds    x9, x9, x16
+        mul     x16, x14, x0
+        adcs    x10, x10, x16
+        mul     x16, x14, x4
+        adcs    x11, x11, x16
+        mul     x16, x14, x5
+        adcs    x12, x12, x16
+        umulh   x13, x14, x5
+        adc     x13, x13, xzr
+        umulh   x16, x14, x7
+        adds    x10, x10, x16
+        umulh   x16, x14, x0
+        adcs    x11, x11, x16
+        umulh   x16, x14, x4
+        adcs    x12, x12, x16
+        adc     x13, x13, xzr
+        mul     x16, x15, x7
+        adds    x10, x10, x16
+        mul     x16, x15, x0
+        adcs    x11, x11, x16
+        mul     x16, x15, x4
+        adcs    x12, x12, x16
+        mul     x16, x15, x5
+        adcs    x13, x13, x16
+        umulh   x14, x15, x5
+        adc     x14, x14, xzr
+        umulh   x16, x15, x7
+        adds    x11, x11, x16
+        umulh   x16, x15, x0
+        adcs    x12, x12, x16
+        umulh   x16, x15, x4
+        adcs    x13, x13, x16
+        adc     x14, x14, xzr
+        mul     x16, x6, x7
+        adds    x11, x11, x16
+        mul     x16, x6, x0
+        adcs    x12, x12, x16
+        mul     x16, x6, x4
+        adcs    x13, x13, x16
+        mul     x16, x6, x5
+        adcs    x14, x14, x16
+        umulh   x15, x6, x5
+        adc     x15, x15, xzr
+        umulh   x16, x6, x7
+        adds    x12, x12, x16
+        umulh   x16, x6, x0
+        adcs    x13, x13, x16
+        umulh   x16, x6, x4
+        adcs    x14, x14, x16
+        adc     x15, x15, xzr
+
+// Now do the modular reduction and write back
+
+        movbig( n0, #0x5812, #0x631a, #0x5cf5, #0xd3ed)
+        movbig( n1, #0x14de, #0xf9de, #0xa2f7, #0x9cd6)
+
+        reduce0(x15,x14,x13,x12)
+        reduce(x15,x14,x13,x12,x11)
+        reduce(x14,x13,x12,x11,x10)
+        reduce(x13,x12,x11,x10,x9)
+        reduce(x12,x11,x10,x9,x8)
+
+        stp     x8, x9, [z]
+        stp     x10, x11, [z, #16]
+
+// Restore registers and return
+
+        ldp     x19, x20, [sp], 16
+        ret
+
+#if defined(__linux__) && defined(__ELF__)
+.section .note.GNU-stack,"",%progbits
+#endif
+
+
+
+
+
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
+
+// ----------------------------------------------------------------------------
+// Reduce modulo basepoint order, z := x mod n_25519
+// Input x[k]; output z[4]
+//
+//    extern void bignum_mod_n25519(uint64_t z[static 4], uint64_t k,
+//                                  const uint64_t *x);
+//
+// Reduction is modulo the order of the curve25519/edwards25519 basepoint,
+// which is n_25519 = 2^252 + 27742317777372353535851937790883648493
+//
+// Standard ARM ABI: X0 = z, X1 = k, X2 = x
+// ----------------------------------------------------------------------------
+#include "_internal_s2n_bignum.h"
+
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(bignum_mod_n25519)
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_mod_n25519)
+        .text
+        .balign 4
+
+#define z x0
+#define k x1
+#define x x2
+
+#define m0 x3
+#define m1 x4
+#define m2 x5
+#define m3 x6
+
+#define t0 x7
+#define t1 x8
+#define t2 x9
+#define t3 x10
+
+#define n0 x11
+#define n1 x12
+
+// These two are aliased: we only load d when finished with q
+
+#define q x13
+#define d x13
+
+// Loading large constants
+
+#define movbig(nn,n3,n2,n1,n0)                                      \
+        movz    nn, n0 __LF                                            \
+        movk    nn, n1, lsl #16 __LF                                   \
+        movk    nn, n2, lsl #32 __LF                                   \
+        movk    nn, n3, lsl #48
+
+S2N_BN_SYMBOL(bignum_mod_n25519):
+
+// If the input is already <= 3 words long, go to a trivial "copy" path
+
+        cmp     k, #4
+        bcc     bignum_mod_n25519_short
+
+// Otherwise load the top 4 digits (top-down) and reduce k by 4
+// This [m3;m2;m1;m0] is the initial x where we begin reduction.
+
+        sub     k, k, #4
+        lsl     t0, k, #3
+        add     t0, t0, x
+        ldp     m2, m3, [t0, #16]
+        ldp     m0, m1, [t0]
+
+// Load the complicated two words of n_25519 = 2^252 + [n1; n0]
+
+        movbig( n0, #0x5812, #0x631a, #0x5cf5, #0xd3ed)
+        movbig( n1, #0x14de, #0xf9de, #0xa2f7, #0x9cd6)
+
+// Get the quotient estimate q = floor(x/2^252).
+// Also delete it from m3, in effect doing x' = x - q * 2^252
+
+        lsr     q, m3, #60
+        and     m3, m3, #0x0FFFFFFFFFFFFFFF
+
+// Multiply [t2;t1;t0] = q * [n1;n0]
+
+        mul     t0, n0, q
+        mul     t1, n1, q
+        umulh   t2, n0, q
+        adds    t1, t1, t2
+        umulh   t2, n1, q
+        adc     t2, t2, xzr
+
+// Subtract [m3;m2;m1;m0] = x' - q * [n1;n0] = x - q * n_25519
+
+        subs    m0, m0, t0
+        sbcs    m1, m1, t1
+        sbcs    m2, m2, t2
+        sbcs    m3, m3, xzr
+
+// If this borrows (CF = 0 because of inversion), add back n_25519.
+// The masked n3 digit exploits the fact that bit 60 of n0 is set.
+
+        csel    t0, n0, xzr, cc
+        csel    t1, n1, xzr, cc
+        adds    m0, m0, t0
+        adcs    m1, m1, t1
+        and     t0, t0, #0x1000000000000000
+        adcs    m2, m2, xzr
+        adc     m3, m3, t0
+
+// Now do (k-4) iterations of 5->4 word modular reduction. Each one
+// is similar to the sequence above except for the more refined quotient
+// estimation process.
+
+        cbz     k, bignum_mod_n25519_writeback
+
+bignum_mod_n25519_loop:
+
+// Assume that the new 5-digit x is 2^64 * previous_x + next_digit.
+// Get the quotient estimate q = max (floor(x/2^252)) (2^64 - 1)
+// and first compute x' = x - 2^252 * q.
+
+        extr    q, m3, m2, #60
+        and     m2, m2, #0x0FFFFFFFFFFFFFFF
+        sub     q, q, m3, lsr #60
+        and     m3, m3, #0xF000000000000000
+        add     m2, m2, m3
+
+// Multiply [t2;t1;t0] = q * [n1;n0]
+
+        mul     t0, n0, q
+        mul     t1, n1, q
+        umulh   t2, n0, q
+        adds    t1, t1, t2
+        umulh   t2, n1, q
+        adc     t2, t2, xzr
+
+// Decrement k and load the next digit (note that d aliases to q)
+
+        sub     k, k, #1
+        ldr     d, [x, k, lsl #3]
+
+// Subtract [t3;t2;t1;t0] = x' - q * [n1;n0] = x - q * n_25519
+
+        subs    t0, d, t0
+        sbcs    t1, m0, t1
+        sbcs    t2, m1, t2
+        sbcs    t3, m2, xzr
+
+// If this borrows (CF = 0 because of inversion), add back n_25519.
+// The masked n3 digit exploits the fact that bit 60 of n1 is set.
+
+        csel    m0, n0, xzr, cc
+        csel    m1, n1, xzr, cc
+        adds    m0, t0, m0
+        and     m3, m1, #0x1000000000000000
+        adcs    m1, t1, m1
+        adcs    m2, t2, xzr
+        adc     m3, t3, m3
+
+        cbnz    k, bignum_mod_n25519_loop
+
+// Finally write back [m3;m2;m1;m0] and return
+
+bignum_mod_n25519_writeback:
+        stp     m0, m1, [z]
+        stp     m2, m3, [z, #16]
+        ret
+
+// Short case: just copy the input with zero-padding
+
+bignum_mod_n25519_short:
+        mov     m0, xzr
+        mov     m1, xzr
+        mov     m2, xzr
+        mov     m3, xzr
+
+        cbz     k, bignum_mod_n25519_writeback
+        ldr     m0, [x]
+        subs    k, k, #1
+        beq     bignum_mod_n25519_writeback
+        ldr     m1, [x, #8]
+        subs    k, k, #1
+        beq     bignum_mod_n25519_writeback
+        ldr     m2, [x, #16]
+        b       bignum_mod_n25519_writeback
+
+#if defined(__linux__) && defined(__ELF__)
+.section .note.GNU-stack,"",%progbits
+#endif
+
+
+
+
+
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
+
+// ----------------------------------------------------------------------------
+// Negate modulo p_25519, z := (-x) mod p_25519, assuming x reduced
+// Input x[4]; output z[4]
+//
+//    extern void bignum_neg_p25519(uint64_t z[static 4], const uint64_t x[static 4]);
+//
+// Standard ARM ABI: X0 = z, X1 = x
+// ----------------------------------------------------------------------------
+#include "_internal_s2n_bignum.h"
+
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(bignum_neg_p25519)
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_neg_p25519)
+        .text
+        .balign 4
+
+#define z x0
+#define x x1
+
+#define d0 x2
+#define d1 x3
+#define d2 x4
+#define d3 x5
+#define c x6
+#define d x7
+
+S2N_BN_SYMBOL(bignum_neg_p25519):
+
+// Load the digits of x and compute [d3;d2;d1;d0] = (2^255 - 19) - x
+// while also computing c = the OR of the digits of x
+
+        ldp     d0, d1, [x]
+        mov     d, #-19
+        orr     c, d0, d1
+        subs    d0, d, d0
+        mov     d, #-1
+        sbcs    d1, d, d1
+        ldp     d2, d3, [x, #16]
+        orr     c, c, d2
+        sbcs    d2, d, d2
+        mov     d, #0x7FFFFFFFFFFFFFFF
+        orr     c, c, d3
+        sbc     d3, d, d3
+
+// If in fact c = 0 then the result is zero, otherwise the main result
+
+        cmp     c, xzr
+        csel    d0, d0, xzr, ne
+        csel    d1, d1, xzr, ne
+        csel    d2, d2, xzr, ne
+        csel    d3, d3, xzr, ne
+
+// Write back result and return
+
+        stp     d0, d1, [z]
+        stp     d2, d3, [z, #16]
+
+        ret
+
+#if defined(__linux__) && defined(__ELF__)
+.section .note.GNU-stack,"",%progbits
+#endif
+
+
+
+
+
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
+
+// ----------------------------------------------------------------------------
+// Decode compressed 256-bit form of edwards25519 point
+// Input c[32] (bytes); output function return and z[8]
+//
+// extern uint64_t edwards25519_decode_alt(uint64_t z[static 8], const uint8_t c[static 32]);
+//
+// This interprets the input byte string as a little-endian number
+// representing a point (x,y) on the edwards25519 curve, encoded as
+// 2^255 * x_0 + y where x_0 is the least significant bit of x. It
+// returns the full pair of coordinates x (at z) and y (at z+4). The
+// return code is 0 for success and 1 for failure, which means that
+// the input does not correspond to the encoding of any edwards25519
+// point. This can happen for three reasons, where y = the lowest
+// 255 bits of the input:
+//
+//  * y >= p_25519
+//    Input y coordinate is not reduced
+//  * (y^2 - 1) * (1 + d_25519 * y^2) has no modular square root
+//    There is no x such that (x,y) is on the curve
+//  * y^2 = 1 and top bit of input is set
+//    Cannot be the canonical encoding of (0,1) or (0,-1)
+//
+// Standard ARM ABI: X0 = z, X1 = c
+// ----------------------------------------------------------------------------
+#include "_internal_s2n_bignum.h"
+
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(edwards25519_decode_alt)
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(edwards25519_decode_alt)
+
+        .text
+        .balign 4
+
+// Size in bytes of a 64-bit word
+
+#define N 8
+
+// Pointer-offset pairs for temporaries on stack
+
+#define y sp, #0
+#define s sp, #(4*N)
+#define t sp, #(8*N)
+#define u sp, #(12*N)
+#define v sp, #(16*N)
+#define w sp, #(20*N)
+
+// Other temporary variables in register
+
+#define res x19
+#define sgnbit x20
+#define badun x21
+
+// Total size to reserve on the stack
+
+#define NSPACE #(24*N)
+
+// Loading large constants
+
+#define movbig(nn,n3,n2,n1,n0)                                      \
+        movz    nn, n0 __LF                                            \
+        movk    nn, n1, lsl #16 __LF                                   \
+        movk    nn, n2, lsl #32 __LF                                   \
+        movk    nn, n3, lsl #48
+
+// Macros wrapping up calls to the local subroutines
+
+#define mulp(dest,src1,src2)                                            \
+        add     x0, dest __LF                                              \
+        add     x1, src1 __LF                                              \
+        add     x2, src2 __LF                                              \
+        bl      edwards25519_decode_alt_mul_p25519
+
+#define nsqr(dest,n,src)                                                \
+        add     x0, dest __LF                                              \
+        mov     x1, n __LF                                                 \
+        add     x2, src __LF                                               \
+        bl      edwards25519_decode_alt_nsqr_p25519
+
+S2N_BN_SYMBOL(edwards25519_decode_alt):
+
+// Save registers and make room for temporaries
+
+        stp     x19, x20, [sp, -16]!
+        stp     x21, x30, [sp, -16]!
+        sub     sp, sp, NSPACE
+
+// Save the return pointer for the end so we can overwrite x0 later
+
+        mov     res, x0
+
+// Load the inputs, using byte operations in case of big-endian setting.
+// Let y be the lowest 255 bits of the input and sgnbit the desired parity.
+// If y >= p_25519 then already flag the input as invalid (badun = 1).
+
+        ldrb    w0, [x1]
+        lsl     x4, x0, #56
+        ldrb    w0, [x1, #1]
+        extr    x4, x0, x4, #8
+        ldrb    w0, [x1, #2]
+        extr    x4, x0, x4, #8
+        ldrb    w0, [x1, #3]
+        extr    x4, x0, x4, #8
+        ldrb    w0, [x1, #4]
+        extr    x4, x0, x4, #8
+        ldrb    w0, [x1, #5]
+        extr    x4, x0, x4, #8
+        ldrb    w0, [x1, #6]
+        extr    x4, x0, x4, #8
+        ldrb    w0, [x1, #7]
+        extr    x4, x0, x4, #8
+
+        ldrb    w0, [x1, #8]
+        lsl     x5, x0, #56
+        ldrb    w0, [x1, #9]
+        extr    x5, x0, x5, #8
+        ldrb    w0, [x1, #10]
+        extr    x5, x0, x5, #8
+        ldrb    w0, [x1, #11]
+        extr    x5, x0, x5, #8
+        ldrb    w0, [x1, #12]
+        extr    x5, x0, x5, #8
+        ldrb    w0, [x1, #13]
+        extr    x5, x0, x5, #8
+        ldrb    w0, [x1, #14]
+        extr    x5, x0, x5, #8
+        ldrb    w0, [x1, #15]
+        extr    x5, x0, x5, #8
+
+        ldrb    w0, [x1, #16]
+        lsl     x6, x0, #56
+        ldrb    w0, [x1, #17]
+        extr    x6, x0, x6, #8
+        ldrb    w0, [x1, #18]
+        extr    x6, x0, x6, #8
+        ldrb    w0, [x1, #19]
+        extr    x6, x0, x6, #8
+        ldrb    w0, [x1, #20]
+        extr    x6, x0, x6, #8
+        ldrb    w0, [x1, #21]
+        extr    x6, x0, x6, #8
+        ldrb    w0, [x1, #22]
+        extr    x6, x0, x6, #8
+        ldrb    w0, [x1, #23]
+        extr    x6, x0, x6, #8
+
+        ldrb    w0, [x1, #24]
+        lsl     x7, x0, #56
+        ldrb    w0, [x1, #25]
+        extr    x7, x0, x7, #8
+        ldrb    w0, [x1, #26]
+        extr    x7, x0, x7, #8
+        ldrb    w0, [x1, #27]
+        extr    x7, x0, x7, #8
+        ldrb    w0, [x1, #28]
+        extr    x7, x0, x7, #8
+        ldrb    w0, [x1, #29]
+        extr    x7, x0, x7, #8
+        ldrb    w0, [x1, #30]
+        extr    x7, x0, x7, #8
+        ldrb    w0, [x1, #31]
+        extr    x7, x0, x7, #8
+
+        stp     x4, x5, [y]
+        lsr     sgnbit, x7, #63
+        and     x7, x7, #0x7FFFFFFFFFFFFFFF
+        stp     x6, x7, [y+16]
+
+        adds    xzr, x4, #19
+        adcs    xzr, x5, xzr
+        adcs    xzr, x6, xzr
+        adcs    xzr, x7, xzr
+        cset    badun, mi
+
+// u = y^2 - 1 (actually y + 2^255-20, not reduced modulo)
+// v = 1 + d * y^2 (not reduced modulo from the +1)
+// w = u * v
+
+        nsqr(v,1,y)
+        ldp     x0, x1, [v]
+        ldp     x2, x3, [v+16]
+        mov     x4, #0x8000000000000000
+        subs    x0, x0, #20
+        sbcs    x1, x1, xzr
+        sbcs    x2, x2, xzr
+        sbc     x3, x3, x4
+        stp     x0, x1, [u]
+        stp     x2, x3, [u+16]
+
+        movbig(x0,#0x75eb,#0x4dca,#0x1359,#0x78a3)
+        movbig(x1,#0x0070,#0x0a4d,#0x4141,#0xd8ab)
+        movbig(x2,#0x8cc7,#0x4079,#0x7779,#0xe898)
+        movbig(x3,#0x5203,#0x6cee,#0x2b6f,#0xfe73)
+        stp     x0, x1, [w]
+        stp     x2, x3, [w+16]
+        mulp(v,w,v)
+        ldp     x0, x1, [v]
+        ldp     x2, x3, [v+16]
+        adds    x0, x0, #1
+        adcs    x1, x1, xzr
+        adcs    x2, x2, xzr
+        adcs    x3, x3, xzr
+        stp     x0, x1, [v]
+        stp     x2, x3, [v+16]
+
+        mulp(w,u,v)
+
+// Get s = w^{252-3} as a candidate inverse square root 1/sqrt(w).
+// This power tower computation is the same as bignum_invsqrt_p25519
+
+        nsqr(t,1,w)
+        mulp(t,t,w)
+        nsqr(s,2,t)
+        mulp(t,s,t)
+        nsqr(s,1,t)
+        mulp(v,s,w)
+        nsqr(s,5,v)
+        mulp(t,s,v)
+        nsqr(s,10,t)
+        mulp(t,s,t)
+        nsqr(s,5,t)
+        mulp(v,s,v)
+        nsqr(s,25,v)
+        mulp(t,s,v)
+        nsqr(s,50,t)
+        mulp(t,s,t)
+        nsqr(s,25,t)
+        mulp(v,s,v)
+        nsqr(s,125,v)
+        mulp(v,s,v)
+        nsqr(s,2,v)
+        mulp(s,s,w)
+
+// Compute v' = s^2 * w to discriminate whether the square root sqrt(u/v)
+// exists, in which case we should get 0, 1 or -1.
+
+        nsqr(v,1,s)
+        mulp(v,v,w)
+
+// Get the two candidates for sqrt(u / v), one being s = u * w^{252-3}
+// and the other being t = s * j_25519 where j_25519 = sqrt(-1).
+
+        mulp(s,u,s)
+        movbig(x0, #0xc4ee, #0x1b27, #0x4a0e, #0xa0b0)
+        movbig(x1, #0x2f43, #0x1806, #0xad2f, #0xe478)
+        movbig(x2, #0x2b4d, #0x0099, #0x3dfb, #0xd7a7)
+        movbig(x3, #0x2b83, #0x2480, #0x4fc1, #0xdf0b)
+        stp     x0, x1, [t]
+        stp     x2, x3, [t+16]
+        mulp(t,s,t)
+
+// x4 = 0 <=> s^2 * w = 0 or 1
+
+        ldp     x0, x1, [v]
+        ldp     x2, x3, [v+16]
+        bic     x4, x0, #1
+        orr     x4, x4, x1
+        orr     x5, x2, x3
+        orr     x4, x4, x5
+
+// x0 = 0 <=> s^2 * w = -1 (mod p_25519, i.e. s^2 * w = 2^255 - 20)
+
+        add     x0, x0, #20
+        add     x1, x1, #1
+        orr     x0, x0, x1
+        add     x2, x2, #1
+        eor     x3, x3, #0x7FFFFFFFFFFFFFFF
+        orr     x2, x2, x3
+        orr     x0, x0, x2
+
+// If s^2 * w is not 0 or 1 then replace s by t
+
+        cmp     x4, xzr
+        ldp     x10, x11, [s]
+        ldp     x14, x15, [t]
+        csel    x10, x10, x14, eq
+        csel    x11, x11, x15, eq
+        ldp     x12, x13, [s+16]
+        ldp     x16, x17, [t+16]
+        csel    x12, x12, x16, eq
+        csel    x13, x13, x17, eq
+        stp     x10, x11, [s]
+        stp     x12, x13, [s+16]
+
+// Check invalidity, occurring if s^2 * w is not in {0,1,-1}
+
+        ccmp    x0, xzr, 4, ne
+        cset    x0, ne
+        orr     badun, badun, x0
+
+// Let [x3;x2;x1;x0] = s and [x7;x6;x5;x4] = p_25519 - s
+
+        ldp     x0, x1, [s]
+        ldp     x2, x3, [s+16]
+        mov     x4, #-19
+        subs    x4, x4, x0
+        mov     x6, #-1
+        sbcs    x5, x6, x1
+        sbcs    x6, x6, x2
+        mov     x7, #0x7FFFFFFFFFFFFFFF
+        sbc     x7, x7, x3
+
+// Decide whether a flip is apparently indicated, s_0 <=> sgnbit
+// Decide also if s = 0 by OR-ing its digits. Now if a flip is indicated:
+//  - if s = 0 then mark as invalid
+//  - if s <> 0 then indeed flip
+
+        and     x9, x0, #1
+        eor     sgnbit, x9, sgnbit
+        orr     x8, x0, x1
+        orr     x9, x2, x3
+        orr     x8, x8, x9
+        orr     x10, badun, sgnbit
+        cmp     x8, xzr
+        csel    badun, x10, badun, eq
+        ccmp    sgnbit, xzr, #4, ne
+
+// Actual selection of x as s or -s, copying of y and return of validity
+
+        csel    x0, x0, x4, eq
+        csel    x1, x1, x5, eq
+        csel    x2, x2, x6, eq
+        csel    x3, x3, x7, eq
+        ldp     x8, x9, [y]
+        ldp     x10, x11, [y+16]
+
+        stp     x0, x1, [res]
+        stp     x2, x3, [res, #16]
+        stp     x8, x9, [res, #32]
+        stp     x10, x11, [res, #48]
+
+        mov     x0, badun
+
+// Restore stack and registers
+
+        add     sp, sp, NSPACE
+
+        ldp     x21, x30, [sp], 16
+        ldp     x19, x20, [sp], 16
+        ret
+
+// *************************************************************
+// Local z = x * y
+// *************************************************************
+
+edwards25519_decode_alt_mul_p25519:
+        ldp     x3, x4, [x1]
+        ldp     x7, x8, [x2]
+        mul     x12, x3, x7
+        umulh   x13, x3, x7
+        mul     x11, x3, x8
+        umulh   x14, x3, x8
+        adds    x13, x13, x11
+        ldp     x9, x10, [x2, #16]
+        mul     x11, x3, x9
+        umulh   x15, x3, x9
+        adcs    x14, x14, x11
+        mul     x11, x3, x10
+        umulh   x16, x3, x10
+        adcs    x15, x15, x11
+        adc     x16, x16, xzr
+        ldp     x5, x6, [x1, #16]
+        mul     x11, x4, x7
+        adds    x13, x13, x11
+        mul     x11, x4, x8
+        adcs    x14, x14, x11
+        mul     x11, x4, x9
+        adcs    x15, x15, x11
+        mul     x11, x4, x10
+        adcs    x16, x16, x11
+        umulh   x3, x4, x10
+        adc     x3, x3, xzr
+        umulh   x11, x4, x7
+        adds    x14, x14, x11
+        umulh   x11, x4, x8
+        adcs    x15, x15, x11
+        umulh   x11, x4, x9
+        adcs    x16, x16, x11
+        adc     x3, x3, xzr
+        mul     x11, x5, x7
+        adds    x14, x14, x11
+        mul     x11, x5, x8
+        adcs    x15, x15, x11
+        mul     x11, x5, x9
+        adcs    x16, x16, x11
+        mul     x11, x5, x10
+        adcs    x3, x3, x11
+        umulh   x4, x5, x10
+        adc     x4, x4, xzr
+        umulh   x11, x5, x7
+        adds    x15, x15, x11
+        umulh   x11, x5, x8
+        adcs    x16, x16, x11
+        umulh   x11, x5, x9
+        adcs    x3, x3, x11
+        adc     x4, x4, xzr
+        mul     x11, x6, x7
+        adds    x15, x15, x11
+        mul     x11, x6, x8
+        adcs    x16, x16, x11
+        mul     x11, x6, x9
+        adcs    x3, x3, x11
+        mul     x11, x6, x10
+        adcs    x4, x4, x11
+        umulh   x5, x6, x10
+        adc     x5, x5, xzr
+        umulh   x11, x6, x7
+        adds    x16, x16, x11
+        umulh   x11, x6, x8
+        adcs    x3, x3, x11
+        umulh   x11, x6, x9
+        adcs    x4, x4, x11
+        adc     x5, x5, xzr
+        mov     x7, #38
+        mul     x11, x7, x16
+        umulh   x9, x7, x16
+        adds    x12, x12, x11
+        mul     x11, x7, x3
+        umulh   x3, x7, x3
+        adcs    x13, x13, x11
+        mul     x11, x7, x4
+        umulh   x4, x7, x4
+        adcs    x14, x14, x11
+        mul     x11, x7, x5
+        umulh   x5, x7, x5
+        adcs    x15, x15, x11
+        cset    x16, hs
+        adds    x15, x15, x4
+        adc     x16, x16, x5
+        cmn     x15, x15
+        orr     x15, x15, #0x8000000000000000
+        adc     x8, x16, x16
+        mov     x7, #19
+        madd    x11, x7, x8, x7
+        adds    x12, x12, x11
+        adcs    x13, x13, x9
+        adcs    x14, x14, x3
+        adcs    x15, x15, xzr
+        csel    x7, x7, xzr, lo
+        subs    x12, x12, x7
+        sbcs    x13, x13, xzr
+        sbcs    x14, x14, xzr
+        sbc     x15, x15, xzr
+        and     x15, x15, #0x7fffffffffffffff
+        stp     x12, x13, [x0]
+        stp     x14, x15, [x0, #16]
+        ret
+
+// *************************************************************
+// Local z = 2^n * x
+// *************************************************************
+
+edwards25519_decode_alt_nsqr_p25519:
+
+// Copy input argument into [x5;x4;x3;x2] (overwriting input pointer x20
+
+        ldp     x6, x3, [x2]
+        ldp     x4, x5, [x2, #16]
+        mov     x2, x6
+
+// Main squaring loop, accumulating in [x5;x4;x3;x2] consistently and
+// only ensuring the intermediates are < 2 * p_25519 = 2^256 - 38
+
+edwards25519_decode_alt_loop:
+        mul     x9, x2, x3
+        umulh   x10, x2, x3
+        mul     x11, x2, x5
+        umulh   x12, x2, x5
+        mul     x7, x2, x4
+        umulh   x6, x2, x4
+        adds    x10, x10, x7
+        adcs    x11, x11, x6
+        mul     x7, x3, x4
+        umulh   x6, x3, x4
+        adc     x6, x6, xzr
+        adds    x11, x11, x7
+        mul     x13, x4, x5
+        umulh   x14, x4, x5
+        adcs    x12, x12, x6
+        mul     x7, x3, x5
+        umulh   x6, x3, x5
+        adc     x6, x6, xzr
+        adds    x12, x12, x7
+        adcs    x13, x13, x6
+        adc     x14, x14, xzr
+        adds    x9, x9, x9
+        adcs    x10, x10, x10
+        adcs    x11, x11, x11
+        adcs    x12, x12, x12
+        adcs    x13, x13, x13
+        adcs    x14, x14, x14
+        cset    x6, hs
+        umulh   x7, x2, x2
+        mul     x8, x2, x2
+        adds    x9, x9, x7
+        mul     x7, x3, x3
+        adcs    x10, x10, x7
+        umulh   x7, x3, x3
+        adcs    x11, x11, x7
+        mul     x7, x4, x4
+        adcs    x12, x12, x7
+        umulh   x7, x4, x4
+        adcs    x13, x13, x7
+        mul     x7, x5, x5
+        adcs    x14, x14, x7
+        umulh   x7, x5, x5
+        adc     x6, x6, x7
+        mov     x3, #38
+        mul     x7, x3, x12
+        umulh   x4, x3, x12
+        adds    x8, x8, x7
+        mul     x7, x3, x13
+        umulh   x13, x3, x13
+        adcs    x9, x9, x7
+        mul     x7, x3, x14
+        umulh   x14, x3, x14
+        adcs    x10, x10, x7
+        mul     x7, x3, x6
+        umulh   x6, x3, x6
+        adcs    x11, x11, x7
+        cset    x12, hs
+        adds    x11, x11, x14
+        adc     x12, x12, x6
+        cmn     x11, x11
+        bic     x11, x11, #0x8000000000000000
+        adc     x2, x12, x12
+        mov     x3, #0x13
+        mul     x7, x3, x2
+        adds    x2, x8, x7
+        adcs    x3, x9, x4
+        adcs    x4, x10, x13
+        adc     x5, x11, xzr
+
+// Loop as applicable
+
+        subs    x1, x1, #1
+        bne     edwards25519_decode_alt_loop
+
+// We know the intermediate result x < 2^256 - 38, and now we do strict
+// modular reduction mod 2^255 - 19. Note x < 2^255 - 19 <=> x + 19 < 2^255
+// which is equivalent to a "pl" condition.
+
+        adds    x6, x2, #19
+        adcs    x7, x3, xzr
+        adcs    x8, x4, xzr
+        adcs    x9, x5, xzr
+
+        csel    x2, x2, x6, pl
+        csel    x3, x3, x7, pl
+        csel    x4, x4, x8, pl
+        csel    x5, x5, x9, pl
+        bic     x5, x5, #0x8000000000000000
+
+// Copy result back into destination and return
+
+        stp     x2, x3, [x0]
+        stp     x4, x5, [x0, #16]
+        ret
+
+#if defined(__linux__) && defined(__ELF__)
+.section .note.GNU-stack, "", %progbits
+#endif
+
+
+
+
+
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
+
+// ----------------------------------------------------------------------------
+// Encode edwards25519 point into compressed form as 256-bit number
+// Input p[8]; output z[32] (bytes)
+//
+//    extern void edwards25519_encode(uint8_t z[static 32],
+//                                    const uint64_t p[static 8]);
+//
+// This assumes that the input buffer p points to a pair of 256-bit
+// numbers x (at p) and y (at p+4) representing a point (x,y) on the
+// edwards25519 curve. It is assumed that both x and y are < p_25519
+// but there is no checking of this, nor of the fact that (x,y) is
+// in fact on the curve.
+//
+// The output in z is a little-endian array of bytes corresponding to
+// the standard compressed encoding of a point as 2^255 * x_0 + y
+// where x_0 is the least significant bit of x.
+// See "https://datatracker.ietf.org/doc/html/rfc8032#section-5.1.2"
+// In this implementation, y is simply truncated to 255 bits, but if
+// it is reduced mod p_25519 as expected this does not affect values.
+//
+// Standard ARM ABI: X0 = z, X1 = p
+// ----------------------------------------------------------------------------
+#include "_internal_s2n_bignum.h"
+
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(edwards25519_encode)
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(edwards25519_encode)
+        .text
+        .balign 4
+
+#define z x0
+#define p x1
+
+#define y0 x2
+#define y1 x3
+#define y2 x4
+#define y3 x5
+#define y0short w2
+#define y1short w3
+#define y2short w4
+#define y3short w5
+#define xb x6
+
+S2N_BN_SYMBOL(edwards25519_encode):
+
+// Load lowest word of x coordinate in xb and full y as [y3;y2;y1;y0].
+
+        ldr     xb, [p]
+        ldp     y0, y1, [p, #32]
+        ldp     y2, y3, [p, #48]
+
+// Compute the encoded form, making the LSB of x the MSB of the encoding
+
+        and     y3, y3, #0x7FFFFFFFFFFFFFFF
+        orr     y3, y3, xb, lsl #63
+
+// Write back in a byte-oriented fashion to be independent of endianness
+
+        strb    y0short, [z]
+        lsr     y0, y0, #8
+        strb    y0short, [z, #1]
+        lsr     y0, y0, #8
+        strb    y0short, [z, #2]
+        lsr     y0, y0, #8
+        strb    y0short, [z, #3]
+        lsr     y0, y0, #8
+        strb    y0short, [z, #4]
+        lsr     y0, y0, #8
+        strb    y0short, [z, #5]
+        lsr     y0, y0, #8
+        strb    y0short, [z, #6]
+        lsr     y0, y0, #8
+        strb    y0short, [z, #7]
+
+        strb    y1short, [z, #8]
+        lsr     y1, y1, #8
+        strb    y1short, [z, #9]
+        lsr     y1, y1, #8
+        strb    y1short, [z, #10]
+        lsr     y1, y1, #8
+        strb    y1short, [z, #11]
+        lsr     y1, y1, #8
+        strb    y1short, [z, #12]
+        lsr     y1, y1, #8
+        strb    y1short, [z, #13]
+        lsr     y1, y1, #8
+        strb    y1short, [z, #14]
+        lsr     y1, y1, #8
+        strb    y1short, [z, #15]
+
+        strb    y2short, [z, #16]
+        lsr     y2, y2, #8
+        strb    y2short, [z, #17]
+        lsr     y2, y2, #8
+        strb    y2short, [z, #18]
+        lsr     y2, y2, #8
+        strb    y2short, [z, #19]
+        lsr     y2, y2, #8
+        strb    y2short, [z, #20]
+        lsr     y2, y2, #8
+        strb    y2short, [z, #21]
+        lsr     y2, y2, #8
+        strb    y2short, [z, #22]
+        lsr     y2, y2, #8
+        strb    y2short, [z, #23]
+
+        strb    y3short, [z, #24]
+        lsr     y3, y3, #8
+        strb    y3short, [z, #25]
+        lsr     y3, y3, #8
+        strb    y3short, [z, #26]
+        lsr     y3, y3, #8
+        strb    y3short, [z, #27]
+        lsr     y3, y3, #8
+        strb    y3short, [z, #28]
+        lsr     y3, y3, #8
+        strb    y3short, [z, #29]
+        lsr     y3, y3, #8
+        strb    y3short, [z, #30]
+        lsr     y3, y3, #8
+        strb    y3short, [z, #31]
+
+// Return
+
+        ret
+
+#if defined(__linux__) && defined(__ELF__)
+.section .note.GNU-stack,"",%progbits
+#endif
+
+
+
+
 
 // Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 // SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
@@ -796,6 +2065,15 @@ ed25519ph_verify_epilogue:
 
         S2N_BN_SYM_VISIBILITY_DIRECTIVE(edwards25519_scalarmulbase_alt)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(edwards25519_scalarmulbase_alt)
+
+#if defined(__linux__) && defined(__ELF__)
+.type edwards25519_scalarmulbase_alt, %function
+.size edwards25519_scalarmulbase_alt, 9248
+
+.global edwards25519_scalarmulbase_alt_constant
+.type edwards25519_scalarmulbase_alt_constant, %object
+.size edwards25519_scalarmulbase_alt_constant, 48576
+#endif
 
         .text
         .balign 4
@@ -1203,28 +2481,34 @@ S2N_BN_SYMBOL(edwards25519_scalarmulbase_alt):
 // Initialize accumulator "acc" to either 0 or 2^251 * B depending on
 // bit 251 of the (reduced) scalar. That leaves bits 0..250 to handle.
 
-        adr     x10, edwards25519_scalarmulbase_alt_edwards25519_0g
-        adr     x11, edwards25519_scalarmulbase_alt_edwards25519_251g
-        ldp     x0, x1, [x10]
-        ldp     x2, x3, [x11]
+#if defined(__linux__) && defined(__ELF__)
+        adrp    tab, edwards25519_scalarmulbase_alt_constant
+        add     tab, tab, :lo12:edwards25519_scalarmulbase_alt_constant
+#else
+        adrp    tab, edwards25519_scalarmulbase_alt_constant@PAGE
+        add     tab, tab, edwards25519_scalarmulbase_alt_constant@PAGEOFF
+#endif
+
+        ldp     x0, x1, [tab]
+        ldp     x2, x3, [tab, #96]
         csel    x0, x0, x2, eq
         csel    x1, x1, x3, eq
         stp     x0, x1, [acc]
 
-        ldp     x0, x1, [x10, 1*16]
-        ldp     x2, x3, [x11, 1*16]
+        ldp     x0, x1, [tab, #1*16]
+        ldp     x2, x3, [tab, #96+1*16]
         csel    x0, x0, x2, eq
         csel    x1, x1, x3, eq
         stp     x0, x1, [acc+1*16]
 
-        ldp     x0, x1, [x10, 2*16]
-        ldp     x2, x3, [x11, 2*16]
+        ldp     x0, x1, [tab, #2*16]
+        ldp     x2, x3, [tab, #96+2*16]
         csel    x0, x0, x2, eq
         csel    x1, x1, x3, eq
         stp     x0, x1, [acc+2*16]
 
-        ldp     x0, x1, [x10, 3*16]
-        ldp     x2, x3, [x11, 3*16]
+        ldp     x0, x1, [tab, #3*16]
+        ldp     x2, x3, [tab, #96+3*16]
         csel    x0, x0, x2, eq
         csel    x1, x1, x3, eq
         stp     x0, x1, [acc+3*16]
@@ -1233,14 +2517,14 @@ S2N_BN_SYMBOL(edwards25519_scalarmulbase_alt):
         stp     x0, xzr, [acc+4*16]
         stp     xzr, xzr, [acc+5*16]
 
-        ldp     x0, x1, [x10, 4*16]
-        ldp     x2, x3, [x11, 4*16]
+        ldp     x0, x1, [tab, #4*16]
+        ldp     x2, x3, [tab, #96+4*16]
         csel    x0, x0, x2, eq
         csel    x1, x1, x3, eq
         stp     x0, x1, [acc+6*16]
 
-        ldp     x0, x1, [x10, 5*16]
-        ldp     x2, x3, [x11, 5*16]
+        ldp     x0, x1, [tab, #5*16]
+        ldp     x2, x3, [tab, #96+5*16]
         csel    x0, x0, x2, eq
         csel    x1, x1, x3, eq
         stp     x0, x1, [acc+7*16]
@@ -1259,7 +2543,7 @@ S2N_BN_SYMBOL(edwards25519_scalarmulbase_alt):
 // end because we made sure bit 251 is clear in the reduced scalar.
 
         mov     i, 0
-        adr     tab, edwards25519_scalarmulbase_alt_edwards25519_gtable
+        add     tab, tab, #192
         mov     bias, xzr
 
 // Start of the main loop, repeated 63 times for i = 0, 4, 8, ..., 248
@@ -2634,35 +3918,3399 @@ edwards25519_scalarmulbase_alt_invmidloop:
 
         ret
 
-// ****************************************************************************
-// The precomputed data (all read-only). This is currently part of the same
-// text section, which gives position-independent code with simple PC-relative
-// addressing. However it could be put in a separate section via something like
+#if defined(__linux__) && defined(__ELF__)
+.section .note.GNU-stack, "", %progbits
+#endif
+
+
+
+
+
+// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+// SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
+
+// ----------------------------------------------------------------------------
+// Double scalar multiplication for edwards25519, fresh and base point
+// Input scalar[4], point[8], bscalar[4]; output res[8]
 //
-// .section .rodata
+// extern void edwards25519_scalarmuldouble_alt
+//   (uint64_t res[static 8],const uint64_t scalar[static 4],
+//    const uint64_t point[static 8],const uint64_t bscalar[static 4]);
+//
+// Given scalar = n, point = P and bscalar = m, returns in res
+// the point (X,Y) = n * P + m * B where B = (...,4/5) is
+// the standard basepoint for the edwards25519 (Ed25519) curve.
+//
+// Both 256-bit coordinates of the input point P are implicitly
+// reduced modulo 2^255-19 if they are not already in reduced form,
+// but the conventional usage is that they *are* already reduced.
+// The scalars can be arbitrary 256-bit numbers but may also be
+// considered as implicitly reduced modulo the group order.
+//
+// Standard ARM ABI: X0 = res, X1 = scalar, X2 = point, X3 = bscalar
+// ----------------------------------------------------------------------------
+#include "_internal_s2n_bignum.h"
+
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(edwards25519_scalarmuldouble_alt)
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(edwards25519_scalarmuldouble_alt)
+
+#if defined(__linux__) && defined(__ELF__)
+.type edwards25519_scalarmuldouble_alt, %function
+.size edwards25519_scalarmuldouble_alt, 22184
+
+.global edwards25519_scalarmuldouble_alt_constant
+.type edwards25519_scalarmuldouble_alt_constant, %object
+.size edwards25519_scalarmuldouble_alt_constant, 768
+#endif
+
+        .text
+        .balign 4
+
+// Size of individual field elements
+
+#define NUMSIZE 32
+
+// Stable home for the input result argument during the whole body
+
+#define res x25
+
+// Additional pointer variables for local subroutines
+
+#define p0 x22
+#define p1 x23
+#define p2 x24
+
+// Other variables that are only needed prior to the modular inverse.
+
+#define i x19
+#define bf x20
+#define cf x21
+
+// Pointer-offset pairs for result and temporaries on stack with some aliasing.
+
+#define resx res, #(0*NUMSIZE)
+#define resy res, #(1*NUMSIZE)
+
+#define scalar sp, #(0*NUMSIZE)
+#define bscalar sp, #(1*NUMSIZE)
+
+#define btabent sp, #(2*NUMSIZE)
+#define acc sp, #(5*NUMSIZE)
+#define acc_x sp, #(5*NUMSIZE)
+#define acc_y sp, #(6*NUMSIZE)
+#define acc_z sp, #(7*NUMSIZE)
+#define acc_w sp, #(8*NUMSIZE)
+
+#define tabent sp, #(9*NUMSIZE)
+
+#define tab sp, #(13*NUMSIZE)
+
+// Total size to reserve on the stack (excluding local subroutines)
+
+#define NSPACE (45*NUMSIZE)
+
+// Sub-references used in local subroutines with local stack
+
+#define x_0 p0, #0
+#define y_0 p0, #NUMSIZE
+#define z_0 p0, #(2*NUMSIZE)
+#define w_0 p0, #(3*NUMSIZE)
+
+#define x_1 p1, #0
+#define y_1 p1, #NUMSIZE
+#define z_1 p1, #(2*NUMSIZE)
+#define w_1 p1, #(3*NUMSIZE)
+
+#define x_2 p2, #0
+#define y_2 p2, #NUMSIZE
+#define z_2 p2, #(2*NUMSIZE)
+#define w_2 p2, #(3*NUMSIZE)
+
+#define t0 sp, #(0*NUMSIZE)
+#define t1 sp, #(1*NUMSIZE)
+#define t2 sp, #(2*NUMSIZE)
+#define t3 sp, #(3*NUMSIZE)
+#define t4 sp, #(4*NUMSIZE)
+#define t5 sp, #(5*NUMSIZE)
+
+// Load 64-bit immediate into a register
+
+#define movbig(nn,n3,n2,n1,n0)                                      \
+        movz    nn, n0 __LF                                            \
+        movk    nn, n1, lsl #16 __LF                                   \
+        movk    nn, n2, lsl #32 __LF                                   \
+        movk    nn, n3, lsl #48
+
+// Macro wrapping up the basic field operation bignum_mul_p25519_alt, only
+// trivially different from a pure function call to that subroutine.
+
+#define mul_p25519(P0,P1,P2)                    \
+        ldp     x3, x4, [P1] __LF                  \
+        ldp     x7, x8, [P2] __LF                  \
+        mul     x12, x3, x7 __LF                   \
+        umulh   x13, x3, x7 __LF                   \
+        mul     x11, x3, x8 __LF                   \
+        umulh   x14, x3, x8 __LF                   \
+        adds    x13, x13, x11 __LF                 \
+        ldp     x9, x10, [P2+16] __LF              \
+        mul     x11, x3, x9 __LF                   \
+        umulh   x15, x3, x9 __LF                   \
+        adcs    x14, x14, x11 __LF                 \
+        mul     x11, x3, x10 __LF                  \
+        umulh   x16, x3, x10 __LF                  \
+        adcs    x15, x15, x11 __LF                 \
+        adc     x16, x16, xzr __LF                 \
+        ldp     x5, x6, [P1+16] __LF               \
+        mul     x11, x4, x7 __LF                   \
+        adds    x13, x13, x11 __LF                 \
+        mul     x11, x4, x8 __LF                   \
+        adcs    x14, x14, x11 __LF                 \
+        mul     x11, x4, x9 __LF                   \
+        adcs    x15, x15, x11 __LF                 \
+        mul     x11, x4, x10 __LF                  \
+        adcs    x16, x16, x11 __LF                 \
+        umulh   x3, x4, x10 __LF                   \
+        adc     x3, x3, xzr __LF                   \
+        umulh   x11, x4, x7 __LF                   \
+        adds    x14, x14, x11 __LF                 \
+        umulh   x11, x4, x8 __LF                   \
+        adcs    x15, x15, x11 __LF                 \
+        umulh   x11, x4, x9 __LF                   \
+        adcs    x16, x16, x11 __LF                 \
+        adc     x3, x3, xzr __LF                   \
+        mul     x11, x5, x7 __LF                   \
+        adds    x14, x14, x11 __LF                 \
+        mul     x11, x5, x8 __LF                   \
+        adcs    x15, x15, x11 __LF                 \
+        mul     x11, x5, x9 __LF                   \
+        adcs    x16, x16, x11 __LF                 \
+        mul     x11, x5, x10 __LF                  \
+        adcs    x3, x3, x11 __LF                   \
+        umulh   x4, x5, x10 __LF                   \
+        adc     x4, x4, xzr __LF                   \
+        umulh   x11, x5, x7 __LF                   \
+        adds    x15, x15, x11 __LF                 \
+        umulh   x11, x5, x8 __LF                   \
+        adcs    x16, x16, x11 __LF                 \
+        umulh   x11, x5, x9 __LF                   \
+        adcs    x3, x3, x11 __LF                   \
+        adc     x4, x4, xzr __LF                   \
+        mul     x11, x6, x7 __LF                   \
+        adds    x15, x15, x11 __LF                 \
+        mul     x11, x6, x8 __LF                   \
+        adcs    x16, x16, x11 __LF                 \
+        mul     x11, x6, x9 __LF                   \
+        adcs    x3, x3, x11 __LF                   \
+        mul     x11, x6, x10 __LF                  \
+        adcs    x4, x4, x11 __LF                   \
+        umulh   x5, x6, x10 __LF                   \
+        adc     x5, x5, xzr __LF                   \
+        umulh   x11, x6, x7 __LF                   \
+        adds    x16, x16, x11 __LF                 \
+        umulh   x11, x6, x8 __LF                   \
+        adcs    x3, x3, x11 __LF                   \
+        umulh   x11, x6, x9 __LF                   \
+        adcs    x4, x4, x11 __LF                   \
+        adc     x5, x5, xzr __LF                   \
+        mov     x7, #0x26 __LF                     \
+        mul     x11, x7, x16 __LF                  \
+        umulh   x9, x7, x16 __LF                   \
+        adds    x12, x12, x11 __LF                 \
+        mul     x11, x7, x3 __LF                   \
+        umulh   x3, x7, x3 __LF                    \
+        adcs    x13, x13, x11 __LF                 \
+        mul     x11, x7, x4 __LF                   \
+        umulh   x4, x7, x4 __LF                    \
+        adcs    x14, x14, x11 __LF                 \
+        mul     x11, x7, x5 __LF                   \
+        umulh   x5, x7, x5 __LF                    \
+        adcs    x15, x15, x11 __LF                 \
+        cset    x16, cs __LF                       \
+        adds    x15, x15, x4 __LF                  \
+        adc     x16, x16, x5 __LF                  \
+        cmn     x15, x15 __LF                      \
+        orr     x15, x15, #0x8000000000000000 __LF \
+        adc     x8, x16, x16 __LF                  \
+        mov     x7, #0x13 __LF                     \
+        madd    x11, x7, x8, x7 __LF               \
+        adds    x12, x12, x11 __LF                 \
+        adcs    x13, x13, x9 __LF                  \
+        adcs    x14, x14, x3 __LF                  \
+        adcs    x15, x15, xzr __LF                 \
+        csel    x7, x7, xzr, cc __LF               \
+        subs    x12, x12, x7 __LF                  \
+        sbcs    x13, x13, xzr __LF                 \
+        sbcs    x14, x14, xzr __LF                 \
+        sbc     x15, x15, xzr __LF                 \
+        and     x15, x15, #0x7fffffffffffffff __LF \
+        stp     x12, x13, [P0] __LF                \
+        stp     x14, x15, [P0+16]
+
+// A version of multiplication that only guarantees output < 2 * p_25519.
+// This basically skips the +1 and final correction in quotient estimation.
+
+#define mul_4(P0,P1,P2)                         \
+        ldp     x3, x4, [P1] __LF                  \
+        ldp     x7, x8, [P2] __LF                  \
+        mul     x12, x3, x7 __LF                   \
+        umulh   x13, x3, x7 __LF                   \
+        mul     x11, x3, x8 __LF                   \
+        umulh   x14, x3, x8 __LF                   \
+        adds    x13, x13, x11 __LF                 \
+        ldp     x9, x10, [P2+16] __LF              \
+        mul     x11, x3, x9 __LF                   \
+        umulh   x15, x3, x9 __LF                   \
+        adcs    x14, x14, x11 __LF                 \
+        mul     x11, x3, x10 __LF                  \
+        umulh   x16, x3, x10 __LF                  \
+        adcs    x15, x15, x11 __LF                 \
+        adc     x16, x16, xzr __LF                 \
+        ldp     x5, x6, [P1+16] __LF               \
+        mul     x11, x4, x7 __LF                   \
+        adds    x13, x13, x11 __LF                 \
+        mul     x11, x4, x8 __LF                   \
+        adcs    x14, x14, x11 __LF                 \
+        mul     x11, x4, x9 __LF                   \
+        adcs    x15, x15, x11 __LF                 \
+        mul     x11, x4, x10 __LF                  \
+        adcs    x16, x16, x11 __LF                 \
+        umulh   x3, x4, x10 __LF                   \
+        adc     x3, x3, xzr __LF                   \
+        umulh   x11, x4, x7 __LF                   \
+        adds    x14, x14, x11 __LF                 \
+        umulh   x11, x4, x8 __LF                   \
+        adcs    x15, x15, x11 __LF                 \
+        umulh   x11, x4, x9 __LF                   \
+        adcs    x16, x16, x11 __LF                 \
+        adc     x3, x3, xzr __LF                   \
+        mul     x11, x5, x7 __LF                   \
+        adds    x14, x14, x11 __LF                 \
+        mul     x11, x5, x8 __LF                   \
+        adcs    x15, x15, x11 __LF                 \
+        mul     x11, x5, x9 __LF                   \
+        adcs    x16, x16, x11 __LF                 \
+        mul     x11, x5, x10 __LF                  \
+        adcs    x3, x3, x11 __LF                   \
+        umulh   x4, x5, x10 __LF                   \
+        adc     x4, x4, xzr __LF                   \
+        umulh   x11, x5, x7 __LF                   \
+        adds    x15, x15, x11 __LF                 \
+        umulh   x11, x5, x8 __LF                   \
+        adcs    x16, x16, x11 __LF                 \
+        umulh   x11, x5, x9 __LF                   \
+        adcs    x3, x3, x11 __LF                   \
+        adc     x4, x4, xzr __LF                   \
+        mul     x11, x6, x7 __LF                   \
+        adds    x15, x15, x11 __LF                 \
+        mul     x11, x6, x8 __LF                   \
+        adcs    x16, x16, x11 __LF                 \
+        mul     x11, x6, x9 __LF                   \
+        adcs    x3, x3, x11 __LF                   \
+        mul     x11, x6, x10 __LF                  \
+        adcs    x4, x4, x11 __LF                   \
+        umulh   x5, x6, x10 __LF                   \
+        adc     x5, x5, xzr __LF                   \
+        umulh   x11, x6, x7 __LF                   \
+        adds    x16, x16, x11 __LF                 \
+        umulh   x11, x6, x8 __LF                   \
+        adcs    x3, x3, x11 __LF                   \
+        umulh   x11, x6, x9 __LF                   \
+        adcs    x4, x4, x11 __LF                   \
+        adc     x5, x5, xzr __LF                   \
+        mov     x7, #0x26 __LF                     \
+        mul     x11, x7, x16 __LF                  \
+        umulh   x9, x7, x16 __LF                   \
+        adds    x12, x12, x11 __LF                 \
+        mul     x11, x7, x3 __LF                   \
+        umulh   x3, x7, x3 __LF                    \
+        adcs    x13, x13, x11 __LF                 \
+        mul     x11, x7, x4 __LF                   \
+        umulh   x4, x7, x4 __LF                    \
+        adcs    x14, x14, x11 __LF                 \
+        mul     x11, x7, x5 __LF                   \
+        umulh   x5, x7, x5 __LF                    \
+        adcs    x15, x15, x11 __LF                 \
+        cset    x16, cs __LF                       \
+        adds    x15, x15, x4 __LF                  \
+        adc     x16, x16, x5 __LF                  \
+        cmn     x15, x15 __LF                      \
+        bic     x15, x15, #0x8000000000000000 __LF \
+        adc     x8, x16, x16 __LF                  \
+        mov     x7, #0x13 __LF                     \
+        mul     x11, x7, x8 __LF                   \
+        adds    x12, x12, x11 __LF                 \
+        adcs    x13, x13, x9 __LF                  \
+        adcs    x14, x14, x3 __LF                  \
+        adc     x15, x15, xzr __LF                 \
+        stp     x12, x13, [P0] __LF                \
+        stp     x14, x15, [P0+16]
+
+// Squaring just giving a result < 2 * p_25519, which is done by
+// basically skipping the +1 in the quotient estimate and the final
+// optional correction.
+
+#define sqr_4(P0,P1)                            \
+        ldp     x2, x3, [P1] __LF                  \
+        mul     x9, x2, x3 __LF                    \
+        umulh   x10, x2, x3 __LF                   \
+        ldp     x4, x5, [P1+16] __LF               \
+        mul     x11, x2, x5 __LF                   \
+        umulh   x12, x2, x5 __LF                   \
+        mul     x7, x2, x4 __LF                    \
+        umulh   x6, x2, x4 __LF                    \
+        adds    x10, x10, x7 __LF                  \
+        adcs    x11, x11, x6 __LF                  \
+        mul     x7, x3, x4 __LF                    \
+        umulh   x6, x3, x4 __LF                    \
+        adc     x6, x6, xzr __LF                   \
+        adds    x11, x11, x7 __LF                  \
+        mul     x13, x4, x5 __LF                   \
+        umulh   x14, x4, x5 __LF                   \
+        adcs    x12, x12, x6 __LF                  \
+        mul     x7, x3, x5 __LF                    \
+        umulh   x6, x3, x5 __LF                    \
+        adc     x6, x6, xzr __LF                   \
+        adds    x12, x12, x7 __LF                  \
+        adcs    x13, x13, x6 __LF                  \
+        adc     x14, x14, xzr __LF                 \
+        adds    x9, x9, x9 __LF                    \
+        adcs    x10, x10, x10 __LF                 \
+        adcs    x11, x11, x11 __LF                 \
+        adcs    x12, x12, x12 __LF                 \
+        adcs    x13, x13, x13 __LF                 \
+        adcs    x14, x14, x14 __LF                 \
+        cset    x6, cs __LF                        \
+        umulh   x7, x2, x2 __LF                    \
+        mul     x8, x2, x2 __LF                    \
+        adds    x9, x9, x7 __LF                    \
+        mul     x7, x3, x3 __LF                    \
+        adcs    x10, x10, x7 __LF                  \
+        umulh   x7, x3, x3 __LF                    \
+        adcs    x11, x11, x7 __LF                  \
+        mul     x7, x4, x4 __LF                    \
+        adcs    x12, x12, x7 __LF                  \
+        umulh   x7, x4, x4 __LF                    \
+        adcs    x13, x13, x7 __LF                  \
+        mul     x7, x5, x5 __LF                    \
+        adcs    x14, x14, x7 __LF                  \
+        umulh   x7, x5, x5 __LF                    \
+        adc     x6, x6, x7 __LF                    \
+        mov     x3, #0x26 __LF                     \
+        mul     x7, x3, x12 __LF                   \
+        umulh   x4, x3, x12 __LF                   \
+        adds    x8, x8, x7 __LF                    \
+        mul     x7, x3, x13 __LF                   \
+        umulh   x13, x3, x13 __LF                  \
+        adcs    x9, x9, x7 __LF                    \
+        mul     x7, x3, x14 __LF                   \
+        umulh   x14, x3, x14 __LF                  \
+        adcs    x10, x10, x7 __LF                  \
+        mul     x7, x3, x6 __LF                    \
+        umulh   x6, x3, x6 __LF                    \
+        adcs    x11, x11, x7 __LF                  \
+        cset    x12, cs __LF                       \
+        adds    x11, x11, x14 __LF                 \
+        adc     x12, x12, x6 __LF                  \
+        cmn     x11, x11 __LF                      \
+        bic     x11, x11, #0x8000000000000000 __LF \
+        adc     x2, x12, x12 __LF                  \
+        mov     x3, #0x13 __LF                     \
+        mul     x7, x3, x2 __LF                    \
+        adds    x8, x8, x7 __LF                    \
+        adcs    x9, x9, x4 __LF                    \
+        adcs    x10, x10, x13 __LF                 \
+        adc     x11, x11, xzr __LF                 \
+        stp     x8, x9, [P0] __LF                  \
+        stp     x10, x11, [P0+16]
+
+// Modular subtraction with double modulus 2 * p_25519 = 2^256 - 38
+
+#define sub_twice4(P0,P1,P2)                    \
+        ldp     x5, x6, [P1] __LF                  \
+        ldp     x4, x3, [P2] __LF                  \
+        subs    x5, x5, x4 __LF                    \
+        sbcs    x6, x6, x3 __LF                    \
+        ldp     x7, x8, [P1+16] __LF               \
+        ldp     x4, x3, [P2+16] __LF               \
+        sbcs    x7, x7, x4 __LF                    \
+        sbcs    x8, x8, x3 __LF                    \
+        mov     x4, #38 __LF                       \
+        csel    x3, x4, xzr, lo __LF               \
+        subs    x5, x5, x3 __LF                    \
+        sbcs    x6, x6, xzr __LF                   \
+        sbcs    x7, x7, xzr __LF                   \
+        sbc     x8, x8, xzr __LF                   \
+        stp     x5, x6, [P0] __LF                  \
+        stp     x7, x8, [P0+16]
+
+// Modular addition and doubling with double modulus 2 * p_25519 = 2^256 - 38.
+// This only ensures that the result fits in 4 digits, not that it is reduced
+// even w.r.t. double modulus. The result is always correct modulo provided
+// the sum of the inputs is < 2^256 + 2^256 - 38, so in particular provided
+// at least one of them is reduced double modulo.
+
+#define add_twice4(P0,P1,P2)                    \
+        ldp     x3, x4, [P1] __LF                  \
+        ldp     x7, x8, [P2] __LF                  \
+        adds    x3, x3, x7 __LF                    \
+        adcs    x4, x4, x8 __LF                    \
+        ldp     x5, x6, [P1+16] __LF               \
+        ldp     x7, x8, [P2+16] __LF               \
+        adcs    x5, x5, x7 __LF                    \
+        adcs    x6, x6, x8 __LF                    \
+        mov     x9, #38 __LF                       \
+        csel    x9, x9, xzr, cs __LF               \
+        adds    x3, x3, x9 __LF                    \
+        adcs    x4, x4, xzr __LF                   \
+        adcs    x5, x5, xzr __LF                   \
+        adc     x6, x6, xzr __LF                   \
+        stp     x3, x4, [P0] __LF                  \
+        stp     x5, x6, [P0+16]
+
+#define double_twice4(P0,P1)                    \
+        ldp     x3, x4, [P1] __LF                  \
+        adds    x3, x3, x3 __LF                    \
+        adcs    x4, x4, x4 __LF                    \
+        ldp     x5, x6, [P1+16] __LF               \
+        adcs    x5, x5, x5 __LF                    \
+        adcs    x6, x6, x6 __LF                    \
+        mov     x9, #38 __LF                       \
+        csel    x9, x9, xzr, cs __LF               \
+        adds    x3, x3, x9 __LF                    \
+        adcs    x4, x4, xzr __LF                   \
+        adcs    x5, x5, xzr __LF                   \
+        adc     x6, x6, xzr __LF                   \
+        stp     x3, x4, [P0] __LF                  \
+        stp     x5, x6, [P0+16]
+
+// Load the constant k_25519 = 2 * d_25519 using immediate operations
+
+#define load_k25519(P0)                         \
+        movz    x0, #0xf159 __LF                   \
+        movz    x1, #0xb156 __LF                   \
+        movz    x2, #0xd130 __LF                   \
+        movz    x3, #0xfce7 __LF                   \
+        movk    x0, #0x26b2, lsl #16 __LF          \
+        movk    x1, #0x8283, lsl #16 __LF          \
+        movk    x2, #0xeef3, lsl #16 __LF          \
+        movk    x3, #0x56df, lsl #16 __LF          \
+        movk    x0, #0x9b94, lsl #32 __LF          \
+        movk    x1, #0x149a, lsl #32 __LF          \
+        movk    x2, #0x80f2, lsl #32 __LF          \
+        movk    x3, #0xd9dc, lsl #32 __LF          \
+        movk    x0, #0xebd6, lsl #48 __LF          \
+        movk    x1, #0x00e0, lsl #48 __LF          \
+        movk    x2, #0x198e, lsl #48 __LF          \
+        movk    x3, #0x2406, lsl #48 __LF          \
+        stp     x0, x1, [P0] __LF                  \
+        stp     x2, x3, [P0+16]
+
+S2N_BN_SYMBOL(edwards25519_scalarmuldouble_alt):
+
+// Save regs and make room for temporaries
+
+        stp     x19, x20, [sp, -16]!
+        stp     x21, x22, [sp, -16]!
+        stp     x23, x24, [sp, -16]!
+        stp     x25, x30, [sp, -16]!
+        sub     sp, sp, #NSPACE
+
+// Move the output pointer to a stable place
+
+        mov     res, x0
+
+// Copy scalars while recoding all 4-bit nybbles except the top
+// one (bits 252..255) into signed 4-bit digits. This is essentially
+// done just by adding the recoding constant 0x0888..888, after
+// which all digits except the first have an implicit bias of -8,
+// so 0 -> -8, 1 -> -7, ... 7 -> -1, 8 -> 0, 9 -> 1, ... 15 -> 7.
+// (We could literally create 2s complement signed nybbles by
+// XORing with the same constant 0x0888..888 afterwards, but it
+// doesn't seem to make the end usage any simpler.)
+//
+// In order to ensure that the unrecoded top nybble (bits 252..255)
+// does not become > 8 as a result of carries lower down from the
+// recoding, we first (conceptually) subtract the group order iff
+// the top digit of the scalar is > 2^63. In the implementation the
+// reduction and recoding are combined by optionally using the
+// modified recoding constant 0x0888...888 + (2^256 - group_order).
+
+        movbig(x4,#0xc7f5, #0x6fb5, #0xa0d9, #0xe920)
+        movbig(x5,#0xe190, #0xb993, #0x70cb, #0xa1d5)
+        mov     x7, #0x8888888888888888
+        sub     x6, x7, #1
+        bic     x8, x7, #0xF000000000000000
+
+        ldp     x10, x11, [x3]
+        ldp     x12, x13, [x3, #16]
+        mov     x3, 0x8000000000000000
+        cmp     x3, x13
+        csel    x14, x7, x4, cs
+        csel    x15, x7, x5, cs
+        csel    x16, x7, x6, cs
+        csel    x17, x8, x7, cs
+        adds    x10, x10, x14
+        adcs    x11, x11, x15
+        adcs    x12, x12, x16
+        adc     x13, x13, x17
+        stp     x10, x11, [bscalar]
+        stp     x12, x13, [bscalar+16]
+
+        ldp     x10, x11, [x1]
+        ldp     x12, x13, [x1, #16]
+        mov     x3, 0x8000000000000000
+        cmp     x3, x13
+        csel    x14, x7, x4, cs
+        csel    x15, x7, x5, cs
+        csel    x16, x7, x6, cs
+        csel    x17, x8, x7, cs
+        adds    x10, x10, x14
+        adcs    x11, x11, x15
+        adcs    x12, x12, x16
+        adc     x13, x13, x17
+        stp     x10, x11, [scalar]
+        stp     x12, x13, [scalar+16]
+
+// Create table of multiples 1..8 of the general input point at "tab".
+// Reduce the input coordinates x and y modulo 2^256 - 38 first, for the
+// sake of definiteness; this is the reduction that will be maintained.
+// We could slightly optimize the additions because we know the input
+// point is affine (so Z = 1), but it doesn't seem worth the complication.
+
+        ldp     x10, x11, [x2]
+        ldp     x12, x13, [x2, #16]
+        adds    x14, x10, #38
+        adcs    x15, x11, xzr
+        adcs    x16, x12, xzr
+        adcs    x17, x13, xzr
+        csel    x10, x14, x10, cs
+        csel    x11, x15, x11, cs
+        csel    x12, x16, x12, cs
+        csel    x13, x17, x13, cs
+        stp     x10, x11, [tab]
+        stp     x12, x13, [tab+16]
+
+        ldp     x10, x11, [x2, #32]
+        ldp     x12, x13, [x2, #48]
+        adds    x14, x10, #38
+        adcs    x15, x11, xzr
+        adcs    x16, x12, xzr
+        adcs    x17, x13, xzr
+        csel    x10, x14, x10, cs
+        csel    x11, x15, x11, cs
+        csel    x12, x16, x12, cs
+        csel    x13, x17, x13, cs
+        stp     x10, x11, [tab+32]
+        stp     x12, x13, [tab+48]
+
+        mov     x1, #1
+        stp     x1, xzr, [tab+64]
+        stp     xzr, xzr, [tab+80]
+
+        add     p0, tab+96
+        add     p1, tab
+        add     p2, tab+32
+        mul_4(x_0,x_1,x_2)
+
+// Multiple 2
+
+        add     p0, tab+1*128
+        add     p1, tab
+        bl      edwards25519_scalarmuldouble_alt_epdouble
+
+// Multiple 3
+
+        add     p0, tab+2*128
+        add     p1, tab
+        add     p2, tab+1*128
+        bl      edwards25519_scalarmuldouble_alt_epadd
+
+// Multiple 4
+
+        add     p0, tab+3*128
+        add     p1, tab+1*128
+        bl      edwards25519_scalarmuldouble_alt_epdouble
+
+// Multiple 5
+
+        add     p0, tab+4*128
+        add     p1, tab
+        add     p2, tab+3*128
+        bl      edwards25519_scalarmuldouble_alt_epadd
+
+// Multiple 6
+
+        add     p0, tab+5*128
+        add     p1, tab+2*128
+        bl      edwards25519_scalarmuldouble_alt_epdouble
+
+// Multiple 7
+
+        add     p0, tab+6*128
+        add     p1, tab
+        add     p2, tab+5*128
+        bl      edwards25519_scalarmuldouble_alt_epadd
+
+// Multiple 8
+
+        add     p0, tab+7*128
+        add     p1, tab+3*128
+        bl      edwards25519_scalarmuldouble_alt_epdouble
+
+// Handle the initialization, starting the loop counter at i = 252
+// and initializing acc to the sum of the table entries for the
+// top nybbles of the scalars (the ones with no implicit -8 bias).
+
+        mov     i, #252
+
+// Index for btable entry...
+
+        ldr     x0, [bscalar+24]
+        lsr     bf, x0, #60
+
+// ...and constant-time indexing based on that index
+
+#if defined(__linux__) && defined(__ELF__)
+        adrp    x14, edwards25519_scalarmuldouble_alt_constant
+        add     x14, x14, :lo12:edwards25519_scalarmuldouble_alt_constant
+#else
+        adrp    x14, edwards25519_scalarmuldouble_alt_constant@PAGE
+        add     x14, x14, edwards25519_scalarmuldouble_alt_constant@PAGEOFF
+#endif
+
+        mov     x0, #1
+        mov     x1, xzr
+        mov     x2, xzr
+        mov     x3, xzr
+        mov     x4, #1
+        mov     x5, xzr
+        mov     x6, xzr
+        mov     x7, xzr
+        mov     x8, xzr
+        mov     x9, xzr
+        mov     x10, xzr
+        mov     x11, xzr
+
+        cmp     bf, #1
+        ldp     x12, x13, [x14]
+        csel    x0, x0, x12, ne
+        csel    x1, x1, x13, ne
+        ldp     x12, x13, [x14, #16]
+        csel    x2, x2, x12, ne
+        csel    x3, x3, x13, ne
+        ldp     x12, x13, [x14, #32]
+        csel    x4, x4, x12, ne
+        csel    x5, x5, x13, ne
+        ldp     x12, x13, [x14, #48]
+        csel    x6, x6, x12, ne
+        csel    x7, x7, x13, ne
+        ldp     x12, x13, [x14, #64]
+        csel    x8, x8, x12, ne
+        csel    x9, x9, x13, ne
+        ldp     x12, x13, [x14, #80]
+        csel    x10, x10, x12, ne
+        csel    x11, x11, x13, ne
+        add     x14, x14, #96
+
+        cmp     bf, #2
+        ldp     x12, x13, [x14]
+        csel    x0, x0, x12, ne
+        csel    x1, x1, x13, ne
+        ldp     x12, x13, [x14, #16]
+        csel    x2, x2, x12, ne
+        csel    x3, x3, x13, ne
+        ldp     x12, x13, [x14, #32]
+        csel    x4, x4, x12, ne
+        csel    x5, x5, x13, ne
+        ldp     x12, x13, [x14, #48]
+        csel    x6, x6, x12, ne
+        csel    x7, x7, x13, ne
+        ldp     x12, x13, [x14, #64]
+        csel    x8, x8, x12, ne
+        csel    x9, x9, x13, ne
+        ldp     x12, x13, [x14, #80]
+        csel    x10, x10, x12, ne
+        csel    x11, x11, x13, ne
+        add     x14, x14, #96
+
+        cmp     bf, #3
+        ldp     x12, x13, [x14]
+        csel    x0, x0, x12, ne
+        csel    x1, x1, x13, ne
+        ldp     x12, x13, [x14, #16]
+        csel    x2, x2, x12, ne
+        csel    x3, x3, x13, ne
+        ldp     x12, x13, [x14, #32]
+        csel    x4, x4, x12, ne
+        csel    x5, x5, x13, ne
+        ldp     x12, x13, [x14, #48]
+        csel    x6, x6, x12, ne
+        csel    x7, x7, x13, ne
+        ldp     x12, x13, [x14, #64]
+        csel    x8, x8, x12, ne
+        csel    x9, x9, x13, ne
+        ldp     x12, x13, [x14, #80]
+        csel    x10, x10, x12, ne
+        csel    x11, x11, x13, ne
+        add     x14, x14, #96
+
+        cmp     bf, #4
+        ldp     x12, x13, [x14]
+        csel    x0, x0, x12, ne
+        csel    x1, x1, x13, ne
+        ldp     x12, x13, [x14, #16]
+        csel    x2, x2, x12, ne
+        csel    x3, x3, x13, ne
+        ldp     x12, x13, [x14, #32]
+        csel    x4, x4, x12, ne
+        csel    x5, x5, x13, ne
+        ldp     x12, x13, [x14, #48]
+        csel    x6, x6, x12, ne
+        csel    x7, x7, x13, ne
+        ldp     x12, x13, [x14, #64]
+        csel    x8, x8, x12, ne
+        csel    x9, x9, x13, ne
+        ldp     x12, x13, [x14, #80]
+        csel    x10, x10, x12, ne
+        csel    x11, x11, x13, ne
+        add     x14, x14, #96
+
+        cmp     bf, #5
+        ldp     x12, x13, [x14]
+        csel    x0, x0, x12, ne
+        csel    x1, x1, x13, ne
+        ldp     x12, x13, [x14, #16]
+        csel    x2, x2, x12, ne
+        csel    x3, x3, x13, ne
+        ldp     x12, x13, [x14, #32]
+        csel    x4, x4, x12, ne
+        csel    x5, x5, x13, ne
+        ldp     x12, x13, [x14, #48]
+        csel    x6, x6, x12, ne
+        csel    x7, x7, x13, ne
+        ldp     x12, x13, [x14, #64]
+        csel    x8, x8, x12, ne
+        csel    x9, x9, x13, ne
+        ldp     x12, x13, [x14, #80]
+        csel    x10, x10, x12, ne
+        csel    x11, x11, x13, ne
+        add     x14, x14, #96
+
+        cmp     bf, #6
+        ldp     x12, x13, [x14]
+        csel    x0, x0, x12, ne
+        csel    x1, x1, x13, ne
+        ldp     x12, x13, [x14, #16]
+        csel    x2, x2, x12, ne
+        csel    x3, x3, x13, ne
+        ldp     x12, x13, [x14, #32]
+        csel    x4, x4, x12, ne
+        csel    x5, x5, x13, ne
+        ldp     x12, x13, [x14, #48]
+        csel    x6, x6, x12, ne
+        csel    x7, x7, x13, ne
+        ldp     x12, x13, [x14, #64]
+        csel    x8, x8, x12, ne
+        csel    x9, x9, x13, ne
+        ldp     x12, x13, [x14, #80]
+        csel    x10, x10, x12, ne
+        csel    x11, x11, x13, ne
+        add     x14, x14, #96
+
+        cmp     bf, #7
+        ldp     x12, x13, [x14]
+        csel    x0, x0, x12, ne
+        csel    x1, x1, x13, ne
+        ldp     x12, x13, [x14, #16]
+        csel    x2, x2, x12, ne
+        csel    x3, x3, x13, ne
+        ldp     x12, x13, [x14, #32]
+        csel    x4, x4, x12, ne
+        csel    x5, x5, x13, ne
+        ldp     x12, x13, [x14, #48]
+        csel    x6, x6, x12, ne
+        csel    x7, x7, x13, ne
+        ldp     x12, x13, [x14, #64]
+        csel    x8, x8, x12, ne
+        csel    x9, x9, x13, ne
+        ldp     x12, x13, [x14, #80]
+        csel    x10, x10, x12, ne
+        csel    x11, x11, x13, ne
+        add     x14, x14, #96
+
+        cmp     bf, #8
+        ldp     x12, x13, [x14]
+        csel    x0, x0, x12, ne
+        csel    x1, x1, x13, ne
+        ldp     x12, x13, [x14, #16]
+        csel    x2, x2, x12, ne
+        csel    x3, x3, x13, ne
+        ldp     x12, x13, [x14, #32]
+        csel    x4, x4, x12, ne
+        csel    x5, x5, x13, ne
+        ldp     x12, x13, [x14, #48]
+        csel    x6, x6, x12, ne
+        csel    x7, x7, x13, ne
+        ldp     x12, x13, [x14, #64]
+        csel    x8, x8, x12, ne
+        csel    x9, x9, x13, ne
+        ldp     x12, x13, [x14, #80]
+        csel    x10, x10, x12, ne
+        csel    x11, x11, x13, ne
+
+        stp     x0, x1, [btabent]
+        stp     x2, x3, [btabent+16]
+        stp     x4, x5, [btabent+32]
+        stp     x6, x7, [btabent+48]
+        stp     x8, x9, [btabent+64]
+        stp     x10, x11, [btabent+80]
+
+// Index for table entry...
+
+        ldr     x0, [scalar+24]
+        lsr     bf, x0, #60
+
+// ...and constant-time indexing based on that index
+
+        add     p0, tab
+
+        mov     x0, xzr
+        mov     x1, xzr
+        mov     x2, xzr
+        mov     x3, xzr
+        mov     x4, #1
+        mov     x5, xzr
+        mov     x6, xzr
+        mov     x7, xzr
+        mov     x8, #1
+        mov     x9, xzr
+        mov     x10, xzr
+        mov     x11, xzr
+        mov     x12, xzr
+        mov     x13, xzr
+        mov     x14, xzr
+        mov     x15, xzr
+
+        cmp     bf, #1
+        ldp     x16, x17, [p0]
+        csel    x0, x0, x16, ne
+        csel    x1, x1, x17, ne
+        ldp     x16, x17, [p0, #16]
+        csel    x2, x2, x16, ne
+        csel    x3, x3, x17, ne
+        ldp     x16, x17, [p0, #32]
+        csel    x4, x4, x16, ne
+        csel    x5, x5, x17, ne
+        ldp     x16, x17, [p0, #48]
+        csel    x6, x6, x16, ne
+        csel    x7, x7, x17, ne
+        ldp     x16, x17, [p0, #64]
+        csel    x8, x8, x16, ne
+        csel    x9, x9, x17, ne
+        ldp     x16, x17, [p0, #80]
+        csel    x10, x10, x16, ne
+        csel    x11, x11, x17, ne
+        ldp     x16, x17, [p0, #96]
+        csel    x12, x12, x16, ne
+        csel    x13, x13, x17, ne
+        ldp     x16, x17, [p0, #112]
+        csel    x14, x14, x16, ne
+        csel    x15, x15, x17, ne
+        add     p0, p0, #128
+
+        cmp     bf, #2
+        ldp     x16, x17, [p0]
+        csel    x0, x0, x16, ne
+        csel    x1, x1, x17, ne
+        ldp     x16, x17, [p0, #16]
+        csel    x2, x2, x16, ne
+        csel    x3, x3, x17, ne
+        ldp     x16, x17, [p0, #32]
+        csel    x4, x4, x16, ne
+        csel    x5, x5, x17, ne
+        ldp     x16, x17, [p0, #48]
+        csel    x6, x6, x16, ne
+        csel    x7, x7, x17, ne
+        ldp     x16, x17, [p0, #64]
+        csel    x8, x8, x16, ne
+        csel    x9, x9, x17, ne
+        ldp     x16, x17, [p0, #80]
+        csel    x10, x10, x16, ne
+        csel    x11, x11, x17, ne
+        ldp     x16, x17, [p0, #96]
+        csel    x12, x12, x16, ne
+        csel    x13, x13, x17, ne
+        ldp     x16, x17, [p0, #112]
+        csel    x14, x14, x16, ne
+        csel    x15, x15, x17, ne
+        add     p0, p0, #128
+
+        cmp     bf, #3
+        ldp     x16, x17, [p0]
+        csel    x0, x0, x16, ne
+        csel    x1, x1, x17, ne
+        ldp     x16, x17, [p0, #16]
+        csel    x2, x2, x16, ne
+        csel    x3, x3, x17, ne
+        ldp     x16, x17, [p0, #32]
+        csel    x4, x4, x16, ne
+        csel    x5, x5, x17, ne
+        ldp     x16, x17, [p0, #48]
+        csel    x6, x6, x16, ne
+        csel    x7, x7, x17, ne
+        ldp     x16, x17, [p0, #64]
+        csel    x8, x8, x16, ne
+        csel    x9, x9, x17, ne
+        ldp     x16, x17, [p0, #80]
+        csel    x10, x10, x16, ne
+        csel    x11, x11, x17, ne
+        ldp     x16, x17, [p0, #96]
+        csel    x12, x12, x16, ne
+        csel    x13, x13, x17, ne
+        ldp     x16, x17, [p0, #112]
+        csel    x14, x14, x16, ne
+        csel    x15, x15, x17, ne
+        add     p0, p0, #128
+
+        cmp     bf, #4
+        ldp     x16, x17, [p0]
+        csel    x0, x0, x16, ne
+        csel    x1, x1, x17, ne
+        ldp     x16, x17, [p0, #16]
+        csel    x2, x2, x16, ne
+        csel    x3, x3, x17, ne
+        ldp     x16, x17, [p0, #32]
+        csel    x4, x4, x16, ne
+        csel    x5, x5, x17, ne
+        ldp     x16, x17, [p0, #48]
+        csel    x6, x6, x16, ne
+        csel    x7, x7, x17, ne
+        ldp     x16, x17, [p0, #64]
+        csel    x8, x8, x16, ne
+        csel    x9, x9, x17, ne
+        ldp     x16, x17, [p0, #80]
+        csel    x10, x10, x16, ne
+        csel    x11, x11, x17, ne
+        ldp     x16, x17, [p0, #96]
+        csel    x12, x12, x16, ne
+        csel    x13, x13, x17, ne
+        ldp     x16, x17, [p0, #112]
+        csel    x14, x14, x16, ne
+        csel    x15, x15, x17, ne
+        add     p0, p0, #128
+
+        cmp     bf, #5
+        ldp     x16, x17, [p0]
+        csel    x0, x0, x16, ne
+        csel    x1, x1, x17, ne
+        ldp     x16, x17, [p0, #16]
+        csel    x2, x2, x16, ne
+        csel    x3, x3, x17, ne
+        ldp     x16, x17, [p0, #32]
+        csel    x4, x4, x16, ne
+        csel    x5, x5, x17, ne
+        ldp     x16, x17, [p0, #48]
+        csel    x6, x6, x16, ne
+        csel    x7, x7, x17, ne
+        ldp     x16, x17, [p0, #64]
+        csel    x8, x8, x16, ne
+        csel    x9, x9, x17, ne
+        ldp     x16, x17, [p0, #80]
+        csel    x10, x10, x16, ne
+        csel    x11, x11, x17, ne
+        ldp     x16, x17, [p0, #96]
+        csel    x12, x12, x16, ne
+        csel    x13, x13, x17, ne
+        ldp     x16, x17, [p0, #112]
+        csel    x14, x14, x16, ne
+        csel    x15, x15, x17, ne
+        add     p0, p0, #128
+
+        cmp     bf, #6
+        ldp     x16, x17, [p0]
+        csel    x0, x0, x16, ne
+        csel    x1, x1, x17, ne
+        ldp     x16, x17, [p0, #16]
+        csel    x2, x2, x16, ne
+        csel    x3, x3, x17, ne
+        ldp     x16, x17, [p0, #32]
+        csel    x4, x4, x16, ne
+        csel    x5, x5, x17, ne
+        ldp     x16, x17, [p0, #48]
+        csel    x6, x6, x16, ne
+        csel    x7, x7, x17, ne
+        ldp     x16, x17, [p0, #64]
+        csel    x8, x8, x16, ne
+        csel    x9, x9, x17, ne
+        ldp     x16, x17, [p0, #80]
+        csel    x10, x10, x16, ne
+        csel    x11, x11, x17, ne
+        ldp     x16, x17, [p0, #96]
+        csel    x12, x12, x16, ne
+        csel    x13, x13, x17, ne
+        ldp     x16, x17, [p0, #112]
+        csel    x14, x14, x16, ne
+        csel    x15, x15, x17, ne
+        add     p0, p0, #128
+
+        cmp     bf, #7
+        ldp     x16, x17, [p0]
+        csel    x0, x0, x16, ne
+        csel    x1, x1, x17, ne
+        ldp     x16, x17, [p0, #16]
+        csel    x2, x2, x16, ne
+        csel    x3, x3, x17, ne
+        ldp     x16, x17, [p0, #32]
+        csel    x4, x4, x16, ne
+        csel    x5, x5, x17, ne
+        ldp     x16, x17, [p0, #48]
+        csel    x6, x6, x16, ne
+        csel    x7, x7, x17, ne
+        ldp     x16, x17, [p0, #64]
+        csel    x8, x8, x16, ne
+        csel    x9, x9, x17, ne
+        ldp     x16, x17, [p0, #80]
+        csel    x10, x10, x16, ne
+        csel    x11, x11, x17, ne
+        ldp     x16, x17, [p0, #96]
+        csel    x12, x12, x16, ne
+        csel    x13, x13, x17, ne
+        ldp     x16, x17, [p0, #112]
+        csel    x14, x14, x16, ne
+        csel    x15, x15, x17, ne
+        add     p0, p0, #128
+
+        cmp     bf, #8
+        ldp     x16, x17, [p0]
+        csel    x0, x0, x16, ne
+        csel    x1, x1, x17, ne
+        ldp     x16, x17, [p0, #16]
+        csel    x2, x2, x16, ne
+        csel    x3, x3, x17, ne
+        ldp     x16, x17, [p0, #32]
+        csel    x4, x4, x16, ne
+        csel    x5, x5, x17, ne
+        ldp     x16, x17, [p0, #48]
+        csel    x6, x6, x16, ne
+        csel    x7, x7, x17, ne
+        ldp     x16, x17, [p0, #64]
+        csel    x8, x8, x16, ne
+        csel    x9, x9, x17, ne
+        ldp     x16, x17, [p0, #80]
+        csel    x10, x10, x16, ne
+        csel    x11, x11, x17, ne
+        ldp     x16, x17, [p0, #96]
+        csel    x12, x12, x16, ne
+        csel    x13, x13, x17, ne
+        ldp     x16, x17, [p0, #112]
+        csel    x14, x14, x16, ne
+        csel    x15, x15, x17, ne
+
+        stp     x0, x1, [tabent]
+        stp     x2, x3, [tabent+16]
+        stp     x4, x5, [tabent+32]
+        stp     x6, x7, [tabent+48]
+        stp     x8, x9, [tabent+64]
+        stp     x10, x11, [tabent+80]
+        stp     x12, x13, [tabent+96]
+        stp     x14, x15, [tabent+112]
+
+// Add those elements to initialize the accumulator for bit position 252
+
+        add     p0, acc
+        add     p1, tabent
+        add     p2, btabent
+        bl      edwards25519_scalarmuldouble_alt_pepadd
+
+// Main loop with acc = [scalar/2^i] * point + [bscalar/2^i] * basepoint
+// Start with i = 252 for bits 248..251 and go down four at a time to 3..0
+
+edwards25519_scalarmuldouble_alt_loop:
+
+        sub     i, i, #4
+
+// Double to acc' = 2 * acc
+
+        add     p0, acc
+        add     p1, acc
+        bl      edwards25519_scalarmuldouble_alt_pdouble
+
+// Get btable entry, first getting the adjusted bitfield...
+
+        lsr     x0, i, #6
+        add     x1, bscalar
+        ldr     x2, [x1, x0, lsl #3]
+        lsr     x3, x2, i
+        and     x0, x3, #15
+        subs    bf, x0, #8
+        cneg    bf, bf, cc
+        csetm   cf, cc
+
+// ... then doing constant-time lookup with the appropriate index...
+
+#if defined(__linux__) && defined(__ELF__)
+        adrp    x14, edwards25519_scalarmuldouble_alt_constant
+        add     x14, x14, :lo12:edwards25519_scalarmuldouble_alt_constant
+#else
+        adrp    x14, edwards25519_scalarmuldouble_alt_constant@PAGE
+        add     x14, x14, edwards25519_scalarmuldouble_alt_constant@PAGEOFF
+#endif
+
+        mov     x0, #1
+        mov     x1, xzr
+        mov     x2, xzr
+        mov     x3, xzr
+        mov     x4, #1
+        mov     x5, xzr
+        mov     x6, xzr
+        mov     x7, xzr
+        mov     x8, xzr
+        mov     x9, xzr
+        mov     x10, xzr
+        mov     x11, xzr
+
+        cmp     bf, #1
+        ldp     x12, x13, [x14]
+        csel    x0, x0, x12, ne
+        csel    x1, x1, x13, ne
+        ldp     x12, x13, [x14, #16]
+        csel    x2, x2, x12, ne
+        csel    x3, x3, x13, ne
+        ldp     x12, x13, [x14, #32]
+        csel    x4, x4, x12, ne
+        csel    x5, x5, x13, ne
+        ldp     x12, x13, [x14, #48]
+        csel    x6, x6, x12, ne
+        csel    x7, x7, x13, ne
+        ldp     x12, x13, [x14, #64]
+        csel    x8, x8, x12, ne
+        csel    x9, x9, x13, ne
+        ldp     x12, x13, [x14, #80]
+        csel    x10, x10, x12, ne
+        csel    x11, x11, x13, ne
+        add     x14, x14, #96
+
+        cmp     bf, #2
+        ldp     x12, x13, [x14]
+        csel    x0, x0, x12, ne
+        csel    x1, x1, x13, ne
+        ldp     x12, x13, [x14, #16]
+        csel    x2, x2, x12, ne
+        csel    x3, x3, x13, ne
+        ldp     x12, x13, [x14, #32]
+        csel    x4, x4, x12, ne
+        csel    x5, x5, x13, ne
+        ldp     x12, x13, [x14, #48]
+        csel    x6, x6, x12, ne
+        csel    x7, x7, x13, ne
+        ldp     x12, x13, [x14, #64]
+        csel    x8, x8, x12, ne
+        csel    x9, x9, x13, ne
+        ldp     x12, x13, [x14, #80]
+        csel    x10, x10, x12, ne
+        csel    x11, x11, x13, ne
+        add     x14, x14, #96
+
+        cmp     bf, #3
+        ldp     x12, x13, [x14]
+        csel    x0, x0, x12, ne
+        csel    x1, x1, x13, ne
+        ldp     x12, x13, [x14, #16]
+        csel    x2, x2, x12, ne
+        csel    x3, x3, x13, ne
+        ldp     x12, x13, [x14, #32]
+        csel    x4, x4, x12, ne
+        csel    x5, x5, x13, ne
+        ldp     x12, x13, [x14, #48]
+        csel    x6, x6, x12, ne
+        csel    x7, x7, x13, ne
+        ldp     x12, x13, [x14, #64]
+        csel    x8, x8, x12, ne
+        csel    x9, x9, x13, ne
+        ldp     x12, x13, [x14, #80]
+        csel    x10, x10, x12, ne
+        csel    x11, x11, x13, ne
+        add     x14, x14, #96
+
+        cmp     bf, #4
+        ldp     x12, x13, [x14]
+        csel    x0, x0, x12, ne
+        csel    x1, x1, x13, ne
+        ldp     x12, x13, [x14, #16]
+        csel    x2, x2, x12, ne
+        csel    x3, x3, x13, ne
+        ldp     x12, x13, [x14, #32]
+        csel    x4, x4, x12, ne
+        csel    x5, x5, x13, ne
+        ldp     x12, x13, [x14, #48]
+        csel    x6, x6, x12, ne
+        csel    x7, x7, x13, ne
+        ldp     x12, x13, [x14, #64]
+        csel    x8, x8, x12, ne
+        csel    x9, x9, x13, ne
+        ldp     x12, x13, [x14, #80]
+        csel    x10, x10, x12, ne
+        csel    x11, x11, x13, ne
+        add     x14, x14, #96
+
+        cmp     bf, #5
+        ldp     x12, x13, [x14]
+        csel    x0, x0, x12, ne
+        csel    x1, x1, x13, ne
+        ldp     x12, x13, [x14, #16]
+        csel    x2, x2, x12, ne
+        csel    x3, x3, x13, ne
+        ldp     x12, x13, [x14, #32]
+        csel    x4, x4, x12, ne
+        csel    x5, x5, x13, ne
+        ldp     x12, x13, [x14, #48]
+        csel    x6, x6, x12, ne
+        csel    x7, x7, x13, ne
+        ldp     x12, x13, [x14, #64]
+        csel    x8, x8, x12, ne
+        csel    x9, x9, x13, ne
+        ldp     x12, x13, [x14, #80]
+        csel    x10, x10, x12, ne
+        csel    x11, x11, x13, ne
+        add     x14, x14, #96
+
+        cmp     bf, #6
+        ldp     x12, x13, [x14]
+        csel    x0, x0, x12, ne
+        csel    x1, x1, x13, ne
+        ldp     x12, x13, [x14, #16]
+        csel    x2, x2, x12, ne
+        csel    x3, x3, x13, ne
+        ldp     x12, x13, [x14, #32]
+        csel    x4, x4, x12, ne
+        csel    x5, x5, x13, ne
+        ldp     x12, x13, [x14, #48]
+        csel    x6, x6, x12, ne
+        csel    x7, x7, x13, ne
+        ldp     x12, x13, [x14, #64]
+        csel    x8, x8, x12, ne
+        csel    x9, x9, x13, ne
+        ldp     x12, x13, [x14, #80]
+        csel    x10, x10, x12, ne
+        csel    x11, x11, x13, ne
+        add     x14, x14, #96
+
+        cmp     bf, #7
+        ldp     x12, x13, [x14]
+        csel    x0, x0, x12, ne
+        csel    x1, x1, x13, ne
+        ldp     x12, x13, [x14, #16]
+        csel    x2, x2, x12, ne
+        csel    x3, x3, x13, ne
+        ldp     x12, x13, [x14, #32]
+        csel    x4, x4, x12, ne
+        csel    x5, x5, x13, ne
+        ldp     x12, x13, [x14, #48]
+        csel    x6, x6, x12, ne
+        csel    x7, x7, x13, ne
+        ldp     x12, x13, [x14, #64]
+        csel    x8, x8, x12, ne
+        csel    x9, x9, x13, ne
+        ldp     x12, x13, [x14, #80]
+        csel    x10, x10, x12, ne
+        csel    x11, x11, x13, ne
+        add     x14, x14, #96
+
+        cmp     bf, #8
+        ldp     x12, x13, [x14]
+        csel    x0, x0, x12, ne
+        csel    x1, x1, x13, ne
+        ldp     x12, x13, [x14, #16]
+        csel    x2, x2, x12, ne
+        csel    x3, x3, x13, ne
+        ldp     x12, x13, [x14, #32]
+        csel    x4, x4, x12, ne
+        csel    x5, x5, x13, ne
+        ldp     x12, x13, [x14, #48]
+        csel    x6, x6, x12, ne
+        csel    x7, x7, x13, ne
+        ldp     x12, x13, [x14, #64]
+        csel    x8, x8, x12, ne
+        csel    x9, x9, x13, ne
+        ldp     x12, x13, [x14, #80]
+        csel    x10, x10, x12, ne
+        csel    x11, x11, x13, ne
+
+// ... then optionally negating before storing. The table entry
+// is in precomputed form and we currently have
+//
+//      [x3;x2;x1;x0] = y - x
+//      [x7;x6;x5;x4] = x + y
+//      [x11;x10;x9;x8] = 2 * d * x * y
+//
+// Negation for Edwards curves is -(x,y) = (-x,y), which in this modified
+// form amounts to swapping the first two fields and negating the third.
+// The negation does not always fully reduce even mod 2^256-38 in the zero
+// case, instead giving -0 = 2^256-38. But that is fine since the result is
+// always fed to a multiplication inside the "pepadd" function below that
+// handles any 256-bit input.
+
+        cmp     cf, xzr
+
+        csel    x12, x0, x4, eq
+        csel    x4, x0, x4, ne
+        csel    x13, x1, x5, eq
+        csel    x5, x1, x5, ne
+        csel    x14, x2, x6, eq
+        csel    x6, x2, x6, ne
+        csel    x15, x3, x7, eq
+        csel    x7, x3, x7, ne
+
+        eor     x8, x8, cf
+        eor     x9, x9, cf
+        eor     x10, x10, cf
+        eor     x11, x11, cf
+        mov     x0, #37
+        and     x0, x0, cf
+        subs    x8, x8, x0
+        sbcs    x9, x9, xzr
+        sbcs    x10, x10, xzr
+        sbc     x11, x11, xzr
+
+        stp     x12, x13, [btabent]
+        stp     x14, x15, [btabent+16]
+        stp     x4, x5, [btabent+32]
+        stp     x6, x7, [btabent+48]
+        stp     x8, x9, [btabent+64]
+        stp     x10, x11, [btabent+80]
+
+// Get table entry, first getting the adjusted bitfield...
+
+        lsr     x0, i, #6
+        ldr     x1, [sp, x0, lsl #3]
+        lsr     x2, x1, i
+        and     x0, x2, #15
+        subs    bf, x0, #8
+        cneg    bf, bf, cc
+        csetm   cf, cc
+
+// ... then getting the unadjusted table entry
+
+        add     p0, tab
+
+        mov     x0, xzr
+        mov     x1, xzr
+        mov     x2, xzr
+        mov     x3, xzr
+        mov     x4, #1
+        mov     x5, xzr
+        mov     x6, xzr
+        mov     x7, xzr
+        mov     x8, #1
+        mov     x9, xzr
+        mov     x10, xzr
+        mov     x11, xzr
+        mov     x12, xzr
+        mov     x13, xzr
+        mov     x14, xzr
+        mov     x15, xzr
+
+        cmp     bf, #1
+        ldp     x16, x17, [p0]
+        csel    x0, x0, x16, ne
+        csel    x1, x1, x17, ne
+        ldp     x16, x17, [p0, #16]
+        csel    x2, x2, x16, ne
+        csel    x3, x3, x17, ne
+        ldp     x16, x17, [p0, #32]
+        csel    x4, x4, x16, ne
+        csel    x5, x5, x17, ne
+        ldp     x16, x17, [p0, #48]
+        csel    x6, x6, x16, ne
+        csel    x7, x7, x17, ne
+        ldp     x16, x17, [p0, #64]
+        csel    x8, x8, x16, ne
+        csel    x9, x9, x17, ne
+        ldp     x16, x17, [p0, #80]
+        csel    x10, x10, x16, ne
+        csel    x11, x11, x17, ne
+        ldp     x16, x17, [p0, #96]
+        csel    x12, x12, x16, ne
+        csel    x13, x13, x17, ne
+        ldp     x16, x17, [p0, #112]
+        csel    x14, x14, x16, ne
+        csel    x15, x15, x17, ne
+        add     p0, p0, #128
+
+        cmp     bf, #2
+        ldp     x16, x17, [p0]
+        csel    x0, x0, x16, ne
+        csel    x1, x1, x17, ne
+        ldp     x16, x17, [p0, #16]
+        csel    x2, x2, x16, ne
+        csel    x3, x3, x17, ne
+        ldp     x16, x17, [p0, #32]
+        csel    x4, x4, x16, ne
+        csel    x5, x5, x17, ne
+        ldp     x16, x17, [p0, #48]
+        csel    x6, x6, x16, ne
+        csel    x7, x7, x17, ne
+        ldp     x16, x17, [p0, #64]
+        csel    x8, x8, x16, ne
+        csel    x9, x9, x17, ne
+        ldp     x16, x17, [p0, #80]
+        csel    x10, x10, x16, ne
+        csel    x11, x11, x17, ne
+        ldp     x16, x17, [p0, #96]
+        csel    x12, x12, x16, ne
+        csel    x13, x13, x17, ne
+        ldp     x16, x17, [p0, #112]
+        csel    x14, x14, x16, ne
+        csel    x15, x15, x17, ne
+        add     p0, p0, #128
+
+        cmp     bf, #3
+        ldp     x16, x17, [p0]
+        csel    x0, x0, x16, ne
+        csel    x1, x1, x17, ne
+        ldp     x16, x17, [p0, #16]
+        csel    x2, x2, x16, ne
+        csel    x3, x3, x17, ne
+        ldp     x16, x17, [p0, #32]
+        csel    x4, x4, x16, ne
+        csel    x5, x5, x17, ne
+        ldp     x16, x17, [p0, #48]
+        csel    x6, x6, x16, ne
+        csel    x7, x7, x17, ne
+        ldp     x16, x17, [p0, #64]
+        csel    x8, x8, x16, ne
+        csel    x9, x9, x17, ne
+        ldp     x16, x17, [p0, #80]
+        csel    x10, x10, x16, ne
+        csel    x11, x11, x17, ne
+        ldp     x16, x17, [p0, #96]
+        csel    x12, x12, x16, ne
+        csel    x13, x13, x17, ne
+        ldp     x16, x17, [p0, #112]
+        csel    x14, x14, x16, ne
+        csel    x15, x15, x17, ne
+        add     p0, p0, #128
+
+        cmp     bf, #4
+        ldp     x16, x17, [p0]
+        csel    x0, x0, x16, ne
+        csel    x1, x1, x17, ne
+        ldp     x16, x17, [p0, #16]
+        csel    x2, x2, x16, ne
+        csel    x3, x3, x17, ne
+        ldp     x16, x17, [p0, #32]
+        csel    x4, x4, x16, ne
+        csel    x5, x5, x17, ne
+        ldp     x16, x17, [p0, #48]
+        csel    x6, x6, x16, ne
+        csel    x7, x7, x17, ne
+        ldp     x16, x17, [p0, #64]
+        csel    x8, x8, x16, ne
+        csel    x9, x9, x17, ne
+        ldp     x16, x17, [p0, #80]
+        csel    x10, x10, x16, ne
+        csel    x11, x11, x17, ne
+        ldp     x16, x17, [p0, #96]
+        csel    x12, x12, x16, ne
+        csel    x13, x13, x17, ne
+        ldp     x16, x17, [p0, #112]
+        csel    x14, x14, x16, ne
+        csel    x15, x15, x17, ne
+        add     p0, p0, #128
+
+        cmp     bf, #5
+        ldp     x16, x17, [p0]
+        csel    x0, x0, x16, ne
+        csel    x1, x1, x17, ne
+        ldp     x16, x17, [p0, #16]
+        csel    x2, x2, x16, ne
+        csel    x3, x3, x17, ne
+        ldp     x16, x17, [p0, #32]
+        csel    x4, x4, x16, ne
+        csel    x5, x5, x17, ne
+        ldp     x16, x17, [p0, #48]
+        csel    x6, x6, x16, ne
+        csel    x7, x7, x17, ne
+        ldp     x16, x17, [p0, #64]
+        csel    x8, x8, x16, ne
+        csel    x9, x9, x17, ne
+        ldp     x16, x17, [p0, #80]
+        csel    x10, x10, x16, ne
+        csel    x11, x11, x17, ne
+        ldp     x16, x17, [p0, #96]
+        csel    x12, x12, x16, ne
+        csel    x13, x13, x17, ne
+        ldp     x16, x17, [p0, #112]
+        csel    x14, x14, x16, ne
+        csel    x15, x15, x17, ne
+        add     p0, p0, #128
+
+        cmp     bf, #6
+        ldp     x16, x17, [p0]
+        csel    x0, x0, x16, ne
+        csel    x1, x1, x17, ne
+        ldp     x16, x17, [p0, #16]
+        csel    x2, x2, x16, ne
+        csel    x3, x3, x17, ne
+        ldp     x16, x17, [p0, #32]
+        csel    x4, x4, x16, ne
+        csel    x5, x5, x17, ne
+        ldp     x16, x17, [p0, #48]
+        csel    x6, x6, x16, ne
+        csel    x7, x7, x17, ne
+        ldp     x16, x17, [p0, #64]
+        csel    x8, x8, x16, ne
+        csel    x9, x9, x17, ne
+        ldp     x16, x17, [p0, #80]
+        csel    x10, x10, x16, ne
+        csel    x11, x11, x17, ne
+        ldp     x16, x17, [p0, #96]
+        csel    x12, x12, x16, ne
+        csel    x13, x13, x17, ne
+        ldp     x16, x17, [p0, #112]
+        csel    x14, x14, x16, ne
+        csel    x15, x15, x17, ne
+        add     p0, p0, #128
+
+        cmp     bf, #7
+        ldp     x16, x17, [p0]
+        csel    x0, x0, x16, ne
+        csel    x1, x1, x17, ne
+        ldp     x16, x17, [p0, #16]
+        csel    x2, x2, x16, ne
+        csel    x3, x3, x17, ne
+        ldp     x16, x17, [p0, #32]
+        csel    x4, x4, x16, ne
+        csel    x5, x5, x17, ne
+        ldp     x16, x17, [p0, #48]
+        csel    x6, x6, x16, ne
+        csel    x7, x7, x17, ne
+        ldp     x16, x17, [p0, #64]
+        csel    x8, x8, x16, ne
+        csel    x9, x9, x17, ne
+        ldp     x16, x17, [p0, #80]
+        csel    x10, x10, x16, ne
+        csel    x11, x11, x17, ne
+        ldp     x16, x17, [p0, #96]
+        csel    x12, x12, x16, ne
+        csel    x13, x13, x17, ne
+        ldp     x16, x17, [p0, #112]
+        csel    x14, x14, x16, ne
+        csel    x15, x15, x17, ne
+        add     p0, p0, #128
+
+        cmp     bf, #8
+        ldp     x16, x17, [p0]
+        csel    x0, x0, x16, ne
+        csel    x1, x1, x17, ne
+        ldp     x16, x17, [p0, #16]
+        csel    x2, x2, x16, ne
+        csel    x3, x3, x17, ne
+        ldp     x16, x17, [p0, #32]
+        csel    x4, x4, x16, ne
+        csel    x5, x5, x17, ne
+        ldp     x16, x17, [p0, #48]
+        csel    x6, x6, x16, ne
+        csel    x7, x7, x17, ne
+        ldp     x16, x17, [p0, #64]
+        csel    x8, x8, x16, ne
+        csel    x9, x9, x17, ne
+        ldp     x16, x17, [p0, #80]
+        csel    x10, x10, x16, ne
+        csel    x11, x11, x17, ne
+        ldp     x16, x17, [p0, #96]
+        csel    x12, x12, x16, ne
+        csel    x13, x13, x17, ne
+        ldp     x16, x17, [p0, #112]
+        csel    x14, x14, x16, ne
+        csel    x15, x15, x17, ne
+
+// ... then optionally negating before storing. This time the table
+// entry is extended-projective, and is in registers thus:
+//
+//      [x3;x2;x1;x0] = X
+//      [x7;x6;x5;x4] = Y
+//      [x11;x10;x9;x8] = Z
+//      [x15;x14;x13;x12] = W
+//
+// This time we just need to negate the X and the W fields.
+// The crude way negation is done can result in values of X or W
+// (when initially zero before negation) being exactly equal to
+// 2^256-38, but the "pepadd" function handles that correctly.
+
+        eor     x0, x0, cf
+        eor     x1, x1, cf
+        eor     x2, x2, cf
+        eor     x3, x3, cf
+        mov     x16, #37
+        and     x16, x16, cf
+        subs    x0, x0, x16
+        sbcs    x1, x1, xzr
+        sbcs    x2, x2, xzr
+        sbc     x3, x3, xzr
+
+        eor     x12, x12, cf
+        eor     x13, x13, cf
+        eor     x14, x14, cf
+        eor     x15, x15, cf
+        subs    x12, x12, x16
+        sbcs    x13, x13, xzr
+        sbcs    x14, x14, xzr
+        sbc     x15, x15, xzr
+
+        stp     x0, x1, [tabent]
+        stp     x2, x3, [tabent+16]
+        stp     x4, x5, [tabent+32]
+        stp     x6, x7, [tabent+48]
+        stp     x8, x9, [tabent+64]
+        stp     x10, x11, [tabent+80]
+        stp     x12, x13, [tabent+96]
+        stp     x14, x15, [tabent+112]
+
+// Double to acc' = 4 * acc
+
+        add     p0, acc
+        add     p1, acc
+        bl      edwards25519_scalarmuldouble_alt_pdouble
+
+// Add tabent := tabent + btabent
+
+        add     p0, tabent
+        add     p1, tabent
+        add     p2, btabent
+        bl      edwards25519_scalarmuldouble_alt_pepadd
+
+// Double to acc' = 8 * acc
+
+        add     p0, acc
+        add     p1, acc
+        bl      edwards25519_scalarmuldouble_alt_pdouble
+
+// Double to acc' = 16 * acc
+
+        add     p0, acc
+        add     p1, acc
+        bl      edwards25519_scalarmuldouble_alt_epdouble
+
+// Add table entry, acc := acc + tabent
+
+        add     p0, acc
+        add     p1, acc
+        add     p2, tabent
+        bl      edwards25519_scalarmuldouble_alt_epadd
+
+// Loop down
+
+        cbnz    i, edwards25519_scalarmuldouble_alt_loop
+
+// Modular inverse setup
+
+        add     x0, tabent
+        add     x1, acc+64
+
+// Inline copy of bignum_inv_p25519, identical except for stripping out
+// the prologue and epilogue saving and restoring registers and making
+// and reclaiming room on the stack. For more details and explanations see
+// "arm/curve25519/bignum_inv_p25519.S". Note that the stack it uses for
+// its own temporaries is 128 bytes, so it has no effect on variables
+// that are needed in the rest of our computation here: res, acc, tabent.
+
+        mov     x20, x0
+        mov     x10, #0xffffffffffffffed
+        mov     x11, #0xffffffffffffffff
+        stp     x10, x11, [sp]
+        mov     x12, #0x7fffffffffffffff
+        stp     x11, x12, [sp, #16]
+        ldp     x2, x3, [x1]
+        ldp     x4, x5, [x1, #16]
+        mov     x7, #0x13
+        lsr     x6, x5, #63
+        madd    x6, x7, x6, x7
+        adds    x2, x2, x6
+        adcs    x3, x3, xzr
+        adcs    x4, x4, xzr
+        orr     x5, x5, #0x8000000000000000
+        adcs    x5, x5, xzr
+        csel    x6, x7, xzr, cc
+        subs    x2, x2, x6
+        sbcs    x3, x3, xzr
+        sbcs    x4, x4, xzr
+        sbc     x5, x5, xzr
+        and     x5, x5, #0x7fffffffffffffff
+        stp     x2, x3, [sp, #32]
+        stp     x4, x5, [sp, #48]
+        stp     xzr, xzr, [sp, #64]
+        stp     xzr, xzr, [sp, #80]
+        mov     x10, #0x2099
+        movk    x10, #0x7502, lsl #16
+        movk    x10, #0x9e23, lsl #32
+        movk    x10, #0xa0f9, lsl #48
+        mov     x11, #0x2595
+        movk    x11, #0x1d13, lsl #16
+        movk    x11, #0x8f3f, lsl #32
+        movk    x11, #0xa8c6, lsl #48
+        mov     x12, #0x5242
+        movk    x12, #0x5ac, lsl #16
+        movk    x12, #0x8938, lsl #32
+        movk    x12, #0x6c6c, lsl #48
+        mov     x13, #0x615
+        movk    x13, #0x4177, lsl #16
+        movk    x13, #0x8b2, lsl #32
+        movk    x13, #0x2765, lsl #48
+        stp     x10, x11, [sp, #96]
+        stp     x12, x13, [sp, #112]
+        mov     x21, #0xa
+        mov     x22, #0x1
+        b       edwards25519_scalarmuldouble_alt_invmidloop
+edwards25519_scalarmuldouble_alt_invloop:
+        cmp     x10, xzr
+        csetm   x14, mi
+        cneg    x10, x10, mi
+        cmp     x11, xzr
+        csetm   x15, mi
+        cneg    x11, x11, mi
+        cmp     x12, xzr
+        csetm   x16, mi
+        cneg    x12, x12, mi
+        cmp     x13, xzr
+        csetm   x17, mi
+        cneg    x13, x13, mi
+        and     x0, x10, x14
+        and     x1, x11, x15
+        add     x9, x0, x1
+        and     x0, x12, x16
+        and     x1, x13, x17
+        add     x19, x0, x1
+        ldr     x7, [sp]
+        eor     x1, x7, x14
+        mul     x0, x1, x10
+        umulh   x1, x1, x10
+        adds    x4, x9, x0
+        adc     x2, xzr, x1
+        ldr     x8, [sp, #32]
+        eor     x1, x8, x15
+        mul     x0, x1, x11
+        umulh   x1, x1, x11
+        adds    x4, x4, x0
+        adc     x2, x2, x1
+        eor     x1, x7, x16
+        mul     x0, x1, x12
+        umulh   x1, x1, x12
+        adds    x5, x19, x0
+        adc     x3, xzr, x1
+        eor     x1, x8, x17
+        mul     x0, x1, x13
+        umulh   x1, x1, x13
+        adds    x5, x5, x0
+        adc     x3, x3, x1
+        ldr     x7, [sp, #8]
+        eor     x1, x7, x14
+        mul     x0, x1, x10
+        umulh   x1, x1, x10
+        adds    x2, x2, x0
+        adc     x6, xzr, x1
+        ldr     x8, [sp, #40]
+        eor     x1, x8, x15
+        mul     x0, x1, x11
+        umulh   x1, x1, x11
+        adds    x2, x2, x0
+        adc     x6, x6, x1
+        extr    x4, x2, x4, #59
+        str     x4, [sp]
+        eor     x1, x7, x16
+        mul     x0, x1, x12
+        umulh   x1, x1, x12
+        adds    x3, x3, x0
+        adc     x4, xzr, x1
+        eor     x1, x8, x17
+        mul     x0, x1, x13
+        umulh   x1, x1, x13
+        adds    x3, x3, x0
+        adc     x4, x4, x1
+        extr    x5, x3, x5, #59
+        str     x5, [sp, #32]
+        ldr     x7, [sp, #16]
+        eor     x1, x7, x14
+        mul     x0, x1, x10
+        umulh   x1, x1, x10
+        adds    x6, x6, x0
+        adc     x5, xzr, x1
+        ldr     x8, [sp, #48]
+        eor     x1, x8, x15
+        mul     x0, x1, x11
+        umulh   x1, x1, x11
+        adds    x6, x6, x0
+        adc     x5, x5, x1
+        extr    x2, x6, x2, #59
+        str     x2, [sp, #8]
+        eor     x1, x7, x16
+        mul     x0, x1, x12
+        umulh   x1, x1, x12
+        adds    x4, x4, x0
+        adc     x2, xzr, x1
+        eor     x1, x8, x17
+        mul     x0, x1, x13
+        umulh   x1, x1, x13
+        adds    x4, x4, x0
+        adc     x2, x2, x1
+        extr    x3, x4, x3, #59
+        str     x3, [sp, #40]
+        ldr     x7, [sp, #24]
+        eor     x1, x7, x14
+        asr     x3, x1, #63
+        and     x3, x3, x10
+        neg     x3, x3
+        mul     x0, x1, x10
+        umulh   x1, x1, x10
+        adds    x5, x5, x0
+        adc     x3, x3, x1
+        ldr     x8, [sp, #56]
+        eor     x1, x8, x15
+        asr     x0, x1, #63
+        and     x0, x0, x11
+        sub     x3, x3, x0
+        mul     x0, x1, x11
+        umulh   x1, x1, x11
+        adds    x5, x5, x0
+        adc     x3, x3, x1
+        extr    x6, x5, x6, #59
+        str     x6, [sp, #16]
+        extr    x5, x3, x5, #59
+        str     x5, [sp, #24]
+        eor     x1, x7, x16
+        asr     x5, x1, #63
+        and     x5, x5, x12
+        neg     x5, x5
+        mul     x0, x1, x12
+        umulh   x1, x1, x12
+        adds    x2, x2, x0
+        adc     x5, x5, x1
+        eor     x1, x8, x17
+        asr     x0, x1, #63
+        and     x0, x0, x13
+        sub     x5, x5, x0
+        mul     x0, x1, x13
+        umulh   x1, x1, x13
+        adds    x2, x2, x0
+        adc     x5, x5, x1
+        extr    x4, x2, x4, #59
+        str     x4, [sp, #48]
+        extr    x2, x5, x2, #59
+        str     x2, [sp, #56]
+        ldr     x7, [sp, #64]
+        eor     x1, x7, x14
+        mul     x0, x1, x10
+        umulh   x1, x1, x10
+        adds    x4, x9, x0
+        adc     x2, xzr, x1
+        ldr     x8, [sp, #96]
+        eor     x1, x8, x15
+        mul     x0, x1, x11
+        umulh   x1, x1, x11
+        adds    x4, x4, x0
+        str     x4, [sp, #64]
+        adc     x2, x2, x1
+        eor     x1, x7, x16
+        mul     x0, x1, x12
+        umulh   x1, x1, x12
+        adds    x5, x19, x0
+        adc     x3, xzr, x1
+        eor     x1, x8, x17
+        mul     x0, x1, x13
+        umulh   x1, x1, x13
+        adds    x5, x5, x0
+        str     x5, [sp, #96]
+        adc     x3, x3, x1
+        ldr     x7, [sp, #72]
+        eor     x1, x7, x14
+        mul     x0, x1, x10
+        umulh   x1, x1, x10
+        adds    x2, x2, x0
+        adc     x6, xzr, x1
+        ldr     x8, [sp, #104]
+        eor     x1, x8, x15
+        mul     x0, x1, x11
+        umulh   x1, x1, x11
+        adds    x2, x2, x0
+        str     x2, [sp, #72]
+        adc     x6, x6, x1
+        eor     x1, x7, x16
+        mul     x0, x1, x12
+        umulh   x1, x1, x12
+        adds    x3, x3, x0
+        adc     x4, xzr, x1
+        eor     x1, x8, x17
+        mul     x0, x1, x13
+        umulh   x1, x1, x13
+        adds    x3, x3, x0
+        str     x3, [sp, #104]
+        adc     x4, x4, x1
+        ldr     x7, [sp, #80]
+        eor     x1, x7, x14
+        mul     x0, x1, x10
+        umulh   x1, x1, x10
+        adds    x6, x6, x0
+        adc     x5, xzr, x1
+        ldr     x8, [sp, #112]
+        eor     x1, x8, x15
+        mul     x0, x1, x11
+        umulh   x1, x1, x11
+        adds    x6, x6, x0
+        str     x6, [sp, #80]
+        adc     x5, x5, x1
+        eor     x1, x7, x16
+        mul     x0, x1, x12
+        umulh   x1, x1, x12
+        adds    x4, x4, x0
+        adc     x2, xzr, x1
+        eor     x1, x8, x17
+        mul     x0, x1, x13
+        umulh   x1, x1, x13
+        adds    x4, x4, x0
+        str     x4, [sp, #112]
+        adc     x2, x2, x1
+        ldr     x7, [sp, #88]
+        eor     x1, x7, x14
+        and     x3, x14, x10
+        neg     x3, x3
+        mul     x0, x1, x10
+        umulh   x1, x1, x10
+        adds    x5, x5, x0
+        adc     x3, x3, x1
+        ldr     x8, [sp, #120]
+        eor     x1, x8, x15
+        and     x0, x15, x11
+        sub     x3, x3, x0
+        mul     x0, x1, x11
+        umulh   x1, x1, x11
+        adds    x5, x5, x0
+        adc     x3, x3, x1
+        extr    x6, x3, x5, #63
+        ldp     x0, x1, [sp, #64]
+        add     x6, x6, x3, asr #63
+        mov     x3, #0x13
+        mul     x4, x6, x3
+        add     x5, x5, x6, lsl #63
+        smulh   x3, x6, x3
+        ldr     x6, [sp, #80]
+        adds    x0, x0, x4
+        adcs    x1, x1, x3
+        asr     x3, x3, #63
+        adcs    x6, x6, x3
+        adc     x5, x5, x3
+        stp     x0, x1, [sp, #64]
+        stp     x6, x5, [sp, #80]
+        eor     x1, x7, x16
+        and     x5, x16, x12
+        neg     x5, x5
+        mul     x0, x1, x12
+        umulh   x1, x1, x12
+        adds    x2, x2, x0
+        adc     x5, x5, x1
+        eor     x1, x8, x17
+        and     x0, x17, x13
+        sub     x5, x5, x0
+        mul     x0, x1, x13
+        umulh   x1, x1, x13
+        adds    x2, x2, x0
+        adc     x5, x5, x1
+        extr    x6, x5, x2, #63
+        ldp     x0, x1, [sp, #96]
+        add     x6, x6, x5, asr #63
+        mov     x5, #0x13
+        mul     x4, x6, x5
+        add     x2, x2, x6, lsl #63
+        smulh   x5, x6, x5
+        ldr     x3, [sp, #112]
+        adds    x0, x0, x4
+        adcs    x1, x1, x5
+        asr     x5, x5, #63
+        adcs    x3, x3, x5
+        adc     x2, x2, x5
+        stp     x0, x1, [sp, #96]
+        stp     x3, x2, [sp, #112]
+edwards25519_scalarmuldouble_alt_invmidloop:
+        mov     x1, x22
+        ldr     x2, [sp]
+        ldr     x3, [sp, #32]
+        and     x4, x2, #0xfffff
+        orr     x4, x4, #0xfffffe0000000000
+        and     x5, x3, #0xfffff
+        orr     x5, x5, #0xc000000000000000
+        tst     x5, #0x1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        asr     x5, x5, #1
+        add     x8, x4, #0x100, lsl #12
+        sbfx    x8, x8, #21, #21
+        mov     x11, #0x100000
+        add     x11, x11, x11, lsl #21
+        add     x9, x4, x11
+        asr     x9, x9, #42
+        add     x10, x5, #0x100, lsl #12
+        sbfx    x10, x10, #21, #21
+        add     x11, x5, x11
+        asr     x11, x11, #42
+        mul     x6, x8, x2
+        mul     x7, x9, x3
+        mul     x2, x10, x2
+        mul     x3, x11, x3
+        add     x4, x6, x7
+        add     x5, x2, x3
+        asr     x2, x4, #20
+        asr     x3, x5, #20
+        and     x4, x2, #0xfffff
+        orr     x4, x4, #0xfffffe0000000000
+        and     x5, x3, #0xfffff
+        orr     x5, x5, #0xc000000000000000
+        tst     x5, #0x1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        asr     x5, x5, #1
+        add     x12, x4, #0x100, lsl #12
+        sbfx    x12, x12, #21, #21
+        mov     x15, #0x100000
+        add     x15, x15, x15, lsl #21
+        add     x13, x4, x15
+        asr     x13, x13, #42
+        add     x14, x5, #0x100, lsl #12
+        sbfx    x14, x14, #21, #21
+        add     x15, x5, x15
+        asr     x15, x15, #42
+        mul     x6, x12, x2
+        mul     x7, x13, x3
+        mul     x2, x14, x2
+        mul     x3, x15, x3
+        add     x4, x6, x7
+        add     x5, x2, x3
+        asr     x2, x4, #20
+        asr     x3, x5, #20
+        and     x4, x2, #0xfffff
+        orr     x4, x4, #0xfffffe0000000000
+        and     x5, x3, #0xfffff
+        orr     x5, x5, #0xc000000000000000
+        tst     x5, #0x1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        mul     x2, x12, x8
+        mul     x3, x12, x9
+        mul     x6, x14, x8
+        mul     x7, x14, x9
+        madd    x8, x13, x10, x2
+        madd    x9, x13, x11, x3
+        madd    x16, x15, x10, x6
+        madd    x17, x15, x11, x7
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        tst     x5, #0x2
+        asr     x5, x5, #1
+        csel    x6, x4, xzr, ne
+        ccmp    x1, xzr, #0x8, ne
+        cneg    x1, x1, ge
+        cneg    x6, x6, ge
+        csel    x4, x5, x4, ge
+        add     x5, x5, x6
+        add     x1, x1, #0x2
+        asr     x5, x5, #1
+        add     x12, x4, #0x100, lsl #12
+        sbfx    x12, x12, #22, #21
+        mov     x15, #0x100000
+        add     x15, x15, x15, lsl #21
+        add     x13, x4, x15
+        asr     x13, x13, #43
+        add     x14, x5, #0x100, lsl #12
+        sbfx    x14, x14, #22, #21
+        add     x15, x5, x15
+        asr     x15, x15, #43
+        mneg    x2, x12, x8
+        mneg    x3, x12, x9
+        mneg    x4, x14, x8
+        mneg    x5, x14, x9
+        msub    x10, x13, x16, x2
+        msub    x11, x13, x17, x3
+        msub    x12, x15, x16, x4
+        msub    x13, x15, x17, x5
+        mov     x22, x1
+        subs    x21, x21, #0x1
+        b.ne    edwards25519_scalarmuldouble_alt_invloop
+        ldr     x0, [sp]
+        ldr     x1, [sp, #32]
+        mul     x0, x0, x10
+        madd    x1, x1, x11, x0
+        asr     x0, x1, #63
+        cmp     x10, xzr
+        csetm   x14, mi
+        cneg    x10, x10, mi
+        eor     x14, x14, x0
+        cmp     x11, xzr
+        csetm   x15, mi
+        cneg    x11, x11, mi
+        eor     x15, x15, x0
+        cmp     x12, xzr
+        csetm   x16, mi
+        cneg    x12, x12, mi
+        eor     x16, x16, x0
+        cmp     x13, xzr
+        csetm   x17, mi
+        cneg    x13, x13, mi
+        eor     x17, x17, x0
+        and     x0, x10, x14
+        and     x1, x11, x15
+        add     x9, x0, x1
+        ldr     x7, [sp, #64]
+        eor     x1, x7, x14
+        mul     x0, x1, x10
+        umulh   x1, x1, x10
+        adds    x4, x9, x0
+        adc     x2, xzr, x1
+        ldr     x8, [sp, #96]
+        eor     x1, x8, x15
+        mul     x0, x1, x11
+        umulh   x1, x1, x11
+        adds    x4, x4, x0
+        str     x4, [sp, #64]
+        adc     x2, x2, x1
+        ldr     x7, [sp, #72]
+        eor     x1, x7, x14
+        mul     x0, x1, x10
+        umulh   x1, x1, x10
+        adds    x2, x2, x0
+        adc     x6, xzr, x1
+        ldr     x8, [sp, #104]
+        eor     x1, x8, x15
+        mul     x0, x1, x11
+        umulh   x1, x1, x11
+        adds    x2, x2, x0
+        str     x2, [sp, #72]
+        adc     x6, x6, x1
+        ldr     x7, [sp, #80]
+        eor     x1, x7, x14
+        mul     x0, x1, x10
+        umulh   x1, x1, x10
+        adds    x6, x6, x0
+        adc     x5, xzr, x1
+        ldr     x8, [sp, #112]
+        eor     x1, x8, x15
+        mul     x0, x1, x11
+        umulh   x1, x1, x11
+        adds    x6, x6, x0
+        str     x6, [sp, #80]
+        adc     x5, x5, x1
+        ldr     x7, [sp, #88]
+        eor     x1, x7, x14
+        and     x3, x14, x10
+        neg     x3, x3
+        mul     x0, x1, x10
+        umulh   x1, x1, x10
+        adds    x5, x5, x0
+        adc     x3, x3, x1
+        ldr     x8, [sp, #120]
+        eor     x1, x8, x15
+        and     x0, x15, x11
+        sub     x3, x3, x0
+        mul     x0, x1, x11
+        umulh   x1, x1, x11
+        adds    x5, x5, x0
+        adc     x3, x3, x1
+        extr    x6, x3, x5, #63
+        ldp     x0, x1, [sp, #64]
+        tst     x3, x3
+        cinc    x6, x6, pl
+        mov     x3, #0x13
+        mul     x4, x6, x3
+        add     x5, x5, x6, lsl #63
+        smulh   x6, x6, x3
+        ldr     x2, [sp, #80]
+        adds    x0, x0, x4
+        adcs    x1, x1, x6
+        asr     x6, x6, #63
+        adcs    x2, x2, x6
+        adcs    x5, x5, x6
+        csel    x3, x3, xzr, mi
+        subs    x0, x0, x3
+        sbcs    x1, x1, xzr
+        sbcs    x2, x2, xzr
+        sbc     x5, x5, xzr
+        and     x5, x5, #0x7fffffffffffffff
+        mov     x4, x20
+        stp     x0, x1, [x4]
+        stp     x2, x5, [x4, #16]
+
+// Store result. Note that these are the only reductions mod 2^255-19
+
+        mov     p0, res
+        add     p1, acc
+        add     p2, tabent
+        mul_p25519(x_0,x_1,x_2)
+
+        add     p0, res, #32
+        add     p1, acc+32
+        add     p2, tabent
+        mul_p25519(x_0,x_1,x_2)
+
+// Restore stack and registers
+
+        add     sp, sp, #NSPACE
+        ldp     x25, x30, [sp], 16
+        ldp     x23, x24, [sp], 16
+        ldp     x21, x22, [sp], 16
+        ldp     x19, x20, [sp], 16
+
+        ret
+
 // ****************************************************************************
+// Localized versions of subroutines.
+// These are close to the standalone functions "edwards25519_epdouble" etc.,
+// but are only maintaining reduction modulo 2^256 - 38, not 2^255 - 19.
+// ****************************************************************************
+
+edwards25519_scalarmuldouble_alt_epdouble:
+        sub sp, sp, #(5*NUMSIZE)
+        add_twice4(t0,x_1,y_1)
+        sqr_4(t1,z_1)
+        sqr_4(t2,x_1)
+        sqr_4(t3,y_1)
+        double_twice4(t1,t1)
+        sqr_4(t0,t0)
+        add_twice4(t4,t2,t3)
+        sub_twice4(t2,t2,t3)
+        add_twice4(t3,t1,t2)
+        sub_twice4(t1,t4,t0)
+        mul_4(y_0,t2,t4)
+        mul_4(z_0,t3,t2)
+        mul_4(w_0,t1,t4)
+        mul_4(x_0,t1,t3)
+        add sp, sp, #(5*NUMSIZE)
+        ret
+
+edwards25519_scalarmuldouble_alt_pdouble:
+        sub sp, sp, #(5*NUMSIZE)
+        add_twice4(t0,x_1,y_1)
+        sqr_4(t1,z_1)
+        sqr_4(t2,x_1)
+        sqr_4(t3,y_1)
+        double_twice4(t1,t1)
+        sqr_4(t0,t0)
+        add_twice4(t4,t2,t3)
+        sub_twice4(t2,t2,t3)
+        add_twice4(t3,t1,t2)
+        sub_twice4(t1,t4,t0)
+        mul_4(y_0,t2,t4)
+        mul_4(z_0,t3,t2)
+        mul_4(x_0,t1,t3)
+        add sp, sp, #(5*NUMSIZE)
+        ret
+
+edwards25519_scalarmuldouble_alt_epadd:
+        sub sp, sp, #(6*NUMSIZE)
+        mul_4(t0,w_1,w_2)
+        sub_twice4(t1,y_1,x_1)
+        sub_twice4(t2,y_2,x_2)
+        add_twice4(t3,y_1,x_1)
+        add_twice4(t4,y_2,x_2)
+        double_twice4(t5,z_2)
+        mul_4(t1,t1,t2)
+        mul_4(t3,t3,t4)
+        load_k25519(t2)
+        mul_4(t2,t2,t0)
+        mul_4(t4,z_1,t5)
+        sub_twice4(t0,t3,t1)
+        add_twice4(t5,t3,t1)
+        sub_twice4(t1,t4,t2)
+        add_twice4(t3,t4,t2)
+        mul_4(w_0,t0,t5)
+        mul_4(x_0,t0,t1)
+        mul_4(y_0,t3,t5)
+        mul_4(z_0,t1,t3)
+        add sp, sp, #(6*NUMSIZE)
+        ret
+
+edwards25519_scalarmuldouble_alt_pepadd:
+        sub sp, sp, #(6*NUMSIZE)
+        double_twice4(t0,z_1);
+        sub_twice4(t1,y_1,x_1);
+        add_twice4(t2,y_1,x_1);
+        mul_4(t3,w_1,z_2);
+        mul_4(t1,t1,x_2);
+        mul_4(t2,t2,y_2);
+        sub_twice4(t4,t0,t3);
+        add_twice4(t0,t0,t3);
+        sub_twice4(t5,t2,t1);
+        add_twice4(t1,t2,t1);
+        mul_4(z_0,t4,t0);
+        mul_4(x_0,t5,t4);
+        mul_4(y_0,t0,t1);
+        mul_4(w_0,t5,t1);
+        add sp, sp, #(6*NUMSIZE)
+        ret
+
+#if defined(__linux__) && defined(__ELF__)
+.section .note.GNU-stack, "", %progbits
+#endif
+
+
+
+
+
+// ----------------------------------------------------------------------------
+// Subroutines for computing the SHA-512 digest of an input message
+// potentially received in multiple chunks
+//
+// Intermediate SHA-512 context
+//    typedef struct {
+//      uint64_t h[8]; // hash buffer that corresponds to currently hashed message blocks
+//      uint64_t msg_len_lo, msg_len_hi; // length of received message in bits
+//      uint8_t cur_block [128]; // buffer for the remainder of the received message not yet hashed
+//      uint8_t cur_pos; // index of the next empty position in cur_block
+//    } sha512_ctx;
+//
+// Context initialization
+//    void sha512_init(sha512_ctx *sha)
+//
+// Update the context with in_len bytes of newly received message at in_data
+//    void sha512_update(sha512_ctx *sha, const void *in_data, size_t in_len)
+//
+// Declare the end of the message, perform padding and write the resulting digest to out
+//    void sha512_final(uint8_t out[SHA512_DIGEST_LENGTH], sha512_ctx *sha)
+// ----------------------------------------------------------------------------
+	.text
+	.balign 4
+	.type	msg_schedule, %function
+msg_schedule:
+.LFB12:
+	.cfi_startproc
+	mov	x3, 0
+.L2:
+	ldrb	w5, [x1]
+	mov	x2, 0
+	add	x1, x1, 8
+	ldrb	w4, [x1, -7]
+	ldrb	w6, [x1, -6]
+	bfi	x2, x5, 0, 8
+	ldrb	w5, [x1, -5]
+	bfi	x2, x4, 8, 8
+	ldrb	w4, [x1, -4]
+	bfi	x2, x6, 16, 8
+	ldrb	w6, [x1, -3]
+	bfi	x2, x5, 24, 8
+	ldrb	w5, [x1, -2]
+	bfi	x2, x4, 32, 8
+	ldrb	w4, [x1, -1]
+	bfi	x2, x6, 40, 8
+	bfi	x2, x5, 48, 8
+	bfi	x2, x4, 56, 8
+	rev	x2, x2
+	str	x2, [x0, x3, lsl 3]
+	add	x3, x3, 1
+	cmp	x3, 16
+	bne	.L2
+	mov	x2, x0
+	add	x11, x0, 520
+	ldp	x9, x8, [x0, 80]
+	ldp	x7, x6, [x0, 96]
+	ldp	x3, x0, [x0, 112]
+	ldr	x10, [x2, 72]
+	ldr	x4, [x2], 8
+.L3:
+	add	x5, x4, x10
+	ror	x1, x3, 61
+	ldr	x4, [x2]
+	eor	x1, x1, x3, ror 19
+	mov	x10, x9
+	mov	x9, x8
+	mov	x8, x7
+	eor	x1, x1, x3, lsr 6
+	mov	x7, x6
+	mov	x6, x3
+	mov	x3, x0
+	add	x2, x2, 8
+	ror	x0, x4, 8
+	eor	x0, x0, x4, ror 1
+	eor	x0, x0, x4, lsr 7
+	add	x0, x0, x1
+	add	x0, x0, x5
+	str	x0, [x2, 112]
+	cmp	x11, x2
+	bne	.L3
+	ret
+	.cfi_endproc
+.LFE12:
+	.size	msg_schedule, .-msg_schedule
+	.type	sha512_process_block, %function
+sha512_process_block:
+.LFB13:
+	.cfi_startproc
+	sub	sp, sp, #720
+	.cfi_def_cfa_offset 720
+	mov	x12, x0
+	add	x0, sp, 80
+	stp	x29, x30, [sp]
+	.cfi_offset 29, -720
+	.cfi_offset 30, -712
+	mov	x29, sp
+	bl	msg_schedule
+	tst	x12, 15
+	bne	.L8
+	ldp	x6, x7, [x12]
+	ldp	x4, x5, [x12, 16]
+	ldp	x2, x3, [x12, 32]
+	ldp	x0, x1, [x12, 48]
+	stp	x6, x7, [sp, 16]
+	stp	x4, x5, [sp, 32]
+	stp	x2, x3, [sp, 48]
+	stp	x0, x1, [sp, 64]
+.L9:
+	adrp	x14, K
+	mov	x6, 1
+	add	x14, x14, :lo12:K
+	ldp	x5, x8, [sp, 16]
+	ldp	x7, x13, [sp, 32]
+	ldp	x3, x10, [sp, 48]
+	ldp	x9, x11, [sp, 64]
+	b	.L10
+.L11:
+	mov	x7, x8
+	mov	x9, x10
+	mov	x8, x5
+	mov	x10, x3
+	mov	x5, x0
+	mov	x3, x2
+.L10:
+	lsl	x1, x6, 3
+	add	x4, sp, 80
+	ror	x0, x3, 18
+	add	x2, x14, x1
+	add	x15, x4, x1
+	eor	x0, x0, x3, ror 14
+	ror	x1, x5, 34
+	ldr	x16, [x2, -8]
+	eor	x1, x1, x5, ror 28
+	bic	x4, x9, x3
+	eor	x0, x0, x3, ror #(64 - 23)
+	and	x18, x3, x10
+	eor	x2, x7, x8
+	ldr	x17, [x15, -8]
+	eor	x4, x4, x18
+	eor	x1, x1, x5, ror #(64 - 25)
+	add	x0, x0, x4
+	and	x2, x2, x5
+	and	x4, x7, x8
+	add	x6, x6, 1
+	eor	x2, x2, x4
+	add	x1, x1, x2
+	add	x2, x16, x17
+	add	x0, x0, x2
+	add	x0, x0, x11
+	mov	x11, x9
+	add	x2, x13, x0
+	add	x0, x0, x1
+	mov	x13, x7
+	cmp	x6, 81
+	bne	.L11
+	ldp	x6, x4, [x12]
+	ldp	x29, x30, [sp]
+	add	x6, x6, x0
+	add	x4, x4, x5
+	ldp	x0, x5, [x12, 24]
+	stp	x6, x4, [x12]
+	add	x0, x0, x7
+	add	x5, x5, x2
+	ldr	x1, [x12, 16]
+	str	x5, [x12, 32]
+	add	x1, x1, x8
+	stp	x1, x0, [x12, 16]
+	ldp	x4, x1, [x12, 40]
+	ldr	x0, [x12, 56]
+	add	x2, x4, x3
+	add	x1, x1, x10
+	stp	x2, x1, [x12, 40]
+	add	x0, x0, x9
+	str	x0, [x12, 56]
+	add	sp, sp, 720
+	.cfi_remember_state
+	.cfi_restore 29
+	.cfi_restore 30
+	.cfi_def_cfa_offset 0
+	ret
+.L8:
+	.cfi_restore_state
+	ldp	x1, x0, [x12]
+	ldr	x2, [x12, 16]
+	stp	x1, x0, [sp, 16]
+	ldp	x1, x0, [x12, 24]
+	str	x2, [sp, 32]
+	ldr	x2, [x12, 40]
+	stp	x1, x0, [sp, 40]
+	ldp	x1, x0, [x12, 48]
+	str	x2, [sp, 56]
+	stp	x1, x0, [sp, 64]
+	b	.L9
+	.cfi_endproc
+.LFE13:
+	.size	sha512_process_block, .-sha512_process_block
+	.type	sha512_process_blocks, %function
+sha512_process_blocks:
+.LFB14:
+	.cfi_startproc
+	cbz	x2, .L21
+	stp	x29, x30, [sp, -48]!
+	.cfi_def_cfa_offset 48
+	.cfi_offset 29, -48
+	.cfi_offset 30, -40
+	mov	x29, sp
+	stp	x19, x20, [sp, 16]
+	.cfi_offset 19, -32
+	.cfi_offset 20, -24
+	mov	x19, x1
+	sub	x20, x2, #1
+	str	x21, [sp, 32]
+	.cfi_offset 21, -16
+	mov	x21, x0
+.L15:
+	mov	x1, x19
+	mov	x0, x21
+	sub	x20, x20, #1
+	add	x19, x19, 128
+	bl	sha512_process_block
+	cmn	x20, #1
+	bne	.L15
+	ldp	x19, x20, [sp, 16]
+	ldr	x21, [sp, 32]
+	ldp	x29, x30, [sp], 48
+	.cfi_restore 30
+	.cfi_restore 29
+	.cfi_restore 21
+	.cfi_restore 19
+	.cfi_restore 20
+	.cfi_def_cfa_offset 0
+	ret
+.L21:
+	ret
+	.cfi_endproc
+.LFE14:
+	.size	sha512_process_blocks, .-sha512_process_blocks
+	.type	sha512_init, %function
+sha512_init:
+.LFB11:
+	.cfi_startproc
+	mov	x1, 51464
+	mov	x7, 42811
+	stp	xzr, xzr, [x0, 64]
+	movk	x1, 0xf3bc, lsl 16
+	movk	x7, 0x84ca, lsl 16
+	movk	x1, 0xe667, lsl 32
+	movk	x7, 0xae85, lsl 32
+	movk	x1, 0x6a09, lsl 48
+	movk	x7, 0xbb67, lsl 48
+	strb	wzr, [x0, 208]
+	mov	x6, 63531
+	mov	x5, 14065
+	mov	x4, 33489
+	mov	x3, 27679
+	stp	x1, x7, [x0]
+	mov	x2, 48491
+	mov	x1, 8569
+	movk	x6, 0xfe94, lsl 16
+	movk	x5, 0x5f1d, lsl 16
+	movk	x4, 0xade6, lsl 16
+	movk	x3, 0x2b3e, lsl 16
+	movk	x2, 0xfb41, lsl 16
+	movk	x1, 0x137e, lsl 16
+	movk	x6, 0xf372, lsl 32
+	movk	x5, 0xf53a, lsl 32
+	movk	x4, 0x527f, lsl 32
+	movk	x3, 0x688c, lsl 32
+	movk	x2, 0xd9ab, lsl 32
+	movk	x1, 0xcd19, lsl 32
+	movk	x6, 0x3c6e, lsl 48
+	movk	x5, 0xa54f, lsl 48
+	movk	x4, 0x510e, lsl 48
+	movk	x3, 0x9b05, lsl 48
+	movk	x2, 0x1f83, lsl 48
+	movk	x1, 0x5be0, lsl 48
+	stp	x6, x5, [x0, 16]
+	stp	x4, x3, [x0, 32]
+	str	x2, [x0, 48]
+	str	x1, [x0, 56]
+	ret
+	.cfi_endproc
+.LFE11:
+	.size	sha512_init, .-sha512_init
+	.type	sha512_update, %function
+sha512_update:
+.LFB15:
+	stp	x29, x30, [sp, -48]!
+	mov	x29, sp
+	stp	x19, x20, [sp, 16]
+	str	x21, [sp, 32]
+	mov	x21, x0
+	mov	x19, x1
+	mov	x20, x2
+	lsl	x3, x20, 3
+	lsr	x5, x20, 61
+	ldr	x0, [x21, 64]
+	ldr	x2, [x21, 72]
+	adds	x0, x0, x3
+	adc	x2, x2, x5
+    stp	x0, x2, [x21, 64]   // Update message length information
+	ldrb	w4, [x21, 208]  // x4 contains cur_pos
+    cbz	x4, .L29            // Jump if cur_pos == 0
+    mov x0, 128
+    sub x0, x0, x4          // x0 contains the number of vacant bytes in cur_block
+    cmp x0, x20
+    bls .L30                // Jump if in_data can fill up cur_block
+    mov x0, x20             // x0 contains the number of bytes to move to cur_block
+.L30:
+    add x1, x21, 80         // x1 contains cur_block
+    mov x2, xzr             // x2 is the loop counter
+    b .L31                  // Start memcpy loop
+.L32:
+    ldrb w3, [x19, x2]      // While counter < number of bytes to move
+    strb w3, [x1, x4]       //      Move a byte from in_data to cur_block[cur_pos]
+    add x2, x2, 1           //      Increment counter and cur_pos
+    add x4, x4, 1
+.L31:
+    cmp x2, x0
+    bne .L32
+    add x19, x19, x0        // Update in_data and in_len
+    sub x20, x20, x0
+    cmp x4, 128
+    bne .L33                // Jump if cur_pos < 128 (iff in_data could not fill up cur_block)
+    mov x0, x21
+    bl sha512_process_block // Process the filled block
+.L29:
+    cmp x20, 128
+    blo .L34                // Jump if in_len < SHA512_BLOCK_LENGTH
+    mov x0, x21
+    mov x1, x19
+    lsr x2, x20, 7          // Compute the number of blocks to process
+    lsl x3, x2, 7
+    add x19, x19, x3        // x19 points to the data to be copied to cur_block later 
+    and x20, x20, 127       // in_len mod 128
+    bl sha512_process_blocks
+.L34:                       // Move the leftover data to cur_block (x20 < SHA512_BLOCK_LENGTH == 128)
+    mov x4, xzr             // x4 is the loop counter
+    add x1, x21, 80         // x1 contains to cur_block
+    b .L35
+.L36:
+    ldrb w2, [x19, x4]
+    strb w2, [x1, x4]
+    add x4, x4, 1
+.L35:
+    cmp x4, x20
+    bne .L36
+.L33:
+    strb w4, [x21, 208]     // Store cur_pos
+	ldp	x19, x20, [sp, 16]
+	ldr	x21, [sp, 32]
+	ldp	x29, x30, [sp], 48
+    ret
+.LFE15:
+	.size	sha512_update, .-sha512_update
+	.type	sha512_final, %function
+sha512_final:
+.LFB16:
+	stp	x29, x30, [sp, -48]!
+	mov	x29, sp
+	stp	x19, x20, [sp, 16]
+	mov	x20, x0                 // x20 points to output buffer
+	mov	x19, x1                 // x19 points to sha context
+	str	x21, [sp, 32]
+	add	x21, x19, 80            // x21 contains cur_block
+	ldrb	w2, [x19, 208]      // x2 contains cur_pos
+    mov	w3, 0x80
+    strb    w3, [x21, x2] // First byte of padding is 0x80
+    add x2, x2, 1               // Increment cur_pos
+    cmp x2, 112                 // Compare cur_pos with SHA512_BLOCK_LENGTH - 16
+    bls .L112                   // Jump if there is only one block left
+    b .L113                     // Start of memset loop
+.L114:
+    strb	wzr, [x21, x2]      // While cur_pos < SHA512_BLOCK_LENGTH
+    add x2, x2, 1               //   store a zero byte at cur_block[cur_pos] and increment cur_pos
+.L113:
+    cmp x2, 128
+    bne .L114
+	mov	x0, x19                 // Prepare to call subroutine
+	mov	x1, x21
+    bl	sha512_process_block    // Process the second last block
+    mov x2, xzr                 // Set cur_pos to zero
+.L112:
+    b .L115                     // Start memset loop
+.L116:
+    strb    wzr, [x21, x2]      // While cur_pos < SHA512_BLOCK_LENGTH - 16
+    add x2, x2, 1               //   store a zero byte at cur_block[cur_pos] and increment cur_pos
+.L115:
+    cmp x2, 112
+    bne .L116
+    ldr	x0, [x19, 72]           // Move message length information into the block
+	rev	x0, x0
+	str	x0, [x19, 192]
+	ldr	x0, [x19, 64]
+	rev	x0, x0
+	str	x0, [x19, 200]
+	mov	x0, x19                 // Prepare to call subroutine
+	mov	x1, x21
+	bl	sha512_process_block    // Process the last block
+    ldr	x0, [x19]               // Store the digest in big-endian in output buffer
+	rev	x0, x0
+	str	x0, [x20]
+	ldr	x0, [x19, 8]
+	rev	x0, x0
+	str	x0, [x20, 8]
+	ldr	x0, [x19, 16]
+	rev	x0, x0
+	str	x0, [x20, 16]
+	ldr	x0, [x19, 24]
+	rev	x0, x0
+	str	x0, [x20, 24]
+	ldr	x0, [x19, 32]
+	rev	x0, x0
+	str	x0, [x20, 32]
+	ldr	x0, [x19, 40]
+	rev	x0, x0
+	str	x0, [x20, 40]
+	ldr	x0, [x19, 48]
+	rev	x0, x0
+	str	x0, [x20, 48]
+	ldr	x0, [x19, 56]
+	rev	x0, x0
+	str	x0, [x20, 56]
+	ldp	x19, x20, [sp, 16]
+	ldr	x21, [sp, 32]
+	ldp	x29, x30, [sp], 48
+	ret
+.LFE16:
+	.size	sha512_final, .-sha512_final
+
+
+
+
+
+// ****************************************************************************
+// The precomputed data (all read-only).
+// ****************************************************************************
+#if defined(__linux__) && defined(__ELF__)
+.section .rodata
+#elif defined(__APPLE__)
+.const_data
+#endif
+
+	.global	K
+	.align	3
+	.type	K, %object
+	.size	K, 640
+K:
+	.xword	4794697086780616226
+	.xword	8158064640168781261
+	.xword	-5349999486874862801
+	.xword	-1606136188198331460
+	.xword	4131703408338449720
+	.xword	6480981068601479193
+	.xword	-7908458776815382629
+	.xword	-6116909921290321640
+	.xword	-2880145864133508542
+	.xword	1334009975649890238
+	.xword	2608012711638119052
+	.xword	6128411473006802146
+	.xword	8268148722764581231
+	.xword	-9160688886553864527
+	.xword	-7215885187991268811
+	.xword	-4495734319001033068
+	.xword	-1973867731355612462
+	.xword	-1171420211273849373
+	.xword	1135362057144423861
+	.xword	2597628984639134821
+	.xword	3308224258029322869
+	.xword	5365058923640841347
+	.xword	6679025012923562964
+	.xword	8573033837759648693
+	.xword	-7476448914759557205
+	.xword	-6327057829258317296
+	.xword	-5763719355590565569
+	.xword	-4658551843659510044
+	.xword	-4116276920077217854
+	.xword	-3051310485924567259
+	.xword	489312712824947311
+	.xword	1452737877330783856
+	.xword	2861767655752347644
+	.xword	3322285676063803686
+	.xword	5560940570517711597
+	.xword	5996557281743188959
+	.xword	7280758554555802590
+	.xword	8532644243296465576
+	.xword	-9096487096722542874
+	.xword	-7894198246740708037
+	.xword	-6719396339535248540
+	.xword	-6333637450476146687
+	.xword	-4446306890439682159
+	.xword	-4076793802049405392
+	.xword	-3345356375505022440
+	.xword	-2983346525034927856
+	.xword	-860691631967231958
+	.xword	1182934255886127544
+	.xword	1847814050463011016
+	.xword	2177327727835720531
+	.xword	2830643537854262169
+	.xword	3796741975233480872
+	.xword	4115178125766777443
+	.xword	5681478168544905931
+	.xword	6601373596472566643
+	.xword	7507060721942968483
+	.xword	8399075790359081724
+	.xword	8693463985226723168
+	.xword	-8878714635349349518
+	.xword	-8302665154208450068
+	.xword	-8016688836872298968
+	.xword	-6606660893046293015
+	.xword	-4685533653050689259
+	.xword	-4147400797238176981
+	.xword	-3880063495543823972
+	.xword	-3348786107499101689
+	.xword	-1523767162380948706
+	.xword	-757361751448694408
+	.xword	500013540394364858
+	.xword	748580250866718886
+	.xword	1242879168328830382
+	.xword	1977374033974150939
+	.xword	2944078676154940804
+	.xword	3659926193048069267
+	.xword	4368137639120453308
+	.xword	4836135668995329356
+	.xword	5532061633213252278
+	.xword	6448918945643986474
+	.xword	6902733635092675308
+	.xword	7801388544844847127
+
+
+
+
+
+
+edwards25519_scalarmulbase_alt_constant:
 
 // 0 * B = 0 and 2^251 * B in extended-projective coordinates
 // but with Z = 1 assumed and hence left out, so they are (X,Y,T) only.
 
-edwards25519_scalarmulbase_alt_edwards25519_0g:
-
         .quad   0x0000000000000000
         .quad   0x0000000000000000
         .quad   0x0000000000000000
         .quad   0x0000000000000000
-
         .quad   0x0000000000000001
         .quad   0x0000000000000000
         .quad   0x0000000000000000
         .quad   0x0000000000000000
-
         .quad   0x0000000000000000
         .quad   0x0000000000000000
         .quad   0x0000000000000000
         .quad   0x0000000000000000
-
-edwards25519_scalarmulbase_alt_edwards25519_251g:
 
         .quad   0x525f946d7c7220e7
         .quad   0x4636b0b2f1e35444
@@ -2680,7 +7328,7 @@ edwards25519_scalarmulbase_alt_edwards25519_251g:
 // Precomputed table of multiples of generator for edwards25519
 // all in precomputed extended-projective (y-x,x+y,2*d*x*y) triples.
 
-edwards25519_scalarmulbase_alt_edwards25519_gtable:
+edwards25519_scalarmuldouble_alt_constant:
 
         // 2^0 * 1 * G
 
@@ -10241,4722 +14889,3 @@ edwards25519_scalarmulbase_alt_edwards25519_gtable:
         .quad   0xeb848e0f7f19547e
         .quad   0x2503a1d065a497b9
         .quad   0x0fef911191df895f
-
-#if defined(__linux__) && defined(__ELF__)
-.section .note.GNU-stack, "", %progbits
-#endif
-
-
-
-
-// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-// SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
-
-// ----------------------------------------------------------------------------
-// Encode edwards25519 point into compressed form as 256-bit number
-// Input p[8]; output z[32] (bytes)
-//
-//    extern void edwards25519_encode(uint8_t z[static 32],
-//                                    const uint64_t p[static 8]);
-//
-// This assumes that the input buffer p points to a pair of 256-bit
-// numbers x (at p) and y (at p+4) representing a point (x,y) on the
-// edwards25519 curve. It is assumed that both x and y are < p_25519
-// but there is no checking of this, nor of the fact that (x,y) is
-// in fact on the curve.
-//
-// The output in z is a little-endian array of bytes corresponding to
-// the standard compressed encoding of a point as 2^255 * x_0 + y
-// where x_0 is the least significant bit of x.
-// See "https://datatracker.ietf.org/doc/html/rfc8032#section-5.1.2"
-// In this implementation, y is simply truncated to 255 bits, but if
-// it is reduced mod p_25519 as expected this does not affect values.
-//
-// Standard ARM ABI: X0 = z, X1 = p
-// ----------------------------------------------------------------------------
-#include "_internal_s2n_bignum.h"
-
-        S2N_BN_SYM_VISIBILITY_DIRECTIVE(edwards25519_encode)
-        S2N_BN_SYM_PRIVACY_DIRECTIVE(edwards25519_encode)
-        .text
-        .balign 4
-
-#define z x0
-#define p x1
-
-#define y0 x2
-#define y1 x3
-#define y2 x4
-#define y3 x5
-#define y0short w2
-#define y1short w3
-#define y2short w4
-#define y3short w5
-#define xb x6
-
-S2N_BN_SYMBOL(edwards25519_encode):
-
-// Load lowest word of x coordinate in xb and full y as [y3;y2;y1;y0].
-
-        ldr     xb, [p]
-        ldp     y0, y1, [p, #32]
-        ldp     y2, y3, [p, #48]
-
-// Compute the encoded form, making the LSB of x the MSB of the encoding
-
-        and     y3, y3, #0x7FFFFFFFFFFFFFFF
-        orr     y3, y3, xb, lsl #63
-
-// Write back in a byte-oriented fashion to be independent of endianness
-
-        strb    y0short, [z]
-        lsr     y0, y0, #8
-        strb    y0short, [z, #1]
-        lsr     y0, y0, #8
-        strb    y0short, [z, #2]
-        lsr     y0, y0, #8
-        strb    y0short, [z, #3]
-        lsr     y0, y0, #8
-        strb    y0short, [z, #4]
-        lsr     y0, y0, #8
-        strb    y0short, [z, #5]
-        lsr     y0, y0, #8
-        strb    y0short, [z, #6]
-        lsr     y0, y0, #8
-        strb    y0short, [z, #7]
-
-        strb    y1short, [z, #8]
-        lsr     y1, y1, #8
-        strb    y1short, [z, #9]
-        lsr     y1, y1, #8
-        strb    y1short, [z, #10]
-        lsr     y1, y1, #8
-        strb    y1short, [z, #11]
-        lsr     y1, y1, #8
-        strb    y1short, [z, #12]
-        lsr     y1, y1, #8
-        strb    y1short, [z, #13]
-        lsr     y1, y1, #8
-        strb    y1short, [z, #14]
-        lsr     y1, y1, #8
-        strb    y1short, [z, #15]
-
-        strb    y2short, [z, #16]
-        lsr     y2, y2, #8
-        strb    y2short, [z, #17]
-        lsr     y2, y2, #8
-        strb    y2short, [z, #18]
-        lsr     y2, y2, #8
-        strb    y2short, [z, #19]
-        lsr     y2, y2, #8
-        strb    y2short, [z, #20]
-        lsr     y2, y2, #8
-        strb    y2short, [z, #21]
-        lsr     y2, y2, #8
-        strb    y2short, [z, #22]
-        lsr     y2, y2, #8
-        strb    y2short, [z, #23]
-
-        strb    y3short, [z, #24]
-        lsr     y3, y3, #8
-        strb    y3short, [z, #25]
-        lsr     y3, y3, #8
-        strb    y3short, [z, #26]
-        lsr     y3, y3, #8
-        strb    y3short, [z, #27]
-        lsr     y3, y3, #8
-        strb    y3short, [z, #28]
-        lsr     y3, y3, #8
-        strb    y3short, [z, #29]
-        lsr     y3, y3, #8
-        strb    y3short, [z, #30]
-        lsr     y3, y3, #8
-        strb    y3short, [z, #31]
-
-// Return
-
-        ret
-
-#if defined(__linux__) && defined(__ELF__)
-.section .note.GNU-stack,"",%progbits
-#endif
-
-
-
-
-// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-// SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
-
-// ----------------------------------------------------------------------------
-// Decode compressed 256-bit form of edwards25519 point
-// Input c[32] (bytes); output function return and z[8]
-//
-// extern uint64_t edwards25519_decode_alt(uint64_t z[static 8], const uint8_t c[static 32]);
-//
-// This interprets the input byte string as a little-endian number
-// representing a point (x,y) on the edwards25519 curve, encoded as
-// 2^255 * x_0 + y where x_0 is the least significant bit of x. It
-// returns the full pair of coordinates x (at z) and y (at z+4). The
-// return code is 0 for success and 1 for failure, which means that
-// the input does not correspond to the encoding of any edwards25519
-// point. This can happen for three reasons, where y = the lowest
-// 255 bits of the input:
-//
-//  * y >= p_25519
-//    Input y coordinate is not reduced
-//  * (y^2 - 1) * (1 + d_25519 * y^2) has no modular square root
-//    There is no x such that (x,y) is on the curve
-//  * y^2 = 1 and top bit of input is set
-//    Cannot be the canonical encoding of (0,1) or (0,-1)
-//
-// Standard ARM ABI: X0 = z, X1 = c
-// ----------------------------------------------------------------------------
-#include "_internal_s2n_bignum.h"
-
-        S2N_BN_SYM_VISIBILITY_DIRECTIVE(edwards25519_decode_alt)
-        S2N_BN_SYM_PRIVACY_DIRECTIVE(edwards25519_decode_alt)
-
-        .text
-        .balign 4
-
-// Size in bytes of a 64-bit word
-
-#define N 8
-
-// Pointer-offset pairs for temporaries on stack
-
-#define y sp, #0
-#define s sp, #(4*N)
-#define t sp, #(8*N)
-#define u sp, #(12*N)
-#define v sp, #(16*N)
-#define w sp, #(20*N)
-
-// Other temporary variables in register
-
-#define res x19
-#define sgnbit x20
-#define badun x21
-
-// Total size to reserve on the stack
-
-#define NSPACE #(24*N)
-
-// Loading large constants
-
-#define movbig(nn,n3,n2,n1,n0)                                      \
-        movz    nn, n0 __LF                                            \
-        movk    nn, n1, lsl #16 __LF                                   \
-        movk    nn, n2, lsl #32 __LF                                   \
-        movk    nn, n3, lsl #48
-
-// Macros wrapping up calls to the local subroutines
-
-#define mulp(dest,src1,src2)                                            \
-        add     x0, dest __LF                                              \
-        add     x1, src1 __LF                                              \
-        add     x2, src2 __LF                                              \
-        bl      edwards25519_decode_alt_mul_p25519
-
-#define nsqr(dest,n,src)                                                \
-        add     x0, dest __LF                                              \
-        mov     x1, n __LF                                                 \
-        add     x2, src __LF                                               \
-        bl      edwards25519_decode_alt_nsqr_p25519
-
-S2N_BN_SYMBOL(edwards25519_decode_alt):
-
-// Save registers and make room for temporaries
-
-        stp     x19, x20, [sp, -16]!
-        stp     x21, x30, [sp, -16]!
-        sub     sp, sp, NSPACE
-
-// Save the return pointer for the end so we can overwrite x0 later
-
-        mov     res, x0
-
-// Load the inputs, using byte operations in case of big-endian setting.
-// Let y be the lowest 255 bits of the input and sgnbit the desired parity.
-// If y >= p_25519 then already flag the input as invalid (badun = 1).
-
-        ldrb    w0, [x1]
-        lsl     x4, x0, #56
-        ldrb    w0, [x1, #1]
-        extr    x4, x0, x4, #8
-        ldrb    w0, [x1, #2]
-        extr    x4, x0, x4, #8
-        ldrb    w0, [x1, #3]
-        extr    x4, x0, x4, #8
-        ldrb    w0, [x1, #4]
-        extr    x4, x0, x4, #8
-        ldrb    w0, [x1, #5]
-        extr    x4, x0, x4, #8
-        ldrb    w0, [x1, #6]
-        extr    x4, x0, x4, #8
-        ldrb    w0, [x1, #7]
-        extr    x4, x0, x4, #8
-
-        ldrb    w0, [x1, #8]
-        lsl     x5, x0, #56
-        ldrb    w0, [x1, #9]
-        extr    x5, x0, x5, #8
-        ldrb    w0, [x1, #10]
-        extr    x5, x0, x5, #8
-        ldrb    w0, [x1, #11]
-        extr    x5, x0, x5, #8
-        ldrb    w0, [x1, #12]
-        extr    x5, x0, x5, #8
-        ldrb    w0, [x1, #13]
-        extr    x5, x0, x5, #8
-        ldrb    w0, [x1, #14]
-        extr    x5, x0, x5, #8
-        ldrb    w0, [x1, #15]
-        extr    x5, x0, x5, #8
-
-        ldrb    w0, [x1, #16]
-        lsl     x6, x0, #56
-        ldrb    w0, [x1, #17]
-        extr    x6, x0, x6, #8
-        ldrb    w0, [x1, #18]
-        extr    x6, x0, x6, #8
-        ldrb    w0, [x1, #19]
-        extr    x6, x0, x6, #8
-        ldrb    w0, [x1, #20]
-        extr    x6, x0, x6, #8
-        ldrb    w0, [x1, #21]
-        extr    x6, x0, x6, #8
-        ldrb    w0, [x1, #22]
-        extr    x6, x0, x6, #8
-        ldrb    w0, [x1, #23]
-        extr    x6, x0, x6, #8
-
-        ldrb    w0, [x1, #24]
-        lsl     x7, x0, #56
-        ldrb    w0, [x1, #25]
-        extr    x7, x0, x7, #8
-        ldrb    w0, [x1, #26]
-        extr    x7, x0, x7, #8
-        ldrb    w0, [x1, #27]
-        extr    x7, x0, x7, #8
-        ldrb    w0, [x1, #28]
-        extr    x7, x0, x7, #8
-        ldrb    w0, [x1, #29]
-        extr    x7, x0, x7, #8
-        ldrb    w0, [x1, #30]
-        extr    x7, x0, x7, #8
-        ldrb    w0, [x1, #31]
-        extr    x7, x0, x7, #8
-
-        stp     x4, x5, [y]
-        lsr     sgnbit, x7, #63
-        and     x7, x7, #0x7FFFFFFFFFFFFFFF
-        stp     x6, x7, [y+16]
-
-        adds    xzr, x4, #19
-        adcs    xzr, x5, xzr
-        adcs    xzr, x6, xzr
-        adcs    xzr, x7, xzr
-        cset    badun, mi
-
-// u = y^2 - 1 (actually y + 2^255-20, not reduced modulo)
-// v = 1 + d * y^2 (not reduced modulo from the +1)
-// w = u * v
-
-        nsqr(v,1,y)
-        ldp     x0, x1, [v]
-        ldp     x2, x3, [v+16]
-        mov     x4, #0x8000000000000000
-        subs    x0, x0, #20
-        sbcs    x1, x1, xzr
-        sbcs    x2, x2, xzr
-        sbc     x3, x3, x4
-        stp     x0, x1, [u]
-        stp     x2, x3, [u+16]
-
-        movbig(x0,#0x75eb,#0x4dca,#0x1359,#0x78a3)
-        movbig(x1,#0x0070,#0x0a4d,#0x4141,#0xd8ab)
-        movbig(x2,#0x8cc7,#0x4079,#0x7779,#0xe898)
-        movbig(x3,#0x5203,#0x6cee,#0x2b6f,#0xfe73)
-        stp     x0, x1, [w]
-        stp     x2, x3, [w+16]
-        mulp(v,w,v)
-        ldp     x0, x1, [v]
-        ldp     x2, x3, [v+16]
-        adds    x0, x0, #1
-        adcs    x1, x1, xzr
-        adcs    x2, x2, xzr
-        adcs    x3, x3, xzr
-        stp     x0, x1, [v]
-        stp     x2, x3, [v+16]
-
-        mulp(w,u,v)
-
-// Get s = w^{252-3} as a candidate inverse square root 1/sqrt(w).
-// This power tower computation is the same as bignum_invsqrt_p25519
-
-        nsqr(t,1,w)
-        mulp(t,t,w)
-        nsqr(s,2,t)
-        mulp(t,s,t)
-        nsqr(s,1,t)
-        mulp(v,s,w)
-        nsqr(s,5,v)
-        mulp(t,s,v)
-        nsqr(s,10,t)
-        mulp(t,s,t)
-        nsqr(s,5,t)
-        mulp(v,s,v)
-        nsqr(s,25,v)
-        mulp(t,s,v)
-        nsqr(s,50,t)
-        mulp(t,s,t)
-        nsqr(s,25,t)
-        mulp(v,s,v)
-        nsqr(s,125,v)
-        mulp(v,s,v)
-        nsqr(s,2,v)
-        mulp(s,s,w)
-
-// Compute v' = s^2 * w to discriminate whether the square root sqrt(u/v)
-// exists, in which case we should get 0, 1 or -1.
-
-        nsqr(v,1,s)
-        mulp(v,v,w)
-
-// Get the two candidates for sqrt(u / v), one being s = u * w^{252-3}
-// and the other being t = s * j_25519 where j_25519 = sqrt(-1).
-
-        mulp(s,u,s)
-        movbig(x0, #0xc4ee, #0x1b27, #0x4a0e, #0xa0b0)
-        movbig(x1, #0x2f43, #0x1806, #0xad2f, #0xe478)
-        movbig(x2, #0x2b4d, #0x0099, #0x3dfb, #0xd7a7)
-        movbig(x3, #0x2b83, #0x2480, #0x4fc1, #0xdf0b)
-        stp     x0, x1, [t]
-        stp     x2, x3, [t+16]
-        mulp(t,s,t)
-
-// x4 = 0 <=> s^2 * w = 0 or 1
-
-        ldp     x0, x1, [v]
-        ldp     x2, x3, [v+16]
-        bic     x4, x0, #1
-        orr     x4, x4, x1
-        orr     x5, x2, x3
-        orr     x4, x4, x5
-
-// x0 = 0 <=> s^2 * w = -1 (mod p_25519, i.e. s^2 * w = 2^255 - 20)
-
-        add     x0, x0, #20
-        add     x1, x1, #1
-        orr     x0, x0, x1
-        add     x2, x2, #1
-        eor     x3, x3, #0x7FFFFFFFFFFFFFFF
-        orr     x2, x2, x3
-        orr     x0, x0, x2
-
-// If s^2 * w is not 0 or 1 then replace s by t
-
-        cmp     x4, xzr
-        ldp     x10, x11, [s]
-        ldp     x14, x15, [t]
-        csel    x10, x10, x14, eq
-        csel    x11, x11, x15, eq
-        ldp     x12, x13, [s+16]
-        ldp     x16, x17, [t+16]
-        csel    x12, x12, x16, eq
-        csel    x13, x13, x17, eq
-        stp     x10, x11, [s]
-        stp     x12, x13, [s+16]
-
-// Check invalidity, occurring if s^2 * w is not in {0,1,-1}
-
-        ccmp    x0, xzr, 4, ne
-        cset    x0, ne
-        orr     badun, badun, x0
-
-// Let [x3;x2;x1;x0] = s and [x7;x6;x5;x4] = p_25519 - s
-
-        ldp     x0, x1, [s]
-        ldp     x2, x3, [s+16]
-        mov     x4, #-19
-        subs    x4, x4, x0
-        mov     x6, #-1
-        sbcs    x5, x6, x1
-        sbcs    x6, x6, x2
-        mov     x7, #0x7FFFFFFFFFFFFFFF
-        sbc     x7, x7, x3
-
-// Decide whether a flip is apparently indicated, s_0 <=> sgnbit
-// Decide also if s = 0 by OR-ing its digits. Now if a flip is indicated:
-//  - if s = 0 then mark as invalid
-//  - if s <> 0 then indeed flip
-
-        and     x9, x0, #1
-        eor     sgnbit, x9, sgnbit
-        orr     x8, x0, x1
-        orr     x9, x2, x3
-        orr     x8, x8, x9
-        orr     x10, badun, sgnbit
-        cmp     x8, xzr
-        csel    badun, x10, badun, eq
-        ccmp    sgnbit, xzr, #4, ne
-
-// Actual selection of x as s or -s, copying of y and return of validity
-
-        csel    x0, x0, x4, eq
-        csel    x1, x1, x5, eq
-        csel    x2, x2, x6, eq
-        csel    x3, x3, x7, eq
-        ldp     x8, x9, [y]
-        ldp     x10, x11, [y+16]
-
-        stp     x0, x1, [res]
-        stp     x2, x3, [res, #16]
-        stp     x8, x9, [res, #32]
-        stp     x10, x11, [res, #48]
-
-        mov     x0, badun
-
-// Restore stack and registers
-
-        add     sp, sp, NSPACE
-
-        ldp     x21, x30, [sp], 16
-        ldp     x19, x20, [sp], 16
-        ret
-
-// *************************************************************
-// Local z = x * y
-// *************************************************************
-
-edwards25519_decode_alt_mul_p25519:
-        ldp     x3, x4, [x1]
-        ldp     x7, x8, [x2]
-        mul     x12, x3, x7
-        umulh   x13, x3, x7
-        mul     x11, x3, x8
-        umulh   x14, x3, x8
-        adds    x13, x13, x11
-        ldp     x9, x10, [x2, #16]
-        mul     x11, x3, x9
-        umulh   x15, x3, x9
-        adcs    x14, x14, x11
-        mul     x11, x3, x10
-        umulh   x16, x3, x10
-        adcs    x15, x15, x11
-        adc     x16, x16, xzr
-        ldp     x5, x6, [x1, #16]
-        mul     x11, x4, x7
-        adds    x13, x13, x11
-        mul     x11, x4, x8
-        adcs    x14, x14, x11
-        mul     x11, x4, x9
-        adcs    x15, x15, x11
-        mul     x11, x4, x10
-        adcs    x16, x16, x11
-        umulh   x3, x4, x10
-        adc     x3, x3, xzr
-        umulh   x11, x4, x7
-        adds    x14, x14, x11
-        umulh   x11, x4, x8
-        adcs    x15, x15, x11
-        umulh   x11, x4, x9
-        adcs    x16, x16, x11
-        adc     x3, x3, xzr
-        mul     x11, x5, x7
-        adds    x14, x14, x11
-        mul     x11, x5, x8
-        adcs    x15, x15, x11
-        mul     x11, x5, x9
-        adcs    x16, x16, x11
-        mul     x11, x5, x10
-        adcs    x3, x3, x11
-        umulh   x4, x5, x10
-        adc     x4, x4, xzr
-        umulh   x11, x5, x7
-        adds    x15, x15, x11
-        umulh   x11, x5, x8
-        adcs    x16, x16, x11
-        umulh   x11, x5, x9
-        adcs    x3, x3, x11
-        adc     x4, x4, xzr
-        mul     x11, x6, x7
-        adds    x15, x15, x11
-        mul     x11, x6, x8
-        adcs    x16, x16, x11
-        mul     x11, x6, x9
-        adcs    x3, x3, x11
-        mul     x11, x6, x10
-        adcs    x4, x4, x11
-        umulh   x5, x6, x10
-        adc     x5, x5, xzr
-        umulh   x11, x6, x7
-        adds    x16, x16, x11
-        umulh   x11, x6, x8
-        adcs    x3, x3, x11
-        umulh   x11, x6, x9
-        adcs    x4, x4, x11
-        adc     x5, x5, xzr
-        mov     x7, #38
-        mul     x11, x7, x16
-        umulh   x9, x7, x16
-        adds    x12, x12, x11
-        mul     x11, x7, x3
-        umulh   x3, x7, x3
-        adcs    x13, x13, x11
-        mul     x11, x7, x4
-        umulh   x4, x7, x4
-        adcs    x14, x14, x11
-        mul     x11, x7, x5
-        umulh   x5, x7, x5
-        adcs    x15, x15, x11
-        cset    x16, hs
-        adds    x15, x15, x4
-        adc     x16, x16, x5
-        cmn     x15, x15
-        orr     x15, x15, #0x8000000000000000
-        adc     x8, x16, x16
-        mov     x7, #19
-        madd    x11, x7, x8, x7
-        adds    x12, x12, x11
-        adcs    x13, x13, x9
-        adcs    x14, x14, x3
-        adcs    x15, x15, xzr
-        csel    x7, x7, xzr, lo
-        subs    x12, x12, x7
-        sbcs    x13, x13, xzr
-        sbcs    x14, x14, xzr
-        sbc     x15, x15, xzr
-        and     x15, x15, #0x7fffffffffffffff
-        stp     x12, x13, [x0]
-        stp     x14, x15, [x0, #16]
-        ret
-
-// *************************************************************
-// Local z = 2^n * x
-// *************************************************************
-
-edwards25519_decode_alt_nsqr_p25519:
-
-// Copy input argument into [x5;x4;x3;x2] (overwriting input pointer x20
-
-        ldp     x6, x3, [x2]
-        ldp     x4, x5, [x2, #16]
-        mov     x2, x6
-
-// Main squaring loop, accumulating in [x5;x4;x3;x2] consistently and
-// only ensuring the intermediates are < 2 * p_25519 = 2^256 - 38
-
-edwards25519_decode_alt_loop:
-        mul     x9, x2, x3
-        umulh   x10, x2, x3
-        mul     x11, x2, x5
-        umulh   x12, x2, x5
-        mul     x7, x2, x4
-        umulh   x6, x2, x4
-        adds    x10, x10, x7
-        adcs    x11, x11, x6
-        mul     x7, x3, x4
-        umulh   x6, x3, x4
-        adc     x6, x6, xzr
-        adds    x11, x11, x7
-        mul     x13, x4, x5
-        umulh   x14, x4, x5
-        adcs    x12, x12, x6
-        mul     x7, x3, x5
-        umulh   x6, x3, x5
-        adc     x6, x6, xzr
-        adds    x12, x12, x7
-        adcs    x13, x13, x6
-        adc     x14, x14, xzr
-        adds    x9, x9, x9
-        adcs    x10, x10, x10
-        adcs    x11, x11, x11
-        adcs    x12, x12, x12
-        adcs    x13, x13, x13
-        adcs    x14, x14, x14
-        cset    x6, hs
-        umulh   x7, x2, x2
-        mul     x8, x2, x2
-        adds    x9, x9, x7
-        mul     x7, x3, x3
-        adcs    x10, x10, x7
-        umulh   x7, x3, x3
-        adcs    x11, x11, x7
-        mul     x7, x4, x4
-        adcs    x12, x12, x7
-        umulh   x7, x4, x4
-        adcs    x13, x13, x7
-        mul     x7, x5, x5
-        adcs    x14, x14, x7
-        umulh   x7, x5, x5
-        adc     x6, x6, x7
-        mov     x3, #38
-        mul     x7, x3, x12
-        umulh   x4, x3, x12
-        adds    x8, x8, x7
-        mul     x7, x3, x13
-        umulh   x13, x3, x13
-        adcs    x9, x9, x7
-        mul     x7, x3, x14
-        umulh   x14, x3, x14
-        adcs    x10, x10, x7
-        mul     x7, x3, x6
-        umulh   x6, x3, x6
-        adcs    x11, x11, x7
-        cset    x12, hs
-        adds    x11, x11, x14
-        adc     x12, x12, x6
-        cmn     x11, x11
-        bic     x11, x11, #0x8000000000000000
-        adc     x2, x12, x12
-        mov     x3, #0x13
-        mul     x7, x3, x2
-        adds    x2, x8, x7
-        adcs    x3, x9, x4
-        adcs    x4, x10, x13
-        adc     x5, x11, xzr
-
-// Loop as applicable
-
-        subs    x1, x1, #1
-        bne     edwards25519_decode_alt_loop
-
-// We know the intermediate result x < 2^256 - 38, and now we do strict
-// modular reduction mod 2^255 - 19. Note x < 2^255 - 19 <=> x + 19 < 2^255
-// which is equivalent to a "pl" condition.
-
-        adds    x6, x2, #19
-        adcs    x7, x3, xzr
-        adcs    x8, x4, xzr
-        adcs    x9, x5, xzr
-
-        csel    x2, x2, x6, pl
-        csel    x3, x3, x7, pl
-        csel    x4, x4, x8, pl
-        csel    x5, x5, x9, pl
-        bic     x5, x5, #0x8000000000000000
-
-// Copy result back into destination and return
-
-        stp     x2, x3, [x0]
-        stp     x4, x5, [x0, #16]
-        ret
-
-#if defined(__linux__) && defined(__ELF__)
-.section .note.GNU-stack, "", %progbits
-#endif
-
-
-
-
-// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-// SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
-
-// ----------------------------------------------------------------------------
-// Reduce modulo basepoint order, z := x mod n_25519
-// Input x[k]; output z[4]
-//
-//    extern void bignum_mod_n25519(uint64_t z[static 4], uint64_t k,
-//                                  const uint64_t *x);
-//
-// Reduction is modulo the order of the curve25519/edwards25519 basepoint,
-// which is n_25519 = 2^252 + 27742317777372353535851937790883648493
-//
-// Standard ARM ABI: X0 = z, X1 = k, X2 = x
-// ----------------------------------------------------------------------------
-#include "_internal_s2n_bignum.h"
-
-        S2N_BN_SYM_VISIBILITY_DIRECTIVE(bignum_mod_n25519)
-        S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_mod_n25519)
-        .text
-        .balign 4
-
-#define z x0
-#define k x1
-#define x x2
-
-#define m0 x3
-#define m1 x4
-#define m2 x5
-#define m3 x6
-
-#define t0 x7
-#define t1 x8
-#define t2 x9
-#define t3 x10
-
-#define n0 x11
-#define n1 x12
-
-// These two are aliased: we only load d when finished with q
-
-#define q x13
-#define d x13
-
-// Loading large constants
-
-#define movbig(nn,n3,n2,n1,n0)                                      \
-        movz    nn, n0 __LF                                            \
-        movk    nn, n1, lsl #16 __LF                                   \
-        movk    nn, n2, lsl #32 __LF                                   \
-        movk    nn, n3, lsl #48
-
-S2N_BN_SYMBOL(bignum_mod_n25519):
-
-// If the input is already <= 3 words long, go to a trivial "copy" path
-
-        cmp     k, #4
-        bcc     bignum_mod_n25519_short
-
-// Otherwise load the top 4 digits (top-down) and reduce k by 4
-// This [m3;m2;m1;m0] is the initial x where we begin reduction.
-
-        sub     k, k, #4
-        lsl     t0, k, #3
-        add     t0, t0, x
-        ldp     m2, m3, [t0, #16]
-        ldp     m0, m1, [t0]
-
-// Load the complicated two words of n_25519 = 2^252 + [n1; n0]
-
-        movbig( n0, #0x5812, #0x631a, #0x5cf5, #0xd3ed)
-        movbig( n1, #0x14de, #0xf9de, #0xa2f7, #0x9cd6)
-
-// Get the quotient estimate q = floor(x/2^252).
-// Also delete it from m3, in effect doing x' = x - q * 2^252
-
-        lsr     q, m3, #60
-        and     m3, m3, #0x0FFFFFFFFFFFFFFF
-
-// Multiply [t2;t1;t0] = q * [n1;n0]
-
-        mul     t0, n0, q
-        mul     t1, n1, q
-        umulh   t2, n0, q
-        adds    t1, t1, t2
-        umulh   t2, n1, q
-        adc     t2, t2, xzr
-
-// Subtract [m3;m2;m1;m0] = x' - q * [n1;n0] = x - q * n_25519
-
-        subs    m0, m0, t0
-        sbcs    m1, m1, t1
-        sbcs    m2, m2, t2
-        sbcs    m3, m3, xzr
-
-// If this borrows (CF = 0 because of inversion), add back n_25519.
-// The masked n3 digit exploits the fact that bit 60 of n0 is set.
-
-        csel    t0, n0, xzr, cc
-        csel    t1, n1, xzr, cc
-        adds    m0, m0, t0
-        adcs    m1, m1, t1
-        and     t0, t0, #0x1000000000000000
-        adcs    m2, m2, xzr
-        adc     m3, m3, t0
-
-// Now do (k-4) iterations of 5->4 word modular reduction. Each one
-// is similar to the sequence above except for the more refined quotient
-// estimation process.
-
-        cbz     k, bignum_mod_n25519_writeback
-
-bignum_mod_n25519_loop:
-
-// Assume that the new 5-digit x is 2^64 * previous_x + next_digit.
-// Get the quotient estimate q = max (floor(x/2^252)) (2^64 - 1)
-// and first compute x' = x - 2^252 * q.
-
-        extr    q, m3, m2, #60
-        and     m2, m2, #0x0FFFFFFFFFFFFFFF
-        sub     q, q, m3, lsr #60
-        and     m3, m3, #0xF000000000000000
-        add     m2, m2, m3
-
-// Multiply [t2;t1;t0] = q * [n1;n0]
-
-        mul     t0, n0, q
-        mul     t1, n1, q
-        umulh   t2, n0, q
-        adds    t1, t1, t2
-        umulh   t2, n1, q
-        adc     t2, t2, xzr
-
-// Decrement k and load the next digit (note that d aliases to q)
-
-        sub     k, k, #1
-        ldr     d, [x, k, lsl #3]
-
-// Subtract [t3;t2;t1;t0] = x' - q * [n1;n0] = x - q * n_25519
-
-        subs    t0, d, t0
-        sbcs    t1, m0, t1
-        sbcs    t2, m1, t2
-        sbcs    t3, m2, xzr
-
-// If this borrows (CF = 0 because of inversion), add back n_25519.
-// The masked n3 digit exploits the fact that bit 60 of n1 is set.
-
-        csel    m0, n0, xzr, cc
-        csel    m1, n1, xzr, cc
-        adds    m0, t0, m0
-        and     m3, m1, #0x1000000000000000
-        adcs    m1, t1, m1
-        adcs    m2, t2, xzr
-        adc     m3, t3, m3
-
-        cbnz    k, bignum_mod_n25519_loop
-
-// Finally write back [m3;m2;m1;m0] and return
-
-bignum_mod_n25519_writeback:
-        stp     m0, m1, [z]
-        stp     m2, m3, [z, #16]
-        ret
-
-// Short case: just copy the input with zero-padding
-
-bignum_mod_n25519_short:
-        mov     m0, xzr
-        mov     m1, xzr
-        mov     m2, xzr
-        mov     m3, xzr
-
-        cbz     k, bignum_mod_n25519_writeback
-        ldr     m0, [x]
-        subs    k, k, #1
-        beq     bignum_mod_n25519_writeback
-        ldr     m1, [x, #8]
-        subs    k, k, #1
-        beq     bignum_mod_n25519_writeback
-        ldr     m2, [x, #16]
-        b       bignum_mod_n25519_writeback
-
-#if defined(__linux__) && defined(__ELF__)
-.section .note.GNU-stack,"",%progbits
-#endif
-
-
-
-
-// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-// SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
-
-// ----------------------------------------------------------------------------
-// Multiply-add modulo the order of the curve25519/edwards25519 basepoint
-// Inputs x[4], y[4], c[4]; output z[4]
-//
-//    extern void bignum_madd_n25519_alt(uint64_t z[static 4],
-//                                       const uint64_t x[static 4],
-//                                       const uint64_t y[static 4],
-//                                       const uint64_t c[static 4]);
-//
-// Performs z := (x * y + c) mod n_25519, where the modulus is
-// n_25519 = 2^252 + 27742317777372353535851937790883648493, the
-// order of the curve25519/edwards25519 basepoint. The result z
-// and the inputs x, y and c are all 4 digits (256 bits).
-//
-// Standard ARM ABI: X0 = z, X1 = x, X2 = y, X3 = c
-// ----------------------------------------------------------------------------
-#include "_internal_s2n_bignum.h"
-
-        S2N_BN_SYM_VISIBILITY_DIRECTIVE(bignum_madd_n25519_alt)
-        S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_madd_n25519_alt)
-        .text
-        .balign 4
-
-// Backup of the input pointer so we can modify x0
-
-#define z x19
-
-// Temporaries for reduction phase
-
-#define q   x2
-#define n0  x3
-#define n1  x4
-#define t0  x5
-#define t1  x6
-#define t2  x7
-
-// Loading large constants
-
-#define movbig(nn,n3,n2,n1,n0)                                      \
-        movz    nn, n0 __LF                                            \
-        movk    nn, n1, lsl #16 __LF                                   \
-        movk    nn, n2, lsl #32 __LF                                   \
-        movk    nn, n3, lsl #48
-
-// Single round of modular reduction mod_n25519, mapping
-// [m4;m3;m2;m1;m0] = m to [m3;m2;m1;m0] = m mod n_25519,
-// *assuming* the input m < 2^64 * n_25519. This is very
-// close to the loop body of the bignum_mod_n25519 function.
-
-#define reduce(m4,m3,m2,m1,m0)                          \
-        extr    q, m4, m3, #60 __LF                        \
-        and     m3, m3, #0x0FFFFFFFFFFFFFFF __LF           \
-        sub     q, q, m4, lsr #60 __LF                     \
-        and     t0, m4, #0xF000000000000000 __LF           \
-        add     m3, m3, t0 __LF                            \
-        mul     t0, n0, q __LF                             \
-        mul     t1, n1, q __LF                             \
-        umulh   t2, n0, q __LF                             \
-        adds    t1, t1, t2 __LF                            \
-        umulh   t2, n1, q __LF                             \
-        adc     t2, t2, xzr __LF                           \
-        subs    m0, m0, t0 __LF                            \
-        sbcs    m1, m1, t1 __LF                            \
-        sbcs    m2, m2, t2 __LF                            \
-        sbcs    m3, m3, xzr __LF                           \
-        csel    t0, n0, xzr, cc __LF                       \
-        csel    t1, n1, xzr, cc __LF                       \
-        adds    m0, m0, t0 __LF                            \
-        and     t2, t0, #0x1000000000000000 __LF           \
-        adcs    m1, m1, t1 __LF                            \
-        adcs    m2, m2, xzr __LF                           \
-        adc     m3, m3, t2
-
-// Special case of "reduce" with m4 = 0. As well as not using m4,
-// the quotient selection is slightly simpler, just floor(m/2^252)
-// versus min (floor(m/2^252)) (2^63-1).
-
-#define reduce0(m3,m2,m1,m0)                            \
-        lsr     q, m3, #60 __LF                            \
-        and     m3, m3, #0x0FFFFFFFFFFFFFFF __LF           \
-        mul     t0, n0, q __LF                             \
-        mul     t1, n1, q __LF                             \
-        umulh   t2, n0, q __LF                             \
-        adds    t1, t1, t2 __LF                            \
-        umulh   t2, n1, q __LF                             \
-        adc     t2, t2, xzr __LF                           \
-        subs    m0, m0, t0 __LF                            \
-        sbcs    m1, m1, t1 __LF                            \
-        sbcs    m2, m2, t2 __LF                            \
-        sbcs    m3, m3, xzr __LF                           \
-        csel    t0, n0, xzr, cc __LF                       \
-        csel    t1, n1, xzr, cc __LF                       \
-        adds    m0, m0, t0 __LF                            \
-        and     t2, t0, #0x1000000000000000 __LF           \
-        adcs    m1, m1, t1 __LF                            \
-        adcs    m2, m2, xzr __LF                           \
-        adc     m3, m3, t2
-
-S2N_BN_SYMBOL(bignum_madd_n25519_alt):
-
-        stp     x19, x20, [sp, -16]!
-
-// Back up the result pointer so we can overwrite x0 in intermediate steps
-
-        mov     z, x0
-
-// First compute [x15;x14;x13;x12;x11;x10;x9;x8] = x * y + c. This
-// is a basic schoolbook multiplier similar to the start of
-// bignum_mul_p25519_alt except for different registers, but it
-// also adds in the c term after the first row accumulation.
-
-        ldp     x13, x14, [x1]
-        ldp     x7, x0, [x2]
-        mul     x8, x13, x7
-        umulh   x9, x13, x7
-        mul     x16, x13, x0
-        umulh   x10, x13, x0
-        adds    x9, x9, x16
-        ldp     x4, x5, [x2, #16]
-        mul     x16, x13, x4
-        umulh   x11, x13, x4
-        adcs    x10, x10, x16
-        mul     x16, x13, x5
-        umulh   x12, x13, x5
-        adcs    x11, x11, x16
-        adc     x12, x12, xzr
-        ldp     x15, x6, [x3]
-        adds    x8, x8, x15
-        adcs    x9, x9, x6
-        ldp     x15, x6, [x3, #16]
-        adcs    x10, x10, x15
-        adcs    x11, x11, x6
-        adc     x12, x12, xzr
-        ldp     x15, x6, [x1, #16]
-        mul     x16, x14, x7
-        adds    x9, x9, x16
-        mul     x16, x14, x0
-        adcs    x10, x10, x16
-        mul     x16, x14, x4
-        adcs    x11, x11, x16
-        mul     x16, x14, x5
-        adcs    x12, x12, x16
-        umulh   x13, x14, x5
-        adc     x13, x13, xzr
-        umulh   x16, x14, x7
-        adds    x10, x10, x16
-        umulh   x16, x14, x0
-        adcs    x11, x11, x16
-        umulh   x16, x14, x4
-        adcs    x12, x12, x16
-        adc     x13, x13, xzr
-        mul     x16, x15, x7
-        adds    x10, x10, x16
-        mul     x16, x15, x0
-        adcs    x11, x11, x16
-        mul     x16, x15, x4
-        adcs    x12, x12, x16
-        mul     x16, x15, x5
-        adcs    x13, x13, x16
-        umulh   x14, x15, x5
-        adc     x14, x14, xzr
-        umulh   x16, x15, x7
-        adds    x11, x11, x16
-        umulh   x16, x15, x0
-        adcs    x12, x12, x16
-        umulh   x16, x15, x4
-        adcs    x13, x13, x16
-        adc     x14, x14, xzr
-        mul     x16, x6, x7
-        adds    x11, x11, x16
-        mul     x16, x6, x0
-        adcs    x12, x12, x16
-        mul     x16, x6, x4
-        adcs    x13, x13, x16
-        mul     x16, x6, x5
-        adcs    x14, x14, x16
-        umulh   x15, x6, x5
-        adc     x15, x15, xzr
-        umulh   x16, x6, x7
-        adds    x12, x12, x16
-        umulh   x16, x6, x0
-        adcs    x13, x13, x16
-        umulh   x16, x6, x4
-        adcs    x14, x14, x16
-        adc     x15, x15, xzr
-
-// Now do the modular reduction and write back
-
-        movbig( n0, #0x5812, #0x631a, #0x5cf5, #0xd3ed)
-        movbig( n1, #0x14de, #0xf9de, #0xa2f7, #0x9cd6)
-
-        reduce0(x15,x14,x13,x12)
-        reduce(x15,x14,x13,x12,x11)
-        reduce(x14,x13,x12,x11,x10)
-        reduce(x13,x12,x11,x10,x9)
-        reduce(x12,x11,x10,x9,x8)
-
-        stp     x8, x9, [z]
-        stp     x10, x11, [z, #16]
-
-// Restore registers and return
-
-        ldp     x19, x20, [sp], 16
-        ret
-
-#if defined(__linux__) && defined(__ELF__)
-.section .note.GNU-stack,"",%progbits
-#endif
-
-
-
-
-
-// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-// SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
-
-// ----------------------------------------------------------------------------
-// Negate modulo p_25519, z := (-x) mod p_25519, assuming x reduced
-// Input x[4]; output z[4]
-//
-//    extern void bignum_neg_p25519(uint64_t z[static 4], const uint64_t x[static 4]);
-//
-// Standard ARM ABI: X0 = z, X1 = x
-// ----------------------------------------------------------------------------
-#include "_internal_s2n_bignum.h"
-
-        S2N_BN_SYM_VISIBILITY_DIRECTIVE(bignum_neg_p25519)
-        S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_neg_p25519)
-        .text
-        .balign 4
-
-#define z x0
-#define x x1
-
-#define d0 x2
-#define d1 x3
-#define d2 x4
-#define d3 x5
-#define c x6
-#define d x7
-
-S2N_BN_SYMBOL(bignum_neg_p25519):
-
-// Load the digits of x and compute [d3;d2;d1;d0] = (2^255 - 19) - x
-// while also computing c = the OR of the digits of x
-
-        ldp     d0, d1, [x]
-        mov     d, #-19
-        orr     c, d0, d1
-        subs    d0, d, d0
-        mov     d, #-1
-        sbcs    d1, d, d1
-        ldp     d2, d3, [x, #16]
-        orr     c, c, d2
-        sbcs    d2, d, d2
-        mov     d, #0x7FFFFFFFFFFFFFFF
-        orr     c, c, d3
-        sbc     d3, d, d3
-
-// If in fact c = 0 then the result is zero, otherwise the main result
-
-        cmp     c, xzr
-        csel    d0, d0, xzr, ne
-        csel    d1, d1, xzr, ne
-        csel    d2, d2, xzr, ne
-        csel    d3, d3, xzr, ne
-
-// Write back result and return
-
-        stp     d0, d1, [z]
-        stp     d2, d3, [z, #16]
-
-        ret
-
-#if defined(__linux__) && defined(__ELF__)
-.section .note.GNU-stack,"",%progbits
-#endif
-
-
-
-
-
-// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-// SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
-
-// ----------------------------------------------------------------------------
-// Double scalar multiplication for edwards25519, fresh and base point
-// Input scalar[4], point[8], bscalar[4]; output res[8]
-//
-// extern void edwards25519_scalarmuldouble_alt
-//   (uint64_t res[static 8],const uint64_t scalar[static 4],
-//    const uint64_t point[static 8],const uint64_t bscalar[static 4]);
-//
-// Given scalar = n, point = P and bscalar = m, returns in res
-// the point (X,Y) = n * P + m * B where B = (...,4/5) is
-// the standard basepoint for the edwards25519 (Ed25519) curve.
-//
-// Both 256-bit coordinates of the input point P are implicitly
-// reduced modulo 2^255-19 if they are not already in reduced form,
-// but the conventional usage is that they *are* already reduced.
-// The scalars can be arbitrary 256-bit numbers but may also be
-// considered as implicitly reduced modulo the group order.
-//
-// Standard ARM ABI: X0 = res, X1 = scalar, X2 = point, X3 = bscalar
-// ----------------------------------------------------------------------------
-#include "_internal_s2n_bignum.h"
-
-        S2N_BN_SYM_VISIBILITY_DIRECTIVE(edwards25519_scalarmuldouble_alt)
-        S2N_BN_SYM_PRIVACY_DIRECTIVE(edwards25519_scalarmuldouble_alt)
-
-        .text
-        .balign 4
-
-// Size of individual field elements
-
-#define NUMSIZE 32
-
-// Stable home for the input result argument during the whole body
-
-#define res x25
-
-// Additional pointer variables for local subroutines
-
-#define p0 x22
-#define p1 x23
-#define p2 x24
-
-// Other variables that are only needed prior to the modular inverse.
-
-#define i x19
-#define bf x20
-#define cf x21
-
-// Pointer-offset pairs for result and temporaries on stack with some aliasing.
-
-#define resx res, #(0*NUMSIZE)
-#define resy res, #(1*NUMSIZE)
-
-#define scalar sp, #(0*NUMSIZE)
-#define bscalar sp, #(1*NUMSIZE)
-
-#define btabent sp, #(2*NUMSIZE)
-#define acc sp, #(5*NUMSIZE)
-#define acc_x sp, #(5*NUMSIZE)
-#define acc_y sp, #(6*NUMSIZE)
-#define acc_z sp, #(7*NUMSIZE)
-#define acc_w sp, #(8*NUMSIZE)
-
-#define tabent sp, #(9*NUMSIZE)
-
-#define tab sp, #(13*NUMSIZE)
-
-// Total size to reserve on the stack (excluding local subroutines)
-
-#define NSPACE (45*NUMSIZE)
-
-// Sub-references used in local subroutines with local stack
-
-#define x_0 p0, #0
-#define y_0 p0, #NUMSIZE
-#define z_0 p0, #(2*NUMSIZE)
-#define w_0 p0, #(3*NUMSIZE)
-
-#define x_1 p1, #0
-#define y_1 p1, #NUMSIZE
-#define z_1 p1, #(2*NUMSIZE)
-#define w_1 p1, #(3*NUMSIZE)
-
-#define x_2 p2, #0
-#define y_2 p2, #NUMSIZE
-#define z_2 p2, #(2*NUMSIZE)
-#define w_2 p2, #(3*NUMSIZE)
-
-#define t0 sp, #(0*NUMSIZE)
-#define t1 sp, #(1*NUMSIZE)
-#define t2 sp, #(2*NUMSIZE)
-#define t3 sp, #(3*NUMSIZE)
-#define t4 sp, #(4*NUMSIZE)
-#define t5 sp, #(5*NUMSIZE)
-
-// Load 64-bit immediate into a register
-
-#define movbig(nn,n3,n2,n1,n0)                                      \
-        movz    nn, n0 __LF                                            \
-        movk    nn, n1, lsl #16 __LF                                   \
-        movk    nn, n2, lsl #32 __LF                                   \
-        movk    nn, n3, lsl #48
-
-// Macro wrapping up the basic field operation bignum_mul_p25519_alt, only
-// trivially different from a pure function call to that subroutine.
-
-#define mul_p25519(P0,P1,P2)                    \
-        ldp     x3, x4, [P1] __LF                  \
-        ldp     x7, x8, [P2] __LF                  \
-        mul     x12, x3, x7 __LF                   \
-        umulh   x13, x3, x7 __LF                   \
-        mul     x11, x3, x8 __LF                   \
-        umulh   x14, x3, x8 __LF                   \
-        adds    x13, x13, x11 __LF                 \
-        ldp     x9, x10, [P2+16] __LF              \
-        mul     x11, x3, x9 __LF                   \
-        umulh   x15, x3, x9 __LF                   \
-        adcs    x14, x14, x11 __LF                 \
-        mul     x11, x3, x10 __LF                  \
-        umulh   x16, x3, x10 __LF                  \
-        adcs    x15, x15, x11 __LF                 \
-        adc     x16, x16, xzr __LF                 \
-        ldp     x5, x6, [P1+16] __LF               \
-        mul     x11, x4, x7 __LF                   \
-        adds    x13, x13, x11 __LF                 \
-        mul     x11, x4, x8 __LF                   \
-        adcs    x14, x14, x11 __LF                 \
-        mul     x11, x4, x9 __LF                   \
-        adcs    x15, x15, x11 __LF                 \
-        mul     x11, x4, x10 __LF                  \
-        adcs    x16, x16, x11 __LF                 \
-        umulh   x3, x4, x10 __LF                   \
-        adc     x3, x3, xzr __LF                   \
-        umulh   x11, x4, x7 __LF                   \
-        adds    x14, x14, x11 __LF                 \
-        umulh   x11, x4, x8 __LF                   \
-        adcs    x15, x15, x11 __LF                 \
-        umulh   x11, x4, x9 __LF                   \
-        adcs    x16, x16, x11 __LF                 \
-        adc     x3, x3, xzr __LF                   \
-        mul     x11, x5, x7 __LF                   \
-        adds    x14, x14, x11 __LF                 \
-        mul     x11, x5, x8 __LF                   \
-        adcs    x15, x15, x11 __LF                 \
-        mul     x11, x5, x9 __LF                   \
-        adcs    x16, x16, x11 __LF                 \
-        mul     x11, x5, x10 __LF                  \
-        adcs    x3, x3, x11 __LF                   \
-        umulh   x4, x5, x10 __LF                   \
-        adc     x4, x4, xzr __LF                   \
-        umulh   x11, x5, x7 __LF                   \
-        adds    x15, x15, x11 __LF                 \
-        umulh   x11, x5, x8 __LF                   \
-        adcs    x16, x16, x11 __LF                 \
-        umulh   x11, x5, x9 __LF                   \
-        adcs    x3, x3, x11 __LF                   \
-        adc     x4, x4, xzr __LF                   \
-        mul     x11, x6, x7 __LF                   \
-        adds    x15, x15, x11 __LF                 \
-        mul     x11, x6, x8 __LF                   \
-        adcs    x16, x16, x11 __LF                 \
-        mul     x11, x6, x9 __LF                   \
-        adcs    x3, x3, x11 __LF                   \
-        mul     x11, x6, x10 __LF                  \
-        adcs    x4, x4, x11 __LF                   \
-        umulh   x5, x6, x10 __LF                   \
-        adc     x5, x5, xzr __LF                   \
-        umulh   x11, x6, x7 __LF                   \
-        adds    x16, x16, x11 __LF                 \
-        umulh   x11, x6, x8 __LF                   \
-        adcs    x3, x3, x11 __LF                   \
-        umulh   x11, x6, x9 __LF                   \
-        adcs    x4, x4, x11 __LF                   \
-        adc     x5, x5, xzr __LF                   \
-        mov     x7, #0x26 __LF                     \
-        mul     x11, x7, x16 __LF                  \
-        umulh   x9, x7, x16 __LF                   \
-        adds    x12, x12, x11 __LF                 \
-        mul     x11, x7, x3 __LF                   \
-        umulh   x3, x7, x3 __LF                    \
-        adcs    x13, x13, x11 __LF                 \
-        mul     x11, x7, x4 __LF                   \
-        umulh   x4, x7, x4 __LF                    \
-        adcs    x14, x14, x11 __LF                 \
-        mul     x11, x7, x5 __LF                   \
-        umulh   x5, x7, x5 __LF                    \
-        adcs    x15, x15, x11 __LF                 \
-        cset    x16, cs __LF                       \
-        adds    x15, x15, x4 __LF                  \
-        adc     x16, x16, x5 __LF                  \
-        cmn     x15, x15 __LF                      \
-        orr     x15, x15, #0x8000000000000000 __LF \
-        adc     x8, x16, x16 __LF                  \
-        mov     x7, #0x13 __LF                     \
-        madd    x11, x7, x8, x7 __LF               \
-        adds    x12, x12, x11 __LF                 \
-        adcs    x13, x13, x9 __LF                  \
-        adcs    x14, x14, x3 __LF                  \
-        adcs    x15, x15, xzr __LF                 \
-        csel    x7, x7, xzr, cc __LF               \
-        subs    x12, x12, x7 __LF                  \
-        sbcs    x13, x13, xzr __LF                 \
-        sbcs    x14, x14, xzr __LF                 \
-        sbc     x15, x15, xzr __LF                 \
-        and     x15, x15, #0x7fffffffffffffff __LF \
-        stp     x12, x13, [P0] __LF                \
-        stp     x14, x15, [P0+16]
-
-// A version of multiplication that only guarantees output < 2 * p_25519.
-// This basically skips the +1 and final correction in quotient estimation.
-
-#define mul_4(P0,P1,P2)                         \
-        ldp     x3, x4, [P1] __LF                  \
-        ldp     x7, x8, [P2] __LF                  \
-        mul     x12, x3, x7 __LF                   \
-        umulh   x13, x3, x7 __LF                   \
-        mul     x11, x3, x8 __LF                   \
-        umulh   x14, x3, x8 __LF                   \
-        adds    x13, x13, x11 __LF                 \
-        ldp     x9, x10, [P2+16] __LF              \
-        mul     x11, x3, x9 __LF                   \
-        umulh   x15, x3, x9 __LF                   \
-        adcs    x14, x14, x11 __LF                 \
-        mul     x11, x3, x10 __LF                  \
-        umulh   x16, x3, x10 __LF                  \
-        adcs    x15, x15, x11 __LF                 \
-        adc     x16, x16, xzr __LF                 \
-        ldp     x5, x6, [P1+16] __LF               \
-        mul     x11, x4, x7 __LF                   \
-        adds    x13, x13, x11 __LF                 \
-        mul     x11, x4, x8 __LF                   \
-        adcs    x14, x14, x11 __LF                 \
-        mul     x11, x4, x9 __LF                   \
-        adcs    x15, x15, x11 __LF                 \
-        mul     x11, x4, x10 __LF                  \
-        adcs    x16, x16, x11 __LF                 \
-        umulh   x3, x4, x10 __LF                   \
-        adc     x3, x3, xzr __LF                   \
-        umulh   x11, x4, x7 __LF                   \
-        adds    x14, x14, x11 __LF                 \
-        umulh   x11, x4, x8 __LF                   \
-        adcs    x15, x15, x11 __LF                 \
-        umulh   x11, x4, x9 __LF                   \
-        adcs    x16, x16, x11 __LF                 \
-        adc     x3, x3, xzr __LF                   \
-        mul     x11, x5, x7 __LF                   \
-        adds    x14, x14, x11 __LF                 \
-        mul     x11, x5, x8 __LF                   \
-        adcs    x15, x15, x11 __LF                 \
-        mul     x11, x5, x9 __LF                   \
-        adcs    x16, x16, x11 __LF                 \
-        mul     x11, x5, x10 __LF                  \
-        adcs    x3, x3, x11 __LF                   \
-        umulh   x4, x5, x10 __LF                   \
-        adc     x4, x4, xzr __LF                   \
-        umulh   x11, x5, x7 __LF                   \
-        adds    x15, x15, x11 __LF                 \
-        umulh   x11, x5, x8 __LF                   \
-        adcs    x16, x16, x11 __LF                 \
-        umulh   x11, x5, x9 __LF                   \
-        adcs    x3, x3, x11 __LF                   \
-        adc     x4, x4, xzr __LF                   \
-        mul     x11, x6, x7 __LF                   \
-        adds    x15, x15, x11 __LF                 \
-        mul     x11, x6, x8 __LF                   \
-        adcs    x16, x16, x11 __LF                 \
-        mul     x11, x6, x9 __LF                   \
-        adcs    x3, x3, x11 __LF                   \
-        mul     x11, x6, x10 __LF                  \
-        adcs    x4, x4, x11 __LF                   \
-        umulh   x5, x6, x10 __LF                   \
-        adc     x5, x5, xzr __LF                   \
-        umulh   x11, x6, x7 __LF                   \
-        adds    x16, x16, x11 __LF                 \
-        umulh   x11, x6, x8 __LF                   \
-        adcs    x3, x3, x11 __LF                   \
-        umulh   x11, x6, x9 __LF                   \
-        adcs    x4, x4, x11 __LF                   \
-        adc     x5, x5, xzr __LF                   \
-        mov     x7, #0x26 __LF                     \
-        mul     x11, x7, x16 __LF                  \
-        umulh   x9, x7, x16 __LF                   \
-        adds    x12, x12, x11 __LF                 \
-        mul     x11, x7, x3 __LF                   \
-        umulh   x3, x7, x3 __LF                    \
-        adcs    x13, x13, x11 __LF                 \
-        mul     x11, x7, x4 __LF                   \
-        umulh   x4, x7, x4 __LF                    \
-        adcs    x14, x14, x11 __LF                 \
-        mul     x11, x7, x5 __LF                   \
-        umulh   x5, x7, x5 __LF                    \
-        adcs    x15, x15, x11 __LF                 \
-        cset    x16, cs __LF                       \
-        adds    x15, x15, x4 __LF                  \
-        adc     x16, x16, x5 __LF                  \
-        cmn     x15, x15 __LF                      \
-        bic     x15, x15, #0x8000000000000000 __LF \
-        adc     x8, x16, x16 __LF                  \
-        mov     x7, #0x13 __LF                     \
-        mul     x11, x7, x8 __LF                   \
-        adds    x12, x12, x11 __LF                 \
-        adcs    x13, x13, x9 __LF                  \
-        adcs    x14, x14, x3 __LF                  \
-        adc     x15, x15, xzr __LF                 \
-        stp     x12, x13, [P0] __LF                \
-        stp     x14, x15, [P0+16]
-
-// Squaring just giving a result < 2 * p_25519, which is done by
-// basically skipping the +1 in the quotient estimate and the final
-// optional correction.
-
-#define sqr_4(P0,P1)                            \
-        ldp     x2, x3, [P1] __LF                  \
-        mul     x9, x2, x3 __LF                    \
-        umulh   x10, x2, x3 __LF                   \
-        ldp     x4, x5, [P1+16] __LF               \
-        mul     x11, x2, x5 __LF                   \
-        umulh   x12, x2, x5 __LF                   \
-        mul     x7, x2, x4 __LF                    \
-        umulh   x6, x2, x4 __LF                    \
-        adds    x10, x10, x7 __LF                  \
-        adcs    x11, x11, x6 __LF                  \
-        mul     x7, x3, x4 __LF                    \
-        umulh   x6, x3, x4 __LF                    \
-        adc     x6, x6, xzr __LF                   \
-        adds    x11, x11, x7 __LF                  \
-        mul     x13, x4, x5 __LF                   \
-        umulh   x14, x4, x5 __LF                   \
-        adcs    x12, x12, x6 __LF                  \
-        mul     x7, x3, x5 __LF                    \
-        umulh   x6, x3, x5 __LF                    \
-        adc     x6, x6, xzr __LF                   \
-        adds    x12, x12, x7 __LF                  \
-        adcs    x13, x13, x6 __LF                  \
-        adc     x14, x14, xzr __LF                 \
-        adds    x9, x9, x9 __LF                    \
-        adcs    x10, x10, x10 __LF                 \
-        adcs    x11, x11, x11 __LF                 \
-        adcs    x12, x12, x12 __LF                 \
-        adcs    x13, x13, x13 __LF                 \
-        adcs    x14, x14, x14 __LF                 \
-        cset    x6, cs __LF                        \
-        umulh   x7, x2, x2 __LF                    \
-        mul     x8, x2, x2 __LF                    \
-        adds    x9, x9, x7 __LF                    \
-        mul     x7, x3, x3 __LF                    \
-        adcs    x10, x10, x7 __LF                  \
-        umulh   x7, x3, x3 __LF                    \
-        adcs    x11, x11, x7 __LF                  \
-        mul     x7, x4, x4 __LF                    \
-        adcs    x12, x12, x7 __LF                  \
-        umulh   x7, x4, x4 __LF                    \
-        adcs    x13, x13, x7 __LF                  \
-        mul     x7, x5, x5 __LF                    \
-        adcs    x14, x14, x7 __LF                  \
-        umulh   x7, x5, x5 __LF                    \
-        adc     x6, x6, x7 __LF                    \
-        mov     x3, #0x26 __LF                     \
-        mul     x7, x3, x12 __LF                   \
-        umulh   x4, x3, x12 __LF                   \
-        adds    x8, x8, x7 __LF                    \
-        mul     x7, x3, x13 __LF                   \
-        umulh   x13, x3, x13 __LF                  \
-        adcs    x9, x9, x7 __LF                    \
-        mul     x7, x3, x14 __LF                   \
-        umulh   x14, x3, x14 __LF                  \
-        adcs    x10, x10, x7 __LF                  \
-        mul     x7, x3, x6 __LF                    \
-        umulh   x6, x3, x6 __LF                    \
-        adcs    x11, x11, x7 __LF                  \
-        cset    x12, cs __LF                       \
-        adds    x11, x11, x14 __LF                 \
-        adc     x12, x12, x6 __LF                  \
-        cmn     x11, x11 __LF                      \
-        bic     x11, x11, #0x8000000000000000 __LF \
-        adc     x2, x12, x12 __LF                  \
-        mov     x3, #0x13 __LF                     \
-        mul     x7, x3, x2 __LF                    \
-        adds    x8, x8, x7 __LF                    \
-        adcs    x9, x9, x4 __LF                    \
-        adcs    x10, x10, x13 __LF                 \
-        adc     x11, x11, xzr __LF                 \
-        stp     x8, x9, [P0] __LF                  \
-        stp     x10, x11, [P0+16]
-
-// Modular subtraction with double modulus 2 * p_25519 = 2^256 - 38
-
-#define sub_twice4(P0,P1,P2)                    \
-        ldp     x5, x6, [P1] __LF                  \
-        ldp     x4, x3, [P2] __LF                  \
-        subs    x5, x5, x4 __LF                    \
-        sbcs    x6, x6, x3 __LF                    \
-        ldp     x7, x8, [P1+16] __LF               \
-        ldp     x4, x3, [P2+16] __LF               \
-        sbcs    x7, x7, x4 __LF                    \
-        sbcs    x8, x8, x3 __LF                    \
-        mov     x4, #38 __LF                       \
-        csel    x3, x4, xzr, lo __LF               \
-        subs    x5, x5, x3 __LF                    \
-        sbcs    x6, x6, xzr __LF                   \
-        sbcs    x7, x7, xzr __LF                   \
-        sbc     x8, x8, xzr __LF                   \
-        stp     x5, x6, [P0] __LF                  \
-        stp     x7, x8, [P0+16]
-
-// Modular addition and doubling with double modulus 2 * p_25519 = 2^256 - 38.
-// This only ensures that the result fits in 4 digits, not that it is reduced
-// even w.r.t. double modulus. The result is always correct modulo provided
-// the sum of the inputs is < 2^256 + 2^256 - 38, so in particular provided
-// at least one of them is reduced double modulo.
-
-#define add_twice4(P0,P1,P2)                    \
-        ldp     x3, x4, [P1] __LF                  \
-        ldp     x7, x8, [P2] __LF                  \
-        adds    x3, x3, x7 __LF                    \
-        adcs    x4, x4, x8 __LF                    \
-        ldp     x5, x6, [P1+16] __LF               \
-        ldp     x7, x8, [P2+16] __LF               \
-        adcs    x5, x5, x7 __LF                    \
-        adcs    x6, x6, x8 __LF                    \
-        mov     x9, #38 __LF                       \
-        csel    x9, x9, xzr, cs __LF               \
-        adds    x3, x3, x9 __LF                    \
-        adcs    x4, x4, xzr __LF                   \
-        adcs    x5, x5, xzr __LF                   \
-        adc     x6, x6, xzr __LF                   \
-        stp     x3, x4, [P0] __LF                  \
-        stp     x5, x6, [P0+16]
-
-#define double_twice4(P0,P1)                    \
-        ldp     x3, x4, [P1] __LF                  \
-        adds    x3, x3, x3 __LF                    \
-        adcs    x4, x4, x4 __LF                    \
-        ldp     x5, x6, [P1+16] __LF               \
-        adcs    x5, x5, x5 __LF                    \
-        adcs    x6, x6, x6 __LF                    \
-        mov     x9, #38 __LF                       \
-        csel    x9, x9, xzr, cs __LF               \
-        adds    x3, x3, x9 __LF                    \
-        adcs    x4, x4, xzr __LF                   \
-        adcs    x5, x5, xzr __LF                   \
-        adc     x6, x6, xzr __LF                   \
-        stp     x3, x4, [P0] __LF                  \
-        stp     x5, x6, [P0+16]
-
-// Load the constant k_25519 = 2 * d_25519 using immediate operations
-
-#define load_k25519(P0)                         \
-        movz    x0, #0xf159 __LF                   \
-        movz    x1, #0xb156 __LF                   \
-        movz    x2, #0xd130 __LF                   \
-        movz    x3, #0xfce7 __LF                   \
-        movk    x0, #0x26b2, lsl #16 __LF          \
-        movk    x1, #0x8283, lsl #16 __LF          \
-        movk    x2, #0xeef3, lsl #16 __LF          \
-        movk    x3, #0x56df, lsl #16 __LF          \
-        movk    x0, #0x9b94, lsl #32 __LF          \
-        movk    x1, #0x149a, lsl #32 __LF          \
-        movk    x2, #0x80f2, lsl #32 __LF          \
-        movk    x3, #0xd9dc, lsl #32 __LF          \
-        movk    x0, #0xebd6, lsl #48 __LF          \
-        movk    x1, #0x00e0, lsl #48 __LF          \
-        movk    x2, #0x198e, lsl #48 __LF          \
-        movk    x3, #0x2406, lsl #48 __LF          \
-        stp     x0, x1, [P0] __LF                  \
-        stp     x2, x3, [P0+16]
-
-S2N_BN_SYMBOL(edwards25519_scalarmuldouble_alt):
-
-// Save regs and make room for temporaries
-
-        stp     x19, x20, [sp, -16]!
-        stp     x21, x22, [sp, -16]!
-        stp     x23, x24, [sp, -16]!
-        stp     x25, x30, [sp, -16]!
-        sub     sp, sp, #NSPACE
-
-// Move the output pointer to a stable place
-
-        mov     res, x0
-
-// Copy scalars while recoding all 4-bit nybbles except the top
-// one (bits 252..255) into signed 4-bit digits. This is essentially
-// done just by adding the recoding constant 0x0888..888, after
-// which all digits except the first have an implicit bias of -8,
-// so 0 -> -8, 1 -> -7, ... 7 -> -1, 8 -> 0, 9 -> 1, ... 15 -> 7.
-// (We could literally create 2s complement signed nybbles by
-// XORing with the same constant 0x0888..888 afterwards, but it
-// doesn't seem to make the end usage any simpler.)
-//
-// In order to ensure that the unrecoded top nybble (bits 252..255)
-// does not become > 8 as a result of carries lower down from the
-// recoding, we first (conceptually) subtract the group order iff
-// the top digit of the scalar is > 2^63. In the implementation the
-// reduction and recoding are combined by optionally using the
-// modified recoding constant 0x0888...888 + (2^256 - group_order).
-
-        movbig(x4,#0xc7f5, #0x6fb5, #0xa0d9, #0xe920)
-        movbig(x5,#0xe190, #0xb993, #0x70cb, #0xa1d5)
-        mov     x7, #0x8888888888888888
-        sub     x6, x7, #1
-        bic     x8, x7, #0xF000000000000000
-
-        ldp     x10, x11, [x3]
-        ldp     x12, x13, [x3, #16]
-        mov     x3, 0x8000000000000000
-        cmp     x3, x13
-        csel    x14, x7, x4, cs
-        csel    x15, x7, x5, cs
-        csel    x16, x7, x6, cs
-        csel    x17, x8, x7, cs
-        adds    x10, x10, x14
-        adcs    x11, x11, x15
-        adcs    x12, x12, x16
-        adc     x13, x13, x17
-        stp     x10, x11, [bscalar]
-        stp     x12, x13, [bscalar+16]
-
-        ldp     x10, x11, [x1]
-        ldp     x12, x13, [x1, #16]
-        mov     x3, 0x8000000000000000
-        cmp     x3, x13
-        csel    x14, x7, x4, cs
-        csel    x15, x7, x5, cs
-        csel    x16, x7, x6, cs
-        csel    x17, x8, x7, cs
-        adds    x10, x10, x14
-        adcs    x11, x11, x15
-        adcs    x12, x12, x16
-        adc     x13, x13, x17
-        stp     x10, x11, [scalar]
-        stp     x12, x13, [scalar+16]
-
-// Create table of multiples 1..8 of the general input point at "tab".
-// Reduce the input coordinates x and y modulo 2^256 - 38 first, for the
-// sake of definiteness; this is the reduction that will be maintained.
-// We could slightly optimize the additions because we know the input
-// point is affine (so Z = 1), but it doesn't seem worth the complication.
-
-        ldp     x10, x11, [x2]
-        ldp     x12, x13, [x2, #16]
-        adds    x14, x10, #38
-        adcs    x15, x11, xzr
-        adcs    x16, x12, xzr
-        adcs    x17, x13, xzr
-        csel    x10, x14, x10, cs
-        csel    x11, x15, x11, cs
-        csel    x12, x16, x12, cs
-        csel    x13, x17, x13, cs
-        stp     x10, x11, [tab]
-        stp     x12, x13, [tab+16]
-
-        ldp     x10, x11, [x2, #32]
-        ldp     x12, x13, [x2, #48]
-        adds    x14, x10, #38
-        adcs    x15, x11, xzr
-        adcs    x16, x12, xzr
-        adcs    x17, x13, xzr
-        csel    x10, x14, x10, cs
-        csel    x11, x15, x11, cs
-        csel    x12, x16, x12, cs
-        csel    x13, x17, x13, cs
-        stp     x10, x11, [tab+32]
-        stp     x12, x13, [tab+48]
-
-        mov     x1, #1
-        stp     x1, xzr, [tab+64]
-        stp     xzr, xzr, [tab+80]
-
-        add     p0, tab+96
-        add     p1, tab
-        add     p2, tab+32
-        mul_4(x_0,x_1,x_2)
-
-// Multiple 2
-
-        add     p0, tab+1*128
-        add     p1, tab
-        bl      edwards25519_scalarmuldouble_alt_epdouble
-
-// Multiple 3
-
-        add     p0, tab+2*128
-        add     p1, tab
-        add     p2, tab+1*128
-        bl      edwards25519_scalarmuldouble_alt_epadd
-
-// Multiple 4
-
-        add     p0, tab+3*128
-        add     p1, tab+1*128
-        bl      edwards25519_scalarmuldouble_alt_epdouble
-
-// Multiple 5
-
-        add     p0, tab+4*128
-        add     p1, tab
-        add     p2, tab+3*128
-        bl      edwards25519_scalarmuldouble_alt_epadd
-
-// Multiple 6
-
-        add     p0, tab+5*128
-        add     p1, tab+2*128
-        bl      edwards25519_scalarmuldouble_alt_epdouble
-
-// Multiple 7
-
-        add     p0, tab+6*128
-        add     p1, tab
-        add     p2, tab+5*128
-        bl      edwards25519_scalarmuldouble_alt_epadd
-
-// Multiple 8
-
-        add     p0, tab+7*128
-        add     p1, tab+3*128
-        bl      edwards25519_scalarmuldouble_alt_epdouble
-
-// Handle the initialization, starting the loop counter at i = 252
-// and initializing acc to the sum of the table entries for the
-// top nybbles of the scalars (the ones with no implicit -8 bias).
-
-        mov     i, #252
-
-// Index for btable entry...
-
-        ldr     x0, [bscalar+24]
-        lsr     bf, x0, #60
-
-// ...and constant-time indexing based on that index
-
-        adr     x14, edwards25519_scalarmuldouble_alt_table
-
-        mov     x0, #1
-        mov     x1, xzr
-        mov     x2, xzr
-        mov     x3, xzr
-        mov     x4, #1
-        mov     x5, xzr
-        mov     x6, xzr
-        mov     x7, xzr
-        mov     x8, xzr
-        mov     x9, xzr
-        mov     x10, xzr
-        mov     x11, xzr
-
-        cmp     bf, #1
-        ldp     x12, x13, [x14]
-        csel    x0, x0, x12, ne
-        csel    x1, x1, x13, ne
-        ldp     x12, x13, [x14, #16]
-        csel    x2, x2, x12, ne
-        csel    x3, x3, x13, ne
-        ldp     x12, x13, [x14, #32]
-        csel    x4, x4, x12, ne
-        csel    x5, x5, x13, ne
-        ldp     x12, x13, [x14, #48]
-        csel    x6, x6, x12, ne
-        csel    x7, x7, x13, ne
-        ldp     x12, x13, [x14, #64]
-        csel    x8, x8, x12, ne
-        csel    x9, x9, x13, ne
-        ldp     x12, x13, [x14, #80]
-        csel    x10, x10, x12, ne
-        csel    x11, x11, x13, ne
-        add     x14, x14, #96
-
-        cmp     bf, #2
-        ldp     x12, x13, [x14]
-        csel    x0, x0, x12, ne
-        csel    x1, x1, x13, ne
-        ldp     x12, x13, [x14, #16]
-        csel    x2, x2, x12, ne
-        csel    x3, x3, x13, ne
-        ldp     x12, x13, [x14, #32]
-        csel    x4, x4, x12, ne
-        csel    x5, x5, x13, ne
-        ldp     x12, x13, [x14, #48]
-        csel    x6, x6, x12, ne
-        csel    x7, x7, x13, ne
-        ldp     x12, x13, [x14, #64]
-        csel    x8, x8, x12, ne
-        csel    x9, x9, x13, ne
-        ldp     x12, x13, [x14, #80]
-        csel    x10, x10, x12, ne
-        csel    x11, x11, x13, ne
-        add     x14, x14, #96
-
-        cmp     bf, #3
-        ldp     x12, x13, [x14]
-        csel    x0, x0, x12, ne
-        csel    x1, x1, x13, ne
-        ldp     x12, x13, [x14, #16]
-        csel    x2, x2, x12, ne
-        csel    x3, x3, x13, ne
-        ldp     x12, x13, [x14, #32]
-        csel    x4, x4, x12, ne
-        csel    x5, x5, x13, ne
-        ldp     x12, x13, [x14, #48]
-        csel    x6, x6, x12, ne
-        csel    x7, x7, x13, ne
-        ldp     x12, x13, [x14, #64]
-        csel    x8, x8, x12, ne
-        csel    x9, x9, x13, ne
-        ldp     x12, x13, [x14, #80]
-        csel    x10, x10, x12, ne
-        csel    x11, x11, x13, ne
-        add     x14, x14, #96
-
-        cmp     bf, #4
-        ldp     x12, x13, [x14]
-        csel    x0, x0, x12, ne
-        csel    x1, x1, x13, ne
-        ldp     x12, x13, [x14, #16]
-        csel    x2, x2, x12, ne
-        csel    x3, x3, x13, ne
-        ldp     x12, x13, [x14, #32]
-        csel    x4, x4, x12, ne
-        csel    x5, x5, x13, ne
-        ldp     x12, x13, [x14, #48]
-        csel    x6, x6, x12, ne
-        csel    x7, x7, x13, ne
-        ldp     x12, x13, [x14, #64]
-        csel    x8, x8, x12, ne
-        csel    x9, x9, x13, ne
-        ldp     x12, x13, [x14, #80]
-        csel    x10, x10, x12, ne
-        csel    x11, x11, x13, ne
-        add     x14, x14, #96
-
-        cmp     bf, #5
-        ldp     x12, x13, [x14]
-        csel    x0, x0, x12, ne
-        csel    x1, x1, x13, ne
-        ldp     x12, x13, [x14, #16]
-        csel    x2, x2, x12, ne
-        csel    x3, x3, x13, ne
-        ldp     x12, x13, [x14, #32]
-        csel    x4, x4, x12, ne
-        csel    x5, x5, x13, ne
-        ldp     x12, x13, [x14, #48]
-        csel    x6, x6, x12, ne
-        csel    x7, x7, x13, ne
-        ldp     x12, x13, [x14, #64]
-        csel    x8, x8, x12, ne
-        csel    x9, x9, x13, ne
-        ldp     x12, x13, [x14, #80]
-        csel    x10, x10, x12, ne
-        csel    x11, x11, x13, ne
-        add     x14, x14, #96
-
-        cmp     bf, #6
-        ldp     x12, x13, [x14]
-        csel    x0, x0, x12, ne
-        csel    x1, x1, x13, ne
-        ldp     x12, x13, [x14, #16]
-        csel    x2, x2, x12, ne
-        csel    x3, x3, x13, ne
-        ldp     x12, x13, [x14, #32]
-        csel    x4, x4, x12, ne
-        csel    x5, x5, x13, ne
-        ldp     x12, x13, [x14, #48]
-        csel    x6, x6, x12, ne
-        csel    x7, x7, x13, ne
-        ldp     x12, x13, [x14, #64]
-        csel    x8, x8, x12, ne
-        csel    x9, x9, x13, ne
-        ldp     x12, x13, [x14, #80]
-        csel    x10, x10, x12, ne
-        csel    x11, x11, x13, ne
-        add     x14, x14, #96
-
-        cmp     bf, #7
-        ldp     x12, x13, [x14]
-        csel    x0, x0, x12, ne
-        csel    x1, x1, x13, ne
-        ldp     x12, x13, [x14, #16]
-        csel    x2, x2, x12, ne
-        csel    x3, x3, x13, ne
-        ldp     x12, x13, [x14, #32]
-        csel    x4, x4, x12, ne
-        csel    x5, x5, x13, ne
-        ldp     x12, x13, [x14, #48]
-        csel    x6, x6, x12, ne
-        csel    x7, x7, x13, ne
-        ldp     x12, x13, [x14, #64]
-        csel    x8, x8, x12, ne
-        csel    x9, x9, x13, ne
-        ldp     x12, x13, [x14, #80]
-        csel    x10, x10, x12, ne
-        csel    x11, x11, x13, ne
-        add     x14, x14, #96
-
-        cmp     bf, #8
-        ldp     x12, x13, [x14]
-        csel    x0, x0, x12, ne
-        csel    x1, x1, x13, ne
-        ldp     x12, x13, [x14, #16]
-        csel    x2, x2, x12, ne
-        csel    x3, x3, x13, ne
-        ldp     x12, x13, [x14, #32]
-        csel    x4, x4, x12, ne
-        csel    x5, x5, x13, ne
-        ldp     x12, x13, [x14, #48]
-        csel    x6, x6, x12, ne
-        csel    x7, x7, x13, ne
-        ldp     x12, x13, [x14, #64]
-        csel    x8, x8, x12, ne
-        csel    x9, x9, x13, ne
-        ldp     x12, x13, [x14, #80]
-        csel    x10, x10, x12, ne
-        csel    x11, x11, x13, ne
-
-        stp     x0, x1, [btabent]
-        stp     x2, x3, [btabent+16]
-        stp     x4, x5, [btabent+32]
-        stp     x6, x7, [btabent+48]
-        stp     x8, x9, [btabent+64]
-        stp     x10, x11, [btabent+80]
-
-// Index for table entry...
-
-        ldr     x0, [scalar+24]
-        lsr     bf, x0, #60
-
-// ...and constant-time indexing based on that index
-
-        add     p0, tab
-
-        mov     x0, xzr
-        mov     x1, xzr
-        mov     x2, xzr
-        mov     x3, xzr
-        mov     x4, #1
-        mov     x5, xzr
-        mov     x6, xzr
-        mov     x7, xzr
-        mov     x8, #1
-        mov     x9, xzr
-        mov     x10, xzr
-        mov     x11, xzr
-        mov     x12, xzr
-        mov     x13, xzr
-        mov     x14, xzr
-        mov     x15, xzr
-
-        cmp     bf, #1
-        ldp     x16, x17, [p0]
-        csel    x0, x0, x16, ne
-        csel    x1, x1, x17, ne
-        ldp     x16, x17, [p0, #16]
-        csel    x2, x2, x16, ne
-        csel    x3, x3, x17, ne
-        ldp     x16, x17, [p0, #32]
-        csel    x4, x4, x16, ne
-        csel    x5, x5, x17, ne
-        ldp     x16, x17, [p0, #48]
-        csel    x6, x6, x16, ne
-        csel    x7, x7, x17, ne
-        ldp     x16, x17, [p0, #64]
-        csel    x8, x8, x16, ne
-        csel    x9, x9, x17, ne
-        ldp     x16, x17, [p0, #80]
-        csel    x10, x10, x16, ne
-        csel    x11, x11, x17, ne
-        ldp     x16, x17, [p0, #96]
-        csel    x12, x12, x16, ne
-        csel    x13, x13, x17, ne
-        ldp     x16, x17, [p0, #112]
-        csel    x14, x14, x16, ne
-        csel    x15, x15, x17, ne
-        add     p0, p0, #128
-
-        cmp     bf, #2
-        ldp     x16, x17, [p0]
-        csel    x0, x0, x16, ne
-        csel    x1, x1, x17, ne
-        ldp     x16, x17, [p0, #16]
-        csel    x2, x2, x16, ne
-        csel    x3, x3, x17, ne
-        ldp     x16, x17, [p0, #32]
-        csel    x4, x4, x16, ne
-        csel    x5, x5, x17, ne
-        ldp     x16, x17, [p0, #48]
-        csel    x6, x6, x16, ne
-        csel    x7, x7, x17, ne
-        ldp     x16, x17, [p0, #64]
-        csel    x8, x8, x16, ne
-        csel    x9, x9, x17, ne
-        ldp     x16, x17, [p0, #80]
-        csel    x10, x10, x16, ne
-        csel    x11, x11, x17, ne
-        ldp     x16, x17, [p0, #96]
-        csel    x12, x12, x16, ne
-        csel    x13, x13, x17, ne
-        ldp     x16, x17, [p0, #112]
-        csel    x14, x14, x16, ne
-        csel    x15, x15, x17, ne
-        add     p0, p0, #128
-
-        cmp     bf, #3
-        ldp     x16, x17, [p0]
-        csel    x0, x0, x16, ne
-        csel    x1, x1, x17, ne
-        ldp     x16, x17, [p0, #16]
-        csel    x2, x2, x16, ne
-        csel    x3, x3, x17, ne
-        ldp     x16, x17, [p0, #32]
-        csel    x4, x4, x16, ne
-        csel    x5, x5, x17, ne
-        ldp     x16, x17, [p0, #48]
-        csel    x6, x6, x16, ne
-        csel    x7, x7, x17, ne
-        ldp     x16, x17, [p0, #64]
-        csel    x8, x8, x16, ne
-        csel    x9, x9, x17, ne
-        ldp     x16, x17, [p0, #80]
-        csel    x10, x10, x16, ne
-        csel    x11, x11, x17, ne
-        ldp     x16, x17, [p0, #96]
-        csel    x12, x12, x16, ne
-        csel    x13, x13, x17, ne
-        ldp     x16, x17, [p0, #112]
-        csel    x14, x14, x16, ne
-        csel    x15, x15, x17, ne
-        add     p0, p0, #128
-
-        cmp     bf, #4
-        ldp     x16, x17, [p0]
-        csel    x0, x0, x16, ne
-        csel    x1, x1, x17, ne
-        ldp     x16, x17, [p0, #16]
-        csel    x2, x2, x16, ne
-        csel    x3, x3, x17, ne
-        ldp     x16, x17, [p0, #32]
-        csel    x4, x4, x16, ne
-        csel    x5, x5, x17, ne
-        ldp     x16, x17, [p0, #48]
-        csel    x6, x6, x16, ne
-        csel    x7, x7, x17, ne
-        ldp     x16, x17, [p0, #64]
-        csel    x8, x8, x16, ne
-        csel    x9, x9, x17, ne
-        ldp     x16, x17, [p0, #80]
-        csel    x10, x10, x16, ne
-        csel    x11, x11, x17, ne
-        ldp     x16, x17, [p0, #96]
-        csel    x12, x12, x16, ne
-        csel    x13, x13, x17, ne
-        ldp     x16, x17, [p0, #112]
-        csel    x14, x14, x16, ne
-        csel    x15, x15, x17, ne
-        add     p0, p0, #128
-
-        cmp     bf, #5
-        ldp     x16, x17, [p0]
-        csel    x0, x0, x16, ne
-        csel    x1, x1, x17, ne
-        ldp     x16, x17, [p0, #16]
-        csel    x2, x2, x16, ne
-        csel    x3, x3, x17, ne
-        ldp     x16, x17, [p0, #32]
-        csel    x4, x4, x16, ne
-        csel    x5, x5, x17, ne
-        ldp     x16, x17, [p0, #48]
-        csel    x6, x6, x16, ne
-        csel    x7, x7, x17, ne
-        ldp     x16, x17, [p0, #64]
-        csel    x8, x8, x16, ne
-        csel    x9, x9, x17, ne
-        ldp     x16, x17, [p0, #80]
-        csel    x10, x10, x16, ne
-        csel    x11, x11, x17, ne
-        ldp     x16, x17, [p0, #96]
-        csel    x12, x12, x16, ne
-        csel    x13, x13, x17, ne
-        ldp     x16, x17, [p0, #112]
-        csel    x14, x14, x16, ne
-        csel    x15, x15, x17, ne
-        add     p0, p0, #128
-
-        cmp     bf, #6
-        ldp     x16, x17, [p0]
-        csel    x0, x0, x16, ne
-        csel    x1, x1, x17, ne
-        ldp     x16, x17, [p0, #16]
-        csel    x2, x2, x16, ne
-        csel    x3, x3, x17, ne
-        ldp     x16, x17, [p0, #32]
-        csel    x4, x4, x16, ne
-        csel    x5, x5, x17, ne
-        ldp     x16, x17, [p0, #48]
-        csel    x6, x6, x16, ne
-        csel    x7, x7, x17, ne
-        ldp     x16, x17, [p0, #64]
-        csel    x8, x8, x16, ne
-        csel    x9, x9, x17, ne
-        ldp     x16, x17, [p0, #80]
-        csel    x10, x10, x16, ne
-        csel    x11, x11, x17, ne
-        ldp     x16, x17, [p0, #96]
-        csel    x12, x12, x16, ne
-        csel    x13, x13, x17, ne
-        ldp     x16, x17, [p0, #112]
-        csel    x14, x14, x16, ne
-        csel    x15, x15, x17, ne
-        add     p0, p0, #128
-
-        cmp     bf, #7
-        ldp     x16, x17, [p0]
-        csel    x0, x0, x16, ne
-        csel    x1, x1, x17, ne
-        ldp     x16, x17, [p0, #16]
-        csel    x2, x2, x16, ne
-        csel    x3, x3, x17, ne
-        ldp     x16, x17, [p0, #32]
-        csel    x4, x4, x16, ne
-        csel    x5, x5, x17, ne
-        ldp     x16, x17, [p0, #48]
-        csel    x6, x6, x16, ne
-        csel    x7, x7, x17, ne
-        ldp     x16, x17, [p0, #64]
-        csel    x8, x8, x16, ne
-        csel    x9, x9, x17, ne
-        ldp     x16, x17, [p0, #80]
-        csel    x10, x10, x16, ne
-        csel    x11, x11, x17, ne
-        ldp     x16, x17, [p0, #96]
-        csel    x12, x12, x16, ne
-        csel    x13, x13, x17, ne
-        ldp     x16, x17, [p0, #112]
-        csel    x14, x14, x16, ne
-        csel    x15, x15, x17, ne
-        add     p0, p0, #128
-
-        cmp     bf, #8
-        ldp     x16, x17, [p0]
-        csel    x0, x0, x16, ne
-        csel    x1, x1, x17, ne
-        ldp     x16, x17, [p0, #16]
-        csel    x2, x2, x16, ne
-        csel    x3, x3, x17, ne
-        ldp     x16, x17, [p0, #32]
-        csel    x4, x4, x16, ne
-        csel    x5, x5, x17, ne
-        ldp     x16, x17, [p0, #48]
-        csel    x6, x6, x16, ne
-        csel    x7, x7, x17, ne
-        ldp     x16, x17, [p0, #64]
-        csel    x8, x8, x16, ne
-        csel    x9, x9, x17, ne
-        ldp     x16, x17, [p0, #80]
-        csel    x10, x10, x16, ne
-        csel    x11, x11, x17, ne
-        ldp     x16, x17, [p0, #96]
-        csel    x12, x12, x16, ne
-        csel    x13, x13, x17, ne
-        ldp     x16, x17, [p0, #112]
-        csel    x14, x14, x16, ne
-        csel    x15, x15, x17, ne
-
-        stp     x0, x1, [tabent]
-        stp     x2, x3, [tabent+16]
-        stp     x4, x5, [tabent+32]
-        stp     x6, x7, [tabent+48]
-        stp     x8, x9, [tabent+64]
-        stp     x10, x11, [tabent+80]
-        stp     x12, x13, [tabent+96]
-        stp     x14, x15, [tabent+112]
-
-// Add those elements to initialize the accumulator for bit position 252
-
-        add     p0, acc
-        add     p1, tabent
-        add     p2, btabent
-        bl      edwards25519_scalarmuldouble_alt_pepadd
-
-// Main loop with acc = [scalar/2^i] * point + [bscalar/2^i] * basepoint
-// Start with i = 252 for bits 248..251 and go down four at a time to 3..0
-
-edwards25519_scalarmuldouble_alt_loop:
-
-        sub     i, i, #4
-
-// Double to acc' = 2 * acc
-
-        add     p0, acc
-        add     p1, acc
-        bl      edwards25519_scalarmuldouble_alt_pdouble
-
-// Get btable entry, first getting the adjusted bitfield...
-
-        lsr     x0, i, #6
-        add     x1, bscalar
-        ldr     x2, [x1, x0, lsl #3]
-        lsr     x3, x2, i
-        and     x0, x3, #15
-        subs    bf, x0, #8
-        cneg    bf, bf, cc
-        csetm   cf, cc
-
-// ... then doing constant-time lookup with the appropriate index...
-
-        adr     x14, edwards25519_scalarmuldouble_alt_table
-
-        mov     x0, #1
-        mov     x1, xzr
-        mov     x2, xzr
-        mov     x3, xzr
-        mov     x4, #1
-        mov     x5, xzr
-        mov     x6, xzr
-        mov     x7, xzr
-        mov     x8, xzr
-        mov     x9, xzr
-        mov     x10, xzr
-        mov     x11, xzr
-
-        cmp     bf, #1
-        ldp     x12, x13, [x14]
-        csel    x0, x0, x12, ne
-        csel    x1, x1, x13, ne
-        ldp     x12, x13, [x14, #16]
-        csel    x2, x2, x12, ne
-        csel    x3, x3, x13, ne
-        ldp     x12, x13, [x14, #32]
-        csel    x4, x4, x12, ne
-        csel    x5, x5, x13, ne
-        ldp     x12, x13, [x14, #48]
-        csel    x6, x6, x12, ne
-        csel    x7, x7, x13, ne
-        ldp     x12, x13, [x14, #64]
-        csel    x8, x8, x12, ne
-        csel    x9, x9, x13, ne
-        ldp     x12, x13, [x14, #80]
-        csel    x10, x10, x12, ne
-        csel    x11, x11, x13, ne
-        add     x14, x14, #96
-
-        cmp     bf, #2
-        ldp     x12, x13, [x14]
-        csel    x0, x0, x12, ne
-        csel    x1, x1, x13, ne
-        ldp     x12, x13, [x14, #16]
-        csel    x2, x2, x12, ne
-        csel    x3, x3, x13, ne
-        ldp     x12, x13, [x14, #32]
-        csel    x4, x4, x12, ne
-        csel    x5, x5, x13, ne
-        ldp     x12, x13, [x14, #48]
-        csel    x6, x6, x12, ne
-        csel    x7, x7, x13, ne
-        ldp     x12, x13, [x14, #64]
-        csel    x8, x8, x12, ne
-        csel    x9, x9, x13, ne
-        ldp     x12, x13, [x14, #80]
-        csel    x10, x10, x12, ne
-        csel    x11, x11, x13, ne
-        add     x14, x14, #96
-
-        cmp     bf, #3
-        ldp     x12, x13, [x14]
-        csel    x0, x0, x12, ne
-        csel    x1, x1, x13, ne
-        ldp     x12, x13, [x14, #16]
-        csel    x2, x2, x12, ne
-        csel    x3, x3, x13, ne
-        ldp     x12, x13, [x14, #32]
-        csel    x4, x4, x12, ne
-        csel    x5, x5, x13, ne
-        ldp     x12, x13, [x14, #48]
-        csel    x6, x6, x12, ne
-        csel    x7, x7, x13, ne
-        ldp     x12, x13, [x14, #64]
-        csel    x8, x8, x12, ne
-        csel    x9, x9, x13, ne
-        ldp     x12, x13, [x14, #80]
-        csel    x10, x10, x12, ne
-        csel    x11, x11, x13, ne
-        add     x14, x14, #96
-
-        cmp     bf, #4
-        ldp     x12, x13, [x14]
-        csel    x0, x0, x12, ne
-        csel    x1, x1, x13, ne
-        ldp     x12, x13, [x14, #16]
-        csel    x2, x2, x12, ne
-        csel    x3, x3, x13, ne
-        ldp     x12, x13, [x14, #32]
-        csel    x4, x4, x12, ne
-        csel    x5, x5, x13, ne
-        ldp     x12, x13, [x14, #48]
-        csel    x6, x6, x12, ne
-        csel    x7, x7, x13, ne
-        ldp     x12, x13, [x14, #64]
-        csel    x8, x8, x12, ne
-        csel    x9, x9, x13, ne
-        ldp     x12, x13, [x14, #80]
-        csel    x10, x10, x12, ne
-        csel    x11, x11, x13, ne
-        add     x14, x14, #96
-
-        cmp     bf, #5
-        ldp     x12, x13, [x14]
-        csel    x0, x0, x12, ne
-        csel    x1, x1, x13, ne
-        ldp     x12, x13, [x14, #16]
-        csel    x2, x2, x12, ne
-        csel    x3, x3, x13, ne
-        ldp     x12, x13, [x14, #32]
-        csel    x4, x4, x12, ne
-        csel    x5, x5, x13, ne
-        ldp     x12, x13, [x14, #48]
-        csel    x6, x6, x12, ne
-        csel    x7, x7, x13, ne
-        ldp     x12, x13, [x14, #64]
-        csel    x8, x8, x12, ne
-        csel    x9, x9, x13, ne
-        ldp     x12, x13, [x14, #80]
-        csel    x10, x10, x12, ne
-        csel    x11, x11, x13, ne
-        add     x14, x14, #96
-
-        cmp     bf, #6
-        ldp     x12, x13, [x14]
-        csel    x0, x0, x12, ne
-        csel    x1, x1, x13, ne
-        ldp     x12, x13, [x14, #16]
-        csel    x2, x2, x12, ne
-        csel    x3, x3, x13, ne
-        ldp     x12, x13, [x14, #32]
-        csel    x4, x4, x12, ne
-        csel    x5, x5, x13, ne
-        ldp     x12, x13, [x14, #48]
-        csel    x6, x6, x12, ne
-        csel    x7, x7, x13, ne
-        ldp     x12, x13, [x14, #64]
-        csel    x8, x8, x12, ne
-        csel    x9, x9, x13, ne
-        ldp     x12, x13, [x14, #80]
-        csel    x10, x10, x12, ne
-        csel    x11, x11, x13, ne
-        add     x14, x14, #96
-
-        cmp     bf, #7
-        ldp     x12, x13, [x14]
-        csel    x0, x0, x12, ne
-        csel    x1, x1, x13, ne
-        ldp     x12, x13, [x14, #16]
-        csel    x2, x2, x12, ne
-        csel    x3, x3, x13, ne
-        ldp     x12, x13, [x14, #32]
-        csel    x4, x4, x12, ne
-        csel    x5, x5, x13, ne
-        ldp     x12, x13, [x14, #48]
-        csel    x6, x6, x12, ne
-        csel    x7, x7, x13, ne
-        ldp     x12, x13, [x14, #64]
-        csel    x8, x8, x12, ne
-        csel    x9, x9, x13, ne
-        ldp     x12, x13, [x14, #80]
-        csel    x10, x10, x12, ne
-        csel    x11, x11, x13, ne
-        add     x14, x14, #96
-
-        cmp     bf, #8
-        ldp     x12, x13, [x14]
-        csel    x0, x0, x12, ne
-        csel    x1, x1, x13, ne
-        ldp     x12, x13, [x14, #16]
-        csel    x2, x2, x12, ne
-        csel    x3, x3, x13, ne
-        ldp     x12, x13, [x14, #32]
-        csel    x4, x4, x12, ne
-        csel    x5, x5, x13, ne
-        ldp     x12, x13, [x14, #48]
-        csel    x6, x6, x12, ne
-        csel    x7, x7, x13, ne
-        ldp     x12, x13, [x14, #64]
-        csel    x8, x8, x12, ne
-        csel    x9, x9, x13, ne
-        ldp     x12, x13, [x14, #80]
-        csel    x10, x10, x12, ne
-        csel    x11, x11, x13, ne
-
-// ... then optionally negating before storing. The table entry
-// is in precomputed form and we currently have
-//
-//      [x3;x2;x1;x0] = y - x
-//      [x7;x6;x5;x4] = x + y
-//      [x11;x10;x9;x8] = 2 * d * x * y
-//
-// Negation for Edwards curves is -(x,y) = (-x,y), which in this modified
-// form amounts to swapping the first two fields and negating the third.
-// The negation does not always fully reduce even mod 2^256-38 in the zero
-// case, instead giving -0 = 2^256-38. But that is fine since the result is
-// always fed to a multiplication inside the "pepadd" function below that
-// handles any 256-bit input.
-
-        cmp     cf, xzr
-
-        csel    x12, x0, x4, eq
-        csel    x4, x0, x4, ne
-        csel    x13, x1, x5, eq
-        csel    x5, x1, x5, ne
-        csel    x14, x2, x6, eq
-        csel    x6, x2, x6, ne
-        csel    x15, x3, x7, eq
-        csel    x7, x3, x7, ne
-
-        eor     x8, x8, cf
-        eor     x9, x9, cf
-        eor     x10, x10, cf
-        eor     x11, x11, cf
-        mov     x0, #37
-        and     x0, x0, cf
-        subs    x8, x8, x0
-        sbcs    x9, x9, xzr
-        sbcs    x10, x10, xzr
-        sbc     x11, x11, xzr
-
-        stp     x12, x13, [btabent]
-        stp     x14, x15, [btabent+16]
-        stp     x4, x5, [btabent+32]
-        stp     x6, x7, [btabent+48]
-        stp     x8, x9, [btabent+64]
-        stp     x10, x11, [btabent+80]
-
-// Get table entry, first getting the adjusted bitfield...
-
-        lsr     x0, i, #6
-        ldr     x1, [sp, x0, lsl #3]
-        lsr     x2, x1, i
-        and     x0, x2, #15
-        subs    bf, x0, #8
-        cneg    bf, bf, cc
-        csetm   cf, cc
-
-// ... then getting the unadjusted table entry
-
-        add     p0, tab
-
-        mov     x0, xzr
-        mov     x1, xzr
-        mov     x2, xzr
-        mov     x3, xzr
-        mov     x4, #1
-        mov     x5, xzr
-        mov     x6, xzr
-        mov     x7, xzr
-        mov     x8, #1
-        mov     x9, xzr
-        mov     x10, xzr
-        mov     x11, xzr
-        mov     x12, xzr
-        mov     x13, xzr
-        mov     x14, xzr
-        mov     x15, xzr
-
-        cmp     bf, #1
-        ldp     x16, x17, [p0]
-        csel    x0, x0, x16, ne
-        csel    x1, x1, x17, ne
-        ldp     x16, x17, [p0, #16]
-        csel    x2, x2, x16, ne
-        csel    x3, x3, x17, ne
-        ldp     x16, x17, [p0, #32]
-        csel    x4, x4, x16, ne
-        csel    x5, x5, x17, ne
-        ldp     x16, x17, [p0, #48]
-        csel    x6, x6, x16, ne
-        csel    x7, x7, x17, ne
-        ldp     x16, x17, [p0, #64]
-        csel    x8, x8, x16, ne
-        csel    x9, x9, x17, ne
-        ldp     x16, x17, [p0, #80]
-        csel    x10, x10, x16, ne
-        csel    x11, x11, x17, ne
-        ldp     x16, x17, [p0, #96]
-        csel    x12, x12, x16, ne
-        csel    x13, x13, x17, ne
-        ldp     x16, x17, [p0, #112]
-        csel    x14, x14, x16, ne
-        csel    x15, x15, x17, ne
-        add     p0, p0, #128
-
-        cmp     bf, #2
-        ldp     x16, x17, [p0]
-        csel    x0, x0, x16, ne
-        csel    x1, x1, x17, ne
-        ldp     x16, x17, [p0, #16]
-        csel    x2, x2, x16, ne
-        csel    x3, x3, x17, ne
-        ldp     x16, x17, [p0, #32]
-        csel    x4, x4, x16, ne
-        csel    x5, x5, x17, ne
-        ldp     x16, x17, [p0, #48]
-        csel    x6, x6, x16, ne
-        csel    x7, x7, x17, ne
-        ldp     x16, x17, [p0, #64]
-        csel    x8, x8, x16, ne
-        csel    x9, x9, x17, ne
-        ldp     x16, x17, [p0, #80]
-        csel    x10, x10, x16, ne
-        csel    x11, x11, x17, ne
-        ldp     x16, x17, [p0, #96]
-        csel    x12, x12, x16, ne
-        csel    x13, x13, x17, ne
-        ldp     x16, x17, [p0, #112]
-        csel    x14, x14, x16, ne
-        csel    x15, x15, x17, ne
-        add     p0, p0, #128
-
-        cmp     bf, #3
-        ldp     x16, x17, [p0]
-        csel    x0, x0, x16, ne
-        csel    x1, x1, x17, ne
-        ldp     x16, x17, [p0, #16]
-        csel    x2, x2, x16, ne
-        csel    x3, x3, x17, ne
-        ldp     x16, x17, [p0, #32]
-        csel    x4, x4, x16, ne
-        csel    x5, x5, x17, ne
-        ldp     x16, x17, [p0, #48]
-        csel    x6, x6, x16, ne
-        csel    x7, x7, x17, ne
-        ldp     x16, x17, [p0, #64]
-        csel    x8, x8, x16, ne
-        csel    x9, x9, x17, ne
-        ldp     x16, x17, [p0, #80]
-        csel    x10, x10, x16, ne
-        csel    x11, x11, x17, ne
-        ldp     x16, x17, [p0, #96]
-        csel    x12, x12, x16, ne
-        csel    x13, x13, x17, ne
-        ldp     x16, x17, [p0, #112]
-        csel    x14, x14, x16, ne
-        csel    x15, x15, x17, ne
-        add     p0, p0, #128
-
-        cmp     bf, #4
-        ldp     x16, x17, [p0]
-        csel    x0, x0, x16, ne
-        csel    x1, x1, x17, ne
-        ldp     x16, x17, [p0, #16]
-        csel    x2, x2, x16, ne
-        csel    x3, x3, x17, ne
-        ldp     x16, x17, [p0, #32]
-        csel    x4, x4, x16, ne
-        csel    x5, x5, x17, ne
-        ldp     x16, x17, [p0, #48]
-        csel    x6, x6, x16, ne
-        csel    x7, x7, x17, ne
-        ldp     x16, x17, [p0, #64]
-        csel    x8, x8, x16, ne
-        csel    x9, x9, x17, ne
-        ldp     x16, x17, [p0, #80]
-        csel    x10, x10, x16, ne
-        csel    x11, x11, x17, ne
-        ldp     x16, x17, [p0, #96]
-        csel    x12, x12, x16, ne
-        csel    x13, x13, x17, ne
-        ldp     x16, x17, [p0, #112]
-        csel    x14, x14, x16, ne
-        csel    x15, x15, x17, ne
-        add     p0, p0, #128
-
-        cmp     bf, #5
-        ldp     x16, x17, [p0]
-        csel    x0, x0, x16, ne
-        csel    x1, x1, x17, ne
-        ldp     x16, x17, [p0, #16]
-        csel    x2, x2, x16, ne
-        csel    x3, x3, x17, ne
-        ldp     x16, x17, [p0, #32]
-        csel    x4, x4, x16, ne
-        csel    x5, x5, x17, ne
-        ldp     x16, x17, [p0, #48]
-        csel    x6, x6, x16, ne
-        csel    x7, x7, x17, ne
-        ldp     x16, x17, [p0, #64]
-        csel    x8, x8, x16, ne
-        csel    x9, x9, x17, ne
-        ldp     x16, x17, [p0, #80]
-        csel    x10, x10, x16, ne
-        csel    x11, x11, x17, ne
-        ldp     x16, x17, [p0, #96]
-        csel    x12, x12, x16, ne
-        csel    x13, x13, x17, ne
-        ldp     x16, x17, [p0, #112]
-        csel    x14, x14, x16, ne
-        csel    x15, x15, x17, ne
-        add     p0, p0, #128
-
-        cmp     bf, #6
-        ldp     x16, x17, [p0]
-        csel    x0, x0, x16, ne
-        csel    x1, x1, x17, ne
-        ldp     x16, x17, [p0, #16]
-        csel    x2, x2, x16, ne
-        csel    x3, x3, x17, ne
-        ldp     x16, x17, [p0, #32]
-        csel    x4, x4, x16, ne
-        csel    x5, x5, x17, ne
-        ldp     x16, x17, [p0, #48]
-        csel    x6, x6, x16, ne
-        csel    x7, x7, x17, ne
-        ldp     x16, x17, [p0, #64]
-        csel    x8, x8, x16, ne
-        csel    x9, x9, x17, ne
-        ldp     x16, x17, [p0, #80]
-        csel    x10, x10, x16, ne
-        csel    x11, x11, x17, ne
-        ldp     x16, x17, [p0, #96]
-        csel    x12, x12, x16, ne
-        csel    x13, x13, x17, ne
-        ldp     x16, x17, [p0, #112]
-        csel    x14, x14, x16, ne
-        csel    x15, x15, x17, ne
-        add     p0, p0, #128
-
-        cmp     bf, #7
-        ldp     x16, x17, [p0]
-        csel    x0, x0, x16, ne
-        csel    x1, x1, x17, ne
-        ldp     x16, x17, [p0, #16]
-        csel    x2, x2, x16, ne
-        csel    x3, x3, x17, ne
-        ldp     x16, x17, [p0, #32]
-        csel    x4, x4, x16, ne
-        csel    x5, x5, x17, ne
-        ldp     x16, x17, [p0, #48]
-        csel    x6, x6, x16, ne
-        csel    x7, x7, x17, ne
-        ldp     x16, x17, [p0, #64]
-        csel    x8, x8, x16, ne
-        csel    x9, x9, x17, ne
-        ldp     x16, x17, [p0, #80]
-        csel    x10, x10, x16, ne
-        csel    x11, x11, x17, ne
-        ldp     x16, x17, [p0, #96]
-        csel    x12, x12, x16, ne
-        csel    x13, x13, x17, ne
-        ldp     x16, x17, [p0, #112]
-        csel    x14, x14, x16, ne
-        csel    x15, x15, x17, ne
-        add     p0, p0, #128
-
-        cmp     bf, #8
-        ldp     x16, x17, [p0]
-        csel    x0, x0, x16, ne
-        csel    x1, x1, x17, ne
-        ldp     x16, x17, [p0, #16]
-        csel    x2, x2, x16, ne
-        csel    x3, x3, x17, ne
-        ldp     x16, x17, [p0, #32]
-        csel    x4, x4, x16, ne
-        csel    x5, x5, x17, ne
-        ldp     x16, x17, [p0, #48]
-        csel    x6, x6, x16, ne
-        csel    x7, x7, x17, ne
-        ldp     x16, x17, [p0, #64]
-        csel    x8, x8, x16, ne
-        csel    x9, x9, x17, ne
-        ldp     x16, x17, [p0, #80]
-        csel    x10, x10, x16, ne
-        csel    x11, x11, x17, ne
-        ldp     x16, x17, [p0, #96]
-        csel    x12, x12, x16, ne
-        csel    x13, x13, x17, ne
-        ldp     x16, x17, [p0, #112]
-        csel    x14, x14, x16, ne
-        csel    x15, x15, x17, ne
-
-// ... then optionally negating before storing. This time the table
-// entry is extended-projective, and is in registers thus:
-//
-//      [x3;x2;x1;x0] = X
-//      [x7;x6;x5;x4] = Y
-//      [x11;x10;x9;x8] = Z
-//      [x15;x14;x13;x12] = W
-//
-// This time we just need to negate the X and the W fields.
-// The crude way negation is done can result in values of X or W
-// (when initially zero before negation) being exactly equal to
-// 2^256-38, but the "pepadd" function handles that correctly.
-
-        eor     x0, x0, cf
-        eor     x1, x1, cf
-        eor     x2, x2, cf
-        eor     x3, x3, cf
-        mov     x16, #37
-        and     x16, x16, cf
-        subs    x0, x0, x16
-        sbcs    x1, x1, xzr
-        sbcs    x2, x2, xzr
-        sbc     x3, x3, xzr
-
-        eor     x12, x12, cf
-        eor     x13, x13, cf
-        eor     x14, x14, cf
-        eor     x15, x15, cf
-        subs    x12, x12, x16
-        sbcs    x13, x13, xzr
-        sbcs    x14, x14, xzr
-        sbc     x15, x15, xzr
-
-        stp     x0, x1, [tabent]
-        stp     x2, x3, [tabent+16]
-        stp     x4, x5, [tabent+32]
-        stp     x6, x7, [tabent+48]
-        stp     x8, x9, [tabent+64]
-        stp     x10, x11, [tabent+80]
-        stp     x12, x13, [tabent+96]
-        stp     x14, x15, [tabent+112]
-
-// Double to acc' = 4 * acc
-
-        add     p0, acc
-        add     p1, acc
-        bl      edwards25519_scalarmuldouble_alt_pdouble
-
-// Add tabent := tabent + btabent
-
-        add     p0, tabent
-        add     p1, tabent
-        add     p2, btabent
-        bl      edwards25519_scalarmuldouble_alt_pepadd
-
-// Double to acc' = 8 * acc
-
-        add     p0, acc
-        add     p1, acc
-        bl      edwards25519_scalarmuldouble_alt_pdouble
-
-// Double to acc' = 16 * acc
-
-        add     p0, acc
-        add     p1, acc
-        bl      edwards25519_scalarmuldouble_alt_epdouble
-
-// Add table entry, acc := acc + tabent
-
-        add     p0, acc
-        add     p1, acc
-        add     p2, tabent
-        bl      edwards25519_scalarmuldouble_alt_epadd
-
-// Loop down
-
-        cbnz    i, edwards25519_scalarmuldouble_alt_loop
-
-// Modular inverse setup
-
-        add     x0, tabent
-        add     x1, acc+64
-
-// Inline copy of bignum_inv_p25519, identical except for stripping out
-// the prologue and epilogue saving and restoring registers and making
-// and reclaiming room on the stack. For more details and explanations see
-// "arm/curve25519/bignum_inv_p25519.S". Note that the stack it uses for
-// its own temporaries is 128 bytes, so it has no effect on variables
-// that are needed in the rest of our computation here: res, acc, tabent.
-
-        mov     x20, x0
-        mov     x10, #0xffffffffffffffed
-        mov     x11, #0xffffffffffffffff
-        stp     x10, x11, [sp]
-        mov     x12, #0x7fffffffffffffff
-        stp     x11, x12, [sp, #16]
-        ldp     x2, x3, [x1]
-        ldp     x4, x5, [x1, #16]
-        mov     x7, #0x13
-        lsr     x6, x5, #63
-        madd    x6, x7, x6, x7
-        adds    x2, x2, x6
-        adcs    x3, x3, xzr
-        adcs    x4, x4, xzr
-        orr     x5, x5, #0x8000000000000000
-        adcs    x5, x5, xzr
-        csel    x6, x7, xzr, cc
-        subs    x2, x2, x6
-        sbcs    x3, x3, xzr
-        sbcs    x4, x4, xzr
-        sbc     x5, x5, xzr
-        and     x5, x5, #0x7fffffffffffffff
-        stp     x2, x3, [sp, #32]
-        stp     x4, x5, [sp, #48]
-        stp     xzr, xzr, [sp, #64]
-        stp     xzr, xzr, [sp, #80]
-        mov     x10, #0x2099
-        movk    x10, #0x7502, lsl #16
-        movk    x10, #0x9e23, lsl #32
-        movk    x10, #0xa0f9, lsl #48
-        mov     x11, #0x2595
-        movk    x11, #0x1d13, lsl #16
-        movk    x11, #0x8f3f, lsl #32
-        movk    x11, #0xa8c6, lsl #48
-        mov     x12, #0x5242
-        movk    x12, #0x5ac, lsl #16
-        movk    x12, #0x8938, lsl #32
-        movk    x12, #0x6c6c, lsl #48
-        mov     x13, #0x615
-        movk    x13, #0x4177, lsl #16
-        movk    x13, #0x8b2, lsl #32
-        movk    x13, #0x2765, lsl #48
-        stp     x10, x11, [sp, #96]
-        stp     x12, x13, [sp, #112]
-        mov     x21, #0xa
-        mov     x22, #0x1
-        b       edwards25519_scalarmuldouble_alt_invmidloop
-edwards25519_scalarmuldouble_alt_invloop:
-        cmp     x10, xzr
-        csetm   x14, mi
-        cneg    x10, x10, mi
-        cmp     x11, xzr
-        csetm   x15, mi
-        cneg    x11, x11, mi
-        cmp     x12, xzr
-        csetm   x16, mi
-        cneg    x12, x12, mi
-        cmp     x13, xzr
-        csetm   x17, mi
-        cneg    x13, x13, mi
-        and     x0, x10, x14
-        and     x1, x11, x15
-        add     x9, x0, x1
-        and     x0, x12, x16
-        and     x1, x13, x17
-        add     x19, x0, x1
-        ldr     x7, [sp]
-        eor     x1, x7, x14
-        mul     x0, x1, x10
-        umulh   x1, x1, x10
-        adds    x4, x9, x0
-        adc     x2, xzr, x1
-        ldr     x8, [sp, #32]
-        eor     x1, x8, x15
-        mul     x0, x1, x11
-        umulh   x1, x1, x11
-        adds    x4, x4, x0
-        adc     x2, x2, x1
-        eor     x1, x7, x16
-        mul     x0, x1, x12
-        umulh   x1, x1, x12
-        adds    x5, x19, x0
-        adc     x3, xzr, x1
-        eor     x1, x8, x17
-        mul     x0, x1, x13
-        umulh   x1, x1, x13
-        adds    x5, x5, x0
-        adc     x3, x3, x1
-        ldr     x7, [sp, #8]
-        eor     x1, x7, x14
-        mul     x0, x1, x10
-        umulh   x1, x1, x10
-        adds    x2, x2, x0
-        adc     x6, xzr, x1
-        ldr     x8, [sp, #40]
-        eor     x1, x8, x15
-        mul     x0, x1, x11
-        umulh   x1, x1, x11
-        adds    x2, x2, x0
-        adc     x6, x6, x1
-        extr    x4, x2, x4, #59
-        str     x4, [sp]
-        eor     x1, x7, x16
-        mul     x0, x1, x12
-        umulh   x1, x1, x12
-        adds    x3, x3, x0
-        adc     x4, xzr, x1
-        eor     x1, x8, x17
-        mul     x0, x1, x13
-        umulh   x1, x1, x13
-        adds    x3, x3, x0
-        adc     x4, x4, x1
-        extr    x5, x3, x5, #59
-        str     x5, [sp, #32]
-        ldr     x7, [sp, #16]
-        eor     x1, x7, x14
-        mul     x0, x1, x10
-        umulh   x1, x1, x10
-        adds    x6, x6, x0
-        adc     x5, xzr, x1
-        ldr     x8, [sp, #48]
-        eor     x1, x8, x15
-        mul     x0, x1, x11
-        umulh   x1, x1, x11
-        adds    x6, x6, x0
-        adc     x5, x5, x1
-        extr    x2, x6, x2, #59
-        str     x2, [sp, #8]
-        eor     x1, x7, x16
-        mul     x0, x1, x12
-        umulh   x1, x1, x12
-        adds    x4, x4, x0
-        adc     x2, xzr, x1
-        eor     x1, x8, x17
-        mul     x0, x1, x13
-        umulh   x1, x1, x13
-        adds    x4, x4, x0
-        adc     x2, x2, x1
-        extr    x3, x4, x3, #59
-        str     x3, [sp, #40]
-        ldr     x7, [sp, #24]
-        eor     x1, x7, x14
-        asr     x3, x1, #63
-        and     x3, x3, x10
-        neg     x3, x3
-        mul     x0, x1, x10
-        umulh   x1, x1, x10
-        adds    x5, x5, x0
-        adc     x3, x3, x1
-        ldr     x8, [sp, #56]
-        eor     x1, x8, x15
-        asr     x0, x1, #63
-        and     x0, x0, x11
-        sub     x3, x3, x0
-        mul     x0, x1, x11
-        umulh   x1, x1, x11
-        adds    x5, x5, x0
-        adc     x3, x3, x1
-        extr    x6, x5, x6, #59
-        str     x6, [sp, #16]
-        extr    x5, x3, x5, #59
-        str     x5, [sp, #24]
-        eor     x1, x7, x16
-        asr     x5, x1, #63
-        and     x5, x5, x12
-        neg     x5, x5
-        mul     x0, x1, x12
-        umulh   x1, x1, x12
-        adds    x2, x2, x0
-        adc     x5, x5, x1
-        eor     x1, x8, x17
-        asr     x0, x1, #63
-        and     x0, x0, x13
-        sub     x5, x5, x0
-        mul     x0, x1, x13
-        umulh   x1, x1, x13
-        adds    x2, x2, x0
-        adc     x5, x5, x1
-        extr    x4, x2, x4, #59
-        str     x4, [sp, #48]
-        extr    x2, x5, x2, #59
-        str     x2, [sp, #56]
-        ldr     x7, [sp, #64]
-        eor     x1, x7, x14
-        mul     x0, x1, x10
-        umulh   x1, x1, x10
-        adds    x4, x9, x0
-        adc     x2, xzr, x1
-        ldr     x8, [sp, #96]
-        eor     x1, x8, x15
-        mul     x0, x1, x11
-        umulh   x1, x1, x11
-        adds    x4, x4, x0
-        str     x4, [sp, #64]
-        adc     x2, x2, x1
-        eor     x1, x7, x16
-        mul     x0, x1, x12
-        umulh   x1, x1, x12
-        adds    x5, x19, x0
-        adc     x3, xzr, x1
-        eor     x1, x8, x17
-        mul     x0, x1, x13
-        umulh   x1, x1, x13
-        adds    x5, x5, x0
-        str     x5, [sp, #96]
-        adc     x3, x3, x1
-        ldr     x7, [sp, #72]
-        eor     x1, x7, x14
-        mul     x0, x1, x10
-        umulh   x1, x1, x10
-        adds    x2, x2, x0
-        adc     x6, xzr, x1
-        ldr     x8, [sp, #104]
-        eor     x1, x8, x15
-        mul     x0, x1, x11
-        umulh   x1, x1, x11
-        adds    x2, x2, x0
-        str     x2, [sp, #72]
-        adc     x6, x6, x1
-        eor     x1, x7, x16
-        mul     x0, x1, x12
-        umulh   x1, x1, x12
-        adds    x3, x3, x0
-        adc     x4, xzr, x1
-        eor     x1, x8, x17
-        mul     x0, x1, x13
-        umulh   x1, x1, x13
-        adds    x3, x3, x0
-        str     x3, [sp, #104]
-        adc     x4, x4, x1
-        ldr     x7, [sp, #80]
-        eor     x1, x7, x14
-        mul     x0, x1, x10
-        umulh   x1, x1, x10
-        adds    x6, x6, x0
-        adc     x5, xzr, x1
-        ldr     x8, [sp, #112]
-        eor     x1, x8, x15
-        mul     x0, x1, x11
-        umulh   x1, x1, x11
-        adds    x6, x6, x0
-        str     x6, [sp, #80]
-        adc     x5, x5, x1
-        eor     x1, x7, x16
-        mul     x0, x1, x12
-        umulh   x1, x1, x12
-        adds    x4, x4, x0
-        adc     x2, xzr, x1
-        eor     x1, x8, x17
-        mul     x0, x1, x13
-        umulh   x1, x1, x13
-        adds    x4, x4, x0
-        str     x4, [sp, #112]
-        adc     x2, x2, x1
-        ldr     x7, [sp, #88]
-        eor     x1, x7, x14
-        and     x3, x14, x10
-        neg     x3, x3
-        mul     x0, x1, x10
-        umulh   x1, x1, x10
-        adds    x5, x5, x0
-        adc     x3, x3, x1
-        ldr     x8, [sp, #120]
-        eor     x1, x8, x15
-        and     x0, x15, x11
-        sub     x3, x3, x0
-        mul     x0, x1, x11
-        umulh   x1, x1, x11
-        adds    x5, x5, x0
-        adc     x3, x3, x1
-        extr    x6, x3, x5, #63
-        ldp     x0, x1, [sp, #64]
-        add     x6, x6, x3, asr #63
-        mov     x3, #0x13
-        mul     x4, x6, x3
-        add     x5, x5, x6, lsl #63
-        smulh   x3, x6, x3
-        ldr     x6, [sp, #80]
-        adds    x0, x0, x4
-        adcs    x1, x1, x3
-        asr     x3, x3, #63
-        adcs    x6, x6, x3
-        adc     x5, x5, x3
-        stp     x0, x1, [sp, #64]
-        stp     x6, x5, [sp, #80]
-        eor     x1, x7, x16
-        and     x5, x16, x12
-        neg     x5, x5
-        mul     x0, x1, x12
-        umulh   x1, x1, x12
-        adds    x2, x2, x0
-        adc     x5, x5, x1
-        eor     x1, x8, x17
-        and     x0, x17, x13
-        sub     x5, x5, x0
-        mul     x0, x1, x13
-        umulh   x1, x1, x13
-        adds    x2, x2, x0
-        adc     x5, x5, x1
-        extr    x6, x5, x2, #63
-        ldp     x0, x1, [sp, #96]
-        add     x6, x6, x5, asr #63
-        mov     x5, #0x13
-        mul     x4, x6, x5
-        add     x2, x2, x6, lsl #63
-        smulh   x5, x6, x5
-        ldr     x3, [sp, #112]
-        adds    x0, x0, x4
-        adcs    x1, x1, x5
-        asr     x5, x5, #63
-        adcs    x3, x3, x5
-        adc     x2, x2, x5
-        stp     x0, x1, [sp, #96]
-        stp     x3, x2, [sp, #112]
-edwards25519_scalarmuldouble_alt_invmidloop:
-        mov     x1, x22
-        ldr     x2, [sp]
-        ldr     x3, [sp, #32]
-        and     x4, x2, #0xfffff
-        orr     x4, x4, #0xfffffe0000000000
-        and     x5, x3, #0xfffff
-        orr     x5, x5, #0xc000000000000000
-        tst     x5, #0x1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        asr     x5, x5, #1
-        add     x8, x4, #0x100, lsl #12
-        sbfx    x8, x8, #21, #21
-        mov     x11, #0x100000
-        add     x11, x11, x11, lsl #21
-        add     x9, x4, x11
-        asr     x9, x9, #42
-        add     x10, x5, #0x100, lsl #12
-        sbfx    x10, x10, #21, #21
-        add     x11, x5, x11
-        asr     x11, x11, #42
-        mul     x6, x8, x2
-        mul     x7, x9, x3
-        mul     x2, x10, x2
-        mul     x3, x11, x3
-        add     x4, x6, x7
-        add     x5, x2, x3
-        asr     x2, x4, #20
-        asr     x3, x5, #20
-        and     x4, x2, #0xfffff
-        orr     x4, x4, #0xfffffe0000000000
-        and     x5, x3, #0xfffff
-        orr     x5, x5, #0xc000000000000000
-        tst     x5, #0x1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        asr     x5, x5, #1
-        add     x12, x4, #0x100, lsl #12
-        sbfx    x12, x12, #21, #21
-        mov     x15, #0x100000
-        add     x15, x15, x15, lsl #21
-        add     x13, x4, x15
-        asr     x13, x13, #42
-        add     x14, x5, #0x100, lsl #12
-        sbfx    x14, x14, #21, #21
-        add     x15, x5, x15
-        asr     x15, x15, #42
-        mul     x6, x12, x2
-        mul     x7, x13, x3
-        mul     x2, x14, x2
-        mul     x3, x15, x3
-        add     x4, x6, x7
-        add     x5, x2, x3
-        asr     x2, x4, #20
-        asr     x3, x5, #20
-        and     x4, x2, #0xfffff
-        orr     x4, x4, #0xfffffe0000000000
-        and     x5, x3, #0xfffff
-        orr     x5, x5, #0xc000000000000000
-        tst     x5, #0x1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        mul     x2, x12, x8
-        mul     x3, x12, x9
-        mul     x6, x14, x8
-        mul     x7, x14, x9
-        madd    x8, x13, x10, x2
-        madd    x9, x13, x11, x3
-        madd    x16, x15, x10, x6
-        madd    x17, x15, x11, x7
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        tst     x5, #0x2
-        asr     x5, x5, #1
-        csel    x6, x4, xzr, ne
-        ccmp    x1, xzr, #0x8, ne
-        cneg    x1, x1, ge
-        cneg    x6, x6, ge
-        csel    x4, x5, x4, ge
-        add     x5, x5, x6
-        add     x1, x1, #0x2
-        asr     x5, x5, #1
-        add     x12, x4, #0x100, lsl #12
-        sbfx    x12, x12, #22, #21
-        mov     x15, #0x100000
-        add     x15, x15, x15, lsl #21
-        add     x13, x4, x15
-        asr     x13, x13, #43
-        add     x14, x5, #0x100, lsl #12
-        sbfx    x14, x14, #22, #21
-        add     x15, x5, x15
-        asr     x15, x15, #43
-        mneg    x2, x12, x8
-        mneg    x3, x12, x9
-        mneg    x4, x14, x8
-        mneg    x5, x14, x9
-        msub    x10, x13, x16, x2
-        msub    x11, x13, x17, x3
-        msub    x12, x15, x16, x4
-        msub    x13, x15, x17, x5
-        mov     x22, x1
-        subs    x21, x21, #0x1
-        b.ne    edwards25519_scalarmuldouble_alt_invloop
-        ldr     x0, [sp]
-        ldr     x1, [sp, #32]
-        mul     x0, x0, x10
-        madd    x1, x1, x11, x0
-        asr     x0, x1, #63
-        cmp     x10, xzr
-        csetm   x14, mi
-        cneg    x10, x10, mi
-        eor     x14, x14, x0
-        cmp     x11, xzr
-        csetm   x15, mi
-        cneg    x11, x11, mi
-        eor     x15, x15, x0
-        cmp     x12, xzr
-        csetm   x16, mi
-        cneg    x12, x12, mi
-        eor     x16, x16, x0
-        cmp     x13, xzr
-        csetm   x17, mi
-        cneg    x13, x13, mi
-        eor     x17, x17, x0
-        and     x0, x10, x14
-        and     x1, x11, x15
-        add     x9, x0, x1
-        ldr     x7, [sp, #64]
-        eor     x1, x7, x14
-        mul     x0, x1, x10
-        umulh   x1, x1, x10
-        adds    x4, x9, x0
-        adc     x2, xzr, x1
-        ldr     x8, [sp, #96]
-        eor     x1, x8, x15
-        mul     x0, x1, x11
-        umulh   x1, x1, x11
-        adds    x4, x4, x0
-        str     x4, [sp, #64]
-        adc     x2, x2, x1
-        ldr     x7, [sp, #72]
-        eor     x1, x7, x14
-        mul     x0, x1, x10
-        umulh   x1, x1, x10
-        adds    x2, x2, x0
-        adc     x6, xzr, x1
-        ldr     x8, [sp, #104]
-        eor     x1, x8, x15
-        mul     x0, x1, x11
-        umulh   x1, x1, x11
-        adds    x2, x2, x0
-        str     x2, [sp, #72]
-        adc     x6, x6, x1
-        ldr     x7, [sp, #80]
-        eor     x1, x7, x14
-        mul     x0, x1, x10
-        umulh   x1, x1, x10
-        adds    x6, x6, x0
-        adc     x5, xzr, x1
-        ldr     x8, [sp, #112]
-        eor     x1, x8, x15
-        mul     x0, x1, x11
-        umulh   x1, x1, x11
-        adds    x6, x6, x0
-        str     x6, [sp, #80]
-        adc     x5, x5, x1
-        ldr     x7, [sp, #88]
-        eor     x1, x7, x14
-        and     x3, x14, x10
-        neg     x3, x3
-        mul     x0, x1, x10
-        umulh   x1, x1, x10
-        adds    x5, x5, x0
-        adc     x3, x3, x1
-        ldr     x8, [sp, #120]
-        eor     x1, x8, x15
-        and     x0, x15, x11
-        sub     x3, x3, x0
-        mul     x0, x1, x11
-        umulh   x1, x1, x11
-        adds    x5, x5, x0
-        adc     x3, x3, x1
-        extr    x6, x3, x5, #63
-        ldp     x0, x1, [sp, #64]
-        tst     x3, x3
-        cinc    x6, x6, pl
-        mov     x3, #0x13
-        mul     x4, x6, x3
-        add     x5, x5, x6, lsl #63
-        smulh   x6, x6, x3
-        ldr     x2, [sp, #80]
-        adds    x0, x0, x4
-        adcs    x1, x1, x6
-        asr     x6, x6, #63
-        adcs    x2, x2, x6
-        adcs    x5, x5, x6
-        csel    x3, x3, xzr, mi
-        subs    x0, x0, x3
-        sbcs    x1, x1, xzr
-        sbcs    x2, x2, xzr
-        sbc     x5, x5, xzr
-        and     x5, x5, #0x7fffffffffffffff
-        mov     x4, x20
-        stp     x0, x1, [x4]
-        stp     x2, x5, [x4, #16]
-
-// Store result. Note that these are the only reductions mod 2^255-19
-
-        mov     p0, res
-        add     p1, acc
-        add     p2, tabent
-        mul_p25519(x_0,x_1,x_2)
-
-        add     p0, res, #32
-        add     p1, acc+32
-        add     p2, tabent
-        mul_p25519(x_0,x_1,x_2)
-
-// Restore stack and registers
-
-        add     sp, sp, #NSPACE
-        ldp     x25, x30, [sp], 16
-        ldp     x23, x24, [sp], 16
-        ldp     x21, x22, [sp], 16
-        ldp     x19, x20, [sp], 16
-
-        ret
-
-// ****************************************************************************
-// Localized versions of subroutines.
-// These are close to the standalone functions "edwards25519_epdouble" etc.,
-// but are only maintaining reduction modulo 2^256 - 38, not 2^255 - 19.
-// ****************************************************************************
-
-edwards25519_scalarmuldouble_alt_epdouble:
-        sub sp, sp, #(5*NUMSIZE)
-        add_twice4(t0,x_1,y_1)
-        sqr_4(t1,z_1)
-        sqr_4(t2,x_1)
-        sqr_4(t3,y_1)
-        double_twice4(t1,t1)
-        sqr_4(t0,t0)
-        add_twice4(t4,t2,t3)
-        sub_twice4(t2,t2,t3)
-        add_twice4(t3,t1,t2)
-        sub_twice4(t1,t4,t0)
-        mul_4(y_0,t2,t4)
-        mul_4(z_0,t3,t2)
-        mul_4(w_0,t1,t4)
-        mul_4(x_0,t1,t3)
-        add sp, sp, #(5*NUMSIZE)
-        ret
-
-edwards25519_scalarmuldouble_alt_pdouble:
-        sub sp, sp, #(5*NUMSIZE)
-        add_twice4(t0,x_1,y_1)
-        sqr_4(t1,z_1)
-        sqr_4(t2,x_1)
-        sqr_4(t3,y_1)
-        double_twice4(t1,t1)
-        sqr_4(t0,t0)
-        add_twice4(t4,t2,t3)
-        sub_twice4(t2,t2,t3)
-        add_twice4(t3,t1,t2)
-        sub_twice4(t1,t4,t0)
-        mul_4(y_0,t2,t4)
-        mul_4(z_0,t3,t2)
-        mul_4(x_0,t1,t3)
-        add sp, sp, #(5*NUMSIZE)
-        ret
-
-edwards25519_scalarmuldouble_alt_epadd:
-        sub sp, sp, #(6*NUMSIZE)
-        mul_4(t0,w_1,w_2)
-        sub_twice4(t1,y_1,x_1)
-        sub_twice4(t2,y_2,x_2)
-        add_twice4(t3,y_1,x_1)
-        add_twice4(t4,y_2,x_2)
-        double_twice4(t5,z_2)
-        mul_4(t1,t1,t2)
-        mul_4(t3,t3,t4)
-        load_k25519(t2)
-        mul_4(t2,t2,t0)
-        mul_4(t4,z_1,t5)
-        sub_twice4(t0,t3,t1)
-        add_twice4(t5,t3,t1)
-        sub_twice4(t1,t4,t2)
-        add_twice4(t3,t4,t2)
-        mul_4(w_0,t0,t5)
-        mul_4(x_0,t0,t1)
-        mul_4(y_0,t3,t5)
-        mul_4(z_0,t1,t3)
-        add sp, sp, #(6*NUMSIZE)
-        ret
-
-edwards25519_scalarmuldouble_alt_pepadd:
-        sub sp, sp, #(6*NUMSIZE)
-        double_twice4(t0,z_1);
-        sub_twice4(t1,y_1,x_1);
-        add_twice4(t2,y_1,x_1);
-        mul_4(t3,w_1,z_2);
-        mul_4(t1,t1,x_2);
-        mul_4(t2,t2,y_2);
-        sub_twice4(t4,t0,t3);
-        add_twice4(t0,t0,t3);
-        sub_twice4(t5,t2,t1);
-        add_twice4(t1,t2,t1);
-        mul_4(z_0,t4,t0);
-        mul_4(x_0,t5,t4);
-        mul_4(y_0,t0,t1);
-        mul_4(w_0,t5,t1);
-        add sp, sp, #(6*NUMSIZE)
-        ret
-
-// ****************************************************************************
-// The precomputed data (all read-only). This is currently part of the same
-// text section, which gives position-independent code with simple PC-relative
-// addressing. However it could be put in a separate section via something like
-//
-// .section .rodata
-// ****************************************************************************
-
-// Precomputed table of multiples of generator for edwards25519
-// all in precomputed extended-projective (y-x,x+y,2*d*x*y) triples.
-
-edwards25519_scalarmuldouble_alt_table:
-
-        // 1 * G
-
-        .quad   0x9d103905d740913e
-        .quad   0xfd399f05d140beb3
-        .quad   0xa5c18434688f8a09
-        .quad   0x44fd2f9298f81267
-        .quad   0x2fbc93c6f58c3b85
-        .quad   0xcf932dc6fb8c0e19
-        .quad   0x270b4898643d42c2
-        .quad   0x07cf9d3a33d4ba65
-        .quad   0xabc91205877aaa68
-        .quad   0x26d9e823ccaac49e
-        .quad   0x5a1b7dcbdd43598c
-        .quad   0x6f117b689f0c65a8
-
-        // 2 * G
-
-        .quad   0x8a99a56042b4d5a8
-        .quad   0x8f2b810c4e60acf6
-        .quad   0xe09e236bb16e37aa
-        .quad   0x6bb595a669c92555
-        .quad   0x9224e7fc933c71d7
-        .quad   0x9f469d967a0ff5b5
-        .quad   0x5aa69a65e1d60702
-        .quad   0x590c063fa87d2e2e
-        .quad   0x43faa8b3a59b7a5f
-        .quad   0x36c16bdd5d9acf78
-        .quad   0x500fa0840b3d6a31
-        .quad   0x701af5b13ea50b73
-
-        // 3 * G
-
-        .quad   0x56611fe8a4fcd265
-        .quad   0x3bd353fde5c1ba7d
-        .quad   0x8131f31a214bd6bd
-        .quad   0x2ab91587555bda62
-        .quad   0xaf25b0a84cee9730
-        .quad   0x025a8430e8864b8a
-        .quad   0xc11b50029f016732
-        .quad   0x7a164e1b9a80f8f4
-        .quad   0x14ae933f0dd0d889
-        .quad   0x589423221c35da62
-        .quad   0xd170e5458cf2db4c
-        .quad   0x5a2826af12b9b4c6
-
-        // 4 * G
-
-        .quad   0x95fe050a056818bf
-        .quad   0x327e89715660faa9
-        .quad   0xc3e8e3cd06a05073
-        .quad   0x27933f4c7445a49a
-        .quad   0x287351b98efc099f
-        .quad   0x6765c6f47dfd2538
-        .quad   0xca348d3dfb0a9265
-        .quad   0x680e910321e58727
-        .quad   0x5a13fbe9c476ff09
-        .quad   0x6e9e39457b5cc172
-        .quad   0x5ddbdcf9102b4494
-        .quad   0x7f9d0cbf63553e2b
-
-        // 5 * G
-
-        .quad   0x7f9182c3a447d6ba
-        .quad   0xd50014d14b2729b7
-        .quad   0xe33cf11cb864a087
-        .quad   0x154a7e73eb1b55f3
-        .quad   0xa212bc4408a5bb33
-        .quad   0x8d5048c3c75eed02
-        .quad   0xdd1beb0c5abfec44
-        .quad   0x2945ccf146e206eb
-        .quad   0xbcbbdbf1812a8285
-        .quad   0x270e0807d0bdd1fc
-        .quad   0xb41b670b1bbda72d
-        .quad   0x43aabe696b3bb69a
-
-        // 6 * G
-
-        .quad   0x499806b67b7d8ca4
-        .quad   0x575be28427d22739
-        .quad   0xbb085ce7204553b9
-        .quad   0x38b64c41ae417884
-        .quad   0x3a0ceeeb77157131
-        .quad   0x9b27158900c8af88
-        .quad   0x8065b668da59a736
-        .quad   0x51e57bb6a2cc38bd
-        .quad   0x85ac326702ea4b71
-        .quad   0xbe70e00341a1bb01
-        .quad   0x53e4a24b083bc144
-        .quad   0x10b8e91a9f0d61e3
-
-        // 7 * G
-
-        .quad   0xba6f2c9aaa3221b1
-        .quad   0x6ca021533bba23a7
-        .quad   0x9dea764f92192c3a
-        .quad   0x1d6edd5d2e5317e0
-        .quad   0x6b1a5cd0944ea3bf
-        .quad   0x7470353ab39dc0d2
-        .quad   0x71b2528228542e49
-        .quad   0x461bea69283c927e
-        .quad   0xf1836dc801b8b3a2
-        .quad   0xb3035f47053ea49a
-        .quad   0x529c41ba5877adf3
-        .quad   0x7a9fbb1c6a0f90a7
-
-        // 8 * G
-
-        .quad   0xe2a75dedf39234d9
-        .quad   0x963d7680e1b558f9
-        .quad   0x2c2741ac6e3c23fb
-        .quad   0x3a9024a1320e01c3
-        .quad   0x59b7596604dd3e8f
-        .quad   0x6cb30377e288702c
-        .quad   0xb1339c665ed9c323
-        .quad   0x0915e76061bce52f
-        .quad   0xe7c1f5d9c9a2911a
-        .quad   0xb8a371788bcca7d7
-        .quad   0x636412190eb62a32
-        .quad   0x26907c5c2ecc4e95
-
-#if defined(__linux__) && defined(__ELF__)
-.section .note.GNU-stack, "", %progbits
-#endif
-
-
-
-
-// Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
-// SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
-
-// ----------------------------------------------------------------------------
-// Compare bignums, x <= y
-// Inputs x[m], y[n]; output function return
-//
-//    extern uint64_t bignum_le(uint64_t m, const uint64_t *x, uint64_t n,
-//                              const uint64_t *y);
-//
-// Standard ARM ABI: X0 = m, X1 = x, X2 = n, X3 = y, returns X0
-// ----------------------------------------------------------------------------
-#include "_internal_s2n_bignum.h"
-
-        S2N_BN_SYM_VISIBILITY_DIRECTIVE(bignum_le)
-        S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_le)
-        .text
-        .balign 4
-
-#define m x0
-#define x x1
-#define n x2
-#define y x3
-#define i x4
-#define a x5
-#define d x6
-
-
-S2N_BN_SYMBOL(bignum_le):
-
-// Zero the main index counter for both branches
-
-        mov     i, xzr
-
-// Speculatively form n := n - m and do case split
-
-        subs    n, n, m
-        bcc     bignum_le_ylonger
-
-// The case where y is longer or of the same size (n >= m)
-// Note that CF=1 initially by the fact that we reach this point
-
-        cbz     m, bignum_le_xtest
-bignum_le_xmainloop:
-        ldr     a, [y, i, lsl #3]
-        ldr     d, [x, i, lsl #3]
-        sbcs    xzr, a, d
-        add     i, i, #1
-        sub     m, m, #1
-        cbnz    m, bignum_le_xmainloop
-bignum_le_xtest:
-        cbz     n, bignum_le_xskip
-bignum_le_xtoploop:
-        ldr     a, [y, i, lsl #3]
-        sbcs    xzr, a, xzr
-        add     i, i, #1
-        sub     n, n, #1
-        cbnz    n, bignum_le_xtoploop
-bignum_le_xskip:
-        cset    x0, cs
-        ret
-
-// The case where x is longer (m > n)
-// The first "adds" also makes sure CF=1 initially in this branch
-
-bignum_le_ylonger:
-        adds    n, n, m
-        cbz     n, bignum_le_ytoploop
-        sub     m, m, n
-bignum_le_ymainloop:
-        ldr     a, [y, i, lsl #3]
-        ldr     d, [x, i, lsl #3]
-        sbcs    xzr, a, d
-        add     i, i, #1
-        sub     n, n, #1
-        cbnz    n, bignum_le_ymainloop
-bignum_le_ytoploop:
-        ldr     a, [x, i, lsl #3]
-        sbcs    xzr, xzr, a
-        add     i, i, #1
-        sub     m, m, #1
-        cbnz    m, bignum_le_ytoploop
-
-        cset    x0, cs
-        ret
-
-#if defined(__linux__) && defined(__ELF__)
-.section .note.GNU-stack,"",%progbits
-#endif
-
-
-
-
-
-
-	.text
-	.balign 4
-	.type	msg_schedule, %function
-msg_schedule:
-.LFB12:
-	.cfi_startproc
-	mov	x3, 0
-.L2:
-	ldrb	w5, [x1]
-	mov	x2, 0
-	add	x1, x1, 8
-	ldrb	w4, [x1, -7]
-	ldrb	w6, [x1, -6]
-	bfi	x2, x5, 0, 8
-	ldrb	w5, [x1, -5]
-	bfi	x2, x4, 8, 8
-	ldrb	w4, [x1, -4]
-	bfi	x2, x6, 16, 8
-	ldrb	w6, [x1, -3]
-	bfi	x2, x5, 24, 8
-	ldrb	w5, [x1, -2]
-	bfi	x2, x4, 32, 8
-	ldrb	w4, [x1, -1]
-	bfi	x2, x6, 40, 8
-	bfi	x2, x5, 48, 8
-	bfi	x2, x4, 56, 8
-	rev	x2, x2
-	str	x2, [x0, x3, lsl 3]
-	add	x3, x3, 1
-	cmp	x3, 16
-	bne	.L2
-	mov	x2, x0
-	add	x11, x0, 520
-	ldp	x9, x8, [x0, 80]
-	ldp	x7, x6, [x0, 96]
-	ldp	x3, x0, [x0, 112]
-	ldr	x10, [x2, 72]
-	ldr	x4, [x2], 8
-.L3:
-	add	x5, x4, x10
-	ror	x1, x3, 61
-	ldr	x4, [x2]
-	eor	x1, x1, x3, ror 19
-	mov	x10, x9
-	mov	x9, x8
-	mov	x8, x7
-	eor	x1, x1, x3, lsr 6
-	mov	x7, x6
-	mov	x6, x3
-	mov	x3, x0
-	add	x2, x2, 8
-	ror	x0, x4, 8
-	eor	x0, x0, x4, ror 1
-	eor	x0, x0, x4, lsr 7
-	add	x0, x0, x1
-	add	x0, x0, x5
-	str	x0, [x2, 112]
-	cmp	x11, x2
-	bne	.L3
-	ret
-	.cfi_endproc
-.LFE12:
-	.size	msg_schedule, .-msg_schedule
-	.type	sha512_process_block, %function
-sha512_process_block:
-.LFB13:
-	.cfi_startproc
-	sub	sp, sp, #720
-	.cfi_def_cfa_offset 720
-	mov	x12, x0
-	add	x0, sp, 80
-	stp	x29, x30, [sp]
-	.cfi_offset 29, -720
-	.cfi_offset 30, -712
-	mov	x29, sp
-	bl	msg_schedule
-	tst	x12, 15
-	bne	.L8
-	ldp	x6, x7, [x12]
-	ldp	x4, x5, [x12, 16]
-	ldp	x2, x3, [x12, 32]
-	ldp	x0, x1, [x12, 48]
-	stp	x6, x7, [sp, 16]
-	stp	x4, x5, [sp, 32]
-	stp	x2, x3, [sp, 48]
-	stp	x0, x1, [sp, 64]
-.L9:
-	adrp	x14, K
-	mov	x6, 1
-	add	x14, x14, :lo12:K
-	ldp	x5, x8, [sp, 16]
-	ldp	x7, x13, [sp, 32]
-	ldp	x3, x10, [sp, 48]
-	ldp	x9, x11, [sp, 64]
-	b	.L10
-.L11:
-	mov	x7, x8
-	mov	x9, x10
-	mov	x8, x5
-	mov	x10, x3
-	mov	x5, x0
-	mov	x3, x2
-.L10:
-	lsl	x1, x6, 3
-	add	x4, sp, 80
-	ror	x0, x3, 18
-	add	x2, x14, x1
-	add	x15, x4, x1
-	eor	x0, x0, x3, ror 14
-	ror	x1, x5, 34
-	ldr	x16, [x2, -8]
-	eor	x1, x1, x5, ror 28
-	bic	x4, x9, x3
-	eor	x0, x0, x3, ror #(64 - 23)
-	and	x18, x3, x10
-	eor	x2, x7, x8
-	ldr	x17, [x15, -8]
-	eor	x4, x4, x18
-	eor	x1, x1, x5, ror #(64 - 25)
-	add	x0, x0, x4
-	and	x2, x2, x5
-	and	x4, x7, x8
-	add	x6, x6, 1
-	eor	x2, x2, x4
-	add	x1, x1, x2
-	add	x2, x16, x17
-	add	x0, x0, x2
-	add	x0, x0, x11
-	mov	x11, x9
-	add	x2, x13, x0
-	add	x0, x0, x1
-	mov	x13, x7
-	cmp	x6, 81
-	bne	.L11
-	ldp	x6, x4, [x12]
-	ldp	x29, x30, [sp]
-	add	x6, x6, x0
-	add	x4, x4, x5
-	ldp	x0, x5, [x12, 24]
-	stp	x6, x4, [x12]
-	add	x0, x0, x7
-	add	x5, x5, x2
-	ldr	x1, [x12, 16]
-	str	x5, [x12, 32]
-	add	x1, x1, x8
-	stp	x1, x0, [x12, 16]
-	ldp	x4, x1, [x12, 40]
-	ldr	x0, [x12, 56]
-	add	x2, x4, x3
-	add	x1, x1, x10
-	stp	x2, x1, [x12, 40]
-	add	x0, x0, x9
-	str	x0, [x12, 56]
-	add	sp, sp, 720
-	.cfi_remember_state
-	.cfi_restore 29
-	.cfi_restore 30
-	.cfi_def_cfa_offset 0
-	ret
-.L8:
-	.cfi_restore_state
-	ldp	x1, x0, [x12]
-	ldr	x2, [x12, 16]
-	stp	x1, x0, [sp, 16]
-	ldp	x1, x0, [x12, 24]
-	str	x2, [sp, 32]
-	ldr	x2, [x12, 40]
-	stp	x1, x0, [sp, 40]
-	ldp	x1, x0, [x12, 48]
-	str	x2, [sp, 56]
-	stp	x1, x0, [sp, 64]
-	b	.L9
-	.cfi_endproc
-.LFE13:
-	.size	sha512_process_block, .-sha512_process_block
-	.type	sha512_process_blocks, %function
-sha512_process_blocks:
-.LFB14:
-	.cfi_startproc
-	cbz	x2, .L21
-	stp	x29, x30, [sp, -48]!
-	.cfi_def_cfa_offset 48
-	.cfi_offset 29, -48
-	.cfi_offset 30, -40
-	mov	x29, sp
-	stp	x19, x20, [sp, 16]
-	.cfi_offset 19, -32
-	.cfi_offset 20, -24
-	mov	x19, x1
-	sub	x20, x2, #1
-	str	x21, [sp, 32]
-	.cfi_offset 21, -16
-	mov	x21, x0
-.L15:
-	mov	x1, x19
-	mov	x0, x21
-	sub	x20, x20, #1
-	add	x19, x19, 128
-	bl	sha512_process_block
-	cmn	x20, #1
-	bne	.L15
-	ldp	x19, x20, [sp, 16]
-	ldr	x21, [sp, 32]
-	ldp	x29, x30, [sp], 48
-	.cfi_restore 30
-	.cfi_restore 29
-	.cfi_restore 21
-	.cfi_restore 19
-	.cfi_restore 20
-	.cfi_def_cfa_offset 0
-	ret
-.L21:
-	ret
-	.cfi_endproc
-.LFE14:
-	.size	sha512_process_blocks, .-sha512_process_blocks
-	.type	sha512_init, %function
-sha512_init:
-.LFB11:
-	.cfi_startproc
-	mov	x1, 51464
-	mov	x7, 42811
-	stp	xzr, xzr, [x0, 64]
-	movk	x1, 0xf3bc, lsl 16
-	movk	x7, 0x84ca, lsl 16
-	movk	x1, 0xe667, lsl 32
-	movk	x7, 0xae85, lsl 32
-	movk	x1, 0x6a09, lsl 48
-	movk	x7, 0xbb67, lsl 48
-	strb	wzr, [x0, 208]
-	mov	x6, 63531
-	mov	x5, 14065
-	mov	x4, 33489
-	mov	x3, 27679
-	stp	x1, x7, [x0]
-	mov	x2, 48491
-	mov	x1, 8569
-	movk	x6, 0xfe94, lsl 16
-	movk	x5, 0x5f1d, lsl 16
-	movk	x4, 0xade6, lsl 16
-	movk	x3, 0x2b3e, lsl 16
-	movk	x2, 0xfb41, lsl 16
-	movk	x1, 0x137e, lsl 16
-	movk	x6, 0xf372, lsl 32
-	movk	x5, 0xf53a, lsl 32
-	movk	x4, 0x527f, lsl 32
-	movk	x3, 0x688c, lsl 32
-	movk	x2, 0xd9ab, lsl 32
-	movk	x1, 0xcd19, lsl 32
-	movk	x6, 0x3c6e, lsl 48
-	movk	x5, 0xa54f, lsl 48
-	movk	x4, 0x510e, lsl 48
-	movk	x3, 0x9b05, lsl 48
-	movk	x2, 0x1f83, lsl 48
-	movk	x1, 0x5be0, lsl 48
-	stp	x6, x5, [x0, 16]
-	stp	x4, x3, [x0, 32]
-	str	x2, [x0, 48]
-	str	x1, [x0, 56]
-	ret
-	.cfi_endproc
-.LFE11:
-	.size	sha512_init, .-sha512_init
-	.type	sha512_update, %function
-sha512_update:
-.LFB15:
-	stp	x29, x30, [sp, -48]!
-	mov	x29, sp
-	stp	x19, x20, [sp, 16]
-	str	x21, [sp, 32]
-	mov	x21, x0
-	mov	x19, x1
-	mov	x20, x2
-	lsl	x3, x20, 3
-	lsr	x5, x20, 61
-	ldr	x0, [x21, 64]
-	ldr	x2, [x21, 72]
-	adds	x0, x0, x3
-	adc	x2, x2, x5
-    stp	x0, x2, [x21, 64]   // Update message length information
-	ldrb	w4, [x21, 208]  // x4 contains cur_pos
-    cbz	x4, .L29            // Jump if cur_pos == 0
-    mov x0, 128
-    sub x0, x0, x4          // x0 contains the number of vacant bytes in cur_block
-    cmp x0, x20
-    bls .L30                // Jump if in_data can fill up cur_block
-    mov x0, x20             // x0 contains the number of bytes to move to cur_block
-.L30:
-    add x1, x21, 80         // x1 contains cur_block
-    mov x2, xzr             // x2 is the loop counter
-    b .L31                  // Start memcpy loop
-.L32:
-    ldrb w3, [x19, x2]      // While counter < number of bytes to move
-    strb w3, [x1, x4]       //      Move a byte from in_data to cur_block[cur_pos]
-    add x2, x2, 1           //      Increment counter and cur_pos
-    add x4, x4, 1
-.L31:
-    cmp x2, x0
-    bne .L32
-    add x19, x19, x0        // Update in_data and in_len
-    sub x20, x20, x0
-    cmp x4, 128
-    bne .L33                // Jump if cur_pos < 128 (iff in_data could not fill up cur_block)
-    mov x0, x21
-    bl sha512_process_block // Process the filled block
-.L29:
-    cmp x20, 128
-    blo .L34                // Jump if in_len < SHA512_BLOCK_LENGTH
-    mov x0, x21
-    mov x1, x19
-    lsr x2, x20, 7          // Compute the number of blocks to process
-    lsl x3, x2, 7
-    add x19, x19, x3        // x19 points to the data to be copied to cur_block later 
-    and x20, x20, 127       // in_len mod 128
-    bl sha512_process_blocks
-.L34:                       // Move the leftover data to cur_block (x20 < SHA512_BLOCK_LENGTH == 128)
-    mov x4, xzr             // x4 is the loop counter
-    add x1, x21, 80         // x1 contains to cur_block
-    b .L35
-.L36:
-    ldrb w2, [x19, x4]
-    strb w2, [x1, x4]
-    add x4, x4, 1
-.L35:
-    cmp x4, x20
-    bne .L36
-.L33:
-    strb w4, [x21, 208]     // Store cur_pos
-	ldp	x19, x20, [sp, 16]
-	ldr	x21, [sp, 32]
-	ldp	x29, x30, [sp], 48
-    ret
-.LFE15:
-	.size	sha512_update, .-sha512_update
-	.type	sha512_final, %function
-sha512_final:
-.LFB16:
-	stp	x29, x30, [sp, -48]!
-	mov	x29, sp
-	stp	x19, x20, [sp, 16]
-	mov	x20, x0                 // x20 points to output buffer
-	mov	x19, x1                 // x19 points to sha context
-	str	x21, [sp, 32]
-	add	x21, x19, 80            // x21 contains cur_block
-	ldrb	w2, [x19, 208]      // x2 contains cur_pos
-    mov	w3, 0x80
-    strb    w3, [x21, x2] // First byte of padding is 0x80
-    add x2, x2, 1               // Increment cur_pos
-    cmp x2, 112                 // Compare cur_pos with SHA512_BLOCK_LENGTH - 16
-    bls .L112                   // Jump if there is only one block left
-    b .L113                     // Start of memset loop
-.L114:
-    strb	wzr, [x21, x2]      // While cur_pos < SHA512_BLOCK_LENGTH
-    add x2, x2, 1               //   store a zero byte at cur_block[cur_pos] and increment cur_pos
-.L113:
-    cmp x2, 128
-    bne .L114
-	mov	x0, x19                 // Prepare to call subroutine
-	mov	x1, x21
-    bl	sha512_process_block    // Process the second last block
-    mov x2, xzr                 // Set cur_pos to zero
-.L112:
-    b .L115                     // Start memset loop
-.L116:
-    strb    wzr, [x21, x2]      // While cur_pos < SHA512_BLOCK_LENGTH - 16
-    add x2, x2, 1               //   store a zero byte at cur_block[cur_pos] and increment cur_pos
-.L115:
-    cmp x2, 112
-    bne .L116
-    ldr	x0, [x19, 72]           // Move message length information into the block
-	rev	x0, x0
-	str	x0, [x19, 192]
-	ldr	x0, [x19, 64]
-	rev	x0, x0
-	str	x0, [x19, 200]
-	mov	x0, x19                 // Prepare to call subroutine
-	mov	x1, x21
-	bl	sha512_process_block    // Process the last block
-    ldr	x0, [x19]               // Store the digest in big-endian in output buffer
-	rev	x0, x0
-	str	x0, [x20]
-	ldr	x0, [x19, 8]
-	rev	x0, x0
-	str	x0, [x20, 8]
-	ldr	x0, [x19, 16]
-	rev	x0, x0
-	str	x0, [x20, 16]
-	ldr	x0, [x19, 24]
-	rev	x0, x0
-	str	x0, [x20, 24]
-	ldr	x0, [x19, 32]
-	rev	x0, x0
-	str	x0, [x20, 32]
-	ldr	x0, [x19, 40]
-	rev	x0, x0
-	str	x0, [x20, 40]
-	ldr	x0, [x19, 48]
-	rev	x0, x0
-	str	x0, [x20, 48]
-	ldr	x0, [x19, 56]
-	rev	x0, x0
-	str	x0, [x20, 56]
-	ldp	x19, x20, [sp, 16]
-	ldr	x21, [sp, 32]
-	ldp	x29, x30, [sp], 48
-	ret
-.LFE16:
-	.size	sha512_final, .-sha512_final
-	.global	K
-	.section	.rodata
-	.align	3
-	.type	K, %object
-	.size	K, 640
-K:
-	.xword	4794697086780616226
-	.xword	8158064640168781261
-	.xword	-5349999486874862801
-	.xword	-1606136188198331460
-	.xword	4131703408338449720
-	.xword	6480981068601479193
-	.xword	-7908458776815382629
-	.xword	-6116909921290321640
-	.xword	-2880145864133508542
-	.xword	1334009975649890238
-	.xword	2608012711638119052
-	.xword	6128411473006802146
-	.xword	8268148722764581231
-	.xword	-9160688886553864527
-	.xword	-7215885187991268811
-	.xword	-4495734319001033068
-	.xword	-1973867731355612462
-	.xword	-1171420211273849373
-	.xword	1135362057144423861
-	.xword	2597628984639134821
-	.xword	3308224258029322869
-	.xword	5365058923640841347
-	.xword	6679025012923562964
-	.xword	8573033837759648693
-	.xword	-7476448914759557205
-	.xword	-6327057829258317296
-	.xword	-5763719355590565569
-	.xword	-4658551843659510044
-	.xword	-4116276920077217854
-	.xword	-3051310485924567259
-	.xword	489312712824947311
-	.xword	1452737877330783856
-	.xword	2861767655752347644
-	.xword	3322285676063803686
-	.xword	5560940570517711597
-	.xword	5996557281743188959
-	.xword	7280758554555802590
-	.xword	8532644243296465576
-	.xword	-9096487096722542874
-	.xword	-7894198246740708037
-	.xword	-6719396339535248540
-	.xword	-6333637450476146687
-	.xword	-4446306890439682159
-	.xword	-4076793802049405392
-	.xword	-3345356375505022440
-	.xword	-2983346525034927856
-	.xword	-860691631967231958
-	.xword	1182934255886127544
-	.xword	1847814050463011016
-	.xword	2177327727835720531
-	.xword	2830643537854262169
-	.xword	3796741975233480872
-	.xword	4115178125766777443
-	.xword	5681478168544905931
-	.xword	6601373596472566643
-	.xword	7507060721942968483
-	.xword	8399075790359081724
-	.xword	8693463985226723168
-	.xword	-8878714635349349518
-	.xword	-8302665154208450068
-	.xword	-8016688836872298968
-	.xword	-6606660893046293015
-	.xword	-4685533653050689259
-	.xword	-4147400797238176981
-	.xword	-3880063495543823972
-	.xword	-3348786107499101689
-	.xword	-1523767162380948706
-	.xword	-757361751448694408
-	.xword	500013540394364858
-	.xword	748580250866718886
-	.xword	1242879168328830382
-	.xword	1977374033974150939
-	.xword	2944078676154940804
-	.xword	3659926193048069267
-	.xword	4368137639120453308
-	.xword	4836135668995329356
-	.xword	5532061633213252278
-	.xword	6448918945643986474
-	.xword	6902733635092675308
-	.xword	7801388544844847127
