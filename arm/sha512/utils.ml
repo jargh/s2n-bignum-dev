@@ -1,5 +1,7 @@
 needs "arm/proofs/base.ml";;
 
+prioritize_num();;
+
 parse_as_infix ("++", (13, "right"));;
 override_interface("++", `APPEND`);;
 

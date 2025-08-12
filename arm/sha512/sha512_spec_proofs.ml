@@ -1,5 +1,7 @@
 needs "arm/sha512/sha512_specs.ml";;
 
+prioritize_num();;
+
 (* ===== thm ===== *)
 let EXPAND_HASH_THM = prove
   (`! h0 h1 h2 h3 h4 h5 h6 h7 h.
