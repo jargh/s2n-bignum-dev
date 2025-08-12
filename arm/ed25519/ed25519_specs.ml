@@ -1,7 +1,6 @@
-needs "arm/proofs/base.ml";;
 needs "common/ecencoding.ml";;
 needs "EC/edwards25519.ml";;
-needs "arm/sha512/sha512_secs.ml";;
+needs "arm/sha512/sha512_specs.ml";;
 
 parse_as_infix ("++", (13, "right"));;
 override_interface("++", `APPEND`);;
