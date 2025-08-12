@@ -27,10 +27,10 @@ Disassembly of section .text:
       4c:	39043fe0 	strb	w0, [sp, #271]
       50:	9104c3e0 	add	x0, sp, #0x130
       54:	9103c3e1 	add	x1, sp, #0xf0
-      58:	94000000 	bl	13f0 <edwards25519_scalarmulbase_alt>
+      58:	940004e6 	bl	13f0 <edwards25519_scalarmulbase_alt>
       5c:	aa1303e0 	mov	x0, x19
       60:	9104c3e1 	add	x1, sp, #0x130
-      64:	94000000 	bl	12e8 <edwards25519_encode>
+      64:	940004a1 	bl	12e8 <edwards25519_encode>
       68:	f9400bfe 	ldr	x30, [sp, #16]
       6c:	a8d753f3 	ldp	x19, x20, [sp], #368
       70:	d65f03c0 	ret
@@ -86,13 +86,13 @@ Disassembly of section .text:
      128:	910543e0 	add	x0, sp, #0x150
      12c:	d2800101 	mov	x1, #0x8                   	// #8
      130:	aa0003e2 	mov	x2, x0
-     134:	94000000 	bl	9b8 <bignum_mod_n25519>
+     134:	94000221 	bl	9b8 <bignum_mod_n25519>
      138:	910643e0 	add	x0, sp, #0x190
      13c:	910543e1 	add	x1, sp, #0x150
-     140:	94000000 	bl	13f0 <edwards25519_scalarmulbase_alt>
+     140:	940004ac 	bl	13f0 <edwards25519_scalarmulbase_alt>
      144:	aa1303e0 	mov	x0, x19
      148:	910643e1 	add	x1, sp, #0x190
-     14c:	94000000 	bl	12e8 <edwards25519_encode>
+     14c:	94000467 	bl	12e8 <edwards25519_encode>
      150:	9100e3e0 	add	x0, sp, #0x38
      154:	940023fe 	bl	914c <sha512_init>
      158:	b40000b8 	cbz	x24, 16c <ed25519_sign_common_pure2>
@@ -120,12 +120,12 @@ Disassembly of section .text:
      1a8:	910743e0 	add	x0, sp, #0x1d0
      1ac:	d2800101 	mov	x1, #0x8                   	// #8
      1b0:	aa0003e2 	mov	x2, x0
-     1b4:	94000000 	bl	9b8 <bignum_mod_n25519>
+     1b4:	94000201 	bl	9b8 <bignum_mod_n25519>
      1b8:	91008260 	add	x0, x19, #0x20
      1bc:	910743e1 	add	x1, sp, #0x1d0
      1c0:	910443e2 	add	x2, sp, #0x110
      1c4:	910543e3 	add	x3, sp, #0x150
-     1c8:	94000000 	bl	6ac <bignum_madd_n25519_alt>
+     1c8:	94000139 	bl	6ac <bignum_madd_n25519_alt>
      1cc:	a94053f3 	ldp	x19, x20, [sp]
      1d0:	a9415bf5 	ldp	x21, x22, [sp, #16]
      1d4:	a94263f7 	ldp	x23, x24, [sp, #32]
@@ -162,11 +162,11 @@ Disassembly of section .text:
      248:	9100e3e1 	add	x1, sp, #0x38
      24c:	d2800082 	mov	x2, #0x4                   	// #4
      250:	910082a3 	add	x3, x21, #0x20
-     254:	94000000 	bl	624 <bignum_le>
+     254:	940000f4 	bl	624 <bignum_le>
      258:	b5000720 	cbnz	x0, 33c <ed25519_verify_common_fail>
      25c:	910163e0 	add	x0, sp, #0x58
      260:	aa1603e1 	mov	x1, x22
-     264:	94000000 	bl	b38 <edwards25519_decode_alt>
+     264:	94000235 	bl	b38 <edwards25519_decode_alt>
      268:	b50006a0 	cbnz	x0, 33c <ed25519_verify_common_fail>
      26c:	910263e0 	add	x0, sp, #0x98
      270:	940023b7 	bl	914c <sha512_init>
@@ -194,19 +194,19 @@ Disassembly of section .text:
      2c0:	94002405 	bl	92d4 <sha512_final>
      2c4:	910163e0 	add	x0, sp, #0x58
      2c8:	aa0003e1 	mov	x1, x0
-     2cc:	94000000 	bl	ae8 <bignum_neg_p25519>
+     2cc:	94000207 	bl	ae8 <bignum_neg_p25519>
      2d0:	9105c3e0 	add	x0, sp, #0x170
      2d4:	d2800101 	mov	x1, #0x8                   	// #8
      2d8:	aa0003e2 	mov	x2, x0
-     2dc:	94000000 	bl	9b8 <bignum_mod_n25519>
+     2dc:	940001b7 	bl	9b8 <bignum_mod_n25519>
      2e0:	9106c3e0 	add	x0, sp, #0x1b0
      2e4:	9105c3e1 	add	x1, sp, #0x170
      2e8:	910163e2 	add	x2, sp, #0x58
      2ec:	910082a3 	add	x3, x21, #0x20
-     2f0:	94000000 	bl	3810 <edwards25519_scalarmuldouble_alt>
+     2f0:	94000d48 	bl	3810 <edwards25519_scalarmuldouble_alt>
      2f4:	9107c3e0 	add	x0, sp, #0x1f0
      2f8:	9106c3e1 	add	x1, sp, #0x1b0
-     2fc:	94000000 	bl	12e8 <edwards25519_encode>
+     2fc:	940003fb 	bl	12e8 <edwards25519_encode>
      300:	a95f07e0 	ldp	x0, x1, [sp, #496]
      304:	a9400ea2 	ldp	x2, x3, [x21]
      308:	eb02001f 	cmp	x0, x2
