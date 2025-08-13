@@ -271,7 +271,7 @@ ed25519_verify_common:
     stp x0, x1, [sp, #56]
     mov x0, xzr
     mov x1, #1
-    lsl x1, x1, #63
+    lsl x1, x1, #60
     stp x0, x1, [sp, #72]
     mov x0, #4
     add x1, sp, #56

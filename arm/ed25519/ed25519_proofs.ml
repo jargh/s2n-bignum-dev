@@ -161,7 +161,7 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xa90387e0;         (* arm_STP X0 X1 SP (Immediate_Offset (iword (&56))) *)
   w 0xaa1f03e0;         (* arm_MOV X0 XZR *)
   w 0xd2800021;         (* arm_MOV X1 (rvalue (word 1)) *)
-  w 0xd3410021;         (* arm_LSL X1 X1 63 *)
+  w 0xd3440c21;         (* arm_LSL X1 X1 60 *)
   w 0xa90487e0;         (* arm_STP X0 X1 SP (Immediate_Offset (iword (&72))) *)
   w 0xd2800080;         (* arm_MOV X0 (rvalue (word 4)) *)
   w 0x9100e3e1;         (* arm_ADD X1 SP (rvalue (word 56)) *)
@@ -9961,6 +9961,28 @@ let ED25519_SIGN_COMMON_CORRECT = prove
     (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
      MAYCHANGE [memory :> bytes(sig_p, 64)] ,,
      MAYCHANGE [memory :> bytes(word_sub sp (word 1344), 1344)])`,
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL;
+      constants_at; C_ARGUMENTS; C_RETURN] THEN
+    WORD_FORALL_OFFSET_TAC 1344 THEN
+    REPEAT STRIP_TAC THEN
+    ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
+    ENSURES_EXISTING_PRESERVED_TAC `X30` THEN
+    ENSURES_PRESERVED_TAC "x19_init" `X19` THEN
+    ENSURES_PRESERVED_TAC "x20_init" `X20` THEN
+    ENSURES_PRESERVED_TAC "x21_init" `X21` THEN
+    ENSURES_PRESERVED_TAC "x22_init" `X22` THEN
+    ENSURES_PRESERVED_TAC "x23_init" `X23` THEN
+    ENSURES_PRESERVED_TAC "x24_init" `X24` THEN
+
+    ENSURES_INIT_TAC "s29" THEN
+    RULE_ASSUM_TAC (REWRITE_RULE [byte_list_at]) THEN
+    SUBGOAL_THEN `LENGTH (seed ++ public_key_of_seed seed : byte list) = 64`
+      (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th]) THEN ASSUME_TAC th) THENL
+    [ ASM_REWRITE_TAC [LENGTH_APPEND; LENGTH_ED25519_PUBLIC_KEY] THEN
+        ARITH_TAC;
+      ALL_TAC ] THEN
+    ARM_STEPS_TAC ED25519_EXEC (30--42) THEN
+
   CHEAT_TAC);;
 
 (* int ed25519_sign_no_self_test_s2n_bignum(
@@ -10191,6 +10213,46 @@ let ED25519PH_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     ENSURES_PRESERVED_TAC "x22_init" `X22` THEN
 
     ENSURES_INIT_TAC "s314" THEN
+    RULE_ASSUM_TAC (REWRITE_RULE [byte_list_at]) THEN
+    SUBGOAL_THEN `LENGTH (seed ++ public_key_of_seed seed) = 64`
+      (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th]) THEN ASSUME_TAC th) THENL
+    [ ASM_REWRITE_TAC[LENGTH_APPEND; LENGTH_ED25519_PUBLIC_KEY; ARITH]; ALL_TAC ] THEN
+    ARM_STEPS_TAC ED25519_EXEC (315--324) THEN
+    POP_ASSUM MP_TAC THEN
+    ASM_SIMP_TAC [VAL_WORD_EQ; DIMINDEX_64; VAL_WORD_SUB_EQ_0] THEN
+    SIMP_TAC [VAL_WORD_EQ; DIMINDEX_64; ARITH] THEN
+    COND_CASES_TAC THEN
+    DISCH_TAC THENL
+    [ (* 255 < LENGTH ctx *)
+      SUBGOAL_THEN `~(dom2_valid 2 ctx)` (fun th -> REWRITE_TAC [th]) THENL
+        [ ASM_REWRITE_TAC [dom2_valid; ARITH; GSYM LENGTH_EQ_NIL] THEN
+            REWRITE_TAC [NOT_LE; LT_LE] THEN
+            ONCE_REWRITE_TAC [EQ_SYM] THEN
+            ASM_REWRITE_TAC [];
+          ALL_TAC ] THEN
+        ARM_STEPS_TAC ED25519_EXEC (349--354) THEN
+        ENSURES_FINAL_STATE_TAC THEN
+        ASM_REWRITE_TAC [];
+      ALL_TAC ] THEN
+    SUBGOAL_THEN `dom2_valid 2 ctx` (fun th -> REWRITE_TAC [th]) THENL
+    [ ASM_REWRITE_TAC [dom2_valid; ARITH; GSYM LENGTH_EQ_NIL] THEN
+          REWRITE_TAC [GSYM NOT_LT] THEN REWRITE_TAC [LT_LE] THEN
+          ONCE_REWRITE_TAC [ARITH_RULE `!x y:num. ~(x=y) <=> ~(y=x)`] THEN
+          ASM_REWRITE_TAC [];
+      ALL_TAC ] THEN
+    ARM_STEPS_TAC ED25519_EXEC (325--329) THEN
+    SUBGOAL_THEN `LENGTH (ctx:byte list) <= 255` ASSUME_TAC THENL
+    [ REWRITE_TAC [GSYM NOT_LT] THEN REWRITE_TAC [LT_LE] THEN
+        ONCE_REWRITE_TAC [ARITH_RULE `!x y:num. ~(x=y) <=> ~(y=x)`] THEN
+        ASM_REWRITE_TAC [];
+      ALL_TAC ] THEN
+    ARM_SUBROUTINE_SIM_TAC
+      (SPEC_ALL ed25519_mc, ED25519_EXEC, 0, SPEC_ALL ed25519_mc, REWRITE_RULE [max_dom2_size; byte_list_at] DOM2_COMMON_CORRECT)
+      [`sp + word 1384 : int64`; `word 1:int64`; `ctx_p:int64`; `ctx:byte list`; `pc:num`; `pc + 1316`; `base_const:num`; `double_const:num`; `K_base:num`] 330 THEN
+    RENAME_TAC `s330:armstate` `s329_ret:armstate` THEN
+    SUBGOAL_THEN `LENGTH (dom2_prefix ++ [word (val (word 1 : int64))] ++ [word (LENGTH ctx)] ++ ctx) <= 289` ASSUME_TAC THENL
+    [ REWRITE_TAC [LENGTH_APPEND; LENGTH; LENGTH_DOM2_PREFIX] THEN SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+    ARM_STEPS_TAC ED25519_EXEC (330--332) THEN
     CHEAT_TAC);;
 
 (* int ed25519_verify_common(
@@ -10226,6 +10288,31 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
             else C_RETURN s = word 0)
     (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
      MAYCHANGE [memory :> bytes(word_sub sp (word 2224), 2224)])`,
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL;
+      constants_at; C_ARGUMENTS; C_RETURN] THEN
+    WORD_FORALL_OFFSET_TAC 2224 THEN
+    REPEAT STRIP_TAC THEN
+    ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
+    ENSURES_EXISTING_PRESERVED_TAC `X30` THEN
+    ENSURES_PRESERVED_TAC "x19_init" `X19` THEN
+    ENSURES_PRESERVED_TAC "x20_init" `X20` THEN
+    ENSURES_PRESERVED_TAC "x21_init" `X21` THEN
+    ENSURES_PRESERVED_TAC "x22_init" `X22` THEN
+    ENSURES_PRESERVED_TAC "x23_init" `X23` THEN
+    ENSURES_PRESERVED_TAC "x24_init" `X24` THEN
+
+    ENSURES_INIT_TAC "s121" THEN
+    RULE_ASSUM_TAC (REWRITE_RULE [byte_list_at]) THEN
+    ARM_STEPS_TAC ED25519_EXEC (122--145) THEN
+    SUBGOAL_THEN `bignum_from_memory(sp + word 1752, 4) s145 = n_25519` ASSUME_TAC THENL
+    [ REWRITE_TAC [BIGNUM_FROM_MEMORY; NUMSEG_LT; ARITH] THEN
+        CONV_TAC (ONCE_DEPTH_CONV EXPAND_NSUM_CONV) THEN
+        CONV_TAC (TOP_DEPTH_CONV NUM_MULT_CONV) THEN
+        REWRITE_TAC [GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
+        CONV_TAC (TOP_DEPTH_CONV NUM_ADD_CONV) THEN
+        ASM_REWRITE_TAC [n_25519] THEN
+        SIMP_TAC [VAL_WORD_EQ; DIMINDEX_64; ARITH];
+      ALL_TAC ] THEN
   CHEAT_TAC);;
 
 (* int ed25519_verify_no_self_test_s2n_bignum(
@@ -10443,4 +10530,73 @@ let ED25519PH_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
      MAYCHANGE [memory :> bytes(sig_p, 64)] ,,
      MAYCHANGE [memory :> bytes(word_sub sp (word 2848), 2848)])`,
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL;
+      constants_at; C_ARGUMENTS; C_RETURN] THEN
+    WORD_FORALL_OFFSET_TAC 2848 THEN
+    REPEAT STRIP_TAC THEN
+    ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
+    ENSURES_EXISTING_PRESERVED_TAC `X30` THEN
+    ENSURES_PRESERVED_TAC "x19_init" `X19` THEN
+    ENSURES_PRESERVED_TAC "x20_init" `X20` THEN
+    ENSURES_PRESERVED_TAC "x21_init" `X21` THEN
+    ENSURES_PRESERVED_TAC "x22_init" `X22` THEN
+
+    ENSURES_INIT_TAC "s354" THEN
+    RULE_ASSUM_TAC (REWRITE_RULE [byte_list_at]) THEN
+    ARM_STEPS_TAC ED25519_EXEC (355--364) THEN
+    POP_ASSUM MP_TAC THEN
+    ASM_SIMP_TAC [VAL_WORD_EQ; DIMINDEX_64; VAL_WORD_SUB_EQ_0] THEN
+    SIMP_TAC [VAL_WORD_EQ; DIMINDEX_64; ARITH] THEN
+    COND_CASES_TAC THEN
+    DISCH_TAC THENL
+    [ (* 255 < LENGTH ctx *)
+      SUBGOAL_THEN `~(dom2_valid 2 ctx)` (fun th -> REWRITE_TAC [th]) THENL
+        [ ASM_REWRITE_TAC [dom2_valid; ARITH; GSYM LENGTH_EQ_NIL] THEN
+            REWRITE_TAC [NOT_LE; LT_LE] THEN
+            ONCE_REWRITE_TAC [EQ_SYM] THEN
+            ASM_REWRITE_TAC [];
+          ALL_TAC ] THEN
+        ARM_STEPS_TAC ED25519_EXEC (388--393) THEN
+        ENSURES_FINAL_STATE_TAC THEN
+        ASM_REWRITE_TAC [];
+      ALL_TAC ] THEN
+    SUBGOAL_THEN `dom2_valid 2 ctx` (fun th -> REWRITE_TAC [th]) THENL
+    [ ASM_REWRITE_TAC [dom2_valid; ARITH; GSYM LENGTH_EQ_NIL] THEN
+          REWRITE_TAC [GSYM NOT_LT] THEN REWRITE_TAC [LT_LE] THEN
+          ONCE_REWRITE_TAC [ARITH_RULE `!x y:num. ~(x=y) <=> ~(y=x)`] THEN
+          ASM_REWRITE_TAC [];
+      ALL_TAC ] THEN
+    ARM_STEPS_TAC ED25519_EXEC (365--369) THEN
+    SUBGOAL_THEN `LENGTH (ctx:byte list) <= 255` ASSUME_TAC THENL
+    [ REWRITE_TAC [GSYM NOT_LT] THEN REWRITE_TAC [LT_LE] THEN
+        ONCE_REWRITE_TAC [ARITH_RULE `!x y:num. ~(x=y) <=> ~(y=x)`] THEN
+        ASM_REWRITE_TAC [];
+      ALL_TAC ] THEN
+    ARM_SUBROUTINE_SIM_TAC
+      (SPEC_ALL ed25519_mc, ED25519_EXEC, 0, SPEC_ALL ed25519_mc, REWRITE_RULE [max_dom2_size; byte_list_at] DOM2_COMMON_CORRECT)
+      [`sp + word 2264 : int64`; `word 1:int64`; `ctx_p:int64`; `ctx:byte list`; `pc:num`; `pc + 1476`; `base_const:num`; `double_const:num`; `K_base:num`] 370 THEN
+    RENAME_TAC `s370:armstate` `s369_ret:armstate` THEN
+    SUBGOAL_THEN `LENGTH (dom2_prefix ++ [word (val (word 1 : int64))] ++ [word (LENGTH ctx)] ++ ctx) <= 289` ASSUME_TAC THENL
+    [ REWRITE_TAC [LENGTH_APPEND; LENGTH; LENGTH_DOM2_PREFIX] THEN SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+    ARM_STEPS_TAC ED25519_EXEC (370--372) THEN
   CHEAT_TAC);;
+
+
+let BYTE_LIST_AT_BYTELIST = prove
+  (`!m p s. byte_list_at m p s <=> read (memory :> bytelist(p, LENGTH m)) s = m`,
+  REWRITE_TAC [GSYM bytes_loaded] THEN LIST_INDUCT_TAC THENL
+  [ REWRITE_TAC [byte_list_at; LENGTH; bytes_loaded_nil; LT];
+    ONCE_REWRITE_TAC [GSYM APPEND_SING] THEN
+      ASM_REWRITE_TAC [BYTE_LIST_AT_APPEND; bytes_loaded_append] THEN
+      REPEAT STRIP_TAC THEN
+      SUBGOAL_THEN `byte_list_at [h] p s <=> read (memory :> bytes8 p) s = h` MP_TAC THENL
+      [ REWRITE_TAC [byte_list_at; LENGTH; ARITH] THEN
+          CONV_TAC (ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
+          REWRITE_TAC [WORD_ADD_0; EL; HD];
+        ALL_TAC ] THEN
+      REWRITE_TAC [BYTES8_BYTELIST] THEN
+      SUBGOAL_THEN `1 = LENGTH [h:byte]` (fun th -> REWRITE_TAC [th]) THENL
+      [ REWRITE_TAC [LENGTH; ARITH]; ALL_TAC ] THEN
+      REWRITE_TAC [GSYM bytes_loaded] THEN
+      DISCH_TAC THEN
+      ASM_REWRITE_TAC [] ]);;
