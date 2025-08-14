@@ -9721,6 +9721,51 @@ needs "arm/proofs/edwards25519_scalarmulbase_alt.ml";;
 needs "arm/proofs/edwards25519_scalarmuldouble_alt.ml";;
 
 (*****************************************************************************)
+let BIGNUM_OF_BYTELIST_NSUM = prove
+  (`!m. bignum_of_bytelist m = nsum {i | i < LENGTH m} (\i. 2 EXP (8 * i) * val (EL i m))`,
+  LIST_INDUCT_TAC THEN
+    ASM_REWRITE_TAC [bignum_of_bytelist; LENGTH] THENL
+    [ REWRITE_TAC [LT; EMPTY_GSPEC; NSUM_CLAUSES];
+      GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [NUMSEG_LT] THEN
+        REWRITE_TAC [NOT_SUC; SUC_SUB1] THEN
+        REWRITE_TAC [NUMSEG_LT] THEN
+        ASM_CASES_TAC `LENGTH (t:byte list) = 0` THENL
+        [ ASM_REWRITE_TAC [NSUM_CLAUSES] THEN
+            CONV_TAC (ONCE_DEPTH_CONV EXPAND_NSUM_CONV) THEN
+            REWRITE_TAC [EL; HD; ARITH] THEN
+            REWRITE_TAC [ADD_0; MULT_CLAUSES];
+          ASM_REWRITE_TAC [] THEN
+            GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV)
+              [ARITH_RULE `LENGTH (t:byte list) = 0 + LENGTH t`] THEN
+            MP_TAC (ARITH_RULE `0 <= 0+1`) THEN
+            DISCH_THEN (MP_TAC o MATCH_MP NSUM_ADD_SPLIT) THEN
+            DISCH_THEN (fun th -> REWRITE_TAC [th]) THEN
+            SUBGOAL_THEN `0 + LENGTH (t:byte list) = LENGTH t - 1 + 1` (fun th -> REWRITE_TAC [th]) THENL
+            [ SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+            REWRITE_TAC [NSUM_OFFSET] THEN
+            CONV_TAC (ONCE_DEPTH_CONV EXPAND_NSUM_CONV) THEN
+            SUBGOAL_THEN `!i x. 2 EXP (8 * (i + 1)) * x = 2 EXP 8 * (2 EXP (8 * i)) * x`
+              (fun th -> REWRITE_TAC [th]) THENL
+            [ REWRITE_TAC [LEFT_ADD_DISTRIB; EXP_ADD] THEN ARITH_TAC; ALL_TAC ] THEN
+            REWRITE_TAC [NSUM_LMUL; GSYM ADD1] THEN
+            REWRITE_TAC [EL; HD; TL; ARITH; MULT_CLAUSES] ] ]);;
+
+let REWRITE_UNDER_NSUM = prove
+  (`!l (x:A) y f. (!i. i<l ==> x = y) ==>
+    nsum {i | i < l} (f x) = nsum {i | i < l} (f y)`,
+  INDUCT_TAC THENL
+    [ REWRITE_TAC [LT; EMPTY_GSPEC; NSUM_CLAUSES];
+      REWRITE_TAC [NSUM_CLAUSES_NUMSEG_LT] THEN
+        REPEAT STRIP_TAC THEN
+        POP_ASSUM (STRIP_ASSUME_TAC o REWRITE_RULE [ADD1; FORALL_LT_SUC]) THEN
+        ASM_SIMP_TAC [] ]);;
+
+let BYTE_LIST_AT_BIGNUM_OF_BYTELIST = prove
+  (`!m p s. byte_list_at m p s ==> read (memory :> bytes(p, LENGTH m)) s = bignum_of_bytelist m`,
+  REWRITE_TAC [component_compose; read; o_DEF; byte_list_at; bytes8; asword; through] THEN
+    REWRITE_TAC [READ_BYTES_1; WORD_VAL] THEN
+    REPEAT STRIP_TAC THEN
+    ASM_SIMP_TAC [READ_BYTES; BIGNUM_OF_BYTELIST_NSUM; REWRITE_UNDER_NSUM]);;
 
 (* void ed25519_public_key_from_seed_s2n_bignum(
     uint8_t A[ED25519_PUBLIC_KEY_LEN], const uint8_t seed[ED25519_SEED_LEN]) *)
@@ -10279,6 +10324,7 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
          read X30 s = word retpc /\
          C_ARGUMENTS [msg_p; word (LENGTH (ph alg msg)); sig_p; A_p; dom2_buf_p; word (LENGTH (dom2_of alg ctx))] s /\
          byte_list_at (ph alg msg) msg_p s /\
+         byte_list_at sig sig_p s /\
          byte_list_at A A_p s /\
          byte_list_at (dom2_of alg ctx) dom2_buf_p s /\
          constants_at (word K_base) s)
@@ -10302,9 +10348,17 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
     ENSURES_PRESERVED_TAC "x24_init" `X24` THEN
 
     ENSURES_INIT_TAC "s121" THEN
+    SUBGOAL_THEN `byte_list_at (SUB_LIST (0, 32) sig) sig_p s121 /\ byte_list_at (SUB_LIST (32, 32) sig) (sig_p + word 32) s121` MP_TAC THENL 
+    [ CHEAT_TAC; ALL_TAC ] THEN
+    STRIP_TAC THEN REPLICATE_TAC 2 (POP_ASSUM MP_TAC) THEN
+    REPLICATE_TAC 2 (DISCH_THEN (ASSUME_TAC o MATCH_MP BYTE_LIST_AT_BIGNUM_OF_BYTELIST)) THEN
+    REPLICATE_TAC 2 (POP_ASSUM MP_TAC) THEN
+    ASM_REWRITE_TAC [LENGTH_SUB_LIST; MIN; ARITH] THEN
+    REPLICATE_TAC 2 DISCH_TAC THEN
+
     RULE_ASSUM_TAC (REWRITE_RULE [byte_list_at]) THEN
-    ARM_STEPS_TAC ED25519_EXEC (122--145) THEN
-    SUBGOAL_THEN `bignum_from_memory(sp + word 1752, 4) s145 = n_25519` ASSUME_TAC THENL
+    ARM_STEPS_TAC ED25519_EXEC (122--150) THEN
+    SUBGOAL_THEN `bignum_from_memory(sp + word 1752, 4) s150 = n_25519` MP_TAC THENL
     [ REWRITE_TAC [BIGNUM_FROM_MEMORY; NUMSEG_LT; ARITH] THEN
         CONV_TAC (ONCE_DEPTH_CONV EXPAND_NSUM_CONV) THEN
         CONV_TAC (TOP_DEPTH_CONV NUM_MULT_CONV) THEN
@@ -10313,6 +10367,16 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
         ASM_REWRITE_TAC [n_25519] THEN
         SIMP_TAC [VAL_WORD_EQ; DIMINDEX_64; ARITH];
       ALL_TAC ] THEN
+    REWRITE_TAC [BIGNUM_FROM_MEMORY_BYTES] THEN DISCH_TAC THEN
+    VAL_INT64_TAC `4` THEN
+    SUBGOAL_THEN `read (memory :> bytes (sig_p + word 32,8 * 4)) s150 =
+ bignum_of_bytelist (SUB_LIST (32,32) sig)` ASSUME_TAC THENL [CHEAT_TAC;ALL_TAC] THEN
+    ARM_SUBROUTINE_SIM_TAC (SPEC_ALL ed25519_mc, ED25519_EXEC, 0x624, bignum_le_mc, BIGNUM_LE_SUBROUTINE_CORRECT)
+      [`word 4:int64`; `sp + word 1752:int64`; `n_25519:num`;
+       `word 4:int64`; `sig_p + word 32:int64`; `bignum_of_bytelist (SUB_LIST (32,32) sig)`;
+       `pc + 0x624`; `word (pc + 600):int64`] 151 THEN
+
+    >>> snd (dest_comb (concl (TRIM_LIST_CONV (mk_comb (`TRIM_LIST (1572, 36000) : byte list -> byte list`, (snd (dest_comb (concl (SPEC_ALL ed25519_mc)))))))));;
   CHEAT_TAC);;
 
 (* int ed25519_verify_no_self_test_s2n_bignum(
@@ -10337,6 +10401,7 @@ let ED25519_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
          read X30 s = word retpc /\
          C_ARGUMENTS [msg_p; word (LENGTH msg); sig_p; A_p] s /\
          byte_list_at msg msg_p s /\
+         byte_list_at sig sig_p s /\
          byte_list_at A A_p s /\
          constants_at (word K_base) s)
     (\s. read PC s = word retpc /\
@@ -10355,6 +10420,9 @@ let ED25519_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
 
     ENSURES_INIT_TAC "s221" THEN
     RULE_ASSUM_TAC (REWRITE_RULE [byte_list_at]) THEN
+    SUBGOAL_THEN `LENGTH (sig:byte list) = 64`
+      (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th]) THEN ASSUME_TAC th) THENL
+    [ ASM_REWRITE_TAC []; ALL_TAC ] THEN
     ARM_STEPS_TAC ED25519_EXEC (222--225) THEN
     ASSUME_TAC ED25519_PH THEN
     ASSUME_TAC dom2_of THEN
@@ -10410,6 +10478,7 @@ let ED25519CTX_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
          read X30 s = word retpc /\
          C_ARGUMENTS [msg_p; word (LENGTH msg); sig_p; A_p; ctx_p; word (LENGTH ctx)] s /\
          byte_list_at msg msg_p s /\
+         byte_list_at sig sig_p s /\
          byte_list_at A A_p s /\
          byte_list_at ctx ctx_p s /\
          constants_at (word K_base) s)
@@ -10432,6 +10501,9 @@ let ED25519CTX_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     ENSURES_PRESERVED_TAC "x22_init" `X22` THEN
 
     ASM_REWRITE_TAC [byte_list_at] THEN
+    SUBGOAL_THEN `LENGTH (sig:byte list) = 64`
+      (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th]) THEN ASSUME_TAC th) THENL
+    [ ASM_REWRITE_TAC []; ALL_TAC ] THEN
     ENSURES_INIT_TAC "s286" THEN
     ARM_STEPS_TAC ED25519_EXEC (287--294) THEN
     POP_ASSUM MP_TAC THEN
@@ -10520,6 +10592,7 @@ let ED25519PH_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
          read X30 s = word retpc /\
          C_ARGUMENTS [msg_p; word (LENGTH msg); sig_p; A_p; ctx_p; word (LENGTH ctx)] s /\
          byte_list_at msg msg_p s /\
+         byte_list_at sig sig_p s /\
          byte_list_at A A_p s /\
          byte_list_at ctx ctx_p s /\
          constants_at (word K_base) s)
@@ -10543,6 +10616,9 @@ let ED25519PH_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
 
     ENSURES_INIT_TAC "s354" THEN
     RULE_ASSUM_TAC (REWRITE_RULE [byte_list_at]) THEN
+    SUBGOAL_THEN `LENGTH (sig:byte list) = 64`
+      (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th]) THEN ASSUME_TAC th) THENL
+    [ ASM_REWRITE_TAC []; ALL_TAC ] THEN
     ARM_STEPS_TAC ED25519_EXEC (355--364) THEN
     POP_ASSUM MP_TAC THEN
     ASM_SIMP_TAC [VAL_WORD_EQ; DIMINDEX_64; VAL_WORD_SUB_EQ_0] THEN
