@@ -9484,11 +9484,6 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
 
 let ED25519_EXEC = ARM_MK_EXEC_RULE ed25519_mc;;
 
-let ed25519_mc' = REWRITE_RULE[ARITH_RULE `pc + 36808 = (pc + 36536) + 272`] (SPEC_ALL ed25519_mc);;
-
-let ED25519_EXEC' = ARM_MK_EXEC_RULE ed25519_mc';;
-
-
 (*****************************************************************************)
 
 (* ------------------------------------------------------------------------- *)
@@ -9760,12 +9755,82 @@ let REWRITE_UNDER_NSUM = prove
         POP_ASSUM (STRIP_ASSUME_TAC o REWRITE_RULE [ADD1; FORALL_LT_SUC]) THEN
         ASM_SIMP_TAC [] ]);;
 
+let READ_BYTES_DIV_MOD_BYTE = prove
+  (`!p:int64 l i s. i < l ==> read (bytes(p, l)) s DIV 2 EXP (8 * i) MOD 2 EXP 8 = read (bytes (p + word i, 1)) s`,
+  REPEAT STRIP_TAC THEN
+    REWRITE_TAC [READ_BYTES_DIV] THEN
+    ONCE_REWRITE_TAC [ARITH_RULE `8 = 8 * 1`] THEN
+    REWRITE_TAC [READ_BYTES_MOD] THEN
+    SUBGOAL_THEN `MIN (l - i) 1 = 1` ASSUME_TAC THENL
+    [ SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+    ASM_REWRITE_TAC []);;
+
+let BIGNUM_OF_BYTELIST_DIV = prove
+  (`!i m. bignum_of_bytelist m DIV (2 EXP (8 * i)) = bignum_of_bytelist (drop i m)`,
+  REWRITE_TAC [drop] THEN INDUCT_TAC THENL
+  [ REWRITE_TAC [MULT_0; SUB_0; SUB_LIST_LENGTH; ARITH; DIV_1];
+    LIST_INDUCT_TAC THENL
+    [ REWRITE_TAC [SUB_LIST_CLAUSES; bignum_of_bytelist; DIV_0];
+      REWRITE_TAC [ARITH_RULE `!i. 8 * SUC i = 8 + (8 * i)`; EXP_ADD; GSYM DIV_DIV] THEN
+        REWRITE_TAC [SUB_LIST; LENGTH; SUB_SUC] THEN
+        REWRITE_TAC [bignum_of_bytelist] THEN
+        SIMP_TAC [DIV_MULT_ADD; ARITH] THEN
+        ASSUME_TAC (WORD_ARITH `!(w:byte). val w < 256`) THEN
+        ASM_SIMP_TAC [DIV_LT] THEN
+        ASM_REWRITE_TAC [ADD] ] ]);;
+
+let BIGNUM_OF_BYTELIST_MOD = prove
+  (`!i m. bignum_of_bytelist m MOD (2 EXP (8 * i)) = bignum_of_bytelist (take i m)`,
+  REWRITE_TAC [take] THEN INDUCT_TAC THENL
+  [ REWRITE_TAC [MULT_0; EXP; MOD_1; SUB_LIST; bignum_of_bytelist];
+    LIST_INDUCT_TAC THENL
+    [ REWRITE_TAC [SUB_LIST; bignum_of_bytelist; MOD_0];
+      REWRITE_TAC [ARITH_RULE `!i. 8 * SUC i = 8 + (8 * i)`; EXP_ADD] THEN
+        REWRITE_TAC [SUB_LIST; bignum_of_bytelist] THEN
+        IMP_REWRITE_TAC [MOD_ADD_EQ] THEN
+        ASSUME_TAC (WORD_ARITH `val (h:byte) < 2 EXP 8`) THEN
+        SUBGOAL_THEN `val (h:byte) < 2 EXP 8 * 2 EXP (8 * i)` ASSUME_TAC THENL
+        [ MP_TAC (ARITH_RULE `0 <= 8 * i`) THEN
+            ASSUME_TAC (REWRITE_RULE [ARITH] (GSYM (SPEC `2` LE_EXP))) THEN
+            POP_ASSUM (fun th -> ONCE_REWRITE_TAC [th]) THEN
+            RULE_ASSUM_TAC (REWRITE_RULE [ARITH]) THEN REWRITE_TAC [ARITH] THEN
+            ASSUME_TAC (REWRITE_RULE [ARITH] (GSYM (SPEC `256` LE_MULT_LCANCEL))) THEN
+            POP_ASSUM (fun th -> ONCE_REWRITE_TAC [th]) THEN
+            REWRITE_TAC [ARITH] THEN DISCH_TAC THEN
+            MATCH_MP_TAC LTE_TRANS THEN
+            EXISTS_TAC `256` THEN
+            ASM_REWRITE_TAC [];
+          ALL_TAC ] THEN
+        ASM_SIMP_TAC [MOD_LT] THEN ASM_REWRITE_TAC [MOD_MULT2] THEN
+        FIRST_X_ASSUM (fun th -> REWRITE_TAC [GSYM (SPEC `t:byte list` th)]) THEN
+        SUBGOAL_THEN `bignum_of_bytelist t MOD 2 EXP (8 * i) < 2 EXP (8 * i)` ASSUME_TAC THENL
+        [ REWRITE_TAC [MOD_LT_EQ_LT; EXP_LT_0; ARITH]; ALL_TAC ] THEN
+        POP_ASSUM (MP_TAC o REWRITE_RULE [GSYM LE_SUC_LT]) THEN
+        ASSUME_TAC (REWRITE_RULE [ARITH] (GSYM (SPEC `256` LE_MULT_LCANCEL))) THEN
+        POP_ASSUM (fun th -> ONCE_REWRITE_TAC [th]) THEN
+        REWRITE_TAC [MULT_CLAUSES; ARITH] THEN
+        RULE_ASSUM_TAC (REWRITE_RULE [ARITH]) THEN
+        MATCH_MP_TAC (ARITH_RULE `!a b c v. v < a ==> a + b <= c ==> v + b < c`) THEN
+        ASM_REWRITE_TAC [] ] ]);;
+
 let BYTE_LIST_AT_BIGNUM_OF_BYTELIST = prove
-  (`!m p s. byte_list_at m p s ==> read (memory :> bytes(p, LENGTH m)) s = bignum_of_bytelist m`,
+  (`!m p s. byte_list_at m p s <=> read (memory :> bytes(p, LENGTH m)) s = bignum_of_bytelist m`,
   REWRITE_TAC [component_compose; read; o_DEF; byte_list_at; bytes8; asword; through] THEN
     REWRITE_TAC [READ_BYTES_1; WORD_VAL] THEN
-    REPEAT STRIP_TAC THEN
-    ASM_SIMP_TAC [READ_BYTES; BIGNUM_OF_BYTELIST_NSUM; REWRITE_UNDER_NSUM]);;
+    REWRITE_TAC [DOUBLE_INCL] THEN REPEAT STRIP_TAC THENL
+    [ ASM_SIMP_TAC [READ_BYTES; BIGNUM_OF_BYTELIST_NSUM; REWRITE_UNDER_NSUM];
+      SUBGOAL_THEN `read memory s (p + word i:int64) = word (read (bytes (p + word i:int64, 1)) (read memory s))` MP_TAC THENL
+      [ REWRITE_TAC [READ_BYTES_1; WORD_VAL]; ALL_TAC ] THEN
+      DISCH_THEN (fun th -> REWRITE_TAC [th]) THEN
+      IMP_REWRITE_TAC [GSYM READ_BYTES_DIV_MOD_BYTE] THEN
+      REWRITE_TAC [ARITH_RULE `2 EXP 8 = 2 EXP (8 * 1)`] THEN
+      REWRITE_TAC [BIGNUM_OF_BYTELIST_DIV; BIGNUM_OF_BYTELIST_MOD] THEN
+      REWRITE_TAC [take; drop] THEN
+      REWRITE_TAC [SUB_LIST_1; LENGTH_SUB_LIST; MIN; LE_REFL] THEN
+      ASM_REWRITE_TAC [ARITH_RULE `!a b. 0 < b - a <=> a < b`] THEN
+      IMP_REWRITE_TAC [EL_SUB_LIST] THEN
+      ASM_REWRITE_TAC [ARITH_RULE `!a b. a + b - a <= b /\ 0 < b - a  <=> a < b`] THEN
+      REWRITE_TAC [ADD_0; bignum_of_bytelist; WORD_VAL; ARITH] ]);;
 
 (* void ed25519_public_key_from_seed_s2n_bignum(
     uint8_t A[ED25519_PUBLIC_KEY_LEN], const uint8_t seed[ED25519_SEED_LEN]) *)
@@ -9801,25 +9866,15 @@ let ED25519_PUBLIC_KEY_FROM_SEED_S2N_BIGNUM_CORRECT = prove
 
     ENSURES_INIT_TAC "s0" THEN
     ARM_STEPS_TAC ED25519_EXEC (1--6) THEN
-
-
-    SUBGOAL_THEN `!pc. (pc + 36536) + 272 = pc + 36808` ASSUME_TAC THENL
-    [ ARITH_TAC; ALL_TAC ] THEN
-
-    SUBGOAL_THEN `word (pc + 37196) = word ((pc + 36536) + 660):int64` ASSUME_TAC THENL
-    [ CHEAT_TAC; ALL_TAC ] THEN
-    SUBGOAL_THEN `aligned_bytes_loaded s6 (word (pc + 36536)) (sha512_mc (pc + 36536) K_base)` ASSUME_TAC THENL
-    [ CHEAT_TAC; ALL_TAC ] THEN
-
-
     ARM_SUBROUTINE_SIM_TAC
-      (ed25519_mc', ED25519_EXEC', 0x8eb8,
-       CONV_RULE (TOP_DEPTH_CONV NUM_ADD_CONV)
-        
-          (SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc),
+      (ed25519_mc, ED25519_EXEC, 0x8eb8,
+       SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc,
         SHA512_INIT)
       [`sp + word 840 : int64`; `pc + 0x8eb8`; `pc + 0x18`; `K_base : num`] 7 THEN
     RENAME_TAC `s7:armstate` `s6_ret:armstate` THEN
+    ASSUM_EXPAND_SHA512_SPECS_TAC THEN
+    ASSUME_TAC (REWRITE_RULE [num_bytes_per_block] (SPEC `[]:byte list` LENGTH_BYTES_MOD_BLOCKS_LT)) THEN
+    ARM_STEPS_TAC ED25519_EXEC (7--8) 
   );;
 
 let LENGTH_DOM2_PREFIX = prove
@@ -10348,13 +10403,19 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
     ENSURES_PRESERVED_TAC "x24_init" `X24` THEN
 
     ENSURES_INIT_TAC "s121" THEN
-    SUBGOAL_THEN `byte_list_at (SUB_LIST (0, 32) sig) sig_p s121 /\ byte_list_at (SUB_LIST (32, 32) sig) (sig_p + word 32) s121` MP_TAC THENL 
-    [ CHEAT_TAC; ALL_TAC ] THEN
-    STRIP_TAC THEN REPLICATE_TAC 2 (POP_ASSUM MP_TAC) THEN
-    REPLICATE_TAC 2 (DISCH_THEN (ASSUME_TAC o MATCH_MP BYTE_LIST_AT_BIGNUM_OF_BYTELIST)) THEN
-    REPLICATE_TAC 2 (POP_ASSUM MP_TAC) THEN
-    ASM_REWRITE_TAC [LENGTH_SUB_LIST; MIN; ARITH] THEN
-    REPLICATE_TAC 2 DISCH_TAC THEN
+    SUBGOAL_THEN `byte_list_at (SUB_LIST (0, 32) sig ++ SUB_LIST (0 + 32, 32) sig) sig_p s121` MP_TAC THENL 
+    [ REWRITE_TAC [GSYM SUB_LIST_SPLIT; ARITH] THEN
+        SUBGOAL_THEN `64 = LENGTH (sig:byte list)` (fun th -> REWRITE_TAC [th]) THENL
+        [ ASM_REWRITE_TAC []; ALL_TAC ] THEN
+        REWRITE_TAC [SUB_LIST_LENGTH] THEN
+        ASM_REWRITE_TAC [];
+      ALL_TAC ] THEN
+    ASM_REWRITE_TAC [BYTE_LIST_AT_APPEND; ARITH; LENGTH_SUB_LIST; BYTE_LIST_AT_BIGNUM_OF_BYTELIST; MIN] THEN
+    STRIP_TAC THEN
+    SUBGOAL_THEN `byte_list_at A A_p s121` MP_TAC THENL
+    [ ASM_REWRITE_TAC []; ALL_TAC ] THEN
+    REWRITE_TAC [BYTE_LIST_AT_BIGNUM_OF_BYTELIST] THEN
+    ASM_REWRITE_TAC [] THEN DISCH_TAC THEN
 
     RULE_ASSUM_TAC (REWRITE_RULE [byte_list_at]) THEN
     ARM_STEPS_TAC ED25519_EXEC (122--150) THEN
