@@ -579,6 +579,10 @@ let decode_aux = new_definition `!pfxs rex l. decode_aux pfxs rex l =
       VEXM_0F38 ->
         read_byte l >>= \(b,l).
         (bitmatch b with
+        | [0x40:8] ->
+          let sz = vexL_size L in
+          (read_ModRM rex l >>= \((reg,rm),l).
+            SOME (VPMULLD (mmreg reg sz) (mmreg v sz) (simd_of_RM sz rm),l))
         | [0xf6:8] ->
           let sz = op_size_W rex T pfxs in
           read_ModRM_operand rex sz l >>= \((reg,rm),l).
@@ -610,10 +614,18 @@ let decode_aux = new_definition `!pfxs rex l. decode_aux pfxs rex l =
           let sz = vexL_size L in
           (read_ModRM rex l >>= \((reg,rm),l).
             SOME (VPSUBW (mmreg reg sz) (mmreg v sz) (simd_of_RM sz rm),l))
+        | [0xfa:8] ->
+          let sz = vexL_size L in
+          (read_ModRM rex l >>= \((reg,rm),l).
+            SOME (VPSUBD (mmreg reg sz) (mmreg v sz) (simd_of_RM sz rm),l))
         | [0xfd:8] ->
           let sz = vexL_size L in
           (read_ModRM rex l >>= \((reg,rm),l).
             SOME (VPADDW (mmreg reg sz) (mmreg v sz) (simd_of_RM sz rm),l))
+        | [0xfe:8] ->
+          let sz = vexL_size L in
+          (read_ModRM rex l >>= \((reg,rm),l).
+            SOME (VPADDD (mmreg reg sz) (mmreg v sz) (simd_of_RM sz rm),l))
         | [0x71:8] ->
           let sz = vexL_size L in
           read_ModRM rex l >>= (\((reg,rm),l).
