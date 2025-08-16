@@ -9832,6 +9832,19 @@ let BYTE_LIST_AT_BIGNUM_OF_BYTELIST = prove
       ASM_REWRITE_TAC [ARITH_RULE `!a b. a + b - a <= b /\ 0 < b - a  <=> a < b`] THEN
       REWRITE_TAC [ADD_0; bignum_of_bytelist; WORD_VAL; ARITH] ]);;
 
+let LENGTH_SHA512_PAD = prove
+  (`!m. LENGTH (sha512_pad m) = 64`,
+  STRIP_TAC THEN
+    REWRITE_TAC [sha512_pad; hash_buffer_to_byte_list; int64_to_bytes;
+    LENGTH_APPEND; LENGTH; ARITH]);;
+
+let BYTE_LIST_AT_SING = prove
+  (`!x p s. byte_list_at [x] p s <=> read (memory :> bytes8 p) s = x`,
+  REPEAT STRIP_TAC THEN
+    REWRITE_TAC [byte_list_at; LENGTH; GSYM ONE] THEN
+    CONV_TAC (TOP_DEPTH_CONV EXPAND_CASES_CONV) THEN
+    REWRITE_TAC [EL; HD; WORD_ADD_0]);;
+
 (* void ed25519_public_key_from_seed_s2n_bignum(
     uint8_t A[ED25519_PUBLIC_KEY_LEN], const uint8_t seed[ED25519_SEED_LEN]) *)
 let ED25519_PUBLIC_KEY_FROM_SEED_S2N_BIGNUM_CORRECT = prove
@@ -9880,16 +9893,6 @@ let ED25519_PUBLIC_KEY_FROM_SEED_S2N_BIGNUM_CORRECT = prove
     [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC ] THEN
     SUBGOAL_THEN `adrp_within_bounds (word K_base) (word ((pc + 36536) + 272))` ASSUME_TAC THENL
     [ ASM_REWRITE_TAC [GSYM ADD_ASSOC; ARITH]; ALL_TAC ] THEN
-    SUBGOAL_THEN `(nonoverlapping_modulo (2 EXP 64) (pc + 36536,1308) (val (sp + word 840),216) /\
-      nonoverlapping_modulo (2 EXP 64) (pc + 36536,1308) (val (seed_p:int64),32) /\
-      nonoverlapping_modulo (2 EXP 64) (pc + 36536,1308) (val (sp:int64),816) /\
-      nonoverlapping_modulo (2 EXP 64) (pc + 36536,1308) (K_base,640)) /\
-      (nonoverlapping_modulo (2 EXP 64) (val (sp + word 840),216) (val seed_p,32) /\
-      nonoverlapping_modulo (2 EXP 64) (val (sp + word 840),216) (val sp,816) /\
-      nonoverlapping_modulo (2 EXP 64) (val (sp + word 840),216) (K_base,640)) /\
-      nonoverlapping_modulo (2 EXP 64) (val seed_p,32) (val sp,816) /\
-      nonoverlapping_modulo (2 EXP 64) (val sp,816) (K_base,640)` ASSUME_TAC THENL
-    [ REPEAT STRIP_TAC THEN NONOVERLAPPING_TAC; ALL_TAC ] THEN (* ??? *)
     ARM_SUBROUTINE_SIM_TAC
       (ed25519_mc, ED25519_EXEC, 0x8eb8,
        SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, REWRITE_RULE [byte_list_at; constants_at] SHA512_UPDATE)
@@ -9903,30 +9906,39 @@ let ED25519_PUBLIC_KEY_FROM_SEED_S2N_BIGNUM_CORRECT = prove
     STRIP_TAC THEN
     ASSUME_TAC (REWRITE_RULE [num_bytes_per_block] (SPEC `seed:byte list` LENGTH_BYTES_MOD_BLOCKS_LT)) THEN
     ARM_STEPS_TAC ED25519_EXEC (11--13) THEN
-    SUBGOAL_THEN `(nonoverlapping_modulo (2 EXP 64) (pc + 36536,1308)
-      (val ((sp:int64) + word 1056),64) /\
-      nonoverlapping_modulo (2 EXP 64) (pc + 36536,1308)
-      (val ((sp:int64) + word 48),768)) /\
-      (nonoverlapping_modulo (2 EXP 64) (val (sp + word 1056),64)
-      (val ((sp:int64) + word 840),216) /\
-      nonoverlapping_modulo (2 EXP 64) (val ((sp:int64) + word 1056),64)
-      (val ((sp:int64) + word 48),768) /\
-      nonoverlapping_modulo (2 EXP 64) (val (sp + word 1056),64) (K_base,640)) /\
-      nonoverlapping_modulo (2 EXP 64) (val (sp + word 840),216) (val (sp + word 48),768) /\
-      nonoverlapping_modulo (2 EXP 64) (val (sp + word 48),768) (K_base,640)` ASSUME_TAC THENL
-    [ REPEAT STRIP_TAC THEN TRY NONOVERLAPPING_TAC; ALL_TAC ] THEN
-    SUBGOAL_THEN `aligned 16 (sp + word 816:int64)` ASSUME_TAC THENL
-    [ ALIGNED_16_TAC; ALL_TAC ] THEN
-    SUBGOAL_THEN `nonoverlapping_modulo (2 EXP 64) (val (word pc),37844) (val (sp + word 48:int64),768)` ASSUME_TAC THENL
-    [ NONOVERLAPPING_TAC; ALL_TAC ] THEN
-    ASSUME_TAC (ARITH_RULE `32 < 2 EXP 125`) THEN
-    VAL_INT64_TAC `pc:num` THEN
+    SUBGOAL_THEN `sha512_ctx_at seed (sp + word 840) s13` ASSUME_TAC THENL
+    [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC ] THEN
     ARM_SUBROUTINE_SIM_TAC
       (ed25519_mc, ED25519_EXEC, 0x8eb8,
        SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, REWRITE_RULE [byte_list_at; constants_at] SHA512_FINAL)
       [`sp + word 816:int64`; `sp + word 1056:int64`; `sp + word 840:int64`; `seed:byte list`;
        `pc + 0x8eb8`; `pc + 52`; `K_base : num`] 14 THEN
-    RENAME_TAC `s14:armstate` `s13_ret:armstate` 
+    RENAME_TAC `s14:armstate` `s13_ret:armstate` THEN
+    SUBGOAL_THEN `byte_list_at (sha512_pad seed) (sp + word 1056) s13_ret` MP_TAC THENL
+    [ ASM_REWRITE_TAC [byte_list_at; GSYM WORD_ADD_ASSOC; GSYM WORD_ADD]; ALL_TAC ] THEN
+    ONCE_REWRITE_TAC [GSYM (ISPEC `sha512_pad seed` SUB_LIST_LENGTH)] THEN
+    REWRITE_TAC [LENGTH_SHA512_PAD] THEN REWRITE_TAC [ARITH_RULE `64 = 1 + 30 + 1 + 32`] THEN
+    REWRITE_TAC [SUB_LIST_SPLIT] THEN CONV_TAC (TOP_DEPTH_CONV NUM_ADD_CONV) THEN
+    REWRITE_TAC [BYTE_LIST_AT_APPEND] THEN
+    REWRITE_TAC [LENGTH_SUB_LIST; LENGTH_SHA512_PAD; MIN; ARITH; GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
+    REWRITE_TAC [SUB_LIST_1; LENGTH_SHA512_PAD; ARITH; EL; BYTE_LIST_AT_SING] THEN
+    REWRITE_TAC [byte_list_at; LENGTH; LENGTH_SUB_LIST; MIN; LENGTH_SHA512_PAD; ARITH] THEN
+    REWRITE_TAC [GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
+    STRIP_TAC THEN
+    ARM_STEPS_TAC ED25519_EXEC (14--23) THEN
+    SUBGOAL_THEN `byte_list_at (secret_scalar_of_seed_digest (sha512_pad seed)) (sp + word 1056) s23` ASSUME_TAC THENL
+    [ REWRITE_TAC [secret_scalar_of_seed_digest] THEN
+        REWRITE_TAC [BYTE_LIST_AT_APPEND; BYTE_LIST_AT_SING] THEN
+        ASM_REWRITE_TAC [byte_list_at; LENGTH; LENGTH_SUB_LIST; MIN; GSYM WORD_ADD_ASSOC; 
+          ADD_ASSOC; LENGTH_SHA512_PAD; GSYM WORD_ADD; ARITH] THEN
+        CONV_TAC BITBLAST_RULE;
+      ALL_TAC ] THEN
+      >>>
+    ARM_SUBROUTINE_SIM_TAC (ed25519_mc, ED25519_EXEC, 5104,
+       SPECL [`pc + 5104:num`; `K:num`] sha512_mc, EDWARDS25519_SCALARMULBASE_ALT_SUBROUTINE_CORRECT)
+      [`base_const:num`; `sp + word 1120:int64`; `sp + word 1056:int64`;
+       `bignum_of_bytelist (secret_scalar_of_seed_digest (sha512_pad seed))`;
+       `pc + 5104`; `sp + word 816`; `pc + 52`] 24
   );;
 
 let LENGTH_DOM2_PREFIX = prove
@@ -10065,12 +10077,6 @@ let ED25519_PH = prove
   (`!m. ph 0 m = m /\ ph 1 m = m /\ ph 2 m = sha512_pad m`,
   REPEAT STRIP_TAC THEN REWRITE_TAC [ph; ARITH]);;
 
-let LENGTH_SHA512_PAD = prove
-  (`!m. LENGTH (sha512_pad m) = 64`,
-  STRIP_TAC THEN
-    REWRITE_TAC [sha512_pad; hash_buffer_to_byte_list; int64_to_bytes;
-    LENGTH_APPEND; LENGTH; ARITH]);;
-
 let BYTE_LIST_AT_NIL = prove
   (`!addr s. byte_list_at [] addr s`,
   REWRITE_TAC [byte_list_at; LENGTH] THEN
@@ -10126,15 +10132,76 @@ let ED25519_SIGN_COMMON_CORRECT = prove
     ENSURES_PRESERVED_TAC "x23_init" `X23` THEN
     ENSURES_PRESERVED_TAC "x24_init" `X24` THEN
 
+    REWRITE_TAC [BYTE_LIST_AT_APPEND] THEN
+    ASM_REWRITE_TAC [byte_list_at; LENGTH_ED25519_PUBLIC_KEY] THEN
     ENSURES_INIT_TAC "s29" THEN
-    RULE_ASSUM_TAC (REWRITE_RULE [byte_list_at]) THEN
-    SUBGOAL_THEN `LENGTH (seed ++ public_key_of_seed seed : byte list) = 64`
-      (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th]) THEN ASSUME_TAC th) THENL
-    [ ASM_REWRITE_TAC [LENGTH_APPEND; LENGTH_ED25519_PUBLIC_KEY] THEN
-        ARITH_TAC;
-      ALL_TAC ] THEN
     ARM_STEPS_TAC ED25519_EXEC (30--42) THEN
+    ARM_SUBROUTINE_SIM_TAC
+      (ed25519_mc, ED25519_EXEC, 0x8eb8,
+       SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, SHA512_INIT)
+      [`sp + word 872:int64`; `pc + 0x8eb8`; `pc + 168`; `K_base:num`] 43 THEN
+    RENAME_TAC `s43:armstate` `s42_ret:armstate` THEN
+    ASSUM_EXPAND_SHA512_SPECS_TAC THEN
+    ASSUME_TAC (REWRITE_RULE [num_bytes_per_block] (SPEC `[]:byte list` LENGTH_BYTES_MOD_BLOCKS_LT)) THEN
+    ARM_STEPS_TAC ED25519_EXEC (43--46) THEN
+    ASSUME_TAC (CONJUNCT1 LENGTH) THEN
+    SUBGOAL_THEN `sha512_ctx_at [] (sp + word 872) s46` ASSUME_TAC THENL
+    [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC ] THEN
+    SUBGOAL_THEN `adrp_within_bounds (word K_base) (word ((pc + 36536) + 272))` ASSUME_TAC THENL
+    [ ASM_REWRITE_TAC [GSYM ADD_ASSOC; ARITH]; ALL_TAC ] THEN
+    ARM_SUBROUTINE_SIM_TAC
+      (ed25519_mc, ED25519_EXEC, 0x8eb8,
+       SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, REWRITE_RULE [byte_list_at; constants_at] SHA512_UPDATE)
+      [`sp + word 816:int64`; `sp + word 872:int64`; `[]:byte list`; `priv_key_p:int64`; `seed:byte list`;
+       `pc + 0x8eb8`; `pc + 184`; `K_base : num`] 47 THEN
+    RENAME_TAC `s47:armstate` `s46_ret:armstate` THEN
+    MP_TAC (ASSUME `sha512_ctx_at ([] ++ seed) (sp + word 872) s46_ret`) THEN
+    REWRITE_TAC [APPEND] THEN
+    EXPAND_SHA512_SPECS_TAC THEN
+    ASM_REWRITE_TAC [] THEN
+    STRIP_TAC THEN
+    ASSUME_TAC (REWRITE_RULE [num_bytes_per_block] (SPEC `seed:byte list` LENGTH_BYTES_MOD_BLOCKS_LT)) THEN
+    ARM_STEPS_TAC ED25519_EXEC (47--49) THEN
+    SUBGOAL_THEN `sha512_ctx_at seed (sp + word 872) s49` ASSUME_TAC THENL
+    [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC ] THEN
+    ARM_SUBROUTINE_SIM_TAC
+      (ed25519_mc, ED25519_EXEC, 0x8eb8,
+       SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, REWRITE_RULE [byte_list_at; constants_at] SHA512_FINAL)
+      [`sp + word 816:int64`; `sp + word 1088:int64`; `sp + word 872:int64`; `seed:byte list`;
+       `pc + 0x8eb8`; `pc + 196`; `K_base : num`] 50 THEN
+    RENAME_TAC `s50:armstate` `s49_ret:armstate` THEN
+    SUBGOAL_THEN `byte_list_at (sha512_pad seed) (sp + word 1088) s49_ret` MP_TAC THENL
+    [ ASM_REWRITE_TAC [byte_list_at; GSYM WORD_ADD_ASSOC; GSYM WORD_ADD]; ALL_TAC ] THEN
+    ONCE_REWRITE_TAC [GSYM (ISPEC `sha512_pad seed` SUB_LIST_LENGTH)] THEN
+    REWRITE_TAC [LENGTH_SHA512_PAD] THEN REWRITE_TAC [ARITH_RULE `64 = 1 + 30 + 1 + 32`] THEN
+    REWRITE_TAC [SUB_LIST_SPLIT] THEN CONV_TAC (TOP_DEPTH_CONV NUM_ADD_CONV) THEN
+    REWRITE_TAC [BYTE_LIST_AT_APPEND] THEN
+    REWRITE_TAC [LENGTH_SUB_LIST; LENGTH_SHA512_PAD; MIN; ARITH; GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
+    REWRITE_TAC [SUB_LIST_1; LENGTH_SHA512_PAD; ARITH; EL; BYTE_LIST_AT_SING] THEN
+    REWRITE_TAC [byte_list_at; LENGTH; LENGTH_SUB_LIST; MIN; LENGTH_SHA512_PAD; ARITH] THEN
+    REWRITE_TAC [GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
+    STRIP_TAC THEN
+    ARM_STEPS_TAC ED25519_EXEC (50--58) THEN
+    SUBGOAL_THEN `byte_list_at (secret_scalar_of_seed_digest (sha512_pad seed)) (sp + word 1088) s58` MP_TAC THENL
+    [ REWRITE_TAC [secret_scalar_of_seed_digest] THEN
+        REWRITE_TAC [BYTE_LIST_AT_APPEND; BYTE_LIST_AT_SING] THEN
+        ASM_REWRITE_TAC [byte_list_at; LENGTH; LENGTH_SUB_LIST; MIN; GSYM WORD_ADD_ASSOC; 
+          ADD_ASSOC; LENGTH_SHA512_PAD; GSYM WORD_ADD; ARITH] THEN
+        CONV_TAC BITBLAST_RULE;
+      ALL_TAC ] THEN
+    REWRITE_TAC [byte_list_at] THEN
+    SUBGOAL_THEN `LENGTH (secret_scalar_of_seed_digest (sha512_pad seed)) = 32` MP_TAC THENL
+    [ REWRITE_TAC [secret_scalar_of_seed_digest; LENGTH_APPEND; LENGTH_SHA512_PAD; LENGTH;
+        LENGTH_SUB_LIST; MIN; ARITH]; ALL_TAC ] THEN
+    DISCH_THEN (fun th -> REWRITE_TAC [th]) THEN
+    DISCH_TAC THEN
+    ARM_SUBROUTINE_SIM_TAC
+      (ed25519_mc, ED25519_EXEC, 0x8eb8,
+       SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, SHA512_INIT)
+      [`sp + word 872:int64`; `pc + 0x8eb8`; `pc + 232`; `K_base:num`] 59 THEN
+    RENAME_TAC `s59:armstate` `s58_ret:armstate` THEN
 
+    >>>
   CHEAT_TAC);;
 
 (* int ed25519_sign_no_self_test_s2n_bignum(
@@ -10188,14 +10255,12 @@ let ED25519_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     ASSUME_TAC (REWRITE_RULE [byte_list_at; LENGTH] BYTE_LIST_AT_NIL) THEN
     SUBGOAL_THEN `aligned 16 (sp + word 1344:int64)` ASSUME_TAC THENL
     [ ALIGNED_16_TAC; ALL_TAC ] THEN
-
     SUBGOAL_THEN  `nonoverlapping_modulo (2 EXP 64) (pc,37844) (val (sp:int64),1344) /\
       nonoverlapping_modulo (2 EXP 64) (val (sig_p:int64),64) (val sp,1344) /\
       nonoverlapping_modulo (2 EXP 64) (val (msg_p:int64),LENGTH (msg:byte list)) (val sp,1344) /\
       nonoverlapping_modulo (2 EXP 64) (val (priv_key_p:int64),64) (val sp,1344) /\
       nonoverlapping_modulo (2 EXP 64) (val sp,1344) (K_base,640)` ASSUME_TAC THENL
-    [ REPEAT CONJ_TAC THEN TRY NONOVERLAPPING_TAC; ALL_TAC ] THEN (* ??? *)
-
+    [ REPEAT CONJ_TAC THEN NONOVERLAPPING_TAC; ALL_TAC ] THEN (* ??? *)
     ARM_SUBROUTINE_SIM_TAC
       (SPEC_ALL ed25519_mc, ED25519_EXEC, 0,
         SPEC_ALL ed25519_mc, (REWRITE_RULE [byte_list_at; constants_at] ED25519_SIGN_COMMON_CORRECT))
@@ -10405,6 +10470,7 @@ let ED25519PH_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     SUBGOAL_THEN `LENGTH (dom2_prefix ++ [word (val (word 1 : int64))] ++ [word (LENGTH ctx)] ++ ctx) <= 289` ASSUME_TAC THENL
     [ REWRITE_TAC [LENGTH_APPEND; LENGTH; LENGTH_DOM2_PREFIX] THEN SIMPLE_ARITH_TAC; ALL_TAC ] THEN
     ARM_STEPS_TAC ED25519_EXEC (330--332) THEN
+    >>>
     CHEAT_TAC);;
 
 let MAX_VALID_DOM2_SIZE = prove
@@ -10552,7 +10618,7 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
     POP_ASSUM MP_TAC THEN
     IMP_REWRITE_TAC [VAL_WORD_EQ; DIMINDEX_64] THEN
     MP_TAC (REWRITE_RULE [max_dom2_size] (SPEC_ALL MAX_VALID_DOM2_SIZE)) THEN
-    ASM_REWRITE_TAC [] THEN DISCH_TAC THEN???
+    ASM_REWRITE_TAC [] THEN DISCH_TAC THEN
     ANTS_TAC THENL
     [ MATCH_MP_TAC LET_TRANS THEN EXISTS_TAC `289` THEN ASM_REWRITE_TAC [ARITH]; ALL_TAC ] THEN
     COND_CASES_TAC THENL
@@ -10901,6 +10967,3 @@ let BYTE_LIST_AT_BYTELIST = prove
       REWRITE_TAC [GSYM bytes_loaded] THEN
       DISCH_TAC THEN
       ASM_REWRITE_TAC [] ]);;
-
-
-  (* ??? TODO: push all proofs across sha512_init, until the first sha512_update; walk through sign_common and verify_common to extract the mathematical lemmas to be proven *)
