@@ -9974,8 +9974,8 @@ let ED25519_PUBLIC_KEY_FROM_SEED_S2N_BIGNUM_CORRECT = prove
     DISCH_THEN (ASSUME_TAC o REWRITE_RULE [ARITH_RULE `32 = 8 * 4`]) THEN
     SUBGOAL_THEN `adrp_within_bounds (word base_const) (word ((pc + 5104) + 172))` ASSUME_TAC THENL
     [ ASM_REWRITE_TAC [GSYM ADD_ASSOC; ARITH]; ALL_TAC ] THEN
-    ARM_SUBROUTINE_SIM_TAC (SPECL [`pc:num`; `base_const:num`; `double_const:num`; `K_base:num`] ed25519_mc, ED25519_EXEC, 5104,
-       SPECL [`pc + 5104`; `base_const:num`] edwards25519_scalarmulbase_alt_mc,
+    ARM_SUBROUTINE_SIM_TAC (ed25519_mc, ED25519_EXEC, 5104,
+       SPECL [`pc + 5104`; `edwards25519_scalarmulbase_alt_constant:num`] edwards25519_scalarmulbase_alt_mc,
        ASM_REWRITE_RULE [bytes_loaded] EDWARDS25519_SCALARMULBASE_ALT_SUBROUTINE_CORRECT)
       [`base_const:num`; `sp + word 1120:int64`; `sp + word 1056:int64`;
        `num_of_bytelist (secret_scalar_of_seed_digest (sha512_pad seed))`;
