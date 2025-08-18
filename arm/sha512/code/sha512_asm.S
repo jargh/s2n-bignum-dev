@@ -71,10 +71,10 @@ sha512_process_block:
 	.cfi_def_cfa_offset 720
 	mov	x12, x0
 	add	x0, sp, 80
-	stp	x29, x30, [sp]
+	str	x19, [sp]
+	str x30, [sp, 8]
 	.cfi_offset 29, -720
 	.cfi_offset 30, -712
-	mov	x29, sp
 	bl	msg_schedule
 	tst	x12, 15
 	bne	.L8
@@ -114,10 +114,10 @@ sha512_process_block:
 	eor	x1, x1, x5, ror 28
 	bic	x4, x9, x3
 	eor	x0, x0, x3, ror #(64 - 23)
-	and	x18, x3, x10
+	and	x19, x3, x10
 	eor	x2, x7, x8
 	ldr	x17, [x15, -8]
-	eor	x4, x4, x18
+	eor	x4, x4, x19
 	eor	x1, x1, x5, ror #(64 - 25)
 	add	x0, x0, x4
 	and	x2, x2, x5
@@ -135,7 +135,7 @@ sha512_process_block:
 	cmp	x6, 81
 	bne	.L11
 	ldp	x6, x4, [x12]
-	ldp	x29, x30, [sp]
+	ldp	x19, x30, [sp]
 	add	x6, x6, x0
 	add	x4, x4, x5
 	ldp	x0, x5, [x12, 24]

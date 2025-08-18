@@ -18,7 +18,7 @@ save_literal_relocs_from_elf
 
 let sha512_mc,sha512_constants_data = define_assert_relocs_from_elf "sha512_mc"
     "arm/sha512/code/sha512_asm.o"
-  (fun w BL ADR ADRP ADD_rri64 -> [
+(fun w BL ADR ADRP ADD_rri64 -> [
   w 0xd2800003;         (* arm_MOV X3 (rvalue (word 0)) *)
   w 0x39400025;         (* arm_LDRB W5 X1 (Immediate_Offset (word 0)) *)
   w 0xd2800002;         (* arm_MOV X2 (rvalue (word 0)) *)
@@ -74,8 +74,8 @@ let sha512_mc,sha512_constants_data = define_assert_relocs_from_elf "sha512_mc"
   w 0xd10b43ff;         (* arm_SUB SP SP (rvalue (word 720)) *)
   w 0xaa0003ec;         (* arm_MOV X12 X0 *)
   w 0x910143e0;         (* arm_ADD X0 SP (rvalue (word 80)) *)
-  w 0xa9007bfd;         (* arm_STP X29 X30 SP (Immediate_Offset (iword (&0))) *)
-  w 0x910003fd;         (* arm_ADD X29 SP (rvalue (word 0)) *)
+  w 0xf90003f3;         (* arm_STR X19 SP (Immediate_Offset (word 0)) *)
+  w 0xf90007fe;         (* arm_STR X30 SP (Immediate_Offset (word 8)) *)
   w 0x97ffffc7;         (* arm_BL (word 268435228) *)
   w 0xf2400d9f;         (* arm_TST X12 (rvalue (word 15)) *)
   w 0x54000961;         (* arm_BNE (word 300) *)
@@ -112,10 +112,10 @@ let sha512_mc,sha512_constants_data = define_assert_relocs_from_elf "sha512_mc"
   w 0xcac57021;         (* arm_EOR X1 X1 (Shiftedreg X5 ROR 28) *)
   w 0x8a230124;         (* arm_BIC X4 X9 X3 *)
   w 0xcac3a400;         (* arm_EOR X0 X0 (Shiftedreg X3 ROR 41) *)
-  w 0x8a0a0072;         (* arm_AND X18 X3 X10 *)
+  w 0x8a0a0073;         (* arm_AND X19 X3 X10 *)
   w 0xca0800e2;         (* arm_EOR X2 X7 X8 *)
   w 0xf85f81f1;         (* arm_LDR X17 X15 (Immediate_Offset (word 18446744073709551608)) *)
-  w 0xca120084;         (* arm_EOR X4 X4 X18 *)
+  w 0xca130084;         (* arm_EOR X4 X4 X19 *)
   w 0xcac59c21;         (* arm_EOR X1 X1 (Shiftedreg X5 ROR 39) *)
   w 0x8b040000;         (* arm_ADD X0 X0 X4 *)
   w 0x8a050042;         (* arm_AND X2 X2 X5 *)
@@ -133,7 +133,7 @@ let sha512_mc,sha512_constants_data = define_assert_relocs_from_elf "sha512_mc"
   w 0xf10144df;         (* arm_CMP X6 (rvalue (word 81)) *)
   w 0x54fffb81;         (* arm_BNE (word 2097008) *)
   w 0xa9401186;         (* arm_LDP X6 X4 X12 (Immediate_Offset (iword (&0))) *)
-  w 0xa9407bfd;         (* arm_LDP X29 X30 SP (Immediate_Offset (iword (&0))) *)
+  w 0xa9407bf3;         (* arm_LDP X19 X30 SP (Immediate_Offset (iword (&0))) *)
   w 0x8b0000c6;         (* arm_ADD X6 X6 X0 *)
   w 0x8b050084;         (* arm_ADD X4 X4 X5 *)
   w 0xa9419580;         (* arm_LDP X0 X5 X12 (Immediate_Offset (iword (&24))) *)
@@ -535,7 +535,7 @@ let SHA512_PROCESS_BLOCK = prove
     (\s. read PC s = word retpc /\
          hash_buffer_at (sha512_block m h) h_p s)
     (MAYCHANGE [X0; X1; X2; X3; X4; X5; X6; X7; X8; X9; X10; X11;
-                X12; X13; X14; X15; X16; X17; X18; PC] ,,
+                X12; X13; X14; X15; X16; X17; PC] ,,
      MAYCHANGE [memory :> bytes(h_p, 64)] ,,
      MAYCHANGE [memory :> bytes(word_sub sp (word 720), 720)] ,,
      MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`,
@@ -543,12 +543,12 @@ let SHA512_PROCESS_BLOCK = prove
   WORD_FORALL_OFFSET_TAC 720 THEN
   REPEAT STRIP_TAC THEN
   ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
-  ENSURES_PRESERVED_TAC "x29_init" `X29` THEN
+  ENSURES_PRESERVED_TAC "x19_init" `X19` THEN
   ENSURES_EXISTING_PRESERVED_TAC `X30` THEN
   ENSURES_WHILE_UP_TAC
     `79` `pc + 0x148` `pc + 0x148`
     `\i s. // loop invariant
-      (read (memory :> bytes64(sp)) s = x29_init /\
+      (read (memory :> bytes64(sp)) s = x19_init /\
       read (memory :> bytes64(sp + word 8)) s = word retpc /\
       read SP s = sp /\ read X12 s = h_p /\
       read X14 s = word K_base /\ read X6 s = word (i + 1) /\
@@ -696,7 +696,7 @@ let SHA512_PROCESS_BLOCKS = prove
       (\s. read PC s = word retpc /\
           hash_buffer_at (sha512' h m (val l)) h_p s)
       (MAYCHANGE [X0; X1; X2; X3; X4; X5; X6; X7; X8; X9; X10;
-                  X11; X12; X13; X14; X15; X16; X17; X18; PC] ,,
+                  X11; X12; X13; X14; X15; X16; X17; PC] ,,
       MAYCHANGE [memory :> bytes(h_p, 64)] ,,
       MAYCHANGE [memory :> bytes(word_sub sp (word 768), 768)] ,,
       MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`,
@@ -961,7 +961,7 @@ let SHA512_UPDATE = prove
     (\s. read PC s = word retpc /\
          sha512_ctx_at (m0 ++ m) ctx_p s)
     (MAYCHANGE [X0; X1; X2; X3; X4; X5; X6; X7; X8; X9; X10;
-                  X11; X12; X13; X14; X15; X16; X17; X18; PC] ,,
+                  X11; X12; X13; X14; X15; X16; X17; PC] ,,
                   MAYCHANGE [memory :> bytes(ctx_p, 216)] ,,
      MAYCHANGE [memory :> bytes(word_sub sp (word 816), 816)] ,,
      MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`,
@@ -1562,7 +1562,7 @@ let SHA512_FINAL = prove
     (\s. read PC s = word retpc /\
         byte_list_at (sha512_pad m) out_p s)
     (MAYCHANGE [X0; X1; X2; X3; X4; X5; X6; X7; X8; X9; X10; X11;
-                X12; X13; X14; X15; X16; X17; X18; PC] ,,
+                X12; X13; X14; X15; X16; X17; PC] ,,
      MAYCHANGE [memory :> bytes(ctx_p, 216)] ,,
      MAYCHANGE [memory :> bytes(out_p, 64)] ,,
      MAYCHANGE [memory :> bytes(word_sub sp (word 768), 768)] ,,
