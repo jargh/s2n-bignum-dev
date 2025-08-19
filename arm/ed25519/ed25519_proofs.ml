@@ -10934,7 +10934,7 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
     adrp_within_bounds (word double_const) (word (pc + 0x41d4)) /\
     adrp_within_bounds (word K_base) (word (pc + 0x8fc8)) /\
     PAIRWISE nonoverlapping [(word pc, 37844); (msg_p, LENGTH (ph alg msg)); (sig_p, 64); (A_p, 32);
-      (dom2_buf_p, LENGTH (dom2_of alg ctx)); (word_sub sp (word 2224), 2224); (word K_base, 640)] /\
+      (dom2_buf_p, LENGTH (dom2_of alg ctx)); (word_sub sp (word 2224), 2224); (word double_const, 768); (word K_base, 640)] /\
     LENGTH (ph alg msg) < 2 EXP 64 /\
     LENGTH sig = 64 /\
     LENGTH A = 32 /\
@@ -10949,6 +10949,7 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
          byte_list_at sig sig_p s /\
          byte_list_at A A_p s /\
          byte_list_at (dom2_of alg ctx) dom2_buf_p s /\
+         bytes_loaded s (word double_const) edwards25519_scalarmuldouble_alt_constant_data /\
          constants_at (word K_base) s)
     (\s. read PC s = word retpc /\
          if verify_args_valid A sig /\ verify alg ctx A sig msg
@@ -10957,7 +10958,7 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
     (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
      MAYCHANGE [memory :> bytes(word_sub sp (word 2224), 2224)])`,
   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL;
-      constants_at; C_ARGUMENTS; C_RETURN] THEN
+      constants_at; bytes_loaded; C_ARGUMENTS; C_RETURN] THEN
     WORD_FORALL_OFFSET_TAC 2224 THEN
     REPEAT STRIP_TAC THEN
     ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
@@ -10969,6 +10970,11 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
     ENSURES_PRESERVED_TAC "x23_init" `X23` THEN
     ENSURES_PRESERVED_TAC "x24_init" `X24` THEN
 
+    SUBGOAL_THEN `LENGTH edwards25519_scalarmuldouble_alt_constant_data = 768`
+      (fun th -> REWRITE_TAC [th] THEN ASSUME_TAC th) THENL
+    [ REWRITE_TAC [LENGTH; edwards25519_scalarmuldouble_alt_constant_data] THEN
+        CONV_TAC NUM_REDUCE_CONV;
+      ALL_TAC ] THEN
     ENSURES_INIT_TAC "s121" THEN
     SUBGOAL_THEN `byte_list_at (SUB_LIST (0, 32) sig ++ SUB_LIST (0 + 32, 32) sig) sig_p s121` MP_TAC THENL 
     [ REWRITE_TAC [GSYM SUB_LIST_SPLIT; ARITH] THEN
@@ -10979,12 +10985,13 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
       ALL_TAC ] THEN
     ASM_REWRITE_TAC [BYTE_LIST_AT_APPEND; ARITH; LENGTH_SUB_LIST; BYTE_LIST_AT_NUM_OF_BYTELIST; MIN] THEN
     STRIP_TAC THEN
-    SUBGOAL_THEN `byte_list_at A A_p s121` MP_TAC THENL
-    [ ASM_REWRITE_TAC []; ALL_TAC ] THEN
+    UNDISCH_THEN `byte_list_at A A_p s121` (fun th -> MP_TAC th THEN ASSUME_TAC th) THEN
     REWRITE_TAC [BYTE_LIST_AT_NUM_OF_BYTELIST] THEN
     ASM_REWRITE_TAC [] THEN DISCH_TAC THEN
 
     RULE_ASSUM_TAC (REWRITE_RULE [byte_list_at]) THEN
+    UNDISCH_THEN `LENGTH (sig:byte list) = 64` (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th]) THEN ASSUME_TAC th) THEN
+    UNDISCH_THEN `LENGTH (A:byte list) = 32` (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th]) THEN ASSUME_TAC th) THEN
     ARM_STEPS_TAC ED25519_EXEC (122--150) THEN
     SUBGOAL_THEN `bignum_from_memory(sp + word 1752, 4) s150 = n_25519` MP_TAC THENL
     [ REWRITE_TAC [BIGNUM_FROM_MEMORY; NUMSEG_LT; ARITH] THEN
@@ -11065,38 +11072,24 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
     [ MATCH_MP_TAC LET_TRANS THEN EXISTS_TAC `289` THEN ASM_REWRITE_TAC [ARITH]; ALL_TAC ] THEN
     COND_CASES_TAC THENL
     [ (* dom2_buffer empty *)
-      SUBGOAL_THEN `sha512_ctx_at (dom2_of alg ctx) (sp + word 1848) s158` ASSUME_TAC THENL
+      SUBGOAL_THEN `[] = dom2_of alg ctx` (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th])) THENL
         [ FIRST_ASSUM (MP_TAC o REWRITE_RULE [LENGTH_EQ_NIL]) THEN
-            DISCH_THEN (fun th -> REWRITE_TAC [th]) THEN
-            EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC [];
-          ALL_TAC] THEN
-        STRIP_TAC;
+            DISCH_THEN (fun th -> REWRITE_TAC [th]);
+          ALL_TAC ] THEN
+        SUBGOAL_THEN `sha512_ctx_at (dom2_of alg ctx) (sp + word 1848) s158` MP_TAC THENL
+        [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC [];
+          ALL_TAC];
       (* dom2_buffer non-empty, hash dom2_buffer *)
       STRIP_TAC THEN
+        ASSUM_EXPAND_SHA512_SPECS_TAC THEN
         ARM_STEPS_TAC ED25519_EXEC (159--162) THEN
         SUBGOAL_THEN `sha512_ctx_at [] (sp + word 1848) s162` ASSUME_TAC THENL
         [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC ] THEN
         ASSUME_TAC (CONJUNCT1 LENGTH) THEN
-        SUBGOAL_THEN `(nonoverlapping_modulo (2 EXP 64) (pc + 36536,1308)
-          (val (sp + word 1848:int64),216) /\
-          nonoverlapping_modulo (2 EXP 64) (pc + 36536,1308)
-          (val dom2_buf_p,LENGTH (dom2_of alg ctx)) /\
-          nonoverlapping_modulo (2 EXP 64) (pc + 36536,1308)
-          (val (sp + word 880),816) /\
-          nonoverlapping_modulo (2 EXP 64) (pc + 36536,1308) (K_base,640)) /\
-          (nonoverlapping_modulo (2 EXP 64) (val (sp + word 1848),216)
-          (val dom2_buf_p,LENGTH (dom2_of alg ctx)) /\
-          nonoverlapping_modulo (2 EXP 64) (val (sp + word 1848),216)
-          (val (sp + word 880),816) /\
-          nonoverlapping_modulo (2 EXP 64) (val (sp + word 1848),216) (K_base,640)) /\
-          nonoverlapping_modulo (2 EXP 64) (val (dom2_buf_p:int64),LENGTH (dom2_of alg ctx))
-          (val (sp + word 880),816) /\
-          nonoverlapping_modulo (2 EXP 64) (val (sp + word 880),816) (K_base,640)` ASSUME_TAC THENL
-        [ REPEAT STRIP_TAC THEN NONOVERLAPPING_TAC; ALL_TAC ] THEN
-        SUBGOAL_THEN `adrp_within_bounds (word K_base) (word ((pc + 36536) + 272))` ASSUME_TAC THENL
-        [ ASM_REWRITE_TAC [GSYM ADD_ASSOC; ARITH]; ALL_TAC ] THEN
         SUBGOAL_THEN `LENGTH (dom2_of alg ctx) < 2 EXP 64 /\ 0 + LENGTH (dom2_of alg ctx) < 2 EXP 125` ASSUME_TAC THENL
         [ SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+        SUBGOAL_THEN `adrp_within_bounds (word K_base) (word ((pc + 36536) + 272))` ASSUME_TAC THENL
+        [ ASM_REWRITE_TAC [GSYM ADD_ASSOC; ARITH]; ALL_TAC ] THEN
         ARM_SUBROUTINE_SIM_TAC
           (ed25519_mc, ED25519_EXEC, 0x8eb8,
           SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, REWRITE_RULE [byte_list_at; constants_at] SHA512_UPDATE)
@@ -11104,13 +11097,126 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
           `dom2_of alg ctx`; `pc + 0x8eb8`; `pc + 648`; `K_base : num`] 163 THEN
         RENAME_TAC `s163:armstate` `s162_ret:armstate` THEN
         UNDISCH_THEN `sha512_ctx_at ([] ++ dom2_of alg ctx) (sp + word 1848) s162_ret` MP_TAC THEN
-        REWRITE_TAC [APPEND] THEN
-        EXPAND_SHA512_SPECS_TAC THEN
-        STRIP_TAC THEN
-        ASSUME_TAC (REWRITE_RULE [num_bytes_per_block] (SPEC `dom2_of alg ctx` LENGTH_BYTES_MOD_BLOCKS_LT)) ] THEN
+        REWRITE_TAC [APPEND] ] THEN
     (* dom2_buffer has been hashed in both cases *)
+    EXPAND_SHA512_SPECS_TAC THEN
+    REPEAT STRIP_TAC THEN
     ARM_STEPS_TAC ED25519_EXEC (163--166) THEN
-    >>>
+    SUBGOAL_THEN `sha512_ctx_at (dom2_of alg ctx)  (sp + word 1848) s166` ASSUME_TAC THENL
+    [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC ] THEN
+    SUBGOAL_THEN `LENGTH (SUB_LIST (0,32) sig:byte list) = 32 /\ LENGTH (dom2_of alg ctx) + 32 < 2 EXP 125` STRIP_ASSUME_TAC THENL
+    [ REWRITE_TAC [LENGTH_SUB_LIST] THEN SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+    SUBGOAL_THEN `adrp_within_bounds (word K_base) (word ((pc + 36536) + 272))` ASSUME_TAC THENL
+    [ ASM_REWRITE_TAC [GSYM ADD_ASSOC; ARITH]; ALL_TAC ] THEN
+    SUBGOAL_THEN `byte_list_at (SUB_LIST (0,32) sig) sig_p s166` MP_TAC THENL
+    [ ASM_REWRITE_TAC [BYTE_LIST_AT_NUM_OF_BYTELIST]; ALL_TAC ] THEN
+    ASM_REWRITE_TAC [byte_list_at] THEN DISCH_TAC THEN
+    ARM_SUBROUTINE_SIM_TAC
+      (ed25519_mc, ED25519_EXEC, 0x8eb8,
+      SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, REWRITE_RULE [byte_list_at; constants_at] SHA512_UPDATE)
+      [`sp + word 1696:int64`; `sp + word 1848:int64`; `dom2_of alg ctx`; `sig_p:int64`;
+       `SUB_LIST (0,32) sig:byte list`; `pc + 0x8eb8`; `pc + 664`; `K_base : num`] 167 THEN
+    RENAME_TAC `s167:armstate` `s166_ret:armstate` THEN
+    UNDISCH_THEN `sha512_ctx_at (dom2_of alg ctx ++ SUB_LIST (0,32) sig) (sp + word 1848) s166_ret` MP_TAC THEN
+    EXPAND_SHA512_SPECS_TAC THEN STRIP_TAC THEN
+    ARM_STEPS_TAC ED25519_EXEC (167--170) THEN
+    SUBGOAL_THEN `sha512_ctx_at (dom2_of alg ctx ++ SUB_LIST (0,32) sig) (sp + word 1848) s170` ASSUME_TAC THENL
+    [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC ] THEN
+    SUBGOAL_THEN `LENGTH (dom2_of alg ctx ++ SUB_LIST (0,32) sig) + 32 < 2 EXP 125` ASSUME_TAC THENL
+    [ ASM_REWRITE_TAC [LENGTH_APPEND] THEN SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+    ARM_SUBROUTINE_SIM_TAC
+      (ed25519_mc, ED25519_EXEC, 0x8eb8,
+      SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, REWRITE_RULE [byte_list_at; constants_at] SHA512_UPDATE)
+      [`sp + word 1696:int64`; `sp + word 1848:int64`; `dom2_of alg ctx ++ SUB_LIST (0,32) sig`; `A_p:int64`;
+       `A:byte list`; `pc + 0x8eb8`; `pc + 680`; `K_base : num`] 171 THEN
+    RENAME_TAC `s171:armstate` `s170_ret:armstate` THEN
+    UNDISCH_THEN `sha512_ctx_at ((dom2_of alg ctx ++ SUB_LIST (0,32) sig) ++ A) (sp + word 1848) s170_ret` MP_TAC THEN
+    REWRITE_TAC [GSYM APPEND_ASSOC] THEN
+    EXPAND_SHA512_SPECS_TAC THEN STRIP_TAC THEN
+    ARM_STEPS_TAC ED25519_EXEC (171--174) THEN
+    SUBGOAL_THEN `sha512_ctx_at (dom2_of alg ctx ++ SUB_LIST (0,32) sig ++ A) (sp + word 1848) s174` ASSUME_TAC THENL
+    [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC ] THEN
+    SUBGOAL_THEN `LENGTH (dom2_of alg ctx ++ SUB_LIST (0,32) sig ++ A) + LENGTH (ph alg msg) < 2 EXP 125` ASSUME_TAC THENL
+    [ ASM_REWRITE_TAC [LENGTH_APPEND] THEN SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+    ARM_SUBROUTINE_SIM_TAC
+      (ed25519_mc, ED25519_EXEC, 0x8eb8,
+      SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, REWRITE_RULE [byte_list_at; constants_at] SHA512_UPDATE)
+      [`sp + word 1696:int64`; `sp + word 1848:int64`; `dom2_of alg ctx ++ SUB_LIST (0,32) sig ++ A`; `msg_p:int64`;
+       `ph alg msg:byte list`; `pc + 0x8eb8`; `pc + 696`; `K_base : num`] 175 THEN
+    RENAME_TAC `s175:armstate` `s174_ret:armstate` THEN
+    UNDISCH_THEN `sha512_ctx_at ((dom2_of alg ctx ++ SUB_LIST (0,32) sig ++ A) ++ ph alg msg) (sp + word 1848) s174_ret` MP_TAC THEN
+    REWRITE_TAC [GSYM APPEND_ASSOC] THEN
+    EXPAND_SHA512_SPECS_TAC THEN STRIP_TAC THEN
+    ARM_STEPS_TAC ED25519_EXEC (175--177) THEN
+    SUBGOAL_THEN `sha512_ctx_at (dom2_of alg ctx ++ SUB_LIST (0,32) sig ++ A ++ ph alg msg) (sp + word 1848) s177` ASSUME_TAC THENL
+    [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC ] THEN
+    SUBGOAL_THEN `LENGTH (dom2_of alg ctx ++ SUB_LIST (0,32) sig ++ A ++ ph alg msg) < 2 EXP 125` ASSUME_TAC THENL
+    [ ASM_REWRITE_TAC [LENGTH_APPEND] THEN SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+    ARM_SUBROUTINE_SIM_TAC
+      (ed25519_mc, ED25519_EXEC, 0x8eb8,
+      SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, REWRITE_RULE [byte_list_at; constants_at] SHA512_FINAL)
+      [`sp + word 1696:int64`; `sp + word 2064:int64`; `sp + word 1848:int64`;
+      `dom2_of alg ctx ++ SUB_LIST (0,32) sig ++ A ++ ph alg msg`;
+      `pc + 0x8eb8`; `pc + 708`; `K_base : num`] 178 THEN
+    RENAME_TAC `s178:armstate` `s177_ret:armstate` THEN
+    RULE_ASSUM_TAC (CONV_RULE (TOP_DEPTH_CONV NUM_MULT_CONV)) THEN
+    ABBREV_TAC `bytelist_k = sha512_pad (dom2_of alg ctx ++ SUB_LIST (0,32) sig ++ A ++ ph alg msg)` THEN
+    SUBGOAL_THEN `LENGTH (bytelist_k:byte list) = 64` MP_TAC THENL
+    [ POP_ASSUM (fun th -> REWRITE_TAC [GSYM th; LENGTH_SHA512_PAD]); ALL_TAC ] THEN
+    DISCH_THEN (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th]) THEN ASSUME_TAC th) THEN
+    ARM_STEPS_TAC ED25519_EXEC (178--180) THEN
+    ABBREV_TAC `dec_A = ed25519_decode (num_of_bytelist A)` THEN
+    SUBGOAL_THEN `read (memory :> bytes (sp + word 1784,(8*4))) s180, read (memory :> bytes ((sp + word 1784) + word 32,8*4)) s180 =
+      paired (modular_encode (256,p_25519)) dec_A` MP_TAC THENL
+    [ ASM_SIMP_TAC [ARITH]; ALL_TAC ] THEN
+    ONCE_REWRITE_TAC [GSYM (ISPEC `dec_A:int#int` PAIR)] THEN
+    REWRITE_TAC [paired; PAIR_EQ; modular_encode] THEN STRIP_TAC THEN 
+    ARM_SUBROUTINE_SIM_TAC
+      (ed25519_mc, ED25519_EXEC, 2792, bignum_neg_p25519_mc, BIGNUM_NEG_P25519_SUBROUTINE_CORRECT)
+      [`sp + word 1784:int64`; `sp + word 1784:int64`; `num_of_int (FST (dec_A:int#int) rem &p_25519)`;
+       `pc + 2792`; `word (pc + 720):int64`] 181 THEN
+    RENAME_TAC `s181:armstate` `s180_ret:armstate` THEN
+    ARM_STEPS_TAC ED25519_EXEC (181--184) THEN
+    SUBGOAL_THEN `read (memory :> bytes (sp + word 2064,LENGTH bytelist_k)) s184 = num_of_bytelist bytelist_k` MP_TAC THENL
+    [ REWRITE_TAC [GSYM BYTE_LIST_AT_NUM_OF_BYTELIST] THEN
+        ASM_REWRITE_TAC [byte_list_at; GSYM WORD_ADD; GSYM WORD_ADD_ASSOC];
+      ALL_TAC ] THEN
+    ASM_REWRITE_TAC [WORD_ARITH `64 = 8 * val (word 8:int64)`] THEN
+    DISCH_TAC THEN
+    ARM_SUBROUTINE_SIM_TAC
+        (ed25519_mc, ED25519_EXEC, 2488,
+        bignum_mod_n25519_mc, BIGNUM_MOD_N25519_SUBROUTINE_CORRECT)
+        [`sp + word 2064:int64`; `word 8:int64`; `sp + word 2064:int64`;
+        `num_of_bytelist bytelist_k`; `pc + 2488`; `word (pc + 736):int64`] 185 THEN
+      RENAME_TAC `s185:armstate` `s184_ret:armstate` THEN
+      ARM_STEPS_TAC ED25519_EXEC (185--189) THEN
+  SUBGOAL_THEN `adrp_within_bounds (word double_const) (word ((pc + 14352) + 784)) /\
+    adrp_within_bounds (word double_const) (word ((pc + 14352) + 2500))` ASSUME_TAC THENL
+  [ ASM_REWRITE_TAC [GSYM ADD_ASSOC; ARITH]; ALL_TAC ] THEN
+  SUBGOAL_THEN `~(&p_25519 = &0:int)` ASSUME_TAC THENL
+  [ REWRITE_TAC [p_25519] THEN INT_ARITH_TAC; ALL_TAC ] THEN
+  SUBGOAL_THEN `num_of_int (FST (dec_A:int#int) rem &p_25519) <= p_25519` ASSUME_TAC THENL
+  [ REWRITE_TAC [GSYM INT_OF_NUM_LE] THEN
+      POP_ASSUM (ASSUME_TAC o MATCH_MP INT_REM_POS) THEN
+      ASM_SIMP_TAC [INT_OF_NUM_OF_INT] THEN
+      MATCH_MP_TAC INT_LT_IMP_LE THEN
+      MATCH_MP_TAC INT_LT_REM THEN
+      REWRITE_TAC [p_25519] THEN
+      ARITH_TAC;
+    ALL_TAC ] THEN
+  ASSUME_TAC (ARITH_RULE `8 * 4 = 32`) THEN
+  SUBGOAL_THEN `read (memory :> bytes (sp + word 1784,32)) s189, read (memory :> bytes ((sp + word 1784) + word 32,32)) s189 =
+    (p_25519 - num_of_int (FST dec_A rem &p_25519)) MOD p_25519, num_of_int (SND dec_A rem &p_25519)` ASSUME_TAC THENL
+  [ RULE_ASSUM_TAC (CONV_RULE (TOP_DEPTH_CONV NUM_MULT_CONV)) THEN ASM_SIMP_TAC [PAIR_EQ]; ALL_TAC ] THEN
+  ARM_SUBROUTINE_SIM_TAC (ed25519_mc, ED25519_EXEC, 14352,
+    SPECL [`pc + 14352`; `edwards25519_scalarmuldouble_alt_constant:num`] edwards25519_scalarmuldouble_alt_mc,
+    ASM_REWRITE_RULE [bytes_loaded] EDWARDS25519_SCALARMULDOUBLE_ALT_SUBROUTINE_CORRECT)
+    [`double_const:num`; `sp + word 2128:int64`; `sp + word 2064:int64`; `sp + word 1784:int64`; `sig_p + word 32:int64`;
+     `num_of_bytelist bytelist_k MOD n_25519`; `(p_25519 - num_of_int (FST dec_A rem &p_25519)) MOD p_25519, num_of_int (SND dec_A rem &p_25519)`;
+     `num_of_bytelist (SUB_LIST (32,32) sig)`; `pc + 14352`; `sp + word 1696:int64`; `word (pc + 756):int64`] 190 THEN
+    RENAME_TAC `s190:armstate` `s189_ret:armstate` THEN
+  >>>gl
+  
   CHEAT_TAC);;
 
 (* int ed25519_verify_no_self_test_s2n_bignum(
@@ -11124,7 +11230,7 @@ let ED25519_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     adrp_within_bounds (word double_const) (word (pc + 0x41d4)) /\
     adrp_within_bounds (word K_base) (word (pc + 0x8fc8)) /\
     PAIRWISE nonoverlapping [(word pc, 37844); (msg_p, LENGTH msg); (sig_p, 64);
-      (A_p, 32); (word_sub sp (word 2240), 2240); (word K_base, 640)] /\
+      (A_p, 32); (word_sub sp (word 2240), 2240); (word double_const, 768); (word K_base, 640)] /\
     LENGTH msg < 2 EXP 64 /\
     LENGTH sig = 64 /\
     LENGTH A = 32 ==>
@@ -11137,6 +11243,7 @@ let ED25519_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
          byte_list_at msg msg_p s /\
          byte_list_at sig sig_p s /\
          byte_list_at A A_p s /\
+         bytes_loaded s (word double_const) edwards25519_scalarmuldouble_alt_constant_data /\
          constants_at (word K_base) s)
     (\s. read PC s = word retpc /\
          if verify_args_valid A sig /\ verify 0 [] A sig msg
@@ -11145,13 +11252,18 @@ let ED25519_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
      MAYCHANGE [memory :> bytes(word_sub sp (word 2240), 2240)])`,
   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL;
-      constants_at; C_ARGUMENTS; C_RETURN] THEN
+      constants_at; bytes_loaded; C_ARGUMENTS; C_RETURN] THEN
     WORD_FORALL_OFFSET_TAC 2240 THEN
     REPEAT STRIP_TAC THEN
     ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
     ENSURES_EXISTING_PRESERVED_TAC `X30` THEN
     ENSURES_PRESERVED_TAC "x29_init" `X29` THEN
 
+    SUBGOAL_THEN `LENGTH edwards25519_scalarmuldouble_alt_constant_data = 768`
+      (fun th -> REWRITE_TAC [th] THEN ASSUME_TAC th) THENL
+    [ REWRITE_TAC [LENGTH; edwards25519_scalarmuldouble_alt_constant_data] THEN
+        CONV_TAC NUM_REDUCE_CONV;
+      ALL_TAC ] THEN
     ENSURES_INIT_TAC "s221" THEN
     RULE_ASSUM_TAC (REWRITE_RULE [byte_list_at]) THEN
     SUBGOAL_THEN `LENGTH (sig:byte list) = 64`
@@ -11174,11 +11286,12 @@ let ED25519_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
       nonoverlapping_modulo (2 EXP 64) (val (msg_p:int64),LENGTH (msg:byte list)) (val sp,2224) /\
       nonoverlapping_modulo (2 EXP 64) (val (sig_p:int64),64) (val sp,2224) /\
       nonoverlapping_modulo (2 EXP 64) (val (A_p:int64),32) (val sp,2224) /\
-      nonoverlapping_modulo (2 EXP 64) (val sp,2224) (K_base,640)` ASSUME_TAC THENL
+      nonoverlapping_modulo (2 EXP 64) (val sp,2224) (K_base,640) /\
+      nonoverlapping_modulo (2 EXP 64) (val sp,2224) (double_const,768)` ASSUME_TAC THENL
     [ REPEAT CONJ_TAC THEN TRY NONOVERLAPPING_TAC; ALL_TAC ] THEN (* ??? *)
     ARM_SUBROUTINE_SIM_TAC
       (SPEC_ALL ed25519_mc, ED25519_EXEC, 0,
-        SPEC_ALL ed25519_mc, (REWRITE_RULE [byte_list_at; constants_at] ED25519_VERIFY_COMMON_CORRECT))
+        SPEC_ALL ed25519_mc, (REWRITE_RULE [byte_list_at; constants_at; bytes_loaded] ED25519_VERIFY_COMMON_CORRECT))
       [`sp + word 2224 : int64`; `msg_p:int64`; `msg:byte list`; `sig_p:int64`; `sig:byte list`;
         `A_p:int64`; `A:byte list`; `word 0:int64`; `0`; `[]:byte list`; `pc:num`; `pc + 900`; `base_const:num`; `double_const:num`; `K_base:num`] 226 THEN
     RENAME_TAC `s226:armstate` `s225_ret:armstate` THEN
@@ -11198,7 +11311,7 @@ let ED25519CTX_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     adrp_within_bounds (word double_const) (word (pc + 0x41d4)) /\
     adrp_within_bounds (word K_base) (word (pc + 0x8fc8)) /\
     PAIRWISE nonoverlapping [(word pc, 37844); (msg_p, LENGTH msg); (sig_p, 64);
-      (A_p, 32); (ctx_p, LENGTH ctx); (word_sub sp (word 2560), 2560); (word K_base, 640)] /\
+      (A_p, 32); (ctx_p, LENGTH ctx); (word_sub sp (word 2560), 2560); (word double_const, 768); (word K_base, 640)] /\
     LENGTH msg < 2 EXP 64 /\
     LENGTH sig = 64 /\
     LENGTH A = 32 /\
@@ -11213,6 +11326,7 @@ let ED25519CTX_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
          byte_list_at sig sig_p s /\
          byte_list_at A A_p s /\
          byte_list_at ctx ctx_p s /\
+         bytes_loaded s (word double_const) edwards25519_scalarmuldouble_alt_constant_data /\
          constants_at (word K_base) s)
     (\s. read PC s = word retpc /\
          if dom2_valid 1 ctx /\ verify_args_valid A sig /\ verify 1 ctx A sig msg
@@ -11222,7 +11336,7 @@ let ED25519CTX_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
      MAYCHANGE [memory :> bytes(sig_p, 64)] ,,
      MAYCHANGE [memory :> bytes(word_sub sp (word 2560), 2560)])`,
   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL;
-      constants_at; C_ARGUMENTS; C_RETURN] THEN
+      constants_at; bytes_loaded; C_ARGUMENTS; C_RETURN] THEN
     WORD_FORALL_OFFSET_TAC 2560 THEN
     REPEAT STRIP_TAC THEN
     ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
@@ -11232,6 +11346,11 @@ let ED25519CTX_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     ENSURES_PRESERVED_TAC "x21_init" `X21` THEN
     ENSURES_PRESERVED_TAC "x22_init" `X22` THEN
 
+    SUBGOAL_THEN `LENGTH edwards25519_scalarmuldouble_alt_constant_data = 768`
+      (fun th -> REWRITE_TAC [th] THEN ASSUME_TAC th) THENL
+    [ REWRITE_TAC [LENGTH; edwards25519_scalarmuldouble_alt_constant_data] THEN
+        CONV_TAC NUM_REDUCE_CONV;
+      ALL_TAC ] THEN
     ASM_REWRITE_TAC [byte_list_at] THEN
     SUBGOAL_THEN `LENGTH (sig:byte list) = 64`
       (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th]) THEN ASSUME_TAC th) THENL
@@ -11291,7 +11410,7 @@ let ED25519CTX_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     [ REWRITE_TAC [dom2_valid; ARITH] THEN ASM_REWRITE_TAC [GSYM LENGTH_EQ_NIL]; ALL_TAC] THEN
     ARM_SUBROUTINE_SIM_TAC
       (SPEC_ALL ed25519_mc, ED25519_EXEC, 0,
-        SPEC_ALL ed25519_mc, (REWRITE_RULE [byte_list_at; constants_at] ED25519_VERIFY_COMMON_CORRECT))
+        SPEC_ALL ed25519_mc, (REWRITE_RULE [byte_list_at; constants_at; bytes_loaded] ED25519_VERIFY_COMMON_CORRECT))
       [`sp + word 2224:int64`; `msg_p:int64`; `msg:byte list`; `sig_p:int64`; `sig:byte list`; `A_p:int64`; `A:byte list`;
         `sp + word 2264:int64`; `1`; `ctx:byte list`; `pc:num`; `pc + 1232`;`base_const:num`; `double_const:num`; `K_base:num`] 309 THEN
     RENAME_TAC `s309:armstate` `s308_ret:armstate` THEN
@@ -11312,7 +11431,7 @@ let ED25519PH_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     adrp_within_bounds (word double_const) (word (pc + 0x41d4)) /\
     adrp_within_bounds (word K_base) (word (pc + 0x8fc8)) /\
     PAIRWISE nonoverlapping [(word pc, 37844); (msg_p, LENGTH msg); (sig_p, 64);
-      (A_p, 32); (ctx_p, LENGTH ctx); (word_sub sp (word 2848), 2848); (word K_base, 640)] /\
+      (A_p, 32); (ctx_p, LENGTH ctx); (word_sub sp (word 2848), 2848); (word double_const, 768); (word K_base, 640)] /\
     LENGTH msg < 2 EXP 64 /\
     LENGTH sig = 64 /\
     LENGTH A = 32 /\
@@ -11327,6 +11446,7 @@ let ED25519PH_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
          byte_list_at sig sig_p s /\
          byte_list_at A A_p s /\
          byte_list_at ctx ctx_p s /\
+         bytes_loaded s (word double_const) edwards25519_scalarmuldouble_alt_constant_data /\
          constants_at (word K_base) s)
     (\s. read PC s = word retpc /\
          if dom2_valid 2 ctx /\ verify_args_valid A sig /\ verify 2 ctx A sig msg
@@ -11336,7 +11456,7 @@ let ED25519PH_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
      MAYCHANGE [memory :> bytes(sig_p, 64)] ,,
      MAYCHANGE [memory :> bytes(word_sub sp (word 2848), 2848)])`,
   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL;
-      constants_at; C_ARGUMENTS; C_RETURN] THEN
+      constants_at; bytes_loaded; C_ARGUMENTS; C_RETURN] THEN
     WORD_FORALL_OFFSET_TAC 2848 THEN
     REPEAT STRIP_TAC THEN
     ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
@@ -11346,6 +11466,11 @@ let ED25519PH_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     ENSURES_PRESERVED_TAC "x21_init" `X21` THEN
     ENSURES_PRESERVED_TAC "x22_init" `X22` THEN
 
+    SUBGOAL_THEN `LENGTH edwards25519_scalarmuldouble_alt_constant_data = 768`
+      (fun th -> REWRITE_TAC [th] THEN ASSUME_TAC th) THENL
+    [ REWRITE_TAC [LENGTH; edwards25519_scalarmuldouble_alt_constant_data] THEN
+        CONV_TAC NUM_REDUCE_CONV;
+      ALL_TAC ] THEN
     ASM_REWRITE_TAC [byte_list_at] THEN
     ENSURES_INIT_TAC "s354" THEN
     ARM_STEPS_TAC ED25519_EXEC (355--364) THEN
@@ -11436,7 +11561,7 @@ let ED25519PH_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     ASSUME_TAC LENGTH_SHA512_PAD THEN
     ARM_SUBROUTINE_SIM_TAC
       (SPEC_ALL ed25519_mc, ED25519_EXEC, 0,
-        SPEC_ALL ed25519_mc, (REWRITE_RULE [byte_list_at; constants_at] ED25519_VERIFY_COMMON_CORRECT))
+        SPEC_ALL ed25519_mc, (REWRITE_RULE [byte_list_at; constants_at; bytes_loaded] ED25519_VERIFY_COMMON_CORRECT))
       [`sp + word 2224 : int64`; `sp + word 2784:int64`; `msg:byte list`; `sig_p:int64`; `sig:byte list`; `A_p:int64`; `A:byte list`;
        `sp + word 2264:int64`; `2`; `ctx:byte list`; `pc:num`; `pc + 1544`;`base_const:num`; `double_const:num`; `K_base:num`] 387 THEN
     RENAME_TAC `s387:armstate` `s386_ret:armstate` THEN
