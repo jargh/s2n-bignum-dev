@@ -125,7 +125,7 @@ ed25519_sign_common:
 // Step: rfc8032 5.1.6.2
 // prefix = h[32:63]
 // uint8_t r[SHA512_DIGEST_LENGTH];
-// r[0:63] = sha512_s2n_bignum(dom2_buffer || h[32:63] || message);
+// r[0:63] = sha512_s2n_bignum(dom2_buffer || h[32:63] || PH(message));
     add x0, sp, #56
     bl sha512_init
     cbz x24, ed25519_sign_common_pure
@@ -169,7 +169,7 @@ ed25519_sign_common_pure:
 // R = out_sig[0:31]
 // A = private_key[32:63]
 // uint8_t k[SHA512_DIGEST_LENGTH];
-// k[0:63] = sha512_s2n_bignum(dom2_buffer || out_sig[0:31] || private_key[32:63] || message);
+// k[0:63] = sha512_s2n_bignum(dom2_buffer || out_sig[0:31] || private_key[32:63] || PH(message));
     add x0, sp, #56
     bl sha512_init
     cbz x24, ed25519_sign_common_pure2
@@ -290,7 +290,7 @@ ed25519_verify_common:
 
 // Step: rfc8032 5.1.7.2
 // uint8_t k[SHA512_DIGEST_LENGTH];
-// k[0:63] = sha512_s2n_bignum(dom2_buffer || signature[0:31] || public_key || message).
+// k[0:63] = sha512_s2n_bignum(dom2_buffer || signature[0:31] || public_key || PH(message)).
     add x0, sp, #152
     bl sha512_init
     cbz x24, ed25519_verify_common_pure
@@ -6766,10 +6766,10 @@ sha512_process_block:
         .cfi_def_cfa_offset 720
         mov     x12, x0
         add     x0, sp, 80
-        stp     x29, x30, [sp]
+        str     x19, [sp]
+        str     x30, [sp, 8]
         .cfi_offset 29, -720
         .cfi_offset 30, -712
-        mov     x29, sp
         bl      msg_schedule
         tst     x12, 15
         bne     .L8
@@ -6782,14 +6782,14 @@ sha512_process_block:
         stp     x2, x3, [sp, 48]
         stp     x0, x1, [sp, 64]
 .L9:
-        adrp    x14, K
+        adrp     x14, K
         mov     x6, 1
         add     x14, x14, :lo12:K
         ldp     x5, x8, [sp, 16]
         ldp     x7, x13, [sp, 32]
         ldp     x3, x10, [sp, 48]
         ldp     x9, x11, [sp, 64]
-        b       .L10
+        b     .L10
 .L11:
         mov     x7, x8
         mov     x9, x10
@@ -6809,10 +6809,10 @@ sha512_process_block:
         eor     x1, x1, x5, ror 28
         bic     x4, x9, x3
         eor     x0, x0, x3, ror #(64 - 23)
-        and     x18, x3, x10
+        and     x19, x3, x10
         eor     x2, x7, x8
         ldr     x17, [x15, -8]
-        eor     x4, x4, x18
+        eor     x4, x4, x19
         eor     x1, x1, x5, ror #(64 - 25)
         add     x0, x0, x4
         and     x2, x2, x5
@@ -6830,7 +6830,7 @@ sha512_process_block:
         cmp     x6, 81
         bne     .L11
         ldp     x6, x4, [x12]
-        ldp     x29, x30, [sp]
+        ldp     x19, x30, [sp]
         add     x6, x6, x0
         add     x4, x4, x5
         ldp     x0, x5, [x12, 24]
@@ -6869,8 +6869,8 @@ sha512_process_block:
         b       .L9
         .cfi_endproc
 .LFE13:
-        .size   sha512_process_block, .-sha512_process_block
-        .type   sha512_process_blocks, %function
+        .size     sha512_process_block, .-sha512_process_block
+        .type     sha512_process_blocks, %function
 sha512_process_blocks:
 .LFB14:
         .cfi_startproc

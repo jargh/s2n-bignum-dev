@@ -9307,8 +9307,8 @@ Disassembly of section .text:
     8f88: d10b43ff     	sub	sp, sp, #0x2d0
     8f8c: aa0003ec     	mov	x12, x0
     8f90: 910143e0     	add	x0, sp, #0x50
-    8f94: a9007bfd     	stp	x29, x30, [sp]
-    8f98: 910003fd     	mov	x29, sp
+    8f94: f90003f3     	str	x19, [sp]
+    8f98: f90007fe     	str	x30, [sp, #0x8]
     8f9c: 97ffffc7     	bl	0x8eb8 <msg_schedule>
     8fa0: f2400d9f     	tst	x12, #0xf
     8fa4: 54000961     	b.ne	0x90d0 <sha512_process_block+0x148>
@@ -9345,10 +9345,10 @@ Disassembly of section .text:
     9020: cac57021     	eor	x1, x1, x5, ror #28
     9024: 8a230124     	bic	x4, x9, x3
     9028: cac3a400     	eor	x0, x0, x3, ror #41
-    902c: 8a0a0072     	and	x18, x3, x10
+    902c: 8a0a0073     	and	x19, x3, x10
     9030: ca0800e2     	eor	x2, x7, x8
     9034: f85f81f1     	ldur	x17, [x15, #-0x8]
-    9038: ca120084     	eor	x4, x4, x18
+    9038: ca130084     	eor	x4, x4, x19
     903c: cac59c21     	eor	x1, x1, x5, ror #39
     9040: 8b040000     	add	x0, x0, x4
     9044: 8a050042     	and	x2, x2, x5
@@ -9366,7 +9366,7 @@ Disassembly of section .text:
     9074: f10144df     	cmp	x6, #0x51
     9078: 54fffb81     	b.ne	0x8fe8 <sha512_process_block+0x60>
     907c: a9401186     	ldp	x6, x4, [x12]
-    9080: a9407bfd     	ldp	x29, x30, [sp]
+    9080: a9407bf3     	ldp	x19, x30, [sp]
     9084: 8b0000c6     	add	x6, x6, x0
     9088: 8b050084     	add	x4, x4, x5
     908c: a9419580     	ldp	x0, x5, [x12, #0x18]
@@ -21962,8 +21962,8 @@ Disassembly of section .eh_frame:
       30: 00 00 00 00  	.word	0x00000000
       34: 74 01 00 00  	.word	0x00000174
       38: 00 41 0e d0  	.word	0xd00e4100
-      3c: 05 43 9d 5a  	.word	0x5a9d4305
-      40: 9e 59 02 4d  	.word	0x4d02599e
+      3c: 05 44 9d 5a  	.word	0x5a9d4405
+      40: 9e 59 02 4c  	.word	0x4c02599e
       44: 0a dd de 0e  	.word	0x0ededd0a
       48: 00 41 0b 00  	.word	0x000b4100
       4c: 24 00 00 00  	.word	0x00000024

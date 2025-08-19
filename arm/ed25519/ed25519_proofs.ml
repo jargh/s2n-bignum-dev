@@ -9216,8 +9216,8 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xd10b43ff;         (* arm_SUB SP SP (rvalue (word 720)) *)
   w 0xaa0003ec;         (* arm_MOV X12 X0 *)
   w 0x910143e0;         (* arm_ADD X0 SP (rvalue (word 80)) *)
-  w 0xa9007bfd;         (* arm_STP X29 X30 SP (Immediate_Offset (iword (&0))) *)
-  w 0x910003fd;         (* arm_ADD X29 SP (rvalue (word 0)) *)
+  w 0xf90003f3;         (* arm_STR X19 SP (Immediate_Offset (word 0)) *)
+  w 0xf90007fe;         (* arm_STR X30 SP (Immediate_Offset (word 8)) *)
   w 0x97ffffc7;         (* arm_BL (word 268435228) *)
   w 0xf2400d9f;         (* arm_TST X12 (rvalue (word 15)) *)
   w 0x54000961;         (* arm_BNE (word 300) *)
@@ -9254,10 +9254,10 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xcac57021;         (* arm_EOR X1 X1 (Shiftedreg X5 ROR 28) *)
   w 0x8a230124;         (* arm_BIC X4 X9 X3 *)
   w 0xcac3a400;         (* arm_EOR X0 X0 (Shiftedreg X3 ROR 41) *)
-  w 0x8a0a0072;         (* arm_AND X18 X3 X10 *)
+  w 0x8a0a0073;         (* arm_AND X19 X3 X10 *)
   w 0xca0800e2;         (* arm_EOR X2 X7 X8 *)
   w 0xf85f81f1;         (* arm_LDR X17 X15 (Immediate_Offset (word 18446744073709551608)) *)
-  w 0xca120084;         (* arm_EOR X4 X4 X18 *)
+  w 0xca130084;         (* arm_EOR X4 X4 X19 *)
   w 0xcac59c21;         (* arm_EOR X1 X1 (Shiftedreg X5 ROR 39) *)
   w 0x8b040000;         (* arm_ADD X0 X0 X4 *)
   w 0x8a050042;         (* arm_AND X2 X2 X5 *)
@@ -9275,7 +9275,7 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xf10144df;         (* arm_CMP X6 (rvalue (word 81)) *)
   w 0x54fffb81;         (* arm_BNE (word 2097008) *)
   w 0xa9401186;         (* arm_LDP X6 X4 X12 (Immediate_Offset (iword (&0))) *)
-  w 0xa9407bfd;         (* arm_LDP X29 X30 SP (Immediate_Offset (iword (&0))) *)
+  w 0xa9407bf3;         (* arm_LDP X19 X30 SP (Immediate_Offset (iword (&0))) *)
   w 0x8b0000c6;         (* arm_ADD X6 X6 X0 *)
   w 0x8b050084;         (* arm_ADD X4 X4 X5 *)
   w 0xa9419580;         (* arm_LDP X0 X5 X12 (Immediate_Offset (iword (&24))) *)
@@ -9997,8 +9997,6 @@ let ED25519_PUBLIC_KEY_FROM_SEED_S2N_BIGNUM_CORRECT = prove
     ARM_STEPS_TAC ED25519_EXEC (27--29) THEN
     ENSURES_FINAL_STATE_TAC THEN
     ASM_REWRITE_TAC [] THEN
-    (* ??? Can't prove MAYCHANGE automatically *)
-    CONJ_TAC THENL [ ALL_TAC; CHEAT_TAC ] THEN
     REWRITE_TAC [public_key_of_seed] THEN
     CONV_TAC (TOP_DEPTH_CONV let_CONV) THEN
     SUBGOAL_THEN `~(p_25519=0)` ASSUME_TAC THENL
@@ -10165,6 +10163,17 @@ let NONOVERLAPPING_MODULO_LEN_0 = prove
     REPEAT STRIP_TAC THEN
     SIMPLE_ARITH_TAC);;
 
+let P25519_NEQ_0 = prove
+  (`~(p_25519 = 0)`, REWRITE_TAC [p_25519] THEN ARITH_TAC);;
+
+let ED25519_ENCODE_MODULAR_ENCODE_P25519 = prove
+  (`!k. ed25519_encode
+      (&(modular_encode (k, p_25519) x),
+       &(modular_encode (k, p_25519) y)) = ed25519_encode (x, y)`,
+       GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [GSYM (ISPEC `s_B:int#int` PAIR)] THEN
+    REWRITE_TAC [ed25519_encode; modular_encode] THEN
+    SIMP_TAC [P25519_NEQ_0; NUM_OF_INT_REM_REM]);;
+
 (* void ed25519_sign_common(
     uint8_t out_sig[ED25519_SIGNATURE_LEN], const uint8_t *message,
     size_t message_len, const uint8_t private_key[ED25519_PRIVATE_KEY_LEN],
@@ -10175,7 +10184,7 @@ let ED25519_SIGN_COMMON_CORRECT = prove
     adrp_within_bounds (word base_const) (word (pc + 0x149c)) /\
     adrp_within_bounds (word K_base) (word (pc + 0x8fc8)) /\
     PAIRWISE nonoverlapping [(word pc, 37844); (sig_p, 64); (msg_p, LENGTH (ph alg msg)); (priv_key_p, 64);
-      (dom2_buf_p, LENGTH (dom2_of alg ctx)); (word_sub sp (word 1344), 1344); (word K_base, 640)] /\
+      (dom2_buf_p, LENGTH (dom2_of alg ctx)); (word_sub sp (word 1344), 1344); (word base_const,48576); (word K_base, 640)] /\
     LENGTH (ph alg msg) < 2 EXP 64 /\
     LENGTH seed = 32 /\
     dom2_valid alg ctx ==>
@@ -10188,6 +10197,7 @@ let ED25519_SIGN_COMMON_CORRECT = prove
          byte_list_at (ph alg msg) msg_p s /\
          byte_list_at (seed ++ public_key_of_seed seed) priv_key_p s /\
          byte_list_at (dom2_of alg ctx) dom2_buf_p s /\
+         bytes_loaded s (word base_const) edwards25519_scalarmulbase_alt_constant_data /\
          constants_at (word K_base) s)
     (\s. read PC s = word retpc /\
          byte_list_at (sign alg ctx seed msg) sig_p s)
@@ -10195,7 +10205,7 @@ let ED25519_SIGN_COMMON_CORRECT = prove
      MAYCHANGE [memory :> bytes(sig_p, 64)] ,,
      MAYCHANGE [memory :> bytes(word_sub sp (word 1344), 1344)])`,
   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; NONOVERLAPPING_CLAUSES; PAIRWISE; ALL;
-      constants_at; C_ARGUMENTS; C_RETURN] THEN
+      constants_at; bytes_loaded; C_ARGUMENTS; C_RETURN] THEN
     WORD_FORALL_OFFSET_TAC 1344 THEN
     REPEAT STRIP_TAC THEN
     ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
@@ -10207,6 +10217,11 @@ let ED25519_SIGN_COMMON_CORRECT = prove
     ENSURES_PRESERVED_TAC "x23_init" `X23` THEN
     ENSURES_PRESERVED_TAC "x24_init" `X24` THEN
 
+    SUBGOAL_THEN `LENGTH edwards25519_scalarmulbase_alt_constant_data = 48576`
+      (fun th -> REWRITE_TAC [th] THEN ASSUME_TAC th) THENL
+    [ REWRITE_TAC [LENGTH; edwards25519_scalarmulbase_alt_constant_data] THEN
+        CONV_TAC NUM_REDUCE_CONV;
+      ALL_TAC ] THEN
     REWRITE_TAC [BYTE_LIST_AT_APPEND] THEN
     ASM_REWRITE_TAC [byte_list_at; LENGTH_ED25519_PUBLIC_KEY] THEN
     ENSURES_INIT_TAC "s29" THEN
@@ -10287,12 +10302,13 @@ let ED25519_SIGN_COMMON_CORRECT = prove
     [ MATCH_MP_TAC LET_TRANS THEN EXISTS_TAC `289` THEN ASM_REWRITE_TAC [ARITH]; ALL_TAC ] THEN
     COND_CASES_TAC THENL
     [ (* dom2_buffer empty *)
-      SUBGOAL_THEN `sha512_ctx_at (dom2_of alg ctx) (sp + word 872) s59` ASSUME_TAC THENL
+      SUBGOAL_THEN `[] = dom2_of alg ctx` (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th])) THENL
         [ FIRST_ASSUM (MP_TAC o REWRITE_RULE [LENGTH_EQ_NIL]) THEN
-            DISCH_THEN (fun th -> REWRITE_TAC [th]) THEN
-            EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC [];
-          ALL_TAC] THEN
-        STRIP_TAC;
+            DISCH_THEN (fun th -> REWRITE_TAC [th]);
+          ALL_TAC ] THEN
+        SUBGOAL_THEN `sha512_ctx_at (dom2_of alg ctx) (sp + word 872) s59` MP_TAC THENL
+        [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC [];
+          ALL_TAC];
       (* dom2_buffer non-empty, hash dom2_buffer *)
       STRIP_TAC THEN
         ARM_STEPS_TAC ED25519_EXEC (60--63) THEN
@@ -10308,13 +10324,256 @@ let ED25519_SIGN_COMMON_CORRECT = prove
           `dom2_of alg ctx`; `pc + 0x8eb8`; `pc + 252`; `K_base : num`] 64 THEN
         RENAME_TAC `s64:armstate` `s63_ret:armstate` THEN
         UNDISCH_THEN `sha512_ctx_at ([] ++ dom2_of alg ctx) (sp + word 872) s63_ret` MP_TAC THEN
-        REWRITE_TAC [APPEND] THEN
-        EXPAND_SHA512_SPECS_TAC THEN
-        STRIP_TAC THEN
-        ASSUME_TAC (REWRITE_RULE [num_bytes_per_block] (SPEC `dom2_of alg ctx` LENGTH_BYTES_MOD_BLOCKS_LT)) ] THEN
+        REWRITE_TAC [APPEND] ] THEN
+
     (* dom2_buffer has been hashed in both cases *)
-    
-  CHEAT_TAC);;
+    ( EXPAND_SHA512_SPECS_TAC THEN
+      REPEAT STRIP_TAC THEN
+      ASSUME_TAC (REWRITE_RULE [num_bytes_per_block] (SPEC `dom2_of alg ctx` LENGTH_BYTES_MOD_BLOCKS_LT)) THEN
+      ARM_STEPS_TAC ED25519_EXEC (64--67) THEN
+      SUBGOAL_THEN `sha512_ctx_at (dom2_of alg ctx) (sp + word 872) s67` ASSUME_TAC THENL
+      [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC ] THEN
+      SUBGOAL_THEN `LENGTH (SUB_LIST (32,32) (sha512_pad seed)) = 32` ASSUME_TAC THENL
+      [ REWRITE_TAC [ LENGTH_SUB_LIST; LENGTH_SHA512_PAD] THEN ARITH_TAC; ALL_TAC ] THEN
+      SUBGOAL_THEN `LENGTH (dom2_of alg ctx) + 32 < 2 EXP 125` ASSUME_TAC THENL
+      [ SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+      ARM_SUBROUTINE_SIM_TAC
+        (ed25519_mc, ED25519_EXEC, 0x8eb8,
+        SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, REWRITE_RULE [byte_list_at; constants_at] SHA512_UPDATE)
+        [`sp + word 816:int64`; `sp + word 872:int64`; `dom2_of alg ctx`; `sp + word 1120:int64`; `SUB_LIST (32, 32) (sha512_pad seed):byte list`;
+        `pc + 0x8eb8`; `pc + 268`; `K_base : num`] 68 THEN
+      RENAME_TAC `s68:armstate` `s67_ret:armstate` THEN
+      UNDISCH_THEN `sha512_ctx_at (dom2_of alg ctx ++ SUB_LIST (32,32) (sha512_pad seed)) (sp + word 872) s67_ret` MP_TAC THEN
+      EXPAND_SHA512_SPECS_TAC THEN
+      REPEAT STRIP_TAC THEN
+      ASSUME_TAC (REWRITE_RULE [num_bytes_per_block] (SPEC `dom2_of alg ctx ++ SUB_LIST (32,32) (sha512_pad seed)` LENGTH_BYTES_MOD_BLOCKS_LT)) THEN
+      ARM_STEPS_TAC ED25519_EXEC (68--71) THEN
+      SUBGOAL_THEN `sha512_ctx_at (dom2_of alg ctx ++ SUB_LIST (32,32) (sha512_pad seed)) (sp + word 872) s71` ASSUME_TAC THENL
+      [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC ] THEN
+      SUBGOAL_THEN `LENGTH (dom2_of alg ctx ++ SUB_LIST (32,32) (sha512_pad seed)) + LENGTH (ph alg msg) < 2 EXP 125` ASSUME_TAC THENL
+      [ REWRITE_TAC [LENGTH_APPEND; LENGTH_SUB_LIST; LENGTH_SHA512_PAD] THEN SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+      ARM_SUBROUTINE_SIM_TAC
+        (ed25519_mc, ED25519_EXEC, 0x8eb8,
+        SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, REWRITE_RULE [byte_list_at; constants_at] SHA512_UPDATE)
+        [`sp + word 816:int64`; `sp + word 872:int64`; `dom2_of alg ctx ++ SUB_LIST (32,32) (sha512_pad seed)`; `msg_p:int64`;
+        `ph alg msg`; `pc + 0x8eb8`; `pc + 284`; `K_base : num`] 72 THEN
+      RENAME_TAC `s72:armstate` `s71_ret:armstate` THEN
+      UNDISCH_THEN `sha512_ctx_at ((dom2_of alg ctx ++ SUB_LIST (32,32) (sha512_pad seed)) ++ ph alg msg) (sp + word 872) s71_ret` MP_TAC THEN
+      EXPAND_SHA512_SPECS_TAC THEN
+      REPEAT STRIP_TAC THEN
+      ASSUME_TAC (REWRITE_RULE [num_bytes_per_block] (SPEC `(dom2_of alg ctx ++ SUB_LIST (32,32) (sha512_pad seed)) ++ ph alg msg` LENGTH_BYTES_MOD_BLOCKS_LT)) THEN
+      ARM_STEPS_TAC ED25519_EXEC (72--74) THEN
+      SUBGOAL_THEN `sha512_ctx_at ((dom2_of alg ctx ++ SUB_LIST (32,32) (sha512_pad seed)) ++ ph alg msg) (sp + word 872) s74` MP_TAC THENL
+      [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC ] THEN
+      DISCH_THEN (ASSUME_TAC o REWRITE_RULE [GSYM APPEND_ASSOC]) THEN
+      SUBGOAL_THEN `LENGTH (dom2_of alg ctx ++ SUB_LIST (32,32) (sha512_pad seed) ++ ph alg msg) < 2 EXP 125` ASSUME_TAC THENL
+      [ REWRITE_TAC [LENGTH_APPEND; LENGTH_SUB_LIST; LENGTH_SHA512_PAD] THEN SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+      ARM_SUBROUTINE_SIM_TAC
+        (ed25519_mc, ED25519_EXEC, 0x8eb8,
+        SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, REWRITE_RULE [byte_list_at; constants_at] SHA512_FINAL)
+        [`sp + word 816:int64`; `sp + word 1152:int64`; `sp + word 872:int64`; `dom2_of alg ctx ++ SUB_LIST (32,32) (sha512_pad seed) ++ ph alg msg`;
+        `pc + 0x8eb8`; `pc + 296`; `K_base : num`] 75 THEN
+      RENAME_TAC `s75:armstate` `s74_ret:armstate` THEN
+      ABBREV_TAC `bytelist_r = sha512_pad (dom2_of alg ctx ++ SUB_LIST (32,32) (sha512_pad seed) ++ ph alg msg)` THEN
+      SUBGOAL_THEN `LENGTH (bytelist_r:byte list) = 64` ASSUME_TAC THENL
+      [ POP_ASSUM (fun th -> REWRITE_TAC [GSYM th; LENGTH_SHA512_PAD]); ALL_TAC ] THEN
+      POP_ASSUM (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th]) THEN ASSUME_TAC th) THEN
+      ARM_STEPS_TAC ED25519_EXEC (75--78) THEN
+      SUBGOAL_THEN `byte_list_at bytelist_r (sp + word 1152) s78` MP_TAC THENL
+      [ ASM_REWRITE_TAC [byte_list_at; GSYM WORD_ADD_ASSOC; GSYM WORD_ADD]; ALL_TAC ] THEN
+      ASM_REWRITE_TAC [BYTE_LIST_AT_NUM_OF_BYTELIST] THEN
+      REWRITE_TAC [WORD_ARITH `64 = 8 * val(word 8:int64)`] THEN
+      DISCH_TAC THEN
+      ARM_SUBROUTINE_SIM_TAC
+        (ed25519_mc, ED25519_EXEC, 2488,
+        bignum_mod_n25519_mc, BIGNUM_MOD_N25519_SUBROUTINE_CORRECT)
+        [`sp + word 1152:int64`; `word 8:int64`; `sp + word 1152:int64`;
+        `num_of_bytelist bytelist_r`; `pc + 2488`; `word (pc + 312):int64`] 79 THEN
+      RENAME_TAC `s79:armstate` `s78_ret:armstate` THEN
+      ARM_STEPS_TAC ED25519_EXEC (79--81) THEN
+      SUBGOAL_THEN `adrp_within_bounds (word base_const) (word ((pc + 5104) + 172))` ASSUME_TAC THENL
+      [ ASM_REWRITE_TAC [GSYM ADD_ASSOC; ARITH]; ALL_TAC ] THEN
+      ARM_SUBROUTINE_SIM_TAC (ed25519_mc, ED25519_EXEC, 5104,
+        SPECL [`pc + 5104`; `edwards25519_scalarmulbase_alt_constant:num`] edwards25519_scalarmulbase_alt_mc,
+        ASM_REWRITE_RULE [bytes_loaded] EDWARDS25519_SCALARMULBASE_ALT_SUBROUTINE_CORRECT)
+        [`base_const:num`; `sp + word 1216:int64`; `sp + word 1152:int64`; `num_of_bytelist bytelist_r MOD n_25519`;
+        `pc + 5104`; `sp + word 816:int64`; `word (pc + 324):int64`] 82 THEN
+      RENAME_TAC `s82:armstate` `s81_ret:armstate` THEN
+      SUBGOAL_THEN `!r. group_pow edwards25519_group E_25519 (r MOD n_25519) = group_pow edwards25519_group E_25519 r`
+        (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th])) THENL
+      [ REWRITE_TAC [GSYM GROUP_ELEMENT_ORDER_EDWARDS25519_E25519] THEN
+          SIMP_TAC [GROUP_POW_MOD_ELEMENT_ORDER; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519];
+        ALL_TAC ] THEN
+      ARM_STEPS_TAC ED25519_EXEC (82--84) THEN
+      ABBREV_TAC `r_B = group_pow edwards25519_group E_25519 (num_of_bytelist bytelist_r)` THEN
+      SUBGOAL_THEN `paired (modular_encode (256,p_25519)) r_B =
+        modular_encode (256,p_25519) (FST r_B), modular_encode (256,p_25519) (SND r_B)` ASSUME_TAC THENL
+      [ GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [GSYM (ISPEC `s_B:int#int` PAIR)] THEN
+          REWRITE_TAC [paired];
+        ALL_TAC ] THEN
+      ARM_SUBROUTINE_SIM_TAC
+        (ed25519_mc, ED25519_EXEC, 4840, edwards25519_encode_mc, EDWARDS25519_ENCODE_SUBROUTINE_CORRECT)
+        [`sig_p:int64`; `sp + word 1216:int64`; `modular_encode (256,p_25519) (FST (r_B:int#int))`;
+        `modular_encode (256,p_25519) (SND (r_B:int#int))`; `pc + 4840`; `word (pc + 336):int64`] 85 THEN
+      RENAME_TAC `s85:armstate` `s84_ret:armstate` THEN
+      RULE_ASSUM_TAC (REWRITE_RULE [ED25519_ENCODE_MODULAR_ENCODE_P25519;
+        REWRITE_RULE [GSYM MODULAR_ENCODE] P25519_NEQ_0]) THEN
+      ARM_STEPS_TAC ED25519_EXEC (85--86) THEN
+      ARM_SUBROUTINE_SIM_TAC
+        (ed25519_mc, ED25519_EXEC, 0x8eb8,
+        SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, SHA512_INIT)
+        [`sp + word 872:int64`; `pc + 0x8eb8`; `pc + 344`; `K_base:num`] 87 THEN
+      RENAME_TAC `s87:armstate` `s86_ret:armstate` THEN
+      UNDISCH_THEN `sha512_ctx_at [] (sp + word 872) s86_ret` MP_TAC THEN
+      EXPAND_SHA512_SPECS_TAC THEN STRIP_TAC THEN
+      ASSUME_TAC (REWRITE_RULE [num_bytes_per_block] (SPEC `[]:byte list` LENGTH_BYTES_MOD_BLOCKS_LT)) THEN
+      ARM_STEPS_TAC ED25519_EXEC [87] ) THENL
+
+    [ SUBGOAL_THEN `[] = dom2_of alg ctx` (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th])) THENL
+        [ MATCH_MP_TAC EQ_SYM THEN ASM_REWRITE_TAC [GSYM LENGTH_EQ_NIL]; ALL_TAC ] THEN
+        SUBGOAL_THEN `sha512_ctx_at (dom2_of alg ctx) (sp + word 872) s87` MP_TAC THENL
+        [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC];
+      POP_ASSUM MP_TAC THEN
+        ASM_SIMP_TAC [VAL_WORD_EQ; DIMINDEX_64] THEN
+        STRIP_TAC THEN
+        ARM_STEPS_TAC ED25519_EXEC (88--91) THEN
+        SUBGOAL_THEN `sha512_ctx_at [] (sp + word 872) s91` ASSUME_TAC THENL
+        [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC ] THEN
+        SUBGOAL_THEN `LENGTH ([]:byte list) + LENGTH (dom2_of alg ctx) < 2 EXP 125` ASSUME_TAC THENL
+        [ REWRITE_TAC [LENGTH] THEN SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+        ARM_SUBROUTINE_SIM_TAC
+          (ed25519_mc, ED25519_EXEC, 0x8eb8,
+          SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, REWRITE_RULE [byte_list_at; constants_at] SHA512_UPDATE)
+          [`sp + word 816:int64`; `sp + word 872:int64`; `[]:byte list`; `dom2_buf_p:int64`;
+          `dom2_of alg ctx`; `pc + 0x8eb8`; `pc + 364`; `K_base : num`] 92 THEN
+        RENAME_TAC `s92:armstate` `s91_ret:armstate` THEN
+        UNDISCH_THEN `sha512_ctx_at ([] ++ dom2_of alg ctx) (sp + word 872) s91_ret` MP_TAC THEN
+        REWRITE_TAC [APPEND] ] THEN
+      
+    ( EXPAND_SHA512_SPECS_TAC THEN
+      STRIP_TAC THEN
+      ARM_STEPS_TAC ED25519_EXEC (92--95) THEN
+      SUBGOAL_THEN `sha512_ctx_at (dom2_of alg ctx) (sp + word 872) s95` ASSUME_TAC THENL
+      [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC ] THEN
+      ASSUME_TAC LENGTH_BYTELIST_OF_NUM THEN
+      SUBGOAL_THEN `byte_list_at (bytelist_of_num 32 (ed25519_encode r_B)) sig_p s95` MP_TAC THENL
+      [ ASM_REWRITE_TAC [BYTE_LIST_AT_BYTELIST; LENGTH_BYTELIST_OF_NUM]; ALL_TAC ] THEN
+      DISCH_THEN (ASSUME_TAC o REWRITE_RULE [byte_list_at; LENGTH_BYTELIST_OF_NUM]) THEN
+      ARM_SUBROUTINE_SIM_TAC
+        (ed25519_mc, ED25519_EXEC, 0x8eb8,
+        SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, REWRITE_RULE [byte_list_at; constants_at] SHA512_UPDATE)
+        [`sp + word 816:int64`; `sp + word 872:int64`; `dom2_of alg ctx`; `sig_p:int64`; `bytelist_of_num 32 (ed25519_encode r_B)`;
+        `pc + 0x8eb8`; `pc + 380`; `K_base : num`] 96 THEN
+      RENAME_TAC `s96:armstate` `s95_ret:armstate` THEN
+      UNDISCH_THEN `sha512_ctx_at (dom2_of alg ctx ++ bytelist_of_num 32 (ed25519_encode r_B)) (sp + word 872) s95_ret` MP_TAC THEN
+      EXPAND_SHA512_SPECS_TAC THEN
+      REPEAT STRIP_TAC THEN
+      ASSUME_TAC (REWRITE_RULE [num_bytes_per_block] (SPEC `dom2_of alg ctx ++ bytelist_of_num 32 (ed25519_encode r_B)` LENGTH_BYTES_MOD_BLOCKS_LT)) THEN
+      ARM_STEPS_TAC ED25519_EXEC (96--99) THEN
+      SUBGOAL_THEN `sha512_ctx_at (dom2_of alg ctx ++ bytelist_of_num 32 (ed25519_encode r_B)) (sp + word 872) s99` ASSUME_TAC THENL
+      [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC ] THEN
+      ASSUME_TAC LENGTH_ED25519_PUBLIC_KEY THEN
+      SUBGOAL_THEN `LENGTH (dom2_of alg ctx ++ bytelist_of_num 32 (ed25519_encode r_B)) + 32 < 2 EXP 125` ASSUME_TAC THENL
+      [ ASM_REWRITE_TAC [LENGTH_APPEND] THEN SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+      ASSUME_TAC (WORD_RULE `!x. x + word (32 + i):int64 = (x + word 32) + word i`) THEN
+      ARM_SUBROUTINE_SIM_TAC
+        (ed25519_mc, ED25519_EXEC, 0x8eb8,
+        SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, REWRITE_RULE [byte_list_at; constants_at] SHA512_UPDATE)
+        [`sp + word 816:int64`; `sp + word 872:int64`; `dom2_of alg ctx ++ bytelist_of_num 32 (ed25519_encode r_B)`;
+        `priv_key_p + word 32:int64`; `public_key_of_seed seed`;
+        `pc + 0x8eb8`; `pc + 396`; `K_base : num`] 100 THEN
+      RENAME_TAC `s100:armstate` `s99_ret:armstate` THEN
+      UNDISCH_THEN `sha512_ctx_at ((dom2_of alg ctx ++ bytelist_of_num 32 (ed25519_encode r_B)) ++ public_key_of_seed seed)
+        (sp + word 872) s99_ret` (MP_TAC o REWRITE_RULE [GSYM APPEND_ASSOC]) THEN
+      EXPAND_SHA512_SPECS_TAC THEN
+      STRIP_TAC THEN
+      ASSUME_TAC (REWRITE_RULE [num_bytes_per_block] (SPEC `dom2_of alg ctx ++ bytelist_of_num 32 (ed25519_encode r_B) ++ public_key_of_seed seed` LENGTH_BYTES_MOD_BLOCKS_LT)) THEN
+      ARM_STEPS_TAC ED25519_EXEC (100--103) THEN
+      SUBGOAL_THEN `sha512_ctx_at (dom2_of alg ctx ++ bytelist_of_num 32 (ed25519_encode r_B) ++ public_key_of_seed seed) (sp + word 872) s103` ASSUME_TAC THENL
+      [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC ] THEN
+      SUBGOAL_THEN `LENGTH (dom2_of alg ctx ++ bytelist_of_num 32 (ed25519_encode r_B) ++ public_key_of_seed seed) + LENGTH (ph alg msg) < 2 EXP 125` ASSUME_TAC THENL
+      [ ASM_REWRITE_TAC [LENGTH_APPEND] THEN SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+      ARM_SUBROUTINE_SIM_TAC
+        (ed25519_mc, ED25519_EXEC, 0x8eb8,
+        SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, REWRITE_RULE [byte_list_at; constants_at] SHA512_UPDATE)
+        [`sp + word 816:int64`; `sp + word 872:int64`; `dom2_of alg ctx ++ bytelist_of_num 32 (ed25519_encode r_B) ++ public_key_of_seed seed`;
+        `msg_p:int64`; `ph alg msg`; `pc + 0x8eb8`; `pc + 412`; `K_base : num`] 104 THEN
+      RENAME_TAC `s104:armstate` `s103_ret:armstate` THEN
+      UNDISCH_THEN `sha512_ctx_at
+        ((dom2_of alg ctx ++ bytelist_of_num 32 (ed25519_encode r_B) ++ public_key_of_seed seed) ++ ph alg msg) (sp + word 872) s103_ret`
+        (MP_TAC o REWRITE_RULE [GSYM APPEND_ASSOC]) THEN
+      EXPAND_SHA512_SPECS_TAC THEN
+      STRIP_TAC THEN
+      ARM_STEPS_TAC ED25519_EXEC (104--106) THEN
+      SUBGOAL_THEN `sha512_ctx_at (dom2_of alg ctx ++ bytelist_of_num 32 (ed25519_encode r_B) ++ public_key_of_seed seed ++ ph alg msg) (sp + word 872) s106` ASSUME_TAC THENL
+      [ EXPAND_SHA512_SPECS_TAC THEN ASM_REWRITE_TAC []; ALL_TAC ] THEN
+      SUBGOAL_THEN `LENGTH (dom2_of alg ctx ++ bytelist_of_num 32 (ed25519_encode r_B) ++ public_key_of_seed seed ++ ph alg msg) < 2 EXP 125` ASSUME_TAC THENL
+      [ ASM_REWRITE_TAC [LENGTH_APPEND] THEN SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+      ARM_SUBROUTINE_SIM_TAC
+        (ed25519_mc, ED25519_EXEC, 0x8eb8,
+        SPECL [`pc + 0x8eb8:num`; `K:num`] sha512_mc, REWRITE_RULE [byte_list_at; constants_at] SHA512_FINAL)
+        [`sp + word 816:int64`; `sp + word 1280:int64`; `sp + word 872:int64`;
+        `dom2_of alg ctx ++ bytelist_of_num 32 (ed25519_encode r_B) ++ public_key_of_seed seed ++ ph alg msg`;
+        `pc + 0x8eb8`; `pc + 424`; `K_base : num`] 107 THEN
+      RENAME_TAC `s107:armstate` `s106_ret:armstate` THEN
+      ABBREV_TAC `bytelist_k = sha512_pad (dom2_of alg ctx ++ bytelist_of_num 32 (ed25519_encode r_B) ++
+        public_key_of_seed seed ++ ph alg msg)` THEN
+      SUBGOAL_THEN `LENGTH (bytelist_k:byte list) = 64` ASSUME_TAC THENL
+      [ POP_ASSUM (fun th -> REWRITE_TAC [GSYM th; LENGTH_SHA512_PAD]); ALL_TAC ] THEN
+      POP_ASSUM (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th]) THEN ASSUME_TAC th) THEN
+      ARM_STEPS_TAC ED25519_EXEC (107--110) THEN
+      SUBGOAL_THEN `byte_list_at bytelist_k (sp + word 1280) s110` MP_TAC THENL
+      [ ASM_REWRITE_TAC [byte_list_at; GSYM WORD_ADD_ASSOC; GSYM WORD_ADD]; ALL_TAC ] THEN
+      ASM_REWRITE_TAC [BYTE_LIST_AT_NUM_OF_BYTELIST] THEN
+      REWRITE_TAC [WORD_ARITH `64 = 8 * val(word 8:int64)`] THEN
+      DISCH_TAC THEN
+      ARM_SUBROUTINE_SIM_TAC
+        (ed25519_mc, ED25519_EXEC, 2488,
+        bignum_mod_n25519_mc, BIGNUM_MOD_N25519_SUBROUTINE_CORRECT)
+        [`sp + word 1280:int64`; `word 8:int64`; `sp + word 1280:int64`;
+        `num_of_bytelist bytelist_k`; `pc + 2488`; `word (pc + 440):int64`] 111 THEN
+      RENAME_TAC `s111:armstate` `s110_ret:armstate` THEN
+      ARM_STEPS_TAC ED25519_EXEC (111--115) THEN
+      SUBGOAL_THEN `byte_list_at (secret_scalar_of_seed_digest (sha512_pad seed)) (sp + word 1088) s115` MP_TAC THENL
+      [ ASM_REWRITE_TAC[byte_list_at; LENGTH_ED25519_SECRET_SCALAR]; ALL_TAC ] THEN
+      REWRITE_TAC [BYTE_LIST_AT_NUM_OF_BYTELIST; LENGTH_ED25519_SECRET_SCALAR] THEN
+      REWRITE_TAC [ARITH_RULE `32 = 8 * 4`] THEN
+      DISCH_TAC THEN
+      ARM_SUBROUTINE_SIM_TAC
+        (ed25519_mc, ED25519_EXEC, 1708,
+        bignum_madd_n25519_alt_mc, BIGNUM_MADD_N25519_ALT_SUBROUTINE_CORRECT)
+        [`sig_p + word 32:int64`; `sp + word 1280:int64`; `num_of_bytelist bytelist_k MOD n_25519`;
+        `sp + word 1088:int64`; `num_of_bytelist (secret_scalar_of_seed_digest (sha512_pad seed))`;
+        `sp + word 1152:int64`; `num_of_bytelist bytelist_r MOD n_25519`;
+        `pc + 1708`; `sp + word 816:int64`; `word (pc + 460):int64`] 116 THEN
+      RENAME_TAC `s116:armstate` `s115_ret:armstate` THEN
+      ARM_STEPS_TAC ED25519_EXEC (116--121) THEN
+      REWRITE_TAC [WORD_ARITH `8 * val(word 8:int64) = 64`] THEN
+      ENSURES_FINAL_STATE_TAC THEN
+      ASM_REWRITE_TAC [] THEN
+      REWRITE_TAC [GSYM byte_list_at] THEN
+      REWRITE_TAC [sign] THEN
+      CONV_TAC (TOP_DEPTH_CONV let_CONV) THEN
+      ASM_REWRITE_TAC [BYTE_LIST_AT_APPEND] THEN
+      CONJ_TAC THENL [ ASM_REWRITE_TAC [byte_list_at]; ALL_TAC ] THEN
+      RULE_ASSUM_TAC (CONV_RULE (TOP_DEPTH_CONV NUM_MULT_CONV)) THEN
+      ASM_REWRITE_TAC [BYTE_LIST_AT_NUM_OF_BYTELIST] THEN
+      SUBGOAL_THEN `!a b c n. (a MOD n * b + c MOD n) MOD n = (a * b + c) MOD n` (fun th -> REWRITE_TAC [th]) THENL
+      [ REPEAT GEN_TAC THEN
+          GEN_REWRITE_TAC ONCE_DEPTH_CONV [GSYM MOD_ADD_MOD] THEN
+          REWRITE_TAC [MOD_MULT_LMOD; MOD_MOD_REFL];
+        ALL_TAC ] THEN
+      RULE_ASSUM_TAC (REWRITE_RULE [public_key_of_seed]) THEN
+      RULE_ASSUM_TAC (CONV_RULE (TOP_DEPTH_CONV let_CONV)) THEN
+      ASM_REWRITE_TAC [] THEN
+      IMP_REWRITE_TAC [NUM_OF_BYTELIST_OF_NUM_EQ] THEN
+      REWRITE_TAC [ADD_SYM] THEN
+      SUBGOAL_THEN `~(n_25519 = 0)` MP_TAC THENL
+      [ REWRITE_TAC [n_25519] THEN ARITH_TAC; ALL_TAC ] THEN
+      DISCH_THEN (ASSUME_TAC o REWRITE_RULE [GSYM MOD_LT_EQ]) THEN
+      SUBGOAL_THEN `n_25519 < 256 EXP 32` ASSUME_TAC THENL
+      [ REWRITE_TAC [n_25519] THEN ARITH_TAC; ALL_TAC ] THEN
+      SIMPLE_ARITH_TAC ));;
 
 (* int ed25519_sign_no_self_test_s2n_bignum(
     uint8_t out_sig[ED25519_SIGNATURE_LEN], const uint8_t *message,
@@ -10641,9 +10900,7 @@ let ED25519PH_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     ARM_STEPS_TAC ED25519_EXEC (347--348) THEN
     ARM_STEPS_TAC ED25519_EXEC (350--354) THEN
     ENSURES_FINAL_STATE_TAC THEN
-    ASM_REWRITE_TAC [] THEN
-    (* ??? *)
-    CHEAT_TAC);;
+    ASM_REWRITE_TAC);;
 
 
 (* int ed25519_verify_common(
@@ -11167,6 +11424,4 @@ let ED25519PH_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     ARM_STEPS_TAC ED25519_EXEC [387] THEN
     ARM_STEPS_TAC ED25519_EXEC (389--393) THEN
     ENSURES_FINAL_STATE_TAC THEN
-    ASM_REWRITE_TAC []
-(* ??? *)
-  CHEAT_TAC);;
+    ASM_REWRITE_TAC []);;
