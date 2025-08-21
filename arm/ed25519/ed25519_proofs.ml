@@ -9490,232 +9490,8 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xd65f03c0          (* arm_RET X30 *)
 ]);;
 
-
 let ED25519_EXEC = ARM_MK_EXEC_RULE ed25519_mc;;
 
-(*****************************************************************************)
-
-(* ------------------------------------------------------------------------- *)
-(* ??? Stubs. To be removed.                                                 *)
-(* ------------------------------------------------------------------------- *)
-
-(*****************************************************************************)
-(* let edwards25519_encode_mc = define_assert_from_elf "edwards25519_encode_mc" "arm/ed25519/code/stub.o"
-[
-  0xd65f03c0        (* arm_RET X30 *)
-];;
-let EDWARDS25519_ENCODE_EXEC = ARM_MK_EXEC_RULE edwards25519_encode_mc;;
-
-let edwards25519_decode_alt_mc = define_assert_from_elf "edwards25519_decode_alt_mc" "arm/ed25519/code/stub.o"
-[
-  0xd65f03c0        (* arm_RET X30 *)
-];;
-let EDWARDS25519_DECODE_ALT_EXEC = ARM_MK_EXEC_RULE edwards25519_decode_alt_mc;;
-
-let edwards25519_scalarmulbase_alt_mc = define_assert_from_elf "edwards25519_scalarmulbase_alt_mc" "arm/ed25519/code/stub.o"
-[
-  0xd65f03c0        (* arm_RET X30 *)
-];;
-let EDWARDS25519_SCALARMULBASE_ALT_EXEC =
-  ARM_MK_EXEC_RULE edwards25519_scalarmulbase_alt_mc;;
-
-let edwards25519_scalarmuldouble_alt_mc = define_assert_from_elf "edwards25519_scalarmuldouble_alt_mc" "arm/ed25519/code/stub.o"
-[
-  0xd65f03c0        (* arm_RET X30 *)
-];;
-let EDWARDS25519_SCALARMULDOUBLE_ALT_EXEC =
-  ARM_MK_EXEC_RULE edwards25519_scalarmuldouble_alt_mc;;
-
-let bignum_mod_n25519_mc = define_assert_from_elf "bignum_mod_n25519_mc" "arm/ed25519/code/stub.o"
-[
-  0xd65f03c0        (* arm_RET X30 *)
-];;
-let BIGNUM_MOD_N25519_EXEC = ARM_MK_EXEC_RULE bignum_mod_n25519_mc;;
-
-let bignum_neg_p25519_mc = define_assert_from_elf "bignum_neg_p25519_mc" "arm/ed25519/code/stub.o"
-[
-  0xd65f03c0        (* arm_RET X30 *)
-];;
-let BIGNUM_NEG_P25519_EXEC = ARM_MK_EXEC_RULE bignum_neg_p25519_mc;;
-
-let bignum_madd_n25519_alt_mc = define_assert_from_elf "bignum_madd_n25519_alt_mc" "arm/ed25519/code/stub.o"
-[
-  0xd65f03c0        (* arm_RET X30 *)
-];;
-let BIGNUM_MADD_N25519_ALT_EXEC = ARM_MK_EXEC_RULE bignum_madd_n25519_alt_mc;;
-
-let bignum_le_mc = define_assert_from_elf "bignum_le_mc" "arm/ed25519/code/stub.o"
-[
-  0xd65f03c0        (* arm_RET X30 *)
-];;
-let BIGNUM_LE_EXEC = ARM_MK_EXEC_RULE bignum_le_mc;;
-
-let EDWARDS25519_ENCODE_SUBROUTINE_CORRECT = time prove
- (`!z p x y pc returnaddress.
-      nonoverlapping (word pc,4) (z,32)
-      ==> ensures arm
-           (\s. aligned_bytes_loaded s (word pc) edwards25519_encode_mc /\
-                read PC s = word pc /\
-                read X30 s = returnaddress /\
-                C_ARGUMENTS [z; p] s /\
-                bignum_pair_from_memory(p,4) s = (x,y))
-           (\s. read PC s = returnaddress /\
-                (x < p_25519 /\ y < p_25519
-                ==> read (memory :> bytelist(z,32)) s =
-                    bytelist_of_num 32 (ed25519_encode (&x,&y))))
-          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-           MAYCHANGE [memory :> bytes(z,32)])`,
-      CHEAT_TAC);;
-
-let EDWARDS25519_DECODE_ALT_SUBROUTINE_CORRECT = time prove
- (`!z c n pc stackpointer returnaddress.
-        aligned 16 stackpointer /\
-        ALL (nonoverlapping (word_sub stackpointer (word 224),224))
-            [word pc,4; z,8 * 8; c,8 * 4] /\
-        nonoverlapping (word pc,0x7b0) (z,8 * 8)
-        ==> ensures arm
-             (\s. aligned_bytes_loaded s (word pc) edwards25519_decode_alt_mc /\
-                  read PC s = word pc /\
-                  read SP s = stackpointer /\
-                  read X30 s = returnaddress /\
-                  C_ARGUMENTS [z; c] s /\
-                  read (memory :> bytes(c,32)) s = n)
-             (\s. read PC s = returnaddress /\
-                  C_RETURN s = word(bitval(~ed25519_validencode n)) /\
-                  (ed25519_validencode n
-                   ==> bignum_pair_from_memory(z,4) s =
-                       paired (modular_encode (256,p_25519))
-                              (ed25519_decode n)))
-             (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-              MAYCHANGE [memory :> bytes(z,8 * 8);
-                    memory :> bytes(word_sub stackpointer (word 224),224)])`,
-  CHEAT_TAC);;
-
-let EDWARDS25519_SCALARMULBASE_ALT_SUBROUTINE_CORRECT = time prove
- (`!res scalar n pc stackpointer returnaddress.
-    aligned 16 stackpointer /\
-    ALL (nonoverlapping (word_sub stackpointer (word 496),496))
-        [(word pc,4); (res,64); (scalar,32)] /\
-    nonoverlapping (res,64) (word pc,0xe1e0)
-    ==> ensures arm
-         (\s. aligned_bytes_loaded s (word pc) edwards25519_scalarmulbase_alt_mc /\
-              read PC s = word pc /\
-              read SP s = stackpointer /\
-              read X30 s = returnaddress /\
-              C_ARGUMENTS [res; scalar] s /\
-              bignum_from_memory (scalar,4) s = n)
-         (\s. read PC s = returnaddress /\
-              bignum_pair_from_memory(res,4) s =
-              paired (modular_encode (256,p_25519))
-                     (group_pow edwards25519_group E_25519 n))
-          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-           MAYCHANGE [memory :> bytes(res,64);
-                      memory :> bytes(word_sub stackpointer (word 496),496)])`,
-  CHEAT_TAC);;
-
-let EDWARDS25519_SCALARMULDOUBLE_ALT_SUBROUTINE_CORRECT = time prove
- (`!res scalar point bscalar n xy m pc stackpointer returnaddress.
-    aligned 16 stackpointer /\
-    ALL (nonoverlapping (word_sub stackpointer (word 1696),1696))
-        [(word pc,4); (res,64); (scalar,32); (point,64); (bscalar,32)] /\
-    nonoverlapping (res,64) (word pc,0x59a0)
-    ==> ensures arm
-         (\s. aligned_bytes_loaded s (word pc) edwards25519_scalarmuldouble_alt_mc /\
-              read PC s = word pc /\
-              read SP s = stackpointer /\
-              read X30 s = returnaddress /\
-              C_ARGUMENTS [res; scalar; point; bscalar] s /\
-              bignum_from_memory (scalar,4) s = n /\
-              bignum_pair_from_memory (point,4) s = xy /\
-              bignum_from_memory (bscalar,4) s = m)
-         (\s. read PC s = returnaddress /\
-              !P. P IN group_carrier edwards25519_group /\
-                  paired (modular_decode (256,p_25519)) xy = P
-                  ==> bignum_pair_from_memory(res,4) s =
-                      paired (modular_encode (256,p_25519))
-                             (group_mul edwards25519_group
-                                 (group_pow edwards25519_group P n)
-                                 (group_pow edwards25519_group E_25519 m)))
-          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-           MAYCHANGE [memory :> bytes(res,64);
-                    memory :> bytes(word_sub stackpointer (word 1696),1696)])`,
-  CHEAT_TAC);;
-
-let BIGNUM_MOD_N25519_SUBROUTINE_CORRECT = time prove
- (`!z k x n pc returnaddress.
-      nonoverlapping (word pc,4) (z,32)
-      ==> ensures arm
-           (\s. aligned_bytes_loaded s (word pc) bignum_mod_n25519_mc /\
-                read PC s = word pc /\
-                read X30 s = returnaddress /\
-                C_ARGUMENTS [z; k; x] s /\
-                bignum_from_memory (x,val k) s = n)
-           (\s. read PC s = returnaddress /\
-                bignum_from_memory (z,4) s = n MOD n_25519)
-          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-           MAYCHANGE [memory :> bignum(z,4)])`,
-  CHEAT_TAC);;
-
-let BIGNUM_NEG_P25519_SUBROUTINE_CORRECT = time prove
- (`!z x n pc returnaddress.
-        nonoverlapping (word pc,4) (z,8 * 4)
-        ==> ensures arm
-             (\s. aligned_bytes_loaded s (word pc) bignum_neg_p25519_mc /\
-                  read PC s = word pc /\
-                  read X30 s = returnaddress /\
-                  C_ARGUMENTS [z; x] s /\
-                  bignum_from_memory (x,4) s = n)
-             (\s. read PC s = returnaddress /\
-                  (n <= p_25519
-                   ==> bignum_from_memory (z,4) s = (p_25519 - n) MOD p_25519))
-          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-           MAYCHANGE [memory :> bignum(z,4)])`,
- CHEAT_TAC);;
-
-let BIGNUM_MADD_N25519_ALT_SUBROUTINE_CORRECT = time prove
- (`!z x m y n c r pc stackpointer returnaddress.
-      aligned 16 stackpointer /\
-      ALL (nonoverlapping (word_sub stackpointer (word 16),16))
-          [(word pc,4); (x,8 * 4); (y,8 * 4); (c,8 * 4); (z,8 * 4)] /\
-      nonoverlapping (word pc,4) (z,32)
-      ==> ensures arm
-           (\s. aligned_bytes_loaded s (word pc) bignum_madd_n25519_alt_mc /\
-                read PC s = word pc /\
-                read SP s = stackpointer /\
-                read X30 s = returnaddress /\
-                C_ARGUMENTS [z; x; y; c] s /\
-                bignum_from_memory (x,4) s = m /\
-                bignum_from_memory (y,4) s = n /\
-                bignum_from_memory (c,4) s = r)
-           (\s. read PC s = returnaddress /\
-                bignum_from_memory (z,4) s = (m * n + r) MOD n_25519)
-           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-            MAYCHANGE [memory :> bignum(z,4);
-                       memory :> bytes(word_sub stackpointer (word 16),16)])`,
-  CHEAT_TAC);;
-
-let BIGNUM_LE_SUBROUTINE_CORRECT = prove
- (`!m a x n b y pc returnaddress.
-        ensures arm
-          (\s. aligned_bytes_loaded s (word pc) bignum_le_mc /\
-               read PC s = word pc /\
-               read X30 s = returnaddress /\
-               C_ARGUMENTS [m;a;n;b] s /\
-               bignum_from_memory(a,val m) s = x /\
-               bignum_from_memory(b,val n) s = y)
-          (\s'. (read PC s' = returnaddress \/
-                 read PC s' = returnaddress) /\
-                C_RETURN s' = if x <= y then word 1 else word 0)
-          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI)`,
-  CHEAT_TAC);; *)
-
-(*****************************************************************************)
-
-(* ------------------------------------------------------------------------- *)
-(* ??? End of stubs.                                                 *)
-(* ------------------------------------------------------------------------- *)
-
-(*****************************************************************************)
 let NUM_OF_BYTELIST_NSUM = prove
   (`!m. num_of_bytelist m = nsum {i | i < LENGTH m} (\i. 2 EXP (8 * i) * val (EL i m))`,
   LIST_INDUCT_TAC THEN
@@ -10162,9 +9938,6 @@ let NONOVERLAPPING_MODULO_LEN_0 = prove
   REWRITE_TAC [nonoverlapping_modulo] THEN
     REPEAT STRIP_TAC THEN
     SIMPLE_ARITH_TAC);;
-
-let P25519_NEQ_0 = prove
-  (`~(p_25519 = 0)`, REWRITE_TAC [p_25519] THEN ARITH_TAC);;
 
 let ED25519_ENCODE_MODULAR_ENCODE_P25519 = prove
   (`!k. ed25519_encode
@@ -10921,20 +10694,6 @@ let ED25519PH_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     ENSURES_FINAL_STATE_TAC THEN
     ASM_REWRITE_TAC []);;
 
-let ED25519_ENCODE_DECODE = prove
-  (`!n. ed25519_validencode n ==> 
-    ed25519_decode n IN group_carrier edwards25519_group /\
-    ed25519_encode (ed25519_decode n) = n`,
-  REWRITE_TAC [ed25519_validencode; ed25519_decode] THEN
-    MESON_TAC []);;
-
-let ED25519_DECODE_ENCODE = prove
-  (`!P. P IN group_carrier edwards25519_group ==>
-    ed25519_decode (ed25519_encode P) = P`,
-  REWRITE_TAC [ed25519_decode] THEN
-    MESON_TAC [ED25519_ENCODE_INJECTIVE]);;
-
-
 let LENGTH_INT64_TO_BYTES = prove
   (`!n. LENGTH (int64_to_bytes n) = 8`,
   REWRITE_TAC [LENGTH; int64_to_bytes; ARITH]);;
@@ -10974,24 +10733,59 @@ let LENGTH_EQ_NUM_OF_BYTELIST_BIJECTIVE = prove
         ASM_REWRITE_TAC [];
       ASM_REWRITE_TAC [] ]);;
 
-let ED25519_ENCODE_LT_256_EXP_32 = prove
-  (`!xy. ed25519_encode xy < 256 EXP 32`,
-  STRIP_TAC THEN
-    ONCE_REWRITE_TAC [ISPEC `xy:int#int` (GSYM PAIR)] THEN
-    PURE_REWRITE_TAC [ed25519_encode] THEN
-    CONV_TAC (TOP_DEPTH_CONV let_CONV) THEN
-    ASSUME_TAC (ARITH_RULE
-      `2 EXP 255 * num_of_int (FST (xy:int#int) rem &p_25519) MOD 2 <= 2 EXP 255`) THEN
-    SUBGOAL_THEN `p_25519 < 2 EXP 255` ASSUME_TAC THENL
-    [ REWRITE_TAC [p_25519] THEN ARITH_TAC; ALL_TAC ] THEN
-    SUBGOAL_THEN `num_of_int (SND (xy:int#int) rem &p_25519) < p_25519` ASSUME_TAC THENL
-    [ REWRITE_TAC [GSYM INT_OF_NUM_LT] THEN
-        IMP_REWRITE_TAC [INT_OF_NUM_OF_INT] THEN
-        SIMP_TAC [INT_REM_POS; P25519_NEQ_0; INT_OF_NUM_EQ] THEN
-        MATCH_MP_TAC INT_LT_REM THEN
-        REWRITE_TAC [INT_OF_NUM_LT; p_25519; ARITH];
-      ALL_TAC ] THEN
-    SIMPLE_ARITH_TAC);;
+let ED25519_VALIDENCODE_ENCODE = prove
+  (`!P. P IN group_carrier edwards25519_group ==>
+    ed25519_validencode (ed25519_encode P)`,
+  ASM_MESON_TAC [ed25519_validencode]);;
+
+let EQ_ED25519_ENCODE_IMP_ED25519_DECODE_EQ = prove
+  (`!n P. P IN group_carrier edwards25519_group ==>
+    n = ed25519_encode P ==> ed25519_decode n = P`,
+    REPEAT STRIP_TAC THEN
+      ASM_SIMP_TAC [ED25519_DECODE_ENCODE]);;
+
+let NEQ_ED25519_ENCODE_IMP_ED25519_DECODE_NEQ = prove
+  (`!n P. P IN group_carrier edwards25519_group /\
+    ed25519_validencode n ==>
+    ~(n = ed25519_encode P) ==> ~(ed25519_decode n = P)`,
+  REWRITE_TAC [ed25519_validencode] THEN
+    REPLICATE_TAC 3 STRIP_TAC THEN
+    POP_ASSUM (fun th -> REWRITE_TAC [GSYM th]) THEN
+    ASM_SIMP_TAC [ED25519_ENCODE_INJECTIVE; ED25519_DECODE_ENCODE]);;
+
+let EDWARDS25519_GROUP_MUL_SYM = prove
+  (`!P Q. P IN group_carrier edwards25519_group /\ Q IN group_carrier edwards25519_group ==>
+    group_mul edwards25519_group P Q = group_mul edwards25519_group Q P`,
+  REPEAT STRIP_TAC THEN
+    MP_TAC ABELIAN_EDWARDS25519_GROUP THEN
+    REWRITE_TAC [abelian_group] THEN
+    DISCH_TAC THEN ASM_SIMP_TAC []);;
+
+let ED25519_VERIFICATION_EQNS_EQUIV = prove
+  (`!sig_S k dec_R dec_A.
+    dec_R IN group_carrier edwards25519_group /\
+    dec_A IN group_carrier edwards25519_group ==>
+    (dec_R =
+      group_mul edwards25519_group
+      (group_pow edwards25519_group (group_inv edwards25519_group dec_A) (k MOD n_25519))
+      (group_pow edwards25519_group E_25519 sig_S) <=>
+    group_pow edwards25519_group E_25519 sig_S =
+      group_mul edwards25519_group dec_R
+      (group_pow edwards25519_group dec_A (k MOD n_25519)))`,
+  REPEAT STRIP_TAC THEN
+    ASM_SIMP_TAC [EDWARDS25519_GROUP_MUL_SYM; GROUP_POW; GROUP_INV; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519] THEN
+    MP_TAC (ISPECL [`edwards25519_group`; `dec_R:int#int`;
+      `group_mul edwards25519_group (group_pow edwards25519_group E_25519 sig_S)
+        (group_pow edwards25519_group (group_inv edwards25519_group dec_A) (k MOD n_25519))`;
+      `group_pow edwards25519_group dec_A (k MOD n_25519)`] (GSYM GROUP_MUL_RCANCEL)) THEN
+    ANTS_TAC THENL
+    [ ASM_SIMP_TAC [GROUP_MUL; GROUP_POW; GROUP_INV; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519]; ALL_TAC ] THEN
+    DISCH_THEN (fun th -> REWRITE_TAC [th]) THEN
+    ASM_SIMP_TAC [GSYM GROUP_MUL_ASSOC; GROUP_MUL; GROUP_POW; GROUP_INV; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519] THEN
+    ASM_SIMP_TAC [GSYM GROUP_INV_POW] THEN
+    ASM_SIMP_TAC [GROUP_MUL_LINV; GROUP_POW] THEN
+    ASM_SIMP_TAC [GROUP_MUL_RID; GROUP_POW; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519] THEN
+    REWRITE_TAC [EQ_SYM_EQ]);;
 
 (* int ed25519_verify_common(
     const uint8_t *message, size_t message_len,
@@ -11400,11 +11194,17 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
         ARM_STEPS_TAC ED25519_EXEC (208--214) THEN
         ENSURES_FINAL_STATE_TAC THEN
         ASM_REWRITE_TAC [] THEN
+        ASM_CASES_TAC `ed25519_validencode (num_of_bytelist (SUB_LIST (0,32) sig))` THENL
+        [ ALL_TAC;
+          ASM_REWRITE_TAC [verify_args_valid; sig_valid; ed25519_valid_bytelist] ] THEN
         REWRITE_TAC [verify] THEN
         CONV_TAC (TOP_DEPTH_CONV let_CONV) THEN
         ASM_REWRITE_TAC [] THEN
-        UNDISCH_THEN `~(num_of_bytelist (SUB_LIST (0,32) sig) = ed25519_encode computed_R)` MP_TAC THEN
-        CHEAT_TAC;
+        MP_TAC (SPECL [`num_of_bytelist (SUB_LIST (0,32) sig)`; `computed_R:int#int`] NEQ_ED25519_ENCODE_IMP_ED25519_DECODE_NEQ) THEN
+        ASM_REWRITE_TAC [] THEN DISCH_TAC THEN
+        IMP_REWRITE_TAC [GSYM ED25519_VERIFICATION_EQNS_EQUIV] THEN
+        UNDISCH_THEN `ed25519_validencode (num_of_bytelist (SUB_LIST (0,32) sig))` MP_TAC THEN
+        MESON_TAC [ed25519_decode; ed25519_validencode];
       ALL_TAC ] THEN
     DISCH_TAC THEN
     ARM_STEPS_TAC ED25519_EXEC (197--198) THEN
@@ -11415,11 +11215,17 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
         ARM_STEPS_TAC ED25519_EXEC (208--214) THEN
         ENSURES_FINAL_STATE_TAC THEN
         ASM_REWRITE_TAC [] THEN
+        ASM_CASES_TAC `ed25519_validencode (num_of_bytelist (SUB_LIST (0,32) sig))` THENL
+        [ ALL_TAC;
+          ASM_REWRITE_TAC [verify_args_valid; sig_valid; ed25519_valid_bytelist] ] THEN
         REWRITE_TAC [verify] THEN
         CONV_TAC (TOP_DEPTH_CONV let_CONV) THEN
         ASM_REWRITE_TAC [] THEN
-        UNDISCH_THEN `~(num_of_bytelist (SUB_LIST (0,32) sig) = ed25519_encode computed_R)` MP_TAC THEN
-        CHEAT_TAC;
+        MP_TAC (SPECL [`num_of_bytelist (SUB_LIST (0,32) sig)`; `computed_R:int#int`] NEQ_ED25519_ENCODE_IMP_ED25519_DECODE_NEQ) THEN
+        ASM_REWRITE_TAC [] THEN DISCH_TAC THEN
+        IMP_REWRITE_TAC [GSYM ED25519_VERIFICATION_EQNS_EQUIV] THEN
+        UNDISCH_THEN `ed25519_validencode (num_of_bytelist (SUB_LIST (0,32) sig))` MP_TAC THEN
+        MESON_TAC [ed25519_decode; ed25519_validencode];
       ALL_TAC ] THEN
     DISCH_TAC THEN
     ARM_STEPS_TAC ED25519_EXEC (199--203) THEN
@@ -11430,11 +11236,17 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
         ARM_STEPS_TAC ED25519_EXEC (208--214) THEN
         ENSURES_FINAL_STATE_TAC THEN
         ASM_REWRITE_TAC [] THEN
+        ASM_CASES_TAC `ed25519_validencode (num_of_bytelist (SUB_LIST (0,32) sig))` THENL
+        [ ALL_TAC;
+          ASM_REWRITE_TAC [verify_args_valid; sig_valid; ed25519_valid_bytelist] ] THEN
         REWRITE_TAC [verify] THEN
         CONV_TAC (TOP_DEPTH_CONV let_CONV) THEN
         ASM_REWRITE_TAC [] THEN
-        UNDISCH_THEN `~(num_of_bytelist (SUB_LIST (0,32) sig) = ed25519_encode computed_R)` MP_TAC THEN
-        CHEAT_TAC;
+        MP_TAC (SPECL [`num_of_bytelist (SUB_LIST (0,32) sig)`; `computed_R:int#int`] NEQ_ED25519_ENCODE_IMP_ED25519_DECODE_NEQ) THEN
+        ASM_REWRITE_TAC [] THEN DISCH_TAC THEN
+        IMP_REWRITE_TAC [GSYM ED25519_VERIFICATION_EQNS_EQUIV] THEN
+        UNDISCH_THEN `ed25519_validencode (num_of_bytelist (SUB_LIST (0,32) sig))` MP_TAC THEN
+        MESON_TAC [ed25519_decode; ed25519_validencode];
       ALL_TAC ] THEN
     DISCH_TAC THEN
     ARM_STEPS_TAC ED25519_EXEC (204--205) THEN
@@ -11445,11 +11257,17 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
         ARM_STEPS_TAC ED25519_EXEC (208--214) THEN
         ENSURES_FINAL_STATE_TAC THEN
         ASM_REWRITE_TAC [] THEN
+        ASM_CASES_TAC `ed25519_validencode (num_of_bytelist (SUB_LIST (0,32) sig))` THENL
+        [ ALL_TAC;
+          ASM_REWRITE_TAC [verify_args_valid; sig_valid; ed25519_valid_bytelist] ] THEN
         REWRITE_TAC [verify] THEN
         CONV_TAC (TOP_DEPTH_CONV let_CONV) THEN
         ASM_REWRITE_TAC [] THEN
-        UNDISCH_THEN `~(num_of_bytelist (SUB_LIST (0,32) sig) = ed25519_encode computed_R)` MP_TAC THEN
-        CHEAT_TAC;
+        MP_TAC (SPECL [`num_of_bytelist (SUB_LIST (0,32) sig)`; `computed_R:int#int`] NEQ_ED25519_ENCODE_IMP_ED25519_DECODE_NEQ) THEN
+        ASM_REWRITE_TAC [] THEN DISCH_TAC THEN
+        IMP_REWRITE_TAC [GSYM ED25519_VERIFICATION_EQNS_EQUIV] THEN
+        UNDISCH_THEN `ed25519_validencode (num_of_bytelist (SUB_LIST (0,32) sig))` MP_TAC THEN
+        MESON_TAC [ed25519_decode; ed25519_validencode];
       ALL_TAC ] THEN
     DISCH_TAC THEN
     ARM_STEPS_TAC ED25519_EXEC (206--207) THEN
@@ -11459,88 +11277,12 @@ let ED25519_VERIFY_COMMON_CORRECT = prove
     ASM_SIMP_TAC [ED25519_VALIDENCODE_ENCODE] THEN
     REWRITE_TAC [verify] THEN
     CONV_TAC (TOP_DEPTH_CONV let_CONV) THEN
-    ASM_REWRITE_TAC [] ) THEN
-    CHEAT_TAC);;
-
-let ED25519_VALIDENCODE_ENCODE = prove
-  (`!P. P IN group_carrier edwards25519_group ==>
-    ed25519_validencode (ed25519_encode P)`,
-  ASM_MESON_TAC [ed25519_validencode]);;
-
-let EQ_ED25519_ENCODE_IMP_ED25519_DECODE_EQ = prove
-  (`!n P. P IN group_carrier edwards25519_group ==>
-    n = ed25519_encode P ==> ed25519_decode n = P`,
-    REPEAT STRIP_TAC THEN
-      ASM_SIMP_TAC [ED25519_DECODE_ENCODE]);;
-
-let NEQ_ED25519_ENCODE_IMP_ED25519_DECODE_NEQ = prove
-  (`!n P. P IN group_carrier edwards25519_group /\
-    ed25519_validencode n ==>
-    ~(n = ed25519_encode P) ==> ~(ed25519_decode n = P)`,
-  REWRITE_TAC [ed25519_validencode] THEN
-    REPLICATE_TAC 3 STRIP_TAC THEN
-    POP_ASSUM (fun th -> REWRITE_TAC [GSYM th]) THEN
-    ASM_SIMP_TAC [ED25519_ENCODE_INJECTIVE; ED25519_DECODE_ENCODE]);;
-
-let EDWARDS25519_GROUP_MUL_SYM = prove
-  (`!P Q. P IN group_carrier edwards25519_group /\ Q IN group_carrier edwards25519_group ==>
-    group_mul edwards25519_group P Q = group_mul edwards25519_group Q P`,
-  REPEAT STRIP_TAC THEN
-    MP_TAC ABELIAN_EDWARDS25519_GROUP THEN
-    REWRITE_TAC [abelian_group] THEN
-    DISCH_TAC THEN ASM_SIMP_TAC []);;
-
-let ED25519_VERIFICATION_EQNS_EQUIV = prove
-  (`!sig_S k dec_R dec_A.
-    dec_R IN group_carrier edwards25519_group /\
-    dec_A IN group_carrier edwards25519_group ==>
-    (dec_R =
-      group_mul edwards25519_group
-      (group_pow edwards25519_group (group_inv edwards25519_group dec_A) (k MOD n_25519))
-      (group_pow edwards25519_group E_25519 sig_S) ==>
-    group_pow edwards25519_group E_25519 (8 * sig_S) =
-      group_mul edwards25519_group 
-      (group_pow edwards25519_group dec_R 8)
-      (group_pow edwards25519_group dec_A (8 * k)))`,
-  REPEAT STRIP_TAC THEN
-    ASM_SIMP_TAC [ABELIAN_GROUP_MUL_POW; ABELIAN_EDWARDS25519_GROUP; GROUP_POW;
-      GROUP_INV; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519] THEN
-    ASM_SIMP_TAC [GROUP_POW_POW; GROUP_INV; GROUP_POW; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519] THEN
-    REWRITE_TAC [MULT_SYM] THEN
-    SUBGOAL_THEN `k MOD n_25519 * 8 = (k * 8) MOD (8 * n_25519)`
-
-???
-    ASM_SIMP_TAC [SPEC `(group_pow edwards25519_group E_25519 (sig_S * 8))` EDWARDS25519_GROUP_MUL_SYM; GROUP_POW; GROUP_INV; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519] THEN 
-    ASM_SIMP_TAC [GROUP_MUL_ASSOC; GROUP_MUL; GROUP_POW; GROUP_INV; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519]
-
-
-
-  REPEAT STRIP_TAC THEN
-    ASM_SIMP_TAC [EDWARDS25519_GROUP_MUL_SYM; GROUP_POW; GROUP_INV; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519] THEN
-    MP_TAC (ISPECL [`edwards25519_group`; `dec_R:int#int`;
-      `group_mul edwards25519_group (group_pow edwards25519_group E_25519 sig_S)
-        (group_pow edwards25519_group (group_inv edwards25519_group dec_A) (k MOD n_25519))`;
-      `group_pow edwards25519_group dec_A (k MOD n_25519)`] (GSYM GROUP_MUL_RCANCEL)) THEN
-    ANTS_TAC THENL
-    [ ASM_SIMP_TAC [GROUP_MUL; GROUP_POW; GROUP_INV; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519]; ALL_TAC ] THEN
-    DISCH_THEN (fun th -> REWRITE_TAC [th]) THEN
-    ASM_SIMP_TAC [GSYM GROUP_MUL_ASSOC; GROUP_MUL; GROUP_POW; GROUP_INV; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519] THEN
-    ASM_SIMP_TAC [GSYM GROUP_INV_POW] THEN
-    ASM_SIMP_TAC [GROUP_MUL_LINV; GROUP_POW] THEN
-    ASM_SIMP_TAC [GROUP_MUL_RID; GROUP_POW; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519] THEN
-    MP_TAC (ISPECL [`edwards25519_group`; `x:int#int`;
-      `y:int#int`;
-      `group_pow edwards25519_group dec_A (k MOD n_25519)`] (GSYM GROUP_MUL_RCANCEL)) THEN
-    GROUP_POW_POW
-    ABELIAN_GROUP_MUL_POW
-    GROUP_POW_CANCEL
-  );;
-
-
-
-
-  
-  CHEAT_TAC);;
+    ASM_REWRITE_TAC [] THEN
+    MP_TAC (SPECL [`num_of_bytelist (SUB_LIST (0,32) sig)`; `computed_R:int#int`] EQ_ED25519_ENCODE_IMP_ED25519_DECODE_EQ) THEN
+    ASM_REWRITE_TAC [] THEN DISCH_TAC THEN
+    IMP_REWRITE_TAC [GSYM ED25519_VERIFICATION_EQNS_EQUIV] THEN
+    UNDISCH_THEN `ed25519_validencode (num_of_bytelist (SUB_LIST (0,32) sig))` MP_TAC THEN
+    MESON_TAC [ed25519_decode; ed25519_validencode] ) );;
 
 (* int ed25519_verify_no_self_test_s2n_bignum(
     const uint8_t *message, size_t message_len,
