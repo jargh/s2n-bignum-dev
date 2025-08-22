@@ -418,6 +418,21 @@ let INT64_HI_LO_INT128 = prove
       ALL_TAC ] THEN
     CONV_TAC WORD_BLAST);;
 
+let LENGTH_SHA512_PAD = prove
+  (`!m. LENGTH (sha512_pad m) = 64`,
+  STRIP_TAC THEN
+    REWRITE_TAC [sha512_pad; hash_buffer_to_byte_list; int64_to_bytes;
+    LENGTH_APPEND; LENGTH; ARITH]);;
+
+let LENGTH_INT64_TO_BYTES = prove
+  (`!n. LENGTH (int64_to_bytes n) = 8`,
+  REWRITE_TAC [LENGTH; int64_to_bytes; ARITH]);;
+
+let INT64_TO_BYTES_BIJECTIVE = prove
+  (`!m n:int64. int64_to_bytes m = int64_to_bytes n <=> m = n`,
+   REPEAT STRIP_TAC THEN
+   REWRITE_TAC [int64_to_bytes; CONS_11] THEN
+   CONV_TAC BITBLAST_RULE);;
 
 (* ===== tactic ===== *)
 

@@ -1,0 +1,345 @@
+needs "arm/ed25519/ed25519_specs.ml";;
+needs "arm/sha512/sha512_spec_proofs.ml";;
+
+let P25519_NEQ_0 = prove
+  (`~(p_25519 = 0)`, REWRITE_TAC [p_25519] THEN ARITH_TAC);;
+
+let ED25519_ENCODE_LT_256_EXP_32 = prove
+  (`!xy. ed25519_encode xy < 256 EXP 32`,
+  STRIP_TAC THEN
+    ONCE_REWRITE_TAC [ISPEC `xy:int#int` (GSYM PAIR)] THEN
+    PURE_REWRITE_TAC [ed25519_encode] THEN
+    CONV_TAC (TOP_DEPTH_CONV let_CONV) THEN
+    ASSUME_TAC (ARITH_RULE
+      `2 EXP 255 * num_of_int (FST (xy:int#int) rem &p_25519) MOD 2 <= 2 EXP 255`) THEN
+    SUBGOAL_THEN `p_25519 < 2 EXP 255` ASSUME_TAC THENL
+    [ REWRITE_TAC [p_25519] THEN ARITH_TAC; ALL_TAC ] THEN
+    SUBGOAL_THEN `num_of_int (SND (xy:int#int) rem &p_25519) < p_25519` ASSUME_TAC THENL
+    [ REWRITE_TAC [GSYM INT_OF_NUM_LT] THEN
+        IMP_REWRITE_TAC [INT_OF_NUM_OF_INT] THEN
+        SIMP_TAC [INT_REM_POS; P25519_NEQ_0; INT_OF_NUM_EQ] THEN
+        MATCH_MP_TAC INT_LT_REM THEN
+        REWRITE_TAC [INT_OF_NUM_LT; p_25519; ARITH];
+      ALL_TAC ] THEN
+    SIMPLE_ARITH_TAC);;
+
+(* ??? Copied from edwards25519_decode_alt.ml *)
+let EDWARDS25519_NONZERO_DENOMINATORS = prove
+ (`!y. coprime(&1 + &d_25519 * y pow 2,&p_25519)`,
+  ONCE_REWRITE_TAC[GSYM INT_POW2_ABS] THEN
+  REWRITE_TAC[GSYM INT_FORALL_ABS; INT_OF_NUM_CLAUSES; GSYM num_coprime] THEN
+  X_GEN_TAC `y:num` THEN ONCE_REWRITE_TAC[COPRIME_SYM] THEN
+  SIMP_TAC[PRIME_COPRIME_EQ; PRIME_P25519] THEN
+  DISCH_THEN(MP_TAC o SPEC `inverse_mod p_25519 d_25519` o
+    MATCH_MP (NUMBER_RULE
+     `p divides (1 + d * y)
+      ==> !d'. (d * d' == 1) (mod p) ==> p divides (y + d')`)) THEN
+  REWRITE_TAC[INVERSE_MOD_RMUL_EQ] THEN REWRITE_TAC[p_25519; d_25519] THEN
+  CONV_TAC(ONCE_DEPTH_CONV COPRIME_CONV) THEN
+  CONV_TAC(ONCE_DEPTH_CONV INVERSE_MOD_CONV) THEN
+  REWRITE_TAC[num_divides; GSYM INT_OF_NUM_CLAUSES] THEN
+  DISCH_THEN(MP_TAC o MATCH_MP (INTEGER_RULE
+   `p divides y + z ==> (y:int == --z) (mod p)`)) THEN
+  REWRITE_TAC[] THEN
+  ONCE_REWRITE_TAC[GSYM INT_CONG_RREM] THEN CONV_TAC INT_REDUCE_CONV THEN
+  REWRITE_TAC[INT_OF_NUM_CLAUSES; GSYM num_congruent] THEN
+  DISCH_THEN(MP_TAC o SIMPLE_EXISTS `y:num`) THEN
+  REWRITE_TAC[GSYM p_25519] THEN SIMP_TAC[EULER_CRITERION; PRIME_P25519] THEN
+  REWRITE_TAC[p_25519; d_25519] THEN
+  CONV_TAC(DEPTH_CONV(NUM_SUB_CONV ORELSEC DIVIDES_CONV)) THEN
+  REWRITE_TAC[CONG] THEN
+  CONV_TAC(RAND_CONV(RAND_CONV NUM_MOD_CONV)) THEN
+  CONV_TAC(ONCE_DEPTH_CONV NUM_DIV_CONV) THEN
+  CONV_TAC(RAND_CONV(LAND_CONV EXP_MOD_CONV)) THEN
+  ARITH_TAC);;
+
+(* ??? Copied from edwards25519_decode_alt.ml *)
+let IN_GROUP_CARRIER_EDWARDS25519 = prove
+ (`!x y. (x,y) IN group_carrier edwards25519_group <=>
+         &0 <= x /\ x < &p_25519 /\ &0 <= y /\ y < &p_25519 /\
+         ((&1 + &d_25519 * y pow 2) * x pow 2 == y pow 2 - &1) (mod &p_25519)`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[EDWARDS25519_GROUP] THEN
+  REWRITE_TAC[IN] THEN REWRITE_TAC[edwards_curve; edwards25519] THEN
+  REWRITE_TAC[IN_INTEGER_MOD_RING_CARRIER; INTEGER_MOD_RING_CLAUSES] THEN
+  REWRITE_TAC[p_25519; INT_OF_NUM_EQ; ARITH_EQ] THEN
+  REWRITE_TAC[GSYM p_25519; GSYM CONJ_ASSOC] THEN REPEAT AP_TERM_TAC THEN
+  SUBGOAL_THEN `&e_25519:int = &p_25519 - &1` SUBST1_TAC THENL
+   [REWRITE_TAC[e_25519; p_25519] THEN INT_ARITH_TAC;
+    CONV_TAC INT_REM_DOWN_CONV] THEN
+  REWRITE_TAC[INT_REM_EQ] THEN CONV_TAC INTEGER_RULE);;
+let ED25519_ENCODE_INJECTIVE = prove
+ (`!P Q. P IN group_carrier edwards25519_group /\
+         Q IN group_carrier edwards25519_group
+         ==> (ed25519_encode P = ed25519_encode Q <=> P = Q)`,
+  REWRITE_TAC[GSYM INJECTIVE_ON_ALT] THEN REWRITE_TAC[FORALL_PAIR_THM] THEN
+  REWRITE_TAC[IN_GROUP_CARRIER_EDWARDS25519; IMP_CONJ] THEN
+  REWRITE_TAC[RIGHT_FORALL_IMP_THM; GSYM INT_FORALL_POS] THEN
+  REWRITE_TAC[INT_OF_NUM_CLAUSES] THEN
+  X_GEN_TAC `x1:num` THEN DISCH_TAC THEN
+  X_GEN_TAC `y1:num` THEN DISCH_TAC THEN DISCH_TAC THEN
+  X_GEN_TAC `x2:num` THEN DISCH_TAC THEN
+  X_GEN_TAC `y2:num` THEN DISCH_TAC THEN DISCH_TAC THEN
+  ASM_SIMP_TAC[ed25519_encode; INT_OF_NUM_REM; MOD_LT] THEN
+  REWRITE_TAC[NUM_OF_INT_OF_NUM; LET_DEF; LET_END_DEF] THEN
+  DISCH_THEN(fun th ->
+    MP_TAC(AP_TERM `\x. x MOD 2 EXP 255` th) THEN
+    MP_TAC(AP_TERM `\x. x DIV 2 EXP 255` th)) THEN
+  SIMP_TAC[MOD_MULT_ADD; DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ] THEN
+  SUBGOAL_THEN `!z. z < p_25519 ==> z < 2 EXP 255` MP_TAC THENL
+   [REWRITE_TAC[p_25519] THEN ARITH_TAC; ASM_SIMP_TAC[MOD_LT; DIV_LT]] THEN
+  DISCH_THEN(K ALL_TAC) THEN REWRITE_TAC[ADD_CLAUSES] THEN DISCH_TAC THEN
+  DISCH_THEN(SUBST_ALL_TAC o SYM) THEN
+  ASM_REWRITE_TAC[PAIR_EQ; INT_OF_NUM_EQ] THEN
+  REPEAT(FIRST_X_ASSUM(MP_TAC o GEN_REWRITE_RULE I [GSYM INT_REM_EQ])) THEN
+  DISCH_THEN(SUBST1_TAC o SYM) THEN REWRITE_TAC[INT_REM_EQ] THEN
+  REWRITE_TAC[GSYM INT_OF_NUM_CLAUSES] THEN
+  DISCH_THEN(MP_TAC o MATCH_MP (INTEGER_RULE
+   `(a * x pow 2 == a * y pow 2) (mod p)
+    ==> coprime(a:int,p) ==> p divides ((x - y) * (x + y))`)) THEN
+  REWRITE_TAC[EDWARDS25519_NONZERO_DENOMINATORS] THEN
+  SIMP_TAC[PRIME_INT_DIVPROD_EQ; PRIME_P25519] THEN
+  REWRITE_TAC[GSYM INT_CONG; GSYM num_congruent; CONG] THEN
+  DISCH_THEN(DISJ_CASES_THEN MP_TAC) THEN ASM_SIMP_TAC[MOD_LT] THEN
+  REWRITE_TAC[INT_OF_NUM_CLAUSES; GSYM num_divides] THEN
+  DISCH_THEN(MP_TAC o SPEC `2` o MATCH_MP (NUMBER_RULE
+   `p divides x + y
+    ==> !q:num. q divides x + y /\ coprime(p,q) ==> p * q divides x + y`)) THEN
+  REWRITE_TAC[DIVIDES_2; COPRIME_2; EVEN_ADD] THEN
+  ASM_REWRITE_TAC[EVEN_MOD] THEN ANTS_TAC THENL
+   [REWRITE_TAC[p_25519; ARITH_EVEN; ARITH_ODD];
+    DISCH_THEN(MP_TAC o MATCH_MP DIVIDES_LE)] THEN
+  REPEAT(POP_ASSUM MP_TAC) THEN REWRITE_TAC[p_25519] THEN ARITH_TAC);;
+
+(* ??? Copied from edwards25519_decode_alt.ml *)
+let ED25519_ENCODE_INJECTIVE = prove
+ (`!P Q. P IN group_carrier edwards25519_group /\
+         Q IN group_carrier edwards25519_group
+         ==> (ed25519_encode P = ed25519_encode Q <=> P = Q)`,
+  REWRITE_TAC[GSYM INJECTIVE_ON_ALT] THEN REWRITE_TAC[FORALL_PAIR_THM] THEN
+  REWRITE_TAC[IN_GROUP_CARRIER_EDWARDS25519; IMP_CONJ] THEN
+  REWRITE_TAC[RIGHT_FORALL_IMP_THM; GSYM INT_FORALL_POS] THEN
+  REWRITE_TAC[INT_OF_NUM_CLAUSES] THEN
+  X_GEN_TAC `x1:num` THEN DISCH_TAC THEN
+  X_GEN_TAC `y1:num` THEN DISCH_TAC THEN DISCH_TAC THEN
+  X_GEN_TAC `x2:num` THEN DISCH_TAC THEN
+  X_GEN_TAC `y2:num` THEN DISCH_TAC THEN DISCH_TAC THEN
+  ASM_SIMP_TAC[ed25519_encode; INT_OF_NUM_REM; MOD_LT] THEN
+  REWRITE_TAC[NUM_OF_INT_OF_NUM; LET_DEF; LET_END_DEF] THEN
+  DISCH_THEN(fun th ->
+    MP_TAC(AP_TERM `\x. x MOD 2 EXP 255` th) THEN
+    MP_TAC(AP_TERM `\x. x DIV 2 EXP 255` th)) THEN
+  SIMP_TAC[MOD_MULT_ADD; DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ] THEN
+  SUBGOAL_THEN `!z. z < p_25519 ==> z < 2 EXP 255` MP_TAC THENL
+   [REWRITE_TAC[p_25519] THEN ARITH_TAC; ASM_SIMP_TAC[MOD_LT; DIV_LT]] THEN
+  DISCH_THEN(K ALL_TAC) THEN REWRITE_TAC[ADD_CLAUSES] THEN DISCH_TAC THEN
+  DISCH_THEN(SUBST_ALL_TAC o SYM) THEN
+  ASM_REWRITE_TAC[PAIR_EQ; INT_OF_NUM_EQ] THEN
+  REPEAT(FIRST_X_ASSUM(MP_TAC o GEN_REWRITE_RULE I [GSYM INT_REM_EQ])) THEN
+  DISCH_THEN(SUBST1_TAC o SYM) THEN REWRITE_TAC[INT_REM_EQ] THEN
+  REWRITE_TAC[GSYM INT_OF_NUM_CLAUSES] THEN
+  DISCH_THEN(MP_TAC o MATCH_MP (INTEGER_RULE
+   `(a * x pow 2 == a * y pow 2) (mod p)
+    ==> coprime(a:int,p) ==> p divides ((x - y) * (x + y))`)) THEN
+  REWRITE_TAC[EDWARDS25519_NONZERO_DENOMINATORS] THEN
+  SIMP_TAC[PRIME_INT_DIVPROD_EQ; PRIME_P25519] THEN
+  REWRITE_TAC[GSYM INT_CONG; GSYM num_congruent; CONG] THEN
+  DISCH_THEN(DISJ_CASES_THEN MP_TAC) THEN ASM_SIMP_TAC[MOD_LT] THEN
+  REWRITE_TAC[INT_OF_NUM_CLAUSES; GSYM num_divides] THEN
+  DISCH_THEN(MP_TAC o SPEC `2` o MATCH_MP (NUMBER_RULE
+   `p divides x + y
+    ==> !q:num. q divides x + y /\ coprime(p,q) ==> p * q divides x + y`)) THEN
+  REWRITE_TAC[DIVIDES_2; COPRIME_2; EVEN_ADD] THEN
+  ASM_REWRITE_TAC[EVEN_MOD] THEN ANTS_TAC THENL
+   [REWRITE_TAC[p_25519; ARITH_EVEN; ARITH_ODD];
+    DISCH_THEN(MP_TAC o MATCH_MP DIVIDES_LE)] THEN
+  REPEAT(POP_ASSUM MP_TAC) THEN REWRITE_TAC[p_25519] THEN ARITH_TAC);;
+
+let ED25519_ENCODE_DECODE = prove
+  (`!n. ed25519_validencode n ==> 
+    ed25519_decode n IN group_carrier edwards25519_group /\
+    ed25519_encode (ed25519_decode n) = n`,
+  REWRITE_TAC [ed25519_validencode; ed25519_decode] THEN
+    MESON_TAC []);;
+
+let ED25519_DECODE_ENCODE = prove
+  (`!P. P IN group_carrier edwards25519_group ==>
+    ed25519_decode (ed25519_encode P) = P`,
+  REWRITE_TAC [ed25519_decode] THEN
+    MESON_TAC [ED25519_ENCODE_INJECTIVE]);;
+
+let SIGN_IMP_VERIFY = prove
+  (`!sig alg ctx seed m. sig = sign alg ctx seed m ==>
+    verify alg ctx (public_key_of_seed seed) sig m = true`,
+  REPEAT STRIP_TAC THEN
+    ASM_REWRITE_TAC [] THEN
+    REWRITE_TAC [sign; verify; public_key_of_seed] THEN
+    CONV_TAC (TOP_DEPTH_CONV let_CONV) THEN
+    ABBREV_TAC `prefix = SUB_LIST (32,32) (sha512_pad seed)` THEN
+    ABBREV_TAC `r = num_of_bytelist (sha512_pad (dom2_of alg ctx ++ prefix ++ ph alg m))` THEN
+    ABBREV_TAC `r_B = group_pow edwards25519_group E_25519 r` THEN
+    ABBREV_TAC `secret_s = num_of_bytelist (secret_scalar_of_seed_digest (sha512_pad seed))` THEN
+    ABBREV_TAC `s_B = group_pow edwards25519_group E_25519 secret_s` THEN
+    ABBREV_TAC `k = num_of_bytelist (sha512_pad (dom2_of alg ctx ++ bytelist_of_num 32 (ed25519_encode r_B) ++
+      bytelist_of_num 32 (ed25519_encode s_B) ++ ph alg m))` THEN
+    IMP_REWRITE_TAC [SPECL [`0`; `32`] SUB_LIST_APPEND_L] THEN
+    IMP_REWRITE_TAC [SPECL [`32`; `32`] SUB_LIST_APPEND_R] THEN
+    REWRITE_TAC [LENGTH_BYTELIST_OF_NUM; ARITH] THEN
+    SUBGOAL_THEN `!n. SUB_LIST (0, LENGTH (bytelist_of_num 32 n)) (bytelist_of_num 32 n) = bytelist_of_num 32 n` MP_TAC THENL
+    [ REWRITE_TAC [SUB_LIST_LENGTH]; ALL_TAC ] THEN
+    REWRITE_TAC [LENGTH_BYTELIST_OF_NUM] THEN
+    DISCH_THEN (fun th -> REWRITE_TAC [th]) THEN
+    ASM_REWRITE_TAC [] THEN
+    SIMP_TAC [NUM_OF_BYTELIST_OF_NUM_EQ; ED25519_ENCODE_LT_256_EXP_32] THEN
+    IMP_REWRITE_TAC [NUM_OF_BYTELIST_OF_NUM_EQ] THEN
+    CONJ_TAC THENL [ ALL_TAC; REWRITE_TAC [n_25519] THEN ARITH_TAC ] THEN
+    ONCE_REWRITE_TAC [GSYM MOD_ADD_MOD] THEN
+    SUBGOAL_THEN `!x. group_pow edwards25519_group E_25519 (x MOD n_25519) =
+      group_pow edwards25519_group E_25519 x` ASSUME_TAC THENL
+    [ REWRITE_TAC [GSYM GROUP_ELEMENT_ORDER_EDWARDS25519_E25519] THEN
+        SIMP_TAC [GROUP_POW_MOD_ELEMENT_ORDER; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519];
+      ALL_TAC ] THEN
+    ASM_REWRITE_TAC [] THEN
+    SIMP_TAC [GROUP_POW_ADD; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519] THEN
+    FIRST_ASSUM (fun th -> (GEN_REWRITE_TAC (LAND_CONV o LAND_CONV o ONCE_DEPTH_CONV) [th])) THEN
+    ONCE_REWRITE_TAC [MULT_SYM] THEN
+    ONCE_REWRITE_TAC [GSYM MOD_MULT_MOD2] THEN
+    ASM_REWRITE_TAC [] THEN
+    ASM_SIMP_TAC [GROUP_POW_MUL; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519] THEN
+    SUBGOAL_THEN `group_pow edwards25519_group E_25519 r IN group_carrier edwards25519_group` MP_TAC THENL
+    [ SIMP_TAC [GROUP_POW; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519]; ALL_TAC ] THEN
+    SUBGOAL_THEN `group_pow edwards25519_group E_25519 secret_s IN group_carrier edwards25519_group` MP_TAC THENL
+    [ SIMP_TAC [GROUP_POW; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519]; ALL_TAC ] THEN
+    ASM_REWRITE_TAC [] THEN DISCH_TAC THEN DISCH_TAC THEN
+    ASM_SIMP_TAC [ED25519_DECODE_ENCODE]);;
+
+let VERIFY_IMP_RFC_VERIFY = prove
+  (`!alg ctx bytelist_A sig m.
+    verify_args_valid bytelist_A sig /\ verify alg ctx bytelist_A sig m ==>
+    rfc_verify alg ctx bytelist_A sig m`,
+  REPEAT GEN_TAC THEN
+    REWRITE_TAC [verify_args_valid; sig_valid; ed25519_valid_bytelist; verify; rfc_verify] THEN
+    CONV_TAC (TOP_DEPTH_CONV let_CONV) THEN
+    ABBREV_TAC `R = num_of_bytelist (SUB_LIST (0,32) sig)` THEN
+    ABBREV_TAC `A = num_of_bytelist bytelist_A` THEN
+    ABBREV_TAC `k = num_of_bytelist (sha512_pad (dom2_of alg ctx ++ SUB_LIST (0,32) sig ++ bytelist_A ++ ph alg m))` THEN
+    ABBREV_TAC `S = num_of_bytelist (SUB_LIST (32,32) sig)` THEN
+    STRIP_TAC THEN
+    ABBREV_TAC `dec_R = ed25519_decode R` THEN
+    SUBGOAL_THEN `dec_R IN group_carrier edwards25519_group` ASSUME_TAC THENL
+    [ ASM_MESON_TAC [ed25519_decode; ed25519_validencode]; ALL_TAC ] THEN
+    ABBREV_TAC `dec_A = ed25519_decode A` THEN
+    SUBGOAL_THEN `dec_A IN group_carrier edwards25519_group` ASSUME_TAC THENL
+    [ ASM_MESON_TAC [ed25519_decode; ed25519_validencode]; ALL_TAC ] THEN
+    REWRITE_TAC [MULT_SYM] THEN
+    SIMP_TAC [GROUP_POW_MUL; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519] THEN
+    ASM_SIMP_TAC [ABELIAN_EDWARDS25519_GROUP; ABELIAN_GROUP_MUL_POW; GROUP_POW] THEN
+    AP_TERM_TAC THEN
+    ASM_SIMP_TAC [GROUP_POW_POW] THEN
+    SUBGOAL_THEN `k MOD n_25519 * 8 = (k * 8) MOD (8 * n_25519)` MP_TAC THENL
+    [ ONCE_REWRITE_TAC [MULT_SYM] THEN
+        GEN_REWRITE_TAC LAND_CONV [GSYM MOD_MULT2] THEN
+        REWRITE_TAC [MULT_SYM];
+      ALL_TAC ] THEN
+    DISCH_THEN (fun th -> REWRITE_TAC [th]) THEN
+    MP_TAC SIZE_EDWARDS25519_GROUP THEN
+    REWRITE_TAC [HAS_SIZE] THEN
+    STRIP_TAC THEN
+    FIRST_ASSUM (fun th -> REWRITE_TAC [GSYM th]) THEN
+    ASM_SIMP_TAC [GROUP_POW_MOD_ORDER]);;
+
+let LENGTH_ED25519_SECRET_SCALAR = prove
+  (`!seed. LENGTH (secret_scalar_of_seed_digest (sha512_pad seed)) = 32`,
+  REWRITE_TAC [secret_scalar_of_seed_digest; LENGTH_APPEND; LENGTH_SHA512_PAD;
+      LENGTH_SUB_LIST; LENGTH] THEN
+    ARITH_TAC);;
+
+let LENGTH_DOM2_PREFIX = prove
+  (`LENGTH dom2_prefix = 32`,
+  REWRITE_TAC [dom2_prefix; LENGTH; MAP; byte_of_char; ascii_of_char] THEN
+    CONV_TAC NUM_REDUCE_CONV);;
+
+let MAX_VALID_DOM2_SIZE = prove
+  (`!alg ctx. dom2_valid alg ctx ==> LENGTH (dom2_of alg ctx) <= max_dom2_size`,
+  REPEAT GEN_TAC THEN
+    REWRITE_TAC [dom2_valid; dom2_of; max_dom2_size] THEN
+    COND_CASES_TAC THEN STRIP_TAC THEN
+    REWRITE_TAC [LENGTH_APPEND; LENGTH; LENGTH_DOM2_PREFIX] THEN SIMPLE_ARITH_TAC);;
+
+let LENGTH_ED25519_SIGN = prove
+  (`!alg ctx seed m. LENGTH (sign alg ctx seed m) = 64`,
+  REWRITE_TAC [sign] THEN
+    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+    REWRITE_TAC [LENGTH_APPEND; LENGTH_BYTELIST_OF_NUM] THEN
+    ARITH_TAC);;
+
+let LENGTH_ED25519_PUBLIC_KEY = prove
+  (`!seed. LENGTH (public_key_of_seed seed) = 32`,
+  ASM_REWRITE_TAC [LENGTH_APPEND; public_key_of_seed] THEN
+    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+    REWRITE_TAC [LENGTH_BYTELIST_OF_NUM]);;
+
+let ED25519_PH = prove
+  (`!m. ph 0 m = m /\ ph 1 m = m /\ ph 2 m = sha512_pad m`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC [ph; ARITH]);;
+
+let ED25519_ENCODE_MODULAR_ENCODE_P25519 = prove
+  (`!k. ed25519_encode
+      (&(modular_encode (k, p_25519) x),
+       &(modular_encode (k, p_25519) y)) = ed25519_encode (x, y)`,
+       GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [GSYM (ISPEC `s_B:int#int` PAIR)] THEN
+    REWRITE_TAC [ed25519_encode; modular_encode] THEN
+    SIMP_TAC [P25519_NEQ_0; NUM_OF_INT_REM_REM]);;
+
+let ED25519_VALIDENCODE_ENCODE = prove
+  (`!P. P IN group_carrier edwards25519_group ==>
+    ed25519_validencode (ed25519_encode P)`,
+  ASM_MESON_TAC [ed25519_validencode]);;
+
+let EQ_ED25519_ENCODE_IMP_ED25519_DECODE_EQ = prove
+  (`!n P. P IN group_carrier edwards25519_group ==>
+    n = ed25519_encode P ==> ed25519_decode n = P`,
+    REPEAT STRIP_TAC THEN
+      ASM_SIMP_TAC [ED25519_DECODE_ENCODE]);;
+
+let NEQ_ED25519_ENCODE_IMP_ED25519_DECODE_NEQ = prove
+  (`!n P. P IN group_carrier edwards25519_group /\
+    ed25519_validencode n ==>
+    ~(n = ed25519_encode P) ==> ~(ed25519_decode n = P)`,
+  REWRITE_TAC [ed25519_validencode] THEN
+    REPLICATE_TAC 3 STRIP_TAC THEN
+    POP_ASSUM (fun th -> REWRITE_TAC [GSYM th]) THEN
+    ASM_SIMP_TAC [ED25519_ENCODE_INJECTIVE; ED25519_DECODE_ENCODE]);;
+
+let EDWARDS25519_GROUP_MUL_SYM = prove
+  (`!P Q. P IN group_carrier edwards25519_group /\ Q IN group_carrier edwards25519_group ==>
+    group_mul edwards25519_group P Q = group_mul edwards25519_group Q P`,
+  REPEAT STRIP_TAC THEN
+    MP_TAC ABELIAN_EDWARDS25519_GROUP THEN
+    REWRITE_TAC [abelian_group] THEN
+    DISCH_TAC THEN ASM_SIMP_TAC []);;
+
+let ED25519_VERIFICATION_EQNS_EQUIV = prove
+  (`!sig_S k dec_R dec_A.
+    dec_R IN group_carrier edwards25519_group /\
+    dec_A IN group_carrier edwards25519_group ==>
+    (dec_R =
+      group_mul edwards25519_group
+      (group_pow edwards25519_group (group_inv edwards25519_group dec_A) (k MOD n_25519))
+      (group_pow edwards25519_group E_25519 sig_S) <=>
+    group_pow edwards25519_group E_25519 sig_S =
+      group_mul edwards25519_group dec_R
+      (group_pow edwards25519_group dec_A (k MOD n_25519)))`,
+  REPEAT STRIP_TAC THEN
+    ASM_SIMP_TAC [EDWARDS25519_GROUP_MUL_SYM; GROUP_POW; GROUP_INV; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519] THEN
+    MP_TAC (ISPECL [`edwards25519_group`; `dec_R:int#int`;
+      `group_mul edwards25519_group (group_pow edwards25519_group E_25519 sig_S)
+        (group_pow edwards25519_group (group_inv edwards25519_group dec_A) (k MOD n_25519))`;
+      `group_pow edwards25519_group dec_A (k MOD n_25519)`] (GSYM GROUP_MUL_RCANCEL)) THEN
+    ANTS_TAC THENL
+    [ ASM_SIMP_TAC [GROUP_MUL; GROUP_POW; GROUP_INV; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519]; ALL_TAC ] THEN
+    DISCH_THEN (fun th -> REWRITE_TAC [th]) THEN
+    ASM_SIMP_TAC [GSYM GROUP_MUL_ASSOC; GROUP_MUL; GROUP_POW; GROUP_INV; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519] THEN
+    ASM_SIMP_TAC [GSYM GROUP_INV_POW] THEN
+    ASM_SIMP_TAC [GROUP_MUL_LINV; GROUP_POW] THEN
+    ASM_SIMP_TAC [GROUP_MUL_RID; GROUP_POW; GENERATOR_IN_GROUP_CARRIER_EDWARDS25519] THEN
+    REWRITE_TAC [EQ_SYM_EQ]);;
