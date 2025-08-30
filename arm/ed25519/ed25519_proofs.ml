@@ -10195,7 +10195,7 @@ let ED25519_SIGN_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
     ASSUME_TAC NONOVERLAPPING_MODULO_LEN_0 THEN
     ASSUME_TAC (REWRITE_RULE [byte_list_at; LENGTH] BYTE_LIST_AT_NIL) THEN
     SUBGOAL_THEN `aligned 16 (sp + word 1344:int64)` ASSUME_TAC THENL
-    [ ALIGNED_16_TAC; ALL_TAC ] THEN
+    [ ALIGNED_WORD_TAC; ALL_TAC ] THEN
     SUBGOAL_THEN  `nonoverlapping_modulo (2 EXP 64) (pc,37844) (val (sp:int64),1344) /\
       nonoverlapping_modulo (2 EXP 64) (val (sig_p:int64),64) (val sp,1344) /\
       nonoverlapping_modulo (2 EXP 64) (val (msg_p:int64),LENGTH (msg:byte list)) (val sp,1344) /\
@@ -11044,7 +11044,7 @@ let ED25519_VERIFY_NO_SELF_TEST_S2N_BIGNUM_CORRECT = prove
       (fun th -> RULE_ASSUM_TAC (REWRITE_RULE [th]) THEN ASSUME_TAC th) THENL
     [ ASM_REWRITE_TAC []; ALL_TAC ] THEN
     SUBGOAL_THEN `aligned 16 (sp + word 2224:int64)` ASSUME_TAC THENL
-    [ ALIGNED_16_TAC; ALL_TAC ] THEN
+    [ ALIGNED_WORD_TAC; ALL_TAC ] THEN
     SUBGOAL_THEN `nonoverlapping_modulo (2 EXP 64) (pc,37844) (val (sp:int64),2224) /\
       nonoverlapping_modulo (2 EXP 64) (val (msg_p:int64),LENGTH (msg:byte list)) (val sp,2224) /\
       nonoverlapping_modulo (2 EXP 64) (val (sig_p:int64),64) (val sp,2224) /\

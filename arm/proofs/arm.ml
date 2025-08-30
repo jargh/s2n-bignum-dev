@@ -354,6 +354,16 @@ let ARM_THM =
         dest_small_numeral ofs
       with Failure _ ->
         failwith ("ARM_THM: Cannot decompose PC expression: " ^ (string_of_term (concl pc_th))) in
+    let _ = if !arm_print_log then
+      let opt = Option.get execth2.(pc_ofs) in
+      (* opt: |- forall ... aligned_bytes_loaded ..
+                 ==> arm_decode .. (arm_INST ..) *)
+      let t = snd (strip_forall (concl (opt))) in
+      let t = snd (dest_imp t) in
+      let term = snd (dest_comb t) in
+      Printf.printf "Instruction at `pc + %d (%#x)`: `%s`\n" pc_ofs pc_ofs
+          (string_of_term term)
+    in
     MATCH_MP th (MATCH_MP (Option.get execth2.(pc_ofs)) loaded_mc_th);;
 
 let ARM_ENSURES_SUBLEMMA_TAC =
@@ -426,7 +436,7 @@ let ARM_CONV (decode_ths:thm option array) (ths:thm list) tm =
  (K eth THENC
   ONCE_DEPTH_CONV ARM_EXEC_CONV THENC
   REWRITE_CONV[XREG_NE_SP; SEQ; condition_semantics] THENC
-  ALIGNED_16_CONV ths THENC
+  ALIGNED_WORD_CONV ths THENC
   REWRITE_CONV[SEQ; condition_semantics] THENC
   GEN_REWRITE_CONV ONCE_DEPTH_CONV [assign] THENC
   REWRITE_CONV[] THENC
@@ -696,70 +706,6 @@ let (ARM_BIGSTEP_TAC:(thm*thm option array)->string->tactic) =
     (asl,w);;
 
 (* ------------------------------------------------------------------------- *)
-(* Normalize (x + m) + n -> x + [m+n] for numerals m and n                   *)
-(* ------------------------------------------------------------------------- *)
-
-let NORMALIZE_ADD_ADD_CONV =
-  GEN_REWRITE_CONV I [ARITH_RULE
-   `(pc + NUMERAL m) + NUMERAL n = pc + NUMERAL m + NUMERAL n`] THENC
-  RAND_CONV NUM_ADD_CONV;;
-
-(* ------------------------------------------------------------------------- *)
-(* Prove byte list l2 is an initial sublist of l1, as `?r. l1 = APPEND l2 r` *)
-(* modulo some normalization of arithmetic subexpressions if necessary.      *)
-(* ------------------------------------------------------------------------- *)
-
-let BYTELIST_SUBLIST_CONV =
-  let pth_base = prove
-   (`l:byte list = APPEND [] r <=> l = r`,
-    REWRITE_TAC[APPEND])
-  and pth_step = prove
-   (`CONS h t1 = APPEND (CONS h t2) r <=>
-      t1:byte list = APPEND t2 r`,
-    REWRITE_TAC[APPEND; CONS_11])
-  and pth_fin = prove
-   (`(?r:byte list. l = r) <=> T`,
-    MESON_TAC[]) in
-  let baseconv = GEN_REWRITE_CONV I [pth_base]
-  and stepconv = GEN_REWRITE_CONV I [pth_step]
-  and simpconv = ONCE_DEPTH_CONV NORMALIZE_ADD_ADD_CONV THENC
-                 GEN_REWRITE_CONV ONCE_DEPTH_CONV
-                   [ARITH_RULE `n + 0 = n /\ 0 + n = n`]
-  and finrule = GEN_REWRITE_RULE RAND_CONV [pth_fin] in
-  let simpstep_conv =
-    stepconv ORELSEC
-    (BINOP2_CONV (LAND_CONV simpconv) (LAND_CONV(LAND_CONV simpconv)) THENC
-     stepconv) in
-  let rec rule th =
-    try CONV_RULE(RAND_CONV baseconv) th with Failure _ ->
-    let th' = CONV_RULE(RAND_CONV simpstep_conv) th in
-    rule th' in
-  fun tm ->
-    let ev,bod = dest_exists tm in
-    let th1 = rule(REFL bod) in
-    let th2 = AP_TERM (rator tm) (ABS ev th1) in
-    EQT_ELIM(finrule th2);;
-
-(* ------------------------------------------------------------------------- *)
-(* Tweak [aligned_]bytes_loaded s (word pc) mc to use word(pc + 0)           *)
-(* ------------------------------------------------------------------------- *)
-
-let TWEAK_PC_OFFSET_CONV =
-  let conv =
-   GEN_REWRITE_CONV (LAND_CONV o RAND_CONV) [ARITH_RULE `pc = pc + 0`] in
-  fun tm ->
-  match tm with
-    Comb(Comb(Comb(Const("bytes_loaded",_),Var(_,_)),
-              Comb(Const("word",_),Var(_,_))),_) ->
-        conv tm
-  | Comb(Comb(Comb(Const("aligned_bytes_loaded",_),Var(_,_)),
-              Comb(Const("word",_),Var(_,_))),_) ->
-        conv tm
-  | _ -> failwith "TWEAK_PC_OFFSET_CONV";;
-
-let TWEAK_PC_OFFSET = CONV_RULE(ONCE_DEPTH_CONV TWEAK_PC_OFFSET_CONV);;
-
-(* ------------------------------------------------------------------------- *)
 (* Go from |- aligned_bytes_loaded s (word pc) mc or the equivalent          *)
 (*         |- aligned_bytes_loaded s (word(pc + 0)) mc                       *)
 (* to      |- aligned_bytes_loaded s (word(pc + n)) mc'                      *)
@@ -888,7 +834,7 @@ let ARM_SUBROUTINE_SIM_TAC =
       REWRITE_TAC[ALLPAIRS; ALL; PAIRWISE; NONOVERLAPPING_CLAUSES] THEN
       TRY(ANTS_TAC THENL
        [CONV_TAC(ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV) THEN
-        ALIGNED_16_TAC THEN REPEAT CONJ_TAC THEN
+        ALIGNED_WORD_TAC THEN REPEAT CONJ_TAC THEN
         TRY(CONV_TAC(DEPTH_CONV WORD_NUM_RED_CONV) THEN NO_TAC) THEN
         (NONOVERLAPPING_TAC ORELSE
          DISJ1_TAC THEN NONOVERLAPPING_TAC ORELSE
@@ -900,8 +846,8 @@ let ARM_SUBROUTINE_SIM_TAC =
       ARM_BIGSTEP_TAC execth sname' THENL
        [(* Precondition of subth *)
         FIRST_X_ASSUM(MATCH_ACCEPT_TAC o MATCH_MP subimpth) ORELSE
-         (PRINT_GOAL_TAC THEN FAIL_TAC
-           "Could not discharge precond (subgoal after ARM_BIGSTEP_TAC)");
+        (PRINT_GOAL_TAC THEN FAIL_TAC
+          "Could not discharge precond (subgoal after ARM_BIGSTEP_TAC)");
         ALL_TAC] THEN
       RULE_ASSUM_TAC(CONV_RULE(TRY_CONV PC_PLUS_CONV));;
 
@@ -1099,7 +1045,7 @@ let ARM_ADD_RETURN_NOSTACK_TAC =
       MP_TAC th) THEN
     ASM_REWRITE_TAC[] THEN
     TRY(ANTS_TAC THENL
-     [REPEAT CONJ_TAC THEN ALIGNED_16_TAC THEN
+     [REPEAT CONJ_TAC THEN ALIGNED_WORD_TAC THEN
       TRY DISJ2_TAC THEN NONOVERLAPPING_TAC;
       ALL_TAC]) THEN
     MATCH_MP_TAC lemma2 THEN REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
@@ -1163,7 +1109,7 @@ let ARM_ADD_RETURN_STACK_TAC =
       MP_TAC th) THEN
     ASM_REWRITE_TAC[] THEN
     TRY(ANTS_TAC THENL
-     [REPEAT CONJ_TAC THEN ALIGNED_16_TAC THEN
+     [REPEAT CONJ_TAC THEN ALIGNED_WORD_TAC THEN
       TRY DISJ2_TAC THEN NONOVERLAPPING_TAC;
       ALL_TAC]) THEN
     DISCH_THEN(fun th ->

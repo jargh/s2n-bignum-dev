@@ -1042,7 +1042,7 @@ let SHA512_UPDATE = prove
                 VAL_INT64_TAC `LENGTH (m:byte list) DIV 128` THEN
                 VAL_INT64_TAC `LENGTH (m:byte list) DIV 128` THEN
                 SUBGOAL_THEN `aligned 16 ((sp:int64) + word 768)` ASSUME_TAC THENL
-                [ ALIGNED_16_TAC; ALL_TAC ] THEN
+                [ ALIGNED_WORD_TAC; ALL_TAC ] THEN
                 ARM_SUBROUTINE_SIM_TAC
                   (SPEC_ALL sha512_mc, SHA512_EXEC, 0, SPEC_ALL sha512_mc,
                     REWRITE_RULE [num_bytes_per_block] SHA512_PROCESS_BLOCKS)
@@ -1354,7 +1354,7 @@ let SHA512_UPDATE = prove
                     ANTS_TAC THENL [ SIMPLE_ARITH_TAC ; ALL_TAC ] THEN
                     DISCH_TAC THEN
                     SUBGOAL_THEN `aligned 16 ((sp:int64) + word 768)` ASSUME_TAC THENL
-                    [ ALIGNED_16_TAC; ALL_TAC ] THEN
+                    [ ALIGNED_WORD_TAC; ALL_TAC ] THEN
                     ARM_SUBROUTINE_SIM_TAC
                       (SPEC_ALL sha512_mc, SHA512_EXEC, 0, SPEC_ALL sha512_mc,
                         REWRITE_RULE [num_bytes_per_block] SHA512_PROCESS_BLOCKS)
