@@ -87,9 +87,9 @@ let sha512_mc,sha512_constants_data = define_assert_relocs_from_elf "sha512_mc"
   w 0xa90217e4;         (* arm_STP X4 X5 SP (Immediate_Offset (iword (&32))) *)
   w 0xa9030fe2;         (* arm_STP X2 X3 SP (Immediate_Offset (iword (&48))) *)
   w 0xa90407e0;         (* arm_STP X0 X1 SP (Immediate_Offset (iword (&64))) *)
-  ADRP (mk_var("K",`:num`),0,272,14);
+  ADRP (mk_var("K_data",`:num`),0,272,14);
   w 0xd2800026;         (* arm_MOV X6 (rvalue (word 1)) *)
-  ADD_rri64 (mk_var("K",`:num`),0,14,14);
+  ADD_rri64 (mk_var("K_data",`:num`),0,14,14);
   w 0xa94123e5;         (* arm_LDP X5 X8 SP (Immediate_Offset (iword (&16))) *)
   w 0xa94237e7;         (* arm_LDP X7 X13 SP (Immediate_Offset (iword (&32))) *)
   w 0xa9432be3;         (* arm_LDP X3 X10 SP (Immediate_Offset (iword (&48))) *)
