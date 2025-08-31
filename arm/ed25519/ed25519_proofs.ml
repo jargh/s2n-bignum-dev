@@ -25,7 +25,18 @@ save_literal_relocs_from_elf
   "arm/ed25519/code/ed25519.o";;
 *)
 
-let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
+let ed25519_mc,ed25519_const_data_list =
+  define_assert_relocs_from_elf
+    (* ~map_symbol_name:(function
+      | "WHOLE_READONLY" | "ltmp1" (* MacOS *)
+      | "K"
+        -> "ed25519_K_data3"
+      | "edwards25519_scalarmulbase_alt_constant"
+        -> "ed25519_edwards25519_scalarmulbase_alt_constant_data"
+      | "edwards25519_scalarmuldouble_alt_constant"
+        -> "ed25519_edwards25519_scalarmuldouble_alt_constant_data"
+      | s -> failwith ("unknown symbol: " ^ s)) *)
+    "ed25519_mc"
     "arm/ed25519/code/ed25519.o"
 (fun w BL ADR ADRP ADD_rri64 -> [
   w 0xa9a953f3;         (* arm_STP X19 X20 SP (Preimmediate_Offset (iword (-- &368))) *)
@@ -1347,8 +1358,8 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xf24501bf;         (* arm_TST X13 (rvalue (word 576460752303423488)) *)
   w 0x9244f9ad;         (* arm_AND X13 X13 (rvalue (word 17870283321406128127)) *)
   w 0xa90137ec;         (* arm_STP X12 X13 SP (Immediate_Offset (iword (&16))) *)
-  ADRP (mk_var("edwards25519_scalarmulbase_alt_constant",`:num`),0,5276,19);
-  ADD_rri64 (mk_var("edwards25519_scalarmulbase_alt_constant",`:num`),0,19,19);
+  ADRP (mk_var("edwards25519_scalarmulbase_alt_constant_data",`:num`),0,5276,19);
+  ADD_rri64 (mk_var("edwards25519_scalarmulbase_alt_constant_data",`:num`),0,19,19);
   w 0xa9400660;         (* arm_LDP X0 X1 X19 (Immediate_Offset (iword (&0))) *)
   w 0xa9460e62;         (* arm_LDP X2 X3 X19 (Immediate_Offset (iword (&96))) *)
   w 0x9a820000;         (* arm_CSEL X0 X0 X2 Condition_EQ *)
@@ -3812,8 +3823,8 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xd2801f93;         (* arm_MOV X19 (rvalue (word 252)) *)
   w 0xf9401fe0;         (* arm_LDR X0 SP (Immediate_Offset (word 56)) *)
   w 0xd37cfc14;         (* arm_LSR X20 X0 60 *)
-  ADRP (mk_var("edwards25519_scalarmuldouble_alt_constant",`:num`),0,15136,14);
-  ADD_rri64 (mk_var("edwards25519_scalarmuldouble_alt_constant",`:num`),0,14,14);
+  ADRP (mk_var("edwards25519_scalarmuldouble_alt_constant_data",`:num`),0,15136,14);
+  ADD_rri64 (mk_var("edwards25519_scalarmuldouble_alt_constant_data",`:num`),0,14,14);
   w 0xd2800020;         (* arm_MOV X0 (rvalue (word 1)) *)
   w 0xaa1f03e1;         (* arm_MOV X1 XZR *)
   w 0xaa1f03e2;         (* arm_MOV X2 XZR *)
@@ -4241,8 +4252,8 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xf1002014;         (* arm_SUBS X20 X0 (rvalue (word 8)) *)
   w 0xda942694;         (* arm_CNEG X20 X20 Condition_CC *)
   w 0xda9f23f5;         (* arm_CSETM X21 Condition_CC *)
-  ADRP (mk_var("edwards25519_scalarmuldouble_alt_constant",`:num`),0,16852,14);
-  ADD_rri64 (mk_var("edwards25519_scalarmuldouble_alt_constant",`:num`),0,14,14);
+  ADRP (mk_var("edwards25519_scalarmuldouble_alt_constant_data",`:num`),0,16852,14);
+  ADD_rri64 (mk_var("edwards25519_scalarmuldouble_alt_constant_data",`:num`),0,14,14);
   w 0xd2800020;         (* arm_MOV X0 (rvalue (word 1)) *)
   w 0xaa1f03e1;         (* arm_MOV X1 XZR *)
   w 0xaa1f03e2;         (* arm_MOV X2 XZR *)
@@ -9230,9 +9241,9 @@ let ed25519_mc,constants_data = define_assert_relocs_from_elf "ed25519_mc"
   w 0xa90217e4;         (* arm_STP X4 X5 SP (Immediate_Offset (iword (&32))) *)
   w 0xa9030fe2;         (* arm_STP X2 X3 SP (Immediate_Offset (iword (&48))) *)
   w 0xa90407e0;         (* arm_STP X0 X1 SP (Immediate_Offset (iword (&64))) *)
-  ADRP (mk_var("K",`:num`),0,36808,14);
+  ADRP (mk_var("K_data",`:num`),0,36808,14);
   w 0xd2800026;         (* arm_MOV X6 (rvalue (word 1)) *)
-  ADD_rri64 (mk_var("K",`:num`),0,14,14);
+  ADD_rri64 (mk_var("K_data",`:num`),0,14,14);
   w 0xa94123e5;         (* arm_LDP X5 X8 SP (Immediate_Offset (iword (&16))) *)
   w 0xa94237e7;         (* arm_LDP X7 X13 SP (Immediate_Offset (iword (&32))) *)
   w 0xa9432be3;         (* arm_LDP X3 X10 SP (Immediate_Offset (iword (&48))) *)
