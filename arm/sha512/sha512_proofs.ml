@@ -16,7 +16,14 @@ save_literal_relocs_from_elf
   "arm/sha512/code/sha512_asm.o";;
 *)
 
-let sha512_mc,sha512_constants_data = define_assert_relocs_from_elf "sha512_mc"
+let sha512_mc,sha512_constants_data =
+  define_assert_relocs_from_elf
+    ~map_symbol_name:(function
+      | "WHOLE_READONLY" | "ltmp1" (* MacOS *)
+      | "K"
+        -> "K_data"
+      | s -> failwith ("unknown symbol: " ^ s))
+    "sha512_mc"
     "arm/sha512/code/sha512_asm.o"
 (fun w BL ADR ADRP ADD_rri64 -> [
   w 0xd2800003;         (* arm_MOV X3 (rvalue (word 0)) *)
