@@ -3498,6 +3498,12 @@ let ASSUMPTION_STATE_UPDATE_TAC =
    MP_TAC uth THEN MAP_EVERY ASSUME_TAC newthms)) gl;;
 
 (* ------------------------------------------------------------------------- *)
+(* DONK: include the new one!                                                *)
+(* ------------------------------------------------------------------------- *)
+
+loadt "common/nonoverlapping_tac.ml";;
+
+(* ------------------------------------------------------------------------- *)
 (* Rule for "non-selfmodification" when supplied with std exec theorem       *)
 (* Works from antecedent in the goal, which is retained after its use.       *)
 (* ------------------------------------------------------------------------- *)
