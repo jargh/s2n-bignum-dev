@@ -120,12 +120,16 @@
 : test$
 : testq$
 : vmovshdup$
+: vmovsldup$
 : vpxor$
 : vpaddw$
 : vpaddd$
 : vpand$
 : vpblendd$
 : vpbroadcastd$
+: vpbroadcastq$
+: vpermq$
+: vperm2i128$
 : vpmuldq$
 : vmovdqa$
 : vpmulhw$
@@ -136,7 +140,10 @@
 : vpsubd$
 : vpsubw$
 : vpsraw$
+: vpsrlq$
 : vpsrlw$
+: vpunpckhqdq$
+: vpunpcklqdq$
 : xchg$
 : xor$
 : xorl$
