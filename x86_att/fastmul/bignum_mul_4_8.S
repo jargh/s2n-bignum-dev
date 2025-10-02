@@ -19,6 +19,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(bignum_mul_4_8)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_mul_4_8)
         .text
+        .balign 32
 
 // These are actually right
 

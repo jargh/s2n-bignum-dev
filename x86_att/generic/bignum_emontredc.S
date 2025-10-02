@@ -29,6 +29,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(bignum_emontredc)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_emontredc)
         .text
+        .balign 32
 
 // Argument m comes in in %rdx but we copy it to %r8
 

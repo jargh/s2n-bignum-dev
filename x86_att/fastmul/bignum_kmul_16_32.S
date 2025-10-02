@@ -24,6 +24,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(bignum_kmul_16_32)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_kmul_16_32)
         .text
+        .balign 32
 
 // These parameters are kept where they come in
 

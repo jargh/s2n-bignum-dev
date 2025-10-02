@@ -18,6 +18,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(bignum_sqr_6_12)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_sqr_6_12)
         .text
+        .balign 32
 
 // These are actually right
 

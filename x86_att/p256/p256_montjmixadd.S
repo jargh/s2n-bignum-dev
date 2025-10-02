@@ -24,6 +24,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(p256_montjmixadd)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(p256_montjmixadd)
         .text
+        .balign 32
 
 // Size of individual field elements
 

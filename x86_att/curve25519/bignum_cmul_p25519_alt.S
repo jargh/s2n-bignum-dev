@@ -20,6 +20,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(bignum_cmul_p25519_alt)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_cmul_p25519_alt)
         .text
+        .balign 32
 
 #define z %rdi
 

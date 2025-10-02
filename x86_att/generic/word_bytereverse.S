@@ -17,6 +17,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(word_bytereverse)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(word_bytereverse)
         .text
+        .balign 32
 
 // Just uses the x86 BSWAP instruction, which does the job directly
 

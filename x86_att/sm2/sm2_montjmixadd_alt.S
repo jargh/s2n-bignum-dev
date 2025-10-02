@@ -24,6 +24,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(sm2_montjmixadd_alt)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(sm2_montjmixadd_alt)
         .text
+        .balign 32
 
 // Size of individual field elements
 

@@ -26,6 +26,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(bignum_madd_n25519_alt)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_madd_n25519_alt)
         .text
+        .balign 32
 
 // Single round of modular reduction mod_n25519, mapping
 // [m4;m3;m2;m1;m0] = m to [m3;m2;m1;m0] = m mod n_25519,

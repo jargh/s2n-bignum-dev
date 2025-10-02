@@ -19,6 +19,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(bignum_add_p25519)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_add_p25519)
         .text
+        .balign 32
 
 #define z %rdi
 #define x %rsi

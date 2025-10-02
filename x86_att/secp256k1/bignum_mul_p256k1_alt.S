@@ -20,6 +20,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(bignum_mul_p256k1_alt)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_mul_p256k1_alt)
         .text
+        .balign 32
 
 // These are actually right
 

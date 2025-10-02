@@ -26,6 +26,7 @@
         S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_ksqr_32_64)
 
         .text
+        .balign 32
 
 #define K 16
 

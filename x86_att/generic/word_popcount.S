@@ -18,6 +18,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(word_popcount)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(word_popcount)
         .text
+        .balign 32
 
 S2N_BN_SYMBOL(word_popcount):
         CFI_START

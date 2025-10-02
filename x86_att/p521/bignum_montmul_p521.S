@@ -25,6 +25,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(bignum_montmul_p521)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_montmul_p521)
         .text
+        .balign 32
 
 #define z %rdi
 #define x %rsi
