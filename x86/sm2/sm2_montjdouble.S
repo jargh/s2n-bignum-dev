@@ -21,7 +21,6 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(sm2_montjdouble)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(sm2_montjdouble)
         .text
-        .balign 4
 
 // Size of individual field elements
 
