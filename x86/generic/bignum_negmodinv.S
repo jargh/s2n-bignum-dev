@@ -24,6 +24,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(bignum_negmodinv)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_negmodinv)
         .text
+        .balign 32
 
 #define k rdi
 #define z rsi

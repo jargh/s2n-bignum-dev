@@ -34,6 +34,7 @@
 
 
         .text
+        .balign 32
 
 // Size of individual field elements
 

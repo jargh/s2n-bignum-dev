@@ -38,6 +38,7 @@
         S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_tobebytes_6)
 
         .text
+        .balign 32
 
 #define z rdi
 #define x rsi

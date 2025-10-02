@@ -18,6 +18,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(bignum_even)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(bignum_even)
         .text
+        .balign 32
 
 S2N_BN_SYMBOL(bignum_even):
         CFI_START

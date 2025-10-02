@@ -32,6 +32,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(edwards25519_encode)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(edwards25519_encode)
         .text
+        .balign 32
 
 #define z rdi
 #define p rsi

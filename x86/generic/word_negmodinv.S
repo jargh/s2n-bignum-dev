@@ -23,6 +23,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(word_negmodinv)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(word_negmodinv)
         .text
+        .balign 32
 
 S2N_BN_SYMBOL(word_negmodinv):
         CFI_START

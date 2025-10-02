@@ -22,6 +22,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(mldsa_poly_reduce)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(mldsa_poly_reduce)
         .text
+        .balign 32
 
 #define a rdi
 

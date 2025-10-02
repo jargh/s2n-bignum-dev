@@ -28,6 +28,7 @@
 
 
         .text
+        .balign 32
 
 #define K 16
 

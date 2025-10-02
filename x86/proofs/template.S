@@ -46,6 +46,7 @@
         .intel_syntax noprefix
         .globl  harness, _harness
         .text
+        .balign 32
 
 harness:
 _harness:

@@ -21,6 +21,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(p521_jdouble)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(p521_jdouble)
         .text
+        .balign 32
 
 // Size of individual field elements
 

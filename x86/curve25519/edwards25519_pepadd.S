@@ -25,6 +25,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(edwards25519_pepadd)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(edwards25519_pepadd)
         .text
+        .balign 32
 
 // Size of individual field elements
 
