@@ -10,7 +10,7 @@
 //      RCX = regfile[1]
 //      RDX = regfile[2]
 //      RBX = regfile[3]
-//      OF:0:0:0:SF:ZF:0:AF:0:PF:0:CF = regfile[4]
+//      OF:DF:0:0:SF:ZF:0:AF:0:PF:0:CF = regfile[4]
 //      RBP = regfile[5]
 //      RSI = regfile[6]
 //      RDI = regfile[7]
@@ -50,6 +50,12 @@
 
 harness:
 _harness:
+
+// Save the original flag settings, so that we can restore them.
+// This seems to be worth doing in the case of DF, at least, which
+// is a control flag and is expected to be zero by standard ABIs
+
+        pushfq
 
 // Force the stack to be 32-aligned
 
@@ -96,7 +102,7 @@ _harness:
         pushfq
         pop     rcx
         mov     rax, [rdi+4*8]
-        mov     rbx, 0b100011010101
+        mov     rbx, 0b110011010101
         and     rax, rbx
         not     rbx
         and     rcx, rbx
@@ -151,7 +157,7 @@ modinst:
 
         pushfq
         pop     rax
-        and     rax, 0b100011010101
+        and     rax, 0b110011010101
         mov     [rdi+4*8], rax
 
         vmovdqu [rdi+16*8],  ymm0
@@ -223,6 +229,10 @@ modinst:
 // Finally restore the original stack pointer
 
         pop     rsp
+
+// Pop back the original flags register too
+
+        popfq
 
 // Also return rax from the instruction
 
