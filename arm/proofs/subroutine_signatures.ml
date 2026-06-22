@@ -1744,6 +1744,23 @@ let subroutine_signatures = [
    ])
 );
 
+("bignum_mod_n256k1",
+  ([(*args*)
+     ("z", "uint64_t[static 4]", (*is const?*)"false");
+     ("k", "uint64_t", (*is const?*)"false");
+     ("x", "uint64_t*", (*is const?*)"true");
+   ],
+   "void",
+   [(* input buffers *)
+    ("x", "k"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("z", "4"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
 ("bignum_mod_n256k1_4",
   ([(*args*)
      ("z", "uint64_t[static 4]", (*is const?*)"false");
@@ -1883,6 +1900,23 @@ let subroutine_signatures = [
    "void",
    [(* input buffers *)
     ("x", "4"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("z", "4"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("bignum_mod_p256k1",
+  ([(*args*)
+     ("z", "uint64_t[static 4]", (*is const?*)"false");
+     ("k", "uint64_t", (*is const?*)"false");
+     ("x", "uint64_t*", (*is const?*)"true");
+   ],
+   "void",
+   [(* input buffers *)
+    ("x", "k"(* num elems *), 8(* elem bytesize *));
    ],
    [(* output buffers *)
     ("z", "4"(* num elems *), 8(* elem bytesize *));
@@ -4586,6 +4620,61 @@ let subroutine_signatures = [
    ],
    [(* output buffers *)
     ("b", "256"(* num elems *), 4(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("mldsa_rej_uniform_VARIABLE_TIME",
+  ([(*args*)
+     ("r", "int32_t[static 256]", (*is const?*)"false");
+     ("buf", "uint8_t*", (*is const?*)"true");
+     ("buflen", "uint64_t", (*is const?*)"false");
+     ("table", "uint8_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+   ],
+   [(* output buffers *)
+    ("r", "256"(* num elems *), 4(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("mldsa_rej_uniform_eta2_VARIABLE_TIME",
+  ([(*args*)
+     ("r", "int32_t[static 256]", (*is const?*)"false");
+     ("buf", "uint8_t*", (*is const?*)"true");
+     ("buflen", "unsigned", (*is const?*)"false");
+     ("table", "uint8_t[static 4096]", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("buf", "buflen"(* num elems *), 1(* elem bytesize *));
+    ("table", "4096"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("r", "256"(* num elems *), 4(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("mldsa_rej_uniform_eta4_VARIABLE_TIME",
+  ([(*args*)
+     ("r", "int32_t[static 256]", (*is const?*)"false");
+     ("buf", "uint8_t*", (*is const?*)"true");
+     ("buflen", "unsigned", (*is const?*)"false");
+     ("table", "uint8_t[static 4096]", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("buf", "buflen"(* num elems *), 1(* elem bytesize *));
+    ("table", "4096"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("r", "256"(* num elems *), 4(* elem bytesize *));
    ],
    [(* temporary buffers *)
    ])
