@@ -466,6 +466,10 @@ extern void bignum_mod_n256_alt (uint64_t z[S2N_BIGNUM_STATIC 4], uint64_t k, co
 extern void bignum_mod_n256_4 (uint64_t z[S2N_BIGNUM_STATIC 4], const uint64_t x[S2N_BIGNUM_STATIC 4]);
 
 // Reduce modulo group order, z := x mod n_256k1
+// Input x[k]; output z[4]
+extern void bignum_mod_n256k1 (uint64_t z[S2N_BIGNUM_STATIC 4], uint64_t k, const uint64_t *x);
+
+// Reduce modulo group order, z := x mod n_256k1
 // Input x[4]; output z[4]
 extern void bignum_mod_n256k1_4 (uint64_t z[S2N_BIGNUM_STATIC 4], const uint64_t x[S2N_BIGNUM_STATIC 4]);
 
@@ -504,6 +508,10 @@ extern void bignum_mod_p256_alt (uint64_t z[S2N_BIGNUM_STATIC 4], uint64_t k, co
 // Reduce modulo field characteristic, z := x mod p_256
 // Input x[4]; output z[4]
 extern void bignum_mod_p256_4 (uint64_t z[S2N_BIGNUM_STATIC 4], const uint64_t x[S2N_BIGNUM_STATIC 4]);
+
+// Reduce modulo field characteristic, z := x mod p_256k1
+// Input x[k]; output z[4]
+extern void bignum_mod_p256k1 (uint64_t z[S2N_BIGNUM_STATIC 4], uint64_t k, const uint64_t *x);
 
 // Reduce modulo field characteristic, z := x mod p_256k1
 // Input x[4]; output z[4]
@@ -1064,6 +1072,18 @@ extern void mldsa_poly_use_hint_32(int32_t b[S2N_BIGNUM_STATIC 256], const int32
 // Use hint to correct high bits of decomposition for ML-DSA (parameter set 44)
 // Inputs a[256], h[256] (signed 32-bit words); output b[256] (signed 32-bit words)
 extern void mldsa_poly_use_hint_88(int32_t b[S2N_BIGNUM_STATIC 256], const int32_t a[S2N_BIGNUM_STATIC 256], const int32_t h[S2N_BIGNUM_STATIC 256]);
+
+// Rejection sampling for ML-DSA secret key (eta = 2; parameter sets 44/87)
+// Inputs buf[buflen], buflen, table[4096] (uint8_t); output r[256] (signed 32-bit words)
+extern uint64_t mldsa_rej_uniform_eta2_VARIABLE_TIME(int32_t r[S2N_BIGNUM_STATIC 256], const uint8_t *buf, unsigned buflen, const uint8_t table[S2N_BIGNUM_STATIC 4096]);
+
+// Rejection sampling for ML-DSA secret key (eta = 4; parameter set 65)
+// Inputs buf[buflen], buflen, table[4096] (uint8_t); output r[256] (signed 32-bit words)
+extern uint64_t mldsa_rej_uniform_eta4_VARIABLE_TIME(int32_t r[S2N_BIGNUM_STATIC 256], const uint8_t *buf, unsigned buflen, const uint8_t table[S2N_BIGNUM_STATIC 4096]);
+
+// Uniform rejection sampling for ML-DSA
+// Inputs *buf (unsigned bytes), buflen, table (unsigned bytes); output r[256] (signed 32-bit words), return
+extern uint64_t mldsa_rej_uniform_VARIABLE_TIME(int32_t r[S2N_BIGNUM_STATIC 256],const uint8_t *buf,uint64_t buflen,const uint8_t *table);
 
 // Scalar product of 2-element polynomial vectors in NTT domain, with mulcache
 // Inputs a[512], b[512], bt[256] (signed 16-bit words); output r[256] (signed 16-bit words)
