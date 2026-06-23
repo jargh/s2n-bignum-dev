@@ -1175,6 +1175,12 @@ void call_aes_xts_decrypt_128(void) {}
 void call_aes_xts_decrypt_256(void) {}
 void call_aes_xts_decrypt_512(void) {}
 
+void call_aes_gcm_enc_kernel_16(void) {}
+void call_aes_gcm_enc_kernel_64(void) {}
+void call_aes_gcm_enc_kernel_256(void) {}
+void call_aes_gcm_enc_kernel_1024(void) {}
+void call_aes_gcm_enc_kernel_4096(void) {}
+
 #else
 
 void call_mldsa_caddq(void) {}
@@ -1261,6 +1267,28 @@ void call_aes_xts_decrypt_64(void) { repeat(aes_xts_decrypt_helper(64)); }
 void call_aes_xts_decrypt_128(void) { repeat(aes_xts_decrypt_helper(128)); }
 void call_aes_xts_decrypt_256(void) { repeat(aes_xts_decrypt_helper(256)); }
 void call_aes_xts_decrypt_512(void) { repeatfewer(10,aes_xts_decrypt_helper(512)); }
+
+// Helper for AES-128-GCM encryption kernel with parameterized length (bytes).
+// The kernel reads 11 AES-128 round keys (key->rd_key), a 16-byte counter
+// (aes_iv), a 16-byte tag (b3) and a 192-byte Htable (bb[0]); timing is
+// independent of their exact contents, which we just seed from the buffers.
+static s2n_bignum_AES_KEY aes_gcm_key;
+static void aes_gcm_enc_kernel_helper(size_t len)
+{
+  int j;
+  for (j = 0; j < 22; ++j) aes_gcm_key.rd_key[j] = b1[j % BUFFERSIZE];
+  aes_gcm_key.rounds = 10; // AES-128
+  for (j = 0; j < 16; ++j) aes_iv[j] = (uint8_t)(b3[j] & 0xFF);
+
+  aes_gcm_enc_kernel((uint8_t*)b0, (uint64_t)len * 8, (uint8_t*)b2,
+                     (uint64_t*)b3, aes_iv, &aes_gcm_key, bb[0]);
+}
+
+void call_aes_gcm_enc_kernel_16(void)   { repeat(aes_gcm_enc_kernel_helper(16)); }
+void call_aes_gcm_enc_kernel_64(void)   { repeat(aes_gcm_enc_kernel_helper(64)); }
+void call_aes_gcm_enc_kernel_256(void)  { repeat(aes_gcm_enc_kernel_helper(256)); }
+void call_aes_gcm_enc_kernel_1024(void) { repeatfewer(10,aes_gcm_enc_kernel_helper(1024)); }
+void call_aes_gcm_enc_kernel_4096(void) { repeatfewer(40,aes_gcm_enc_kernel_helper(4096)); }
 
 #endif
 
@@ -1748,6 +1776,11 @@ int main(int argc, char *argv[])
   timingtest(aes,"aes_xts_decrypt (128 bytes)",call_aes_xts_decrypt_128);
   timingtest(aes,"aes_xts_decrypt (256 bytes)",call_aes_xts_decrypt_256);
   timingtest(aes,"aes_xts_decrypt (512 bytes)",call_aes_xts_decrypt_512);
+  timingtest(aes,"aes_gcm_enc_kernel (16 bytes)",call_aes_gcm_enc_kernel_16);
+  timingtest(aes,"aes_gcm_enc_kernel (64 bytes)",call_aes_gcm_enc_kernel_64);
+  timingtest(aes,"aes_gcm_enc_kernel (256 bytes)",call_aes_gcm_enc_kernel_256);
+  timingtest(aes,"aes_gcm_enc_kernel (1024 bytes)",call_aes_gcm_enc_kernel_1024);
+  timingtest(aes,"aes_gcm_enc_kernel (4096 bytes)",call_aes_gcm_enc_kernel_4096);
 
   // Summarize performance in arithmetic and geometric means
 

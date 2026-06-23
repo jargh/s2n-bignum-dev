@@ -31,6 +31,14 @@ struct s2n_bignum_aes_key_st {
 };
 typedef struct s2n_bignum_aes_key_st s2n_bignum_AES_KEY;
 
+/* AES_GCM_ENC_KERNEL (AES-128) */
+/* Encrypt in[len_bits/8] (a whole number of 16-byte blocks) in GCM mode, */
+/* updating the GHASH tag[16] and counter ivec[16]; returns bytes processed. */
+/* Inputs in[len_bits/8], len_bits, key[176], ivec[16], Htable[192]; */
+/* outputs out[len_bits/8], tag[16] (updated), ivec[16] (updated) */
+extern uint64_t aes_gcm_enc_kernel(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+
 /* AES_XTS_DECRYPT (256-bit) */
 /* Inputs in[length], length, key1[244], key2[244], iv[16]; output out[length] */
 extern void aes_xts_decrypt(const uint8_t *in, uint8_t *out, size_t length,
