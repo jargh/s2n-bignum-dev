@@ -458,9 +458,10 @@ tag_q  .req q11
 .endm
 
 .macro prepare_ghash
-        // Prepare constant for modular reduction
-        movi ghash_mod.8b, #0xc2
-        shl  ghash_mod_d, ghash_mod_d, #56
+        // Prepare constant for modular reduction: 0xc200000000000000
+        // Use constant_temp (x25) as scratch; it is free after load_iv.
+        movz constant_temp, #0xc200, lsl #48
+        fmov ghash_mod_d, constant_temp
 .endm
 
 /********************************************************************/
