@@ -402,8 +402,8 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove(
        read X15 s = word (val (len_bits:int64) DIV 8))` THEN
   REPEAT CONJ_TAC THENL
 
-  [ (*** loop_count <> 0: by case assumption ***)
-    ASM_ARITH_TAC;
+  [ (*** loop_count <> 0: directly from case hypothesis ***)
+    FIRST_ASSUM ACCEPT_TAC;
 
     (*** Preamble -> outer inv at i=loop_count (25 steps, 0x2c--0x8c) ***)
     (*   Steps 1--24 set up registers; step 25 is cbz x1,0x2f4.       ***)
@@ -464,7 +464,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove(
          read X9  s = word i   /\
          read X15 s = word (val (len_bits:int64) DIV 8))` THEN
     REPEAT CONJ_TAC THENL
-    [ ASM_ARITH_TAC;
+    [ FIRST_ASSUM ACCEPT_TAC;
       (* preamble->inv_k: already at pc+0x304 after step 4, 0 more steps *)
       ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN ARITH_TAC;
       REPEAT STRIP_TAC THEN
