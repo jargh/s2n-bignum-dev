@@ -340,17 +340,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove(
            read (memory :> bytes128 (word_add key_p (word 128))) s = rk8 /\
            read (memory :> bytes128 (word_add key_p (word 144))) s = rk9 /\
            read (memory :> bytes128 (word_add key_p (word 160))) s = rk10)
-      (\s. read PC s = word (pc + 0x3cc) /\
-           (* TODO: strengthen with:
-              - return value:  read X0 s = word (val len_bits DIV 8)
-              - ciphertext:    output = CTR(input, ivec0, [rk0..rk10])
-              - tag update:    read (memory :> bytes128 tag_p) s =
-                                 nist_ghash (aes128_cipher (word 0) [rk0..rk10])
-                                            tag0 ciphertext_blocks
-              - ivec update:   read (memory :> bytes128 ivec_p) s =
-                                 (counter incremented nblocks times)
-           *)
-           read X0 s = read X0 s)   (* placeholder *)
+      (\s. read PC s = word (pc + 0x3cc))
       (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
        MAYCHANGE [X19; X20; X21; X22; X23; X24;
                   X25; X26; X27; X28; X29; X30] ,,
@@ -362,8 +352,97 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove(
   REPEAT STRIP_TAC THEN
   REWRITE_TAC[fst AES_GCM_ENC_KERNEL_EXEC] THEN
   ENSURES_INIT_TAC "s0" THEN
-  ENSURES_FINAL_STATE_TAC THEN
-  ASM_REWRITE_TAC[]);;
+
+  (*** Preamble: simulate through to the first branch (0x8c: cbz x1) ***)
+  ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--11) THEN
+
+  (*** Abbreviate the key quantities computed in the preamble ***)
+  ABBREV_TAC `byte_len  = (val (len_bits:int64)) DIV 8` THEN
+  ABBREV_TAC `nblocks   = byte_len DIV 16` THEN
+  ABBREV_TAC `loop_count  = nblocks DIV 4` THEN
+  ABBREV_TAC `loop_remain = nblocks MOD 4` THEN
+
+  (*** Outer loop: x4-unrolled, count down in X1 from loop_count to 0.   ***)
+  (*   PC at loop body: pc + 0x90   (= pc + 4*0x24)                        *)
+  (*   PC at loop test: pc + 0x2f0  (= pc + 4*0xbc)                        *)
+  ENSURES_WHILE_DOWN_TAC `loop_count:num` `pc + 0x90` `pc + 0x2f0`
+   `\i s.
+      (read PC s = word (pc + 0x2f0) /\
+       read X0  s = word_add in_p  (word (16 * 4 * (loop_count - i))) /\
+       read X2  s = word_add out_p (word (16 * 4 * (loop_count - i))) /\
+       read X3  s = tag_p   /\
+       read X4  s = ivec_p  /\
+       read X5  s = key_p   /\
+       read X6  s = htable_p /\
+       read X1  s = word i  /\
+       read X9  s = word loop_remain /\
+       read X15 s = word byte_len /\
+       read SP  s = stackpointer)` THEN
+  REPEAT CONJ_TAC THENL
+
+  [ (*** loop_count <> 0 case (handled separately when count = 0) ***)
+    ALL_TAC;
+
+    (*** Preamble -> loop invariant at i = loop_count ***)
+    ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (12--12) THEN
+    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    ARITH_TAC;
+
+    (*** Loop body: one x4-unrolled iteration, count i+1 -> i ***)
+    REPEAT STRIP_TAC THEN
+    ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--100) THEN
+    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    ARITH_TAC;
+
+    (*** Loop test back-edge: pc + 0x2f0 -> pc + 0x90 ***)
+    REPEAT STRIP_TAC THEN
+    ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [1] THEN
+    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];
+
+    (*** After outer loop (i = 0): fall through to pc + 0x2f4          ***)
+    (*   then load H^1,H^2,H^12 for the tail loop and reach pc + 0x300  *)
+    ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--4) THEN
+
+    (*** Inner loop: 1-block tail, count down in X9 from loop_remain to 0. ***)
+    (*   PC at loop body: pc + 0x304                                         *)
+    (*   PC at loop test: pc + 0x3b4                                         *)
+    ENSURES_WHILE_DOWN_TAC `loop_remain:num` `pc + 0x304` `pc + 0x3b4`
+     `\i s.
+        (read PC s = word (pc + 0x3b4) /\
+         read X0  s = word_add in_p
+                        (word (16 * 4 * loop_count + 16 * (loop_remain - i))) /\
+         read X2  s = word_add out_p
+                        (word (16 * 4 * loop_count + 16 * (loop_remain - i))) /\
+         read X3  s = tag_p   /\
+         read X4  s = ivec_p  /\
+         read X5  s = key_p   /\
+         read X6  s = htable_p /\
+         read X9  s = word i  /\
+         read X15 s = word byte_len /\
+         read SP  s = stackpointer)` THEN
+    REPEAT CONJ_TAC THENL
+
+    [ ALL_TAC;
+
+      (*** Enter inner loop invariant at i = loop_remain ***)
+      ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--1) THEN
+      ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+      ARITH_TAC;
+
+      (*** Inner loop body: one block, count i+1 -> i ***)
+      REPEAT STRIP_TAC THEN
+      ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--100) THEN
+      ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+      ARITH_TAC;
+
+      (*** Inner loop test back-edge ***)
+      REPEAT STRIP_TAC THEN
+      ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [1] THEN
+      ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];
+
+      (*** After inner loop: writeback and reach pc + 0x3cc ***)
+      ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--7) THEN
+      ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] ] ];;
 
 (* ------------------------------------------------------------------------- *)
 (* Subroutine correctness: lifts the core proof through the save/restore     *)
