@@ -349,45 +349,36 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove(
   REWRITE_TAC[C_ARGUMENTS; MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
   REPEAT STRIP_TAC THEN
   REWRITE_TAC[fst AES_GCM_ENC_KERNEL_EXEC] THEN
-  ENSURES_INIT_TAC "s0" THEN
 
-  (*** Preamble: instructions 1--24 (0x2c--0x88) set up registers and    ***)
-  (*   compute loop counts; instruction 25 is the cbz at 0x8c which is    ***)
-  (*   handled as the first step of the ENSURES_WHILE preamble subgoal.   ***)
-  ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--24) THEN
-
-  (*** Abbreviate the key quantities computed in the preamble ***)
-  ABBREV_TAC `byte_len    = (val (len_bits:int64)) DIV 8` THEN
-  ABBREV_TAC `nblocks     = byte_len DIV 16` THEN
-  ABBREV_TAC `loop_count  = nblocks DIV 4` THEN
-  ABBREV_TAC `loop_remain = nblocks MOD 4` THEN
-
-  (*** Outer loop: x4-unrolled, count down in X1 from loop_count to 0.   ***)
-  (*   pc1 = pc + 0x090  (body start, ldr q29)                             ***)
-  (*   pc2 = pc + 0x2f0  (loop test, cbnz x1)                             ***)
-  (*   After the WHILE tac fires the PC in each subgoal is local:          ***)
-  (*     preamble->inv k: starts at pc+0x8c (cbz), so 1 step (1--1)       ***)
-  (*     body: starts at pc+0x090, 153 steps to reach pc+0x2f0            ***)
-  (*     back-edge: at pc+0x2f0, 1 step (cbnz -> back to pc+0x090)        ***)
-  ENSURES_WHILE_DOWN_TAC `loop_count:num` `pc + 0x090` `pc + 0x2f0`
+  (*** Outer loop: x4-unrolled, count down in X1.                        ***)
+  (*   pc1 = pc + 0x090  (body start, ldr q29)                           ***)
+  (*   pc2 = pc + 0x2f0  (loop test, cbnz x1)                           ***)
+  (*   The loop count is (byte_len/16)/4 = nblocks/4 where               ***)
+  (*   byte_len = len_bits/8, nblocks = byte_len/16.                     ***)
+  ENSURES_WHILE_DOWN_TAC
+   `(val (len_bits:int64) DIV 8 DIV 16) DIV 4`
+   `pc + 0x090` `pc + 0x2f0`
    `\i s.
-      (read X0  s = word_add in_p  (word (64 * (loop_count - i))) /\
-       read X2  s = word_add out_p (word (64 * (loop_count - i))) /\
+      (read X0  s = word_add in_p
+         (word (64 * ((val (len_bits:int64) DIV 8 DIV 16) DIV 4 - i))) /\
+       read X2  s = word_add out_p
+         (word (64 * ((val (len_bits:int64) DIV 8 DIV 16) DIV 4 - i))) /\
        read X3  s = tag_p    /\
        read X4  s = ivec_p   /\
        read X5  s = key_p    /\
        read X6  s = htable_p /\
        read X1  s = word i   /\
-       read X9  s = word loop_remain /\
-       read X15 s = word byte_len)` THEN
+       read X9  s = word ((val (len_bits:int64) DIV 8 DIV 16) MOD 4) /\
+       read X15 s = word (val (len_bits:int64) DIV 8))` THEN
   REPEAT CONJ_TAC THENL
 
-  [ (*** loop_count <> 0: discharged by the caller's assumptions ***)
+  [ (*** loop_count <> 0 ***)
     ASM_ARITH_TAC;
 
-    (*** Preamble -> outer loop invariant at i = loop_count:             ***)
-    (*   1 step: the cbz at 0x8c (falls through when loop_count <> 0)   ***)
-    ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--1) THEN
+    (*** Preamble -> outer loop invariant at i = loop_count:            ***)
+    (*   Instructions 1--25 (0x2c--0x8c incl.) set up and branch in.   ***)
+    ENSURES_INIT_TAC "s0" THEN
+    ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--25) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
     ARITH_TAC;
 
@@ -403,31 +394,39 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove(
     ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--1) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];
 
-    (*** After outer loop (count = 0): fall through cbz, then             ***)
-    (*   instructions 1--4 reload H^1/H^2/H^12 and reach the inner cbz.  ***)
+    (*** After outer loop (count = 0): inner tail section.               ***)
+    (*   This subgoal is itself an ensures arm starting at pc + 0x2f0.   ***)
+    (*   We initialize state, run 4 setup steps (0x2f4--0x300 incl.),    ***)
+    (*   then dispatch the inner WHILE loop.                              ***)
+    ENSURES_INIT_TAC "s0" THEN
     ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--4) THEN
 
-    (*** Inner loop: 1-block tail, count down X9 from loop_remain to 0.  ***)
-    (*   pc1 = pc + 0x304  (inner body start)                             ***)
-    (*   pc2 = pc + 0x3b4  (inner loop test, cbnz x9)                    ***)
-    ENSURES_WHILE_DOWN_TAC `loop_remain:num` `pc + 0x304` `pc + 0x3b4`
+    (*** Inner loop: 1-block tail, count down X9 from remainder to 0.   ***)
+    (*   pc1 = pc + 0x304  (inner body start, ldr q29)                  ***)
+    (*   pc2 = pc + 0x3b4  (inner loop test, cbnz x9)                  ***)
+    ENSURES_WHILE_DOWN_TAC
+     `(val (len_bits:int64) DIV 8 DIV 16) MOD 4`
+     `pc + 0x304` `pc + 0x3b4`
      `\i s.
         (read X0  s = word_add in_p
-                        (word (64 * loop_count + 16 * (loop_remain - i))) /\
+           (word (64 * ((val (len_bits:int64) DIV 8 DIV 16) DIV 4) +
+                  16 * ((val (len_bits:int64) DIV 8 DIV 16) MOD 4 - i))) /\
          read X2  s = word_add out_p
-                        (word (64 * loop_count + 16 * (loop_remain - i))) /\
+           (word (64 * ((val (len_bits:int64) DIV 8 DIV 16) DIV 4) +
+                  16 * ((val (len_bits:int64) DIV 8 DIV 16) MOD 4 - i))) /\
          read X3  s = tag_p    /\
          read X4  s = ivec_p   /\
          read X5  s = key_p    /\
          read X6  s = htable_p /\
          read X9  s = word i   /\
-         read X15 s = word byte_len)` THEN
+         read X15 s = word (val (len_bits:int64) DIV 8))` THEN
     REPEAT CONJ_TAC THENL
 
     [ (*** loop_remain <> 0 ***)
       ASM_ARITH_TAC;
 
-      (*** Inner setup (1--1: the cbz at 0x300) -> inner inv at i=loop_remain ***)
+      (*** Enter inner loop invariant at i = loop_remain:              ***)
+      (*   the ensures arm starts at the cbz (0x300), 1 step           ***)
       ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--1) THEN
       ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
       ARITH_TAC;
