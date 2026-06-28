@@ -351,9 +351,9 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove(
   REWRITE_TAC[fst AES_GCM_ENC_KERNEL_EXEC] THEN
   ENSURES_INIT_TAC "s0" THEN
 
-  (*** Preamble: 11 steps to set up registers, then compute loop counts   ***)
-  (*   Instructions 1--25 cover 0x2c--0x8c (including the cbz at 0x8c     ***)
-  (*   that either enters the outer loop or skips to inner setup).          ***)
+  (*** Preamble: instructions 1--24 (0x2c--0x88) set up registers and    ***)
+  (*   compute loop counts; instruction 25 is the cbz at 0x8c which is    ***)
+  (*   handled as the first step of the ENSURES_WHILE preamble subgoal.   ***)
   ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--24) THEN
 
   (*** Abbreviate the key quantities computed in the preamble ***)
@@ -365,9 +365,10 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove(
   (*** Outer loop: x4-unrolled, count down in X1 from loop_count to 0.   ***)
   (*   pc1 = pc + 0x090  (body start, ldr q29)                             ***)
   (*   pc2 = pc + 0x2f0  (loop test, cbnz x1)                             ***)
-  (*   Preamble feeds into the loop via cbz at instruction 25 (0x8c).      ***)
-  (*   The ARM_STEPS feeding into the loop invariant runs instructions       ***)
-  (*   1--25 in total (step 25 is the cbz itself).                          ***)
+  (*   After the WHILE tac fires the PC in each subgoal is local:          ***)
+  (*     preamble->inv k: starts at pc+0x8c (cbz), so 1 step (1--1)       ***)
+  (*     body: starts at pc+0x090, 153 steps to reach pc+0x2f0            ***)
+  (*     back-edge: at pc+0x2f0, 1 step (cbnz -> back to pc+0x090)        ***)
   ENSURES_WHILE_DOWN_TAC `loop_count:num` `pc + 0x090` `pc + 0x2f0`
    `\i s.
       (read X0  s = word_add in_p  (word (64 * (loop_count - i))) /\
@@ -384,8 +385,9 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove(
   [ (*** loop_count <> 0: discharged by the caller's assumptions ***)
     ASM_ARITH_TAC;
 
-    (*** Preamble (1--25) -> outer loop invariant at i = loop_count ***)
-    ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (25--25) THEN
+    (*** Preamble -> outer loop invariant at i = loop_count:             ***)
+    (*   1 step: the cbz at 0x8c (falls through when loop_count <> 0)   ***)
+    ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--1) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
     ARITH_TAC;
 
