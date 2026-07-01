@@ -288,198 +288,315 @@ let aes_gcm_enc_kernel_mc =
 let AES_GCM_ENC_KERNEL_EXEC = ARM_MK_EXEC_RULE aes_gcm_enc_kernel_mc;;
 
 (* ------------------------------------------------------------------------- *)
-(* Core correctness theorem.                                                 *)
-(*                                                                           *)
-(* This covers the body of the function with the save/restore boilerplate   *)
-(* excised: PC starts at pc + 0x2c (first real instruction after the 11     *)
-(* save instructions) and ends at pc + 0x3cc (first ldp of the postamble). *)
-(* The stackpointer is the value AFTER the sub sp, #0xa0 adjustment, i.e.   *)
-(* the value the SP register actually holds inside the function body.       *)
-(*                                                                           *)
-(* Arguments (Standard ARM ABI, values in registers at core entry):         *)
-(*   X0 = in        input buffer (len_bits/8 bytes)                         *)
-(*   X1 = len_bits  length in bits (whole 16-byte blocks)                   *)
-(*   X2 = out       output buffer (len_bits/8 bytes)                        *)
-(*   X3 = tag       16-byte GHASH accumulator (in/out)                      *)
-(*   X4 = ivec      16-byte counter block (in/out)                          *)
-(*   X5 = key       AES-128 round keys (176 bytes = 11 x 16)                *)
-(*   X6 = Htable    192-byte precomputed H-powers table                     *)
-(*   returns X0 = byte_len (= len_bits / 8)                                 *)
+(* Some specification concepts.                                              *)
 (* ------------------------------------------------------------------------- *)
 
-let AES_GCM_ENC_KERNEL_CORRECT = prove(
-  `!in_p out_p len_bits tag_p ivec_p key_p htable_p
-    tag0 ivec0
-    rk0 rk1 rk2 rk3 rk4 rk5 rk6 rk7 rk8 rk9 rk10
-    pc.
-    PAIRWISE nonoverlapping
-      [(word pc, LENGTH aes_gcm_enc_kernel_mc);
-       (in_p,  8 * val len_bits DIV 64);
-       (out_p, 8 * val len_bits DIV 64);
-       (tag_p, 16);
-       (ivec_p, 16);
-       (key_p, 176);
-       (htable_p, 192)]
+let ctr_block = new_definition
+ `ctr_block nonce ctr =
+        word_join (word_reversefields 8 (word ctr):int32) (nonce:96 word):
+        int128`;;
+
+(* ------------------------------------------------------------------------- *)
+(* Core correctness theorem.                                                 *)
+(*                                                                           *)
+(* This covers the body of the function with the save/restore boilerplate    *)
+(* excised: PC starts at pc + 0x2c (first real instruction after the 11      *)
+(* save instructions) and ends at pc + 0x3cc (first ldp of the postamble).   *)
+(* The stackpointer is the value AFTER the sub sp, #0xa0 adjustment, i.e.    *)
+(* the value the SP register actually holds inside the function body.        *)
+(*                                                                           *)
+(* Arguments (Standard ARM ABI, values in registers at core entry):          *)
+(*   X0 = in        input buffer (len_bits/8 bytes)                          *)
+(*   X1 = len_bits  length in bits (whole 16-byte blocks)                    *)
+(*   X2 = out       output buffer (len_bits/8 bytes)                         *)
+(*   X3 = tag       16-byte GHASH accumulator (in/out)                       *)
+(*   X4 = ivec      16-byte counter block (in/out)                           *)
+(*   X5 = key       AES-128 round keys (176 bytes = 11 x 16)                 *)
+(*   X6 = Htable    192-byte precomputed H-powers table                      *)
+(*   returns X0 = byte_len (= len_bits / 8)                                  *)
+(* ------------------------------------------------------------------------- *)
+
+let AES_GCM_ENC_KERNEL_CORRECT = prove
+ (`!in_p out_p len_bits tag_p ivec_p key_p htable_p tag0 nonce rk pc.
+       ALLPAIRS nonoverlapping
+        [(out_p, 16 * val len_bits DIV 128); (tag_p, 16); (ivec_p, 16)]
+        [(word pc, LENGTH aes_gcm_enc_kernel_mc);
+         (in_p,  16 * val len_bits DIV 128); (key_p, 176); (htable_p, 192)] /\
+       PAIRWISE nonoverlapping
+        [(out_p, 16 * val len_bits DIV 128); (tag_p, 16); (ivec_p, 16)]
     ==>
     ensures arm
       (\s. aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_mc /\
            read PC s = word (pc + 0x2c) /\
-           C_ARGUMENTS [in_p; len_bits; out_p; tag_p; ivec_p; key_p; htable_p] s /\
+           C_ARGUMENTS
+            [in_p; len_bits; out_p; tag_p; ivec_p; key_p; htable_p] s /\
            read (memory :> bytes128 tag_p)  s = tag0 /\
-           read (memory :> bytes128 ivec_p) s = ivec0 /\
-           read (memory :> bytes128 (word_add key_p (word   0))) s = rk0 /\
-           read (memory :> bytes128 (word_add key_p (word  16))) s = rk1 /\
-           read (memory :> bytes128 (word_add key_p (word  32))) s = rk2 /\
-           read (memory :> bytes128 (word_add key_p (word  48))) s = rk3 /\
-           read (memory :> bytes128 (word_add key_p (word  64))) s = rk4 /\
-           read (memory :> bytes128 (word_add key_p (word  80))) s = rk5 /\
-           read (memory :> bytes128 (word_add key_p (word  96))) s = rk6 /\
-           read (memory :> bytes128 (word_add key_p (word 112))) s = rk7 /\
-           read (memory :> bytes128 (word_add key_p (word 128))) s = rk8 /\
-           read (memory :> bytes128 (word_add key_p (word 144))) s = rk9 /\
-           read (memory :> bytes128 (word_add key_p (word 160))) s = rk10)
+           read (memory :> bytes128 ivec_p) s = ctr_block nonce 2 /\
+           !i. i < 11
+               ==> read(memory :> bytes128 (word_add key_p (word(16*i)))) s =
+                   rk i)
       (\s. read PC s = word (pc + 0x3cc))
       (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
        MAYCHANGE [X19; X20; X21; X22; X23; X24;
                   X25; X26; X27; X28; X29; X30] ,,
        MAYCHANGE [Q8; Q9; Q10; Q11; Q12; Q13; Q14; Q15] ,,
-       MAYCHANGE [memory :> bytes(out_p, 8 * val len_bits DIV 64);
+       MAYCHANGE [memory :> bytes(out_p, 16 * val len_bits DIV 128);
                   memory :> bytes(tag_p, 16);
                   memory :> bytes(ivec_p, 16)])`,
+  GEN_TAC THEN GEN_TAC THEN W64_GEN_TAC `len_bits:num` THEN REPEAT GEN_TAC THEN
   REWRITE_TAC[C_ARGUMENTS; MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
-  REPEAT STRIP_TAC THEN
-  REWRITE_TAC[fst AES_GCM_ENC_KERNEL_EXEC] THEN
+  REWRITE_TAC[ALLPAIRS; PAIRWISE; ALL; fst AES_GCM_ENC_KERNEL_EXEC] THEN
 
   (*** Abbreviate the loop counts to keep goal terms manageable ***)
-  ABBREV_TAC `nblocks     = (val (len_bits:int64)) DIV 8 DIV 16` THEN
+
+  ABBREV_TAC `nblocks     = len_bits DIV 128` THEN
   ABBREV_TAC `loop_count  = nblocks DIV 4` THEN
   ABBREV_TAC `loop_remain = nblocks MOD 4` THEN
+  STRIP_TAC THEN
+  CONV_TAC(ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
+  CONV_TAC(ONCE_DEPTH_CONV NUM_MULT_CONV) THEN REWRITE_TAC[WORD_ADD_0] THEN
 
-  (*** Case split on outer loop count (may be zero) ***)
-  ASM_CASES_TAC `loop_count = 0` THENL
+  (***** Initial state setup ****)
 
-  [ (*** Case: loop_count = 0.  Simulate everything flat (no outer WHILE) ***)
+  ENSURES_SEQUENCE_TAC `pc + 0x8c`
+   `\s. read X0 s = in_p /\
+        read X2 s = out_p /\
+        read X3 s = tag_p /\
+        read X4 s = ivec_p /\
+        read X6 s = htable_p /\
+        read (memory :> bytes128 tag_p) s = tag0 /\
+        read (memory :> bytes128 ivec_p) s = ctr_block nonce 2 /\
+        read Q18 s = rk 0 /\
+        read Q19 s = rk 1 /\
+        read Q20 s = rk 2 /\
+        read Q21 s = rk 3 /\
+        read Q22 s = rk 4 /\
+        read Q23 s = rk 5 /\
+        read Q24 s = rk 6 /\
+        read Q25 s = rk 7 /\
+        read Q26 s = rk 8 /\
+        read Q27 s = rk 9 /\
+        read Q28 s = rk 10 /\
+        read X25 s = word 13979173243358019584 /\
+        read Q30 s = word 79228162514264337593543950336 /\
+        read X15 s = word(len_bits DIV 8) /\
+        read X1 s = word loop_count /\
+        read X7 s = word nblocks /\
+        read X9 s = word loop_remain /\
+        read Q31 s = usimd4 (word_reversefields 8) (ctr_block nonce 2) /\
+        read Q11 s = usimd2 (word_reversefields 8) tag0` THEN
+  CONJ_TAC THENL
+   [ENSURES_INIT_TAC "s0" THEN
+    MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [n] THEN
+          RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
+        (1--24) THEN
+    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[WORD_USHR_COMPOSE] THEN
+    CONV_TAC(DEPTH_CONV NUM_ADD_CONV) THEN REPEAT CONJ_TAC THENL
+     [ASM_REWRITE_TAC[word_ushr] THEN AP_TERM_TAC THEN ARITH_TAC;
+      ASM_REWRITE_TAC[word_ushr] THEN
+      MAP_EVERY EXPAND_TAC ["loop_count"; "nblocks"] THEN
+      REWRITE_TAC[DIV_DIV] THEN AP_TERM_TAC THEN ARITH_TAC;
+      ASM_REWRITE_TAC[word_ushr] THEN EXPAND_TAC "nblocks" THEN
+      REWRITE_TAC[DIV_DIV] THEN AP_TERM_TAC THEN ARITH_TAC;
+      ASM_REWRITE_TAC[word_ushr; ARITH_RULE `2 EXP 7 = 128`] THEN
+      REWRITE_TAC[ARITH_RULE `3 = 2 EXP 2 - 1`] THEN
+      REWRITE_TAC[WORD_AND_MASK_WORD; VAL_WORD; DIMINDEX_64] THEN
+      REWRITE_TAC[MOD_MOD_EXP_MIN] THEN AP_TERM_TAC THEN
+      EXPAND_TAC "loop_remain" THEN ARITH_TAC;
+      REWRITE_TAC[usimd4; usimd2; ctr_block; DIMINDEX_32] THEN
+      CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
+      CONV_TAC WORD_BLAST;
+      REWRITE_TAC[usimd2; DIMINDEX_64] THEN CONV_TAC WORD_BLAST];
+    MAP_EVERY VAL_INT64_TAC
+     [`nblocks:num`; `loop_count:num`; `loop_remain:num`]] THEN
+
+  (*** Break code between main unrolled loop and tail loop ***)
+
+  ENSURES_SEQUENCE_TAC `pc + 0x2f4`
+   `\s. read X0 s = word_add in_p (word (64 * loop_count)) /\
+        read X2 s = word_add out_p (word (64 * loop_count)) /\
+        read X3 s = tag_p /\
+        read X4 s = ivec_p /\
+        read X6 s = htable_p /\
+        read (memory :> bytes128 tag_p) s = tag0 /\
+        read (memory :> bytes128 ivec_p) s = ctr_block nonce 2 /\
+        read Q18 s = rk 0 /\
+        read Q19 s = rk 1 /\
+        read Q20 s = rk 2 /\
+        read Q21 s = rk 3 /\
+        read Q22 s = rk 4 /\
+        read Q23 s = rk 5 /\
+        read Q24 s = rk 6 /\
+        read Q25 s = rk 7 /\
+        read Q26 s = rk 8 /\
+        read Q27 s = rk 9 /\
+        read Q28 s = rk 10 /\
+        read X25 s = word 13979173243358019584 /\
+        read Q30 s = word 79228162514264337593543950336 /\
+        read X15 s = word(len_bits DIV 8) /\
+        read X1 s = word 0 /\
+        read X7 s = word nblocks /\
+        read X9 s = word loop_remain /\
+        read Q31 s = usimd4 (word_reversefields 8)
+                            (ctr_block nonce (4 * loop_count + 2))` THEN
+  CONJ_TAC THENL
+   [ASM_CASES_TAC `loop_count = 0` THENL
+     [POP_ASSUM SUBST_ALL_TAC THEN
+      ARM_SIM_TAC AES_GCM_ENC_KERNEL_EXEC [1] THEN
+      REWRITE_TAC[ADD_CLAUSES; MULT_CLAUSES] THEN CONV_TAC WORD_RULE;
+      ALL_TAC] THEN
+
+    (**** Loop setup for the main unrolled loop ***)
+
+    ENSURES_WHILE_UP_TAC `loop_count:num` `pc + 0x090` `pc + 0x2f0`
+      `\i s.
+        read X0  s = word_add in_p  (word (64 * i)) /\
+        read X2  s = word_add out_p (word (64 * i)) /\
+        read X3 s = tag_p /\
+        read X4 s = ivec_p /\
+        read X6 s = htable_p /\
+        read (memory :> bytes128 tag_p) s = tag0 /\
+        read (memory :> bytes128 ivec_p) s = ctr_block nonce 2 /\
+        read Q18 s = rk 0 /\
+        read Q19 s = rk 1 /\
+        read Q20 s = rk 2 /\
+        read Q21 s = rk 3 /\
+        read Q22 s = rk 4 /\
+        read Q23 s = rk 5 /\
+        read Q24 s = rk 6 /\
+        read Q25 s = rk 7 /\
+        read Q26 s = rk 8 /\
+        read Q27 s = rk 9 /\
+        read Q28 s = rk 10 /\
+        read X25 s = word 13979173243358019584 /\
+        read Q30 s = word 79228162514264337593543950336 /\
+        read X15 s = word(len_bits DIV 8) /\
+        read X1 s = word(loop_count - i) /\
+        read X7 s = word nblocks /\
+        read X9 s = word loop_remain /\
+        read Q31 s = usimd4 (word_reversefields 8)
+                            (ctr_block nonce (4 * i + 2))` THEN
+    ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
+     [ARM_SIM_TAC AES_GCM_ENC_KERNEL_EXEC [1] THEN
+      REWRITE_TAC[ADD_CLAUSES; MULT_CLAUSES; SUB_0; WORD_ADD_0];
+
+      (**** Main loop invariant (main unrolled loop) ****)
+
+      X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
+      ENSURES_INIT_TAC "s0" THEN
+      MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [n] THEN
+            RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
+          (1--152) THEN
+      ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
+       [CONV_TAC WORD_RULE;
+        CONV_TAC WORD_RULE;
+        ASM_SIMP_TAC[WORD_SUB; LT_IMP_LE; ARITH_RULE
+         `i < l ==> i + 1 <= l`] THEN
+        CONV_TAC WORD_RULE;
+        REWRITE_TAC[ctr_block; usimd4; usimd2; DIMINDEX_64; DIMINDEX_32] THEN
+        CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
+        REWRITE_TAC[WORD_REVERSEFIELDS_REVERSEFIELDS; WORD_ADD_0] THEN
+        REWRITE_TAC[GSYM WORD_ADD] THEN REWRITE_TAC[ADD_AC] THEN
+        REPLICATE_TAC 2 (AP_THM_TAC THEN AP_TERM_TAC) THEN
+        AP_TERM_TAC THEN ARITH_TAC];
+       
+      (**** Trivial loop-back goal (main unrolled loop) ***)
+      
+      X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
+      ARM_SIM_TAC AES_GCM_ENC_KERNEL_EXEC [1] THEN
+      ASM_SIMP_TAC[WORD_SUB; LT_IMP_LE; VAL_EQ_0; WORD_SUB_EQ_0] THEN
+      ASM_REWRITE_TAC[GSYM VAL_EQ];
+      
+      (*** Trivial bridge between the two loops ***)
+      
+      ARM_SIM_TAC AES_GCM_ENC_KERNEL_EXEC [1] THEN
+      REWRITE_TAC[SUB_REFL]];
+
+    ALL_TAC] THEN
+
+  (*** Trivial case of the tail loop ***)
+
+  ASM_CASES_TAC `loop_remain = 0` THENL
+   [POP_ASSUM SUBST_ALL_TAC THEN
     ENSURES_INIT_TAC "s0" THEN
-    ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--24) THEN
-    (* cbz x1: loop_count=0 so x1=0, branches to 0x2f4 *)
-    SUBGOAL_THEN `val (read X1 s24) = 0` ASSUME_TAC THENL
-    [ EXPAND_TAC "loop_count" THEN EXPAND_TAC "nblocks" THEN
-      ASM_REWRITE_TAC[VAL_WORD_USHR] THEN ASM_ARITH_TAC; ALL_TAC ] THEN
-    ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [25] THEN
-    (* 3 ldr steps, then cbz x9 at step 29 *)
-    ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (26--28) THEN
-    ASM_CASES_TAC `loop_remain = 0` THENL
-    [ (* cbz x9 taken: jump to writeback, 5 steps *)
-      SUBGOAL_THEN `val (read X9 s28) = 0` ASSUME_TAC THENL
-      [ EXPAND_TAC "loop_remain" THEN EXPAND_TAC "nblocks" THEN
-        ASM_REWRITE_TAC[VAL_WORD_USHR] THEN ASM_ARITH_TAC; ALL_TAC ] THEN
-      ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (29--33) THEN
-      ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];
-      ALL_TAC ] THEN
-    (* cbz x9 falls through; inner loop needed *)
-    SUBGOAL_THEN `~(val (read X9 s28) = 0)` ASSUME_TAC THENL
-    [ EXPAND_TAC "loop_remain" THEN EXPAND_TAC "nblocks" THEN
-      ASM_REWRITE_TAC[VAL_WORD_USHR] THEN ASM_ARITH_TAC; ALL_TAC ] THEN
-    (* Inner loop with loop_count=0: use ENSURES_SEQUENCE_TAC to bridge *)
-    (* TODO: needs proper treatment; for now leave as stub *)
-    ALL_TAC;
-
-    (*** Case: loop_count > 0.  Fire the outer WHILE loop.              ***)
-    ALL_TAC ] THEN
-
-  (*** Outer loop: x4-unrolled, count down in X1 from loop_count to 0. ***)
-  (*   pc1 = pc + 0x090, pc2 = pc + 0x2f0                              ***)
-  ENSURES_WHILE_DOWN_TAC `loop_count:num` `pc + 0x090` `pc + 0x2f0`
-   `\i s.
-      (read X0  s = word_add in_p  (word (64 * (loop_count - i))) /\
-       read X2  s = word_add out_p (word (64 * (loop_count - i))) /\
-       read X3  s = tag_p    /\
-       read X4  s = ivec_p   /\
-       read X5  s = key_p    /\
-       read X6  s = htable_p /\
-       read X1  s = word i   /\
-       read X9  s = word loop_remain /\
-       read X15 s = word (val (len_bits:int64) DIV 8))` THEN
-  REPEAT CONJ_TAC THENL
-
-  [ (*** loop_count <> 0: directly from case hypothesis ***)
-    FIRST_ASSUM ACCEPT_TAC;
-
-    (*** Preamble -> outer inv at i=loop_count (25 steps, 0x2c--0x8c) ***)
-    (*   Steps 1--24 set up registers; step 25 is cbz x1,0x2f4.       ***)
-    (*   Since loop_count <> 0, the cbz falls through to pc+0x90.     ***)
-    ENSURES_INIT_TAC "s0" THEN
-    ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--24) THEN
-    SUBGOAL_THEN `~(val (read X1 s24) = 0)` ASSUME_TAC THENL
-    [ EXPAND_TAC "loop_count" THEN EXPAND_TAC "nblocks" THEN
-      ASM_REWRITE_TAC[VAL_WORD_USHR] THEN ASM_ARITH_TAC;
-      ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [25] THEN
-      ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN ARITH_TAC ];
-
-    (*** Outer body: 153 steps per iteration (0x090--0x2f0) ***)
-    REPEAT STRIP_TAC THEN
-    ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--153) THEN
-    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN ARITH_TAC;
-
-    (*** Outer back-edge: 1 step (cbnz) ***)
-    REPEAT STRIP_TAC THEN
-    ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--1) THEN
+    MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [n] THEN
+          RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
+        (1--9) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];
+    ALL_TAC] THEN
 
-    (*** After outer loop: 4 setup steps, then inner tail loop.        ***)
-    (*** After outer loop: 3 ldrs (steps 1--3) + cbz x9 (step 4).     ***)
+  (*** Loop setup for the tail loop ***)
+
+  ENSURES_WHILE_UP_TAC `loop_remain:num` `pc + 0x304` `pc + 0x3b4`
+    `\i s.
+      read X0  s = word_add in_p  (word (64 * loop_count + 16 * i)) /\
+      read X2  s = word_add out_p (word (64 * loop_count + 16 * i)) /\
+      read X3 s = tag_p /\
+      read X4 s = ivec_p /\
+      read X6 s = htable_p /\
+      read (memory :> bytes128 tag_p) s = tag0 /\
+      read (memory :> bytes128 ivec_p) s = ctr_block nonce 2 /\
+      read Q18 s = rk 0 /\
+      read Q19 s = rk 1 /\
+      read Q20 s = rk 2 /\
+      read Q21 s = rk 3 /\
+      read Q22 s = rk 4 /\
+      read Q23 s = rk 5 /\
+      read Q24 s = rk 6 /\
+      read Q25 s = rk 7 /\
+      read Q26 s = rk 8 /\
+      read Q27 s = rk 9 /\
+      read Q28 s = rk 10 /\
+      read X25 s = word 13979173243358019584 /\
+      read Q30 s = word 79228162514264337593543950336 /\
+      read X15 s = word(len_bits DIV 8) /\
+      read X9 s = word(loop_remain - i) /\
+        read Q31 s = usimd4 (word_reversefields 8)
+                            (ctr_block nonce (4 * loop_count + i + 2))` THEN
+  ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
+   [ENSURES_INIT_TAC "s0" THEN
+    MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [n] THEN
+          RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
+        (1--4) THEN
+    ENSURES_FINAL_STATE_TAC THEN
+    ASM_REWRITE_TAC[ADD_CLAUSES; MULT_CLAUSES; SUB_0];
+
+    (*** Main loop invariant (tail loop) ****)
+
+    X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
     ENSURES_INIT_TAC "s0" THEN
-    ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--3) THEN
-    ASM_CASES_TAC `loop_remain = 0` THENL
+      MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [n] THEN
+            RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
+          (1--44) THEN
+    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
+     [CONV_TAC WORD_RULE;
+      CONV_TAC WORD_RULE;
+      ASM_SIMP_TAC[WORD_SUB; LT_IMP_LE; ARITH_RULE
+       `i < l ==> i + 1 <= l`] THEN
+      CONV_TAC WORD_RULE;
+      REWRITE_TAC[ctr_block; usimd4; usimd2; DIMINDEX_64; DIMINDEX_32] THEN
+      CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
+      REWRITE_TAC[WORD_REVERSEFIELDS_REVERSEFIELDS; WORD_ADD_0] THEN
+      REWRITE_TAC[GSYM WORD_ADD] THEN REWRITE_TAC[ADD_AC]];
 
-    [ (*** loop_remain = 0: cbz x9 jumps to writeback ***)
-      SUBGOAL_THEN `val (read X9 s3) = 0` ASSUME_TAC THENL
-      [ EXPAND_TAC "loop_remain" THEN EXPAND_TAC "nblocks" THEN
-        ASM_REWRITE_TAC[VAL_WORD_USHR] THEN ASM_ARITH_TAC;
-        ALL_TAC ] THEN
-      ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (4--8) THEN
-      ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];
+    (*** Trivial loop-back goal (tail loop) ***)
 
-      ALL_TAC ] THEN
+    X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
+    ARM_SIM_TAC AES_GCM_ENC_KERNEL_EXEC [1] THEN
+    ASM_SIMP_TAC[WORD_SUB; LT_IMP_LE; VAL_EQ_0; WORD_SUB_EQ_0] THEN
+    ASM_REWRITE_TAC[GSYM VAL_EQ];
 
-    (* cbz x9 falls through into inner loop body *)
-    SUBGOAL_THEN `~(val (read X9 s3) = 0)` ASSUME_TAC THENL
-    [ EXPAND_TAC "loop_remain" THEN EXPAND_TAC "nblocks" THEN
-      ASM_REWRITE_TAC[VAL_WORD_USHR] THEN ASM_ARITH_TAC;
-      ALL_TAC ] THEN
-    ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [4] THEN
+    (**** Final writeback etc. ***)
 
-    (*** Inner loop: count down X9 from loop_remain to 0.             ***)
-    (*   pc1 = pc + 0x304, pc2 = pc + 0x3b4                          ***)
-    ENSURES_WHILE_DOWN_TAC `loop_remain:num` `pc + 0x304` `pc + 0x3b4`
-     `\i s.
-        (read X0  s = word_add in_p
-           (word (64 * loop_count + 16 * (loop_remain - i))) /\
-         read X2  s = word_add out_p
-           (word (64 * loop_count + 16 * (loop_remain - i))) /\
-         read X3  s = tag_p    /\
-         read X4  s = ivec_p   /\
-         read X5  s = key_p    /\
-         read X6  s = htable_p /\
-         read X9  s = word i   /\
-         read X15 s = word (val (len_bits:int64) DIV 8))` THEN
-    REPEAT CONJ_TAC THENL
-    [ FIRST_ASSUM ACCEPT_TAC;
-      (* preamble->inv_k: already at pc+0x304 after step 4, 0 more steps *)
-      ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN ARITH_TAC;
-      REPEAT STRIP_TAC THEN
-      ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--45) THEN
-      ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN ARITH_TAC;
-      REPEAT STRIP_TAC THEN
-      ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--1) THEN
-      ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];
-      ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC (1--5) THEN
-      ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] ] ]);;
+    ARM_SIM_TAC AES_GCM_ENC_KERNEL_EXEC (1--6)
+   ]);;
 
 (* ------------------------------------------------------------------------- *)
 (* Subroutine correctness: lifts the core proof through the save/restore     *)
 (* boilerplate and the final ret. This is the theorem used externally.       *)
 (* ------------------------------------------------------------------------- *)
+
+(****** Leave this for now till we clarify main specification
 
 let AES_GCM_ENC_KERNEL_SUBROUTINE_CORRECT = prove(
   `!in_p out_p len_bits tag_p ivec_p key_p htable_p
@@ -490,8 +607,8 @@ let AES_GCM_ENC_KERNEL_SUBROUTINE_CORRECT = prove(
     PAIRWISE nonoverlapping
       [(word_sub stackpointer (word 160), 160);
        (word pc, LENGTH aes_gcm_enc_kernel_mc);
-       (in_p,  8 * val len_bits DIV 64);
-       (out_p, 8 * val len_bits DIV 64);
+       (in_p,  16 * val len_bits DIV 128);
+       (out_p, 16 * val len_bits DIV 128);
        (tag_p, 16);
        (ivec_p, 16);
        (key_p, 176);
@@ -518,7 +635,7 @@ let AES_GCM_ENC_KERNEL_SUBROUTINE_CORRECT = prove(
            read (memory :> bytes128 (word_add key_p (word 160))) s = rk10)
       (\s. read PC s = returnaddress)
       (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-       MAYCHANGE [memory :> bytes(out_p, 8 * val len_bits DIV 64);
+       MAYCHANGE [memory :> bytes(out_p, 16 * val len_bits DIV 128);
                   memory :> bytes(tag_p, 16);
                   memory :> bytes(ivec_p, 16);
                   memory :> bytes(word_sub stackpointer (word 160), 160)])`,
@@ -529,3 +646,5 @@ let AES_GCM_ENC_KERNEL_SUBROUTINE_CORRECT = prove(
     (REWRITE_RULE[fst AES_GCM_ENC_KERNEL_EXEC] AES_GCM_ENC_KERNEL_CORRECT)
     `[X19; X20; X21; X22; X23; X24; X25; X26; X27; X28; X29; X30;
       D8; D9; D10; D11; D12; D13; D14; D15]` 160);;
+
+****)
