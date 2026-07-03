@@ -9,15 +9,10 @@
 
 needs "arm/proofs/base.ml";;
 
-(**** Eventually, but not yet. So far we're ignoring the ghash-like part
- **** and just verify the AES-counter encryption part so this isn't needed
+needs "common/fips197.ml";;
 
 needs "common/polyval_ghash.ml";;
 needs "common/ghash_nist_bridge.ml";;
-
-****)
-
-needs "common/fips197.ml";;
 
 (* ------------------------------------------------------------------------- *)
 (* The machine code.                                                         *)
@@ -303,6 +298,12 @@ let aes_ctr_block = new_definition
  `aes_ctr_block nonce rk i =
     word_reversefields 8 (aes128_cipher (ctr_block nonce (i + 2)) rk)`;;
 
+(* The i-th ciphertext block: keystream XOR plaintext *)
+
+let cipher_block = new_definition
+ `cipher_block nonce rk inblock i =
+    word_xor (aes_ctr_block nonce rk i) (inblock i)`;;
+
 (* ------------------------------------------------------------------------- *)
 (* Equivalences between the FIPS197 specs and the ARM hardare specs.         *)
 (* ------------------------------------------------------------------------- *)
@@ -539,11 +540,20 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
              MAP (word_reversefields 8) rk /\
            (!i. i < val len_bits DIV 128
                 ==> read (memory :> bytes128 (word_add in_p (word(16*i)))) s =
-                    inblock i))
+                    inblock i) /\
+           htable_mem (ghash_twist (aes128_cipher (word 0) rk))
+                      htable_p s)
       (\s. read PC s = word (pc + 0x3cc) /\
-           !i. i < val len_bits DIV 128
+           (!i. i < val len_bits DIV 128
                 ==> read (memory :> bytes128 (word_add out_p (word(16*i)))) s =
-                    word_xor (aes_ctr_block nonce rk i) (inblock i))
+                    word_xor (aes_ctr_block nonce rk i) (inblock i)) /\
+           read (memory :> bytes128 tag_p) s =
+             nist_ghash (aes128_cipher (word 0) rk) tag0
+               (list_of_seq (cipher_block nonce rk inblock)
+                            (val len_bits DIV 128)) /\
+           read (memory :> bytes128 ivec_p) s =
+             word_reversefields 8
+               (ctr_block nonce (val len_bits DIV 128 + 2)))
       (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
        MAYCHANGE [X19; X20; X21; X22; X23; X24;
                   X25; X26; X27; X28; X29; X30] ,,
@@ -607,6 +617,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         read X9 s = word loop_remain /\
         read Q31 s = word_reversefields 32 (ctr_block nonce 2) /\
         read Q11 s = usimd2 (word_reversefields 8) tag0 /\
+        htable_mem (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
         (!i. i < nblocks
              ==> read (memory :> bytes128 (word_add in_p (word(16*i)))) s =
                  inblock i)` THEN
@@ -665,6 +676,12 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         read X9 s = word loop_remain /\
         read Q31 s = word_reversefields 32
                        (ctr_block nonce (4 * loop_count + 2)) /\
+        read Q11 s =
+          usimd2 (word_reversefields 8)
+            (nist_ghash (aes128_cipher (word 0) rk) tag0
+               (list_of_seq (cipher_block nonce rk inblock)
+                            (4 * loop_count))) /\
+        htable_mem (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
         (!j. j < nblocks
              ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s =
                  inblock j) /\
@@ -709,6 +726,11 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         read X7 s = word nblocks /\
         read X9 s = word loop_remain /\
         read Q31 s = word_reversefields 32 (ctr_block nonce (4 * i + 2)) /\
+        read Q11 s =
+          usimd2 (word_reversefields 8)
+            (nist_ghash (aes128_cipher (word 0) rk) tag0
+               (list_of_seq (cipher_block nonce rk inblock) (4 * i))) /\
+        htable_mem (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
         (!j. j < nblocks
              ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s =
                  inblock j) /\
@@ -717,7 +739,8 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
                  word_xor (aes_ctr_block nonce rk j) (inblock j))` THEN
     ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
      [ARM_SIM_TAC AES_GCM_ENC_KERNEL_EXEC [1] THEN
-      REWRITE_TAC[ADD_CLAUSES; MULT_CLAUSES; SUB_0; WORD_ADD_0; LT];
+      REWRITE_TAC[ADD_CLAUSES; MULT_CLAUSES; SUB_0; WORD_ADD_0; LT;
+                  list_of_seq];
 
       (**** Main loop invariant (main unrolled loop) ****)
 
@@ -734,7 +757,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         read (memory :> bytes128 (word_add in_p (word (64 * i + 48)))) s0 =
         inblock (4 * i + 3)`
       STRIP_ASSUME_TAC THENL
-       [REWRITE_TAC[ARITH_RULE 
+       [REWRITE_TAC[ARITH_RULE
          `64 * i + 16 = 16 * (4 * i + 1) /\
           64 * i + 32 = 16 * (4 * i + 2) /\
           64 * i + 48 = 16 * (4 * i + 3)`] THEN
@@ -744,9 +767,9 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
           (1--152) THEN
-      ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN 
+      ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
 
-      REWRITE_TAC[ARITH_RULE `j < 4 * (i + 1) <=> 
+      REWRITE_TAC[ARITH_RULE `j < 4 * (i + 1) <=>
                               j < 4 * i \/ j = 4 * i \/ j = 4 * i + 1 \/
                               j = 4 * i + 2 \/ j = 4 * i + 3`] THEN
       ASM_REWRITE_TAC[TAUT `p \/ q ==> r <=> (p ==> r) /\ (q ==> r)`] THEN
@@ -762,7 +785,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
       REWRITE_TAC[aes_ctr_block; GSYM ADD_ASSOC] THEN
       CONV_TAC(DEPTH_CONV NUM_ADD_CONV) THEN ASM_REWRITE_TAC[] THEN
       REWRITE_TAC[LEFT_ADD_DISTRIB; GSYM ADD_ASSOC] THEN
-      CONV_TAC NUM_REDUCE_CONV THEN 
+      CONV_TAC NUM_REDUCE_CONV THEN
       REWRITE_TAC[WORD_ADD; GSYM WORD_ADD_ASSOC] THEN
       ASM_SIMP_TAC[WORD_SUB; LT_IMP_LE; ARITH_RULE `i < l ==> i + 1 <= l`] THEN
       CONV_TAC WORD_RULE;
@@ -824,6 +847,12 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
       read X9 s = word(loop_remain - i) /\
       read Q31 s = word_reversefields 32
                     (ctr_block nonce (4 * loop_count + i + 2)) /\
+      read Q11 s =
+        usimd2 (word_reversefields 8)
+          (nist_ghash (aes128_cipher (word 0) rk) tag0
+             (list_of_seq (cipher_block nonce rk inblock)
+                          (4 * loop_count + i))) /\
+      htable_mem (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
       (!j. j < nblocks
              ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s =
                  inblock j) /\
