@@ -533,7 +533,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
            read PC s = word (pc + 0x2c) /\
            C_ARGUMENTS
             [in_p; len_bits; out_p; tag_p; ivec_p; key_p; htable_p] s /\
-           read (memory :> bytes128 tag_p)  s = tag0 /\
+           read (memory :> bytes128 tag_p)  s = word_reversefields 8 tag0 /\
            read (memory :> bytes128 ivec_p) s =
              word_reversefields 8 (ctr_block nonce 2) /\
            wordlist_from_memory(key_p,11) s =
@@ -548,7 +548,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
                 ==> read (memory :> bytes128 (word_add out_p (word(16*i)))) s =
                     word_xor (aes_ctr_block nonce rk i) (inblock i)) /\
            read (memory :> bytes128 tag_p) s =
-             nist_ghash (aes128_cipher (word 0) rk) tag0
+             nist_ghash (aes128_cipher (word 0) rk) (word_reversefields 8 tag0)
                (list_of_seq (cipher_block nonce rk inblock)
                             (val len_bits DIV 128)) /\
            read (memory :> bytes128 ivec_p) s =
@@ -595,7 +595,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         read X3 s = tag_p /\
         read X4 s = ivec_p /\
         read X6 s = htable_p /\
-        read (memory :> bytes128 tag_p) s = tag0 /\
+        read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0 /\
         read (memory :> bytes128 ivec_p) s =
           word_reversefields 8 (ctr_block nonce 2) /\
         read Q18 s = word_reversefields 8 (EL 0 rk) /\
@@ -616,7 +616,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         read X7 s = word nblocks /\
         read X9 s = word loop_remain /\
         read Q31 s = word_reversefields 32 (ctr_block nonce 2) /\
-        read Q11 s = usimd2 (word_reversefields 8) tag0 /\
+        read Q11 s = usimd2 (word_reversefields 8) (word_reversefields 8 tag0) /\
         htable_mem (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
         (!i. i < nblocks
              ==> read (memory :> bytes128 (word_add in_p (word(16*i)))) s =
@@ -654,7 +654,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         read X3 s = tag_p /\
         read X4 s = ivec_p /\
         read X6 s = htable_p /\
-        read (memory :> bytes128 tag_p) s = tag0 /\
+        read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0 /\
         read (memory :> bytes128 ivec_p) s =
           word_reversefields 8 (ctr_block nonce 2) /\
         read Q18 s = word_reversefields 8 (EL 0 rk) /\
@@ -678,7 +678,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
                        (ctr_block nonce (4 * loop_count + 2)) /\
         read Q11 s =
           usimd2 (word_reversefields 8)
-            (nist_ghash (aes128_cipher (word 0) rk) tag0
+            (nist_ghash (aes128_cipher (word 0) rk) (word_reversefields 8 tag0)
                (list_of_seq (cipher_block nonce rk inblock)
                             (4 * loop_count))) /\
         htable_mem (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
@@ -705,7 +705,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         read X3 s = tag_p /\
         read X4 s = ivec_p /\
         read X6 s = htable_p /\
-        read (memory :> bytes128 tag_p) s = tag0 /\
+        read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0 /\
         read (memory :> bytes128 ivec_p) s =
           word_reversefields 8 (ctr_block nonce 2) /\
         read Q18 s = word_reversefields 8 (EL 0 rk) /\
@@ -728,7 +728,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         read Q31 s = word_reversefields 32 (ctr_block nonce (4 * i + 2)) /\
         read Q11 s =
           usimd2 (word_reversefields 8)
-            (nist_ghash (aes128_cipher (word 0) rk) tag0
+            (nist_ghash (aes128_cipher (word 0) rk) (word_reversefields 8 tag0)
                (list_of_seq (cipher_block nonce rk inblock) (4 * i))) /\
         htable_mem (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
         (!j. j < nblocks
@@ -827,7 +827,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
       read X3 s = tag_p /\
       read X4 s = ivec_p /\
       read X6 s = htable_p /\
-      read (memory :> bytes128 tag_p) s = tag0 /\
+      read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0 /\
       read (memory :> bytes128 ivec_p) s =
           word_reversefields 8 (ctr_block nonce 2) /\
       read Q18 s = word_reversefields 8 (EL 0 rk) /\
@@ -849,7 +849,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
                     (ctr_block nonce (4 * loop_count + i + 2)) /\
       read Q11 s =
         usimd2 (word_reversefields 8)
-          (nist_ghash (aes128_cipher (word 0) rk) tag0
+          (nist_ghash (aes128_cipher (word 0) rk) (word_reversefields 8 tag0)
              (list_of_seq (cipher_block nonce rk inblock)
                           (4 * loop_count + i))) /\
       htable_mem (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
@@ -939,7 +939,7 @@ let AES_GCM_ENC_KERNEL_SUBROUTINE_CORRECT = prove(
            read SP s = stackpointer /\
            read X30 s = returnaddress /\
            C_ARGUMENTS [in_p; len_bits; out_p; tag_p; ivec_p; key_p; htable_p] s /\
-           read (memory :> bytes128 tag_p)  s = tag0 /\
+           read (memory :> bytes128 tag_p)  s = word_reversefields 8 tag0 /\
            read (memory :> bytes128 ivec_p) s = ivec0 /\
            read (memory :> bytes128 (word_add key_p (word   0))) s = rk0 /\
            read (memory :> bytes128 (word_add key_p (word  16))) s = rk1 /\
