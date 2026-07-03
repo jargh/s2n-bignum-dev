@@ -304,6 +304,33 @@ let cipher_block = new_definition
  `cipher_block nonce rk inblock i =
     word_xor (aes_ctr_block nonce rk i) (inblock i)`;;
 
+(* Restricted Htable predicate: only the entries the kernel actually reads.
+   The x4-unrolled loop uses H^1..H^4 and their Karatsuba mid terms (the
+   first 6 entries = offsets 0..80 of the full htable_mem layout).
+   The tail loop only uses H^1..H^2 (offsets 0..32) but we assert all four
+   here since the outer loop needs them and the precondition is shared. *)
+
+let htable_mem_4 = new_definition
+ `htable_mem_4 (h:int128) (ptr:int64) (s:armstate) <=>
+  read (memory :> bytes128 ptr) s =
+    byteswap128(h_power h 0) /\
+  read (memory :> bytes128 (word_add ptr (word 16))) s =
+    word_join (karatsuba_mid(h_power h 0) : 64 word)
+              (karatsuba_mid(h_power h 1) : 64 word) /\
+  read (memory :> bytes128 (word_add ptr (word 32))) s =
+    byteswap128(h_power h 1) /\
+  read (memory :> bytes128 (word_add ptr (word 48))) s =
+    byteswap128(h_power h 2) /\
+  read (memory :> bytes128 (word_add ptr (word 64))) s =
+    word_join (karatsuba_mid(h_power h 2) : 64 word)
+              (karatsuba_mid(h_power h 3) : 64 word) /\
+  read (memory :> bytes128 (word_add ptr (word 80))) s =
+    byteswap128(h_power h 3)`;;
+
+let HTABLE_MEM_IMP_4 = prove
+ (`!h ptr s. htable_mem h ptr s ==> htable_mem_4 h ptr s`,
+  SIMP_TAC[htable_mem; htable_mem_4])
+
 (* ------------------------------------------------------------------------- *)
 (* Equivalences between the FIPS197 specs and the ARM hardare specs.         *)
 (* ------------------------------------------------------------------------- *)
@@ -541,7 +568,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
            (!i. i < val len_bits DIV 128
                 ==> read (memory :> bytes128 (word_add in_p (word(16*i)))) s =
                     inblock i) /\
-           htable_mem (ghash_twist (aes128_cipher (word 0) rk))
+           htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk))
                       htable_p s)
       (\s. read PC s = word (pc + 0x3cc) /\
            (!i. i < val len_bits DIV 128
@@ -617,7 +644,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         read X9 s = word loop_remain /\
         read Q31 s = word_reversefields 32 (ctr_block nonce 2) /\
         read Q11 s = usimd2 (word_reversefields 8) (word_reversefields 8 tag0) /\
-        htable_mem (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
+        htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
         (!i. i < nblocks
              ==> read (memory :> bytes128 (word_add in_p (word(16*i)))) s =
                  inblock i)` THEN
@@ -681,7 +708,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
             (nist_ghash (aes128_cipher (word 0) rk) (word_reversefields 8 tag0)
                (list_of_seq (cipher_block nonce rk inblock)
                             (4 * loop_count))) /\
-        htable_mem (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
+        htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
         (!j. j < nblocks
              ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s =
                  inblock j) /\
@@ -730,7 +757,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
           usimd2 (word_reversefields 8)
             (nist_ghash (aes128_cipher (word 0) rk) (word_reversefields 8 tag0)
                (list_of_seq (cipher_block nonce rk inblock) (4 * i))) /\
-        htable_mem (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
+        htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
         (!j. j < nblocks
              ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s =
                  inblock j) /\
@@ -852,7 +879,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
           (nist_ghash (aes128_cipher (word 0) rk) (word_reversefields 8 tag0)
              (list_of_seq (cipher_block nonce rk inblock)
                           (4 * loop_count + i))) /\
-      htable_mem (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
+      htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
       (!j. j < nblocks
              ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s =
                  inblock j) /\
