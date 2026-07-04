@@ -636,19 +636,20 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         read Q26 s = word_reversefields 8 (EL 8 rk) /\
         read Q27 s = word_reversefields 8 (EL 9 rk) /\
         read Q28 s = word_reversefields 8 (EL 10 rk) /\
-        read X25 s = word 13979173243358019584 /\
+        read Q7 s = word 13979173243358019584 /\
         read Q30 s = word 79228162514264337593543950336 /\
         read X15 s = word(len_bits DIV 8) /\
         read X1 s = word loop_count /\
         read X7 s = word nblocks /\
         read X9 s = word loop_remain /\
         read Q31 s = word_reversefields 32 (ctr_block nonce 2) /\
-        read Q11 s = usimd2 (word_reversefields 8) (word_reversefields 8 tag0) /\
+        read Q11 s =
+          usimd2 (word_reversefields 8) (word_reversefields 8 tag0) /\
         htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
         (!i. i < nblocks
              ==> read (memory :> bytes128 (word_add in_p (word(16*i)))) s =
                  inblock i)` THEN
-  CONJ_TAC THENL
+  REWRITE_TAC[htable_mem_4; GSYM CONJ_ASSOC] THEN CONJ_TAC THENL
    [ENSURES_INIT_TAC "s0" THEN
     MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [n] THEN
           RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
@@ -695,7 +696,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         read Q26 s = word_reversefields 8 (EL 8 rk) /\
         read Q27 s = word_reversefields 8 (EL 9 rk) /\
         read Q28 s = word_reversefields 8 (EL 10 rk) /\
-        read X25 s = word 13979173243358019584 /\
+        read Q7 s = word 13979173243358019584 /\
         read Q30 s = word 79228162514264337593543950336 /\
         read X15 s = word(len_bits DIV 8) /\
         read X1 s = word 0 /\
@@ -715,7 +716,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         (!j. j < 4 * loop_count
              ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s =
                  word_xor (aes_ctr_block nonce rk j) (inblock j))` THEN
-  CONJ_TAC THENL
+  REWRITE_TAC[htable_mem_4; GSYM CONJ_ASSOC] THEN CONJ_TAC THENL
    [ASM_CASES_TAC `loop_count = 0` THENL
      [POP_ASSUM SUBST_ALL_TAC THEN
       ARM_SIM_TAC AES_GCM_ENC_KERNEL_EXEC [1] THEN
@@ -746,7 +747,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         read Q26 s = word_reversefields 8 (EL 8 rk) /\
         read Q27 s = word_reversefields 8 (EL 9 rk) /\
         read Q28 s = word_reversefields 8 (EL 10 rk) /\
-        read X25 s = word 13979173243358019584 /\
+        read Q7 s = word 13979173243358019584 /\
         read Q30 s = word 79228162514264337593543950336 /\
         read X15 s = word(len_bits DIV 8) /\
         read X1 s = word(loop_count - i) /\
@@ -764,7 +765,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         (!j. j < 4 * i
              ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s =
                  word_xor (aes_ctr_block nonce rk j) (inblock j))` THEN
-    ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
+    ASM_REWRITE_TAC[htable_mem_4; GSYM CONJ_ASSOC] THEN REPEAT CONJ_TAC THENL
      [ARM_SIM_TAC AES_GCM_ENC_KERNEL_EXEC [1] THEN
       REWRITE_TAC[ADD_CLAUSES; MULT_CLAUSES; SUB_0; WORD_ADD_0; LT;
                   list_of_seq];
@@ -833,6 +834,10 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
 
   (*** Trivial case of the tail loop ***)
 
+(* ------------------------------------------------------------------------- *)
+(* DONK: this has to go all the way to the end so more work.                 *)
+(* ------------------------------------------------------------------------- *)
+
   ASM_CASES_TAC `loop_remain = 0` THENL
    [POP_ASSUM SUBST_ALL_TAC THEN
     ENSURES_INIT_TAC "s0" THEN
@@ -868,7 +873,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
       read Q26 s = word_reversefields 8 (EL 8 rk) /\
       read Q27 s = word_reversefields 8 (EL 9 rk) /\
       read Q28 s = word_reversefields 8 (EL 10 rk) /\
-      read X25 s = word 13979173243358019584 /\
+      read Q7 s = word 13979173243358019584 /\
       read Q30 s = word 79228162514264337593543950336 /\
       read X15 s = word(len_bits DIV 8) /\
       read X9 s = word(loop_remain - i) /\
@@ -880,13 +885,20 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
              (list_of_seq (cipher_block nonce rk inblock)
                           (4 * loop_count + i))) /\
       htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
-      (!j. j < nblocks
+      read Q12 s = byteswap128
+        (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
+      read Q13 s = byteswap128
+       (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
+      read Q14 s = word_join
+       (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0))
+       (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1)) /\
+        (!j. j < nblocks
              ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s =
                  inblock j) /\
       (!j. j < 4 * loop_count + i
            ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s =
                word_xor (aes_ctr_block nonce rk j) (inblock j))` THEN
-  ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
+  ASM_REWRITE_TAC[htable_mem_4; GSYM CONJ_ASSOC] THEN REPEAT CONJ_TAC THENL
    [ENSURES_INIT_TAC "s0" THEN
     MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [n] THEN
           RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
