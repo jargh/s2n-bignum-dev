@@ -13,6 +13,7 @@ needs "common/fips197.ml";;
 
 needs "common/polyval_ghash.ml";;
 needs "common/ghash_nist_bridge.ml";;
+needs "common/karatsuba_pmul.ml";;
 
 (* ------------------------------------------------------------------------- *)
 (* The machine code.                                                         *)
@@ -298,11 +299,17 @@ let aes_ctr_block = new_definition
  `aes_ctr_block nonce rk i =
     word_reversefields 8 (aes128_cipher (ctr_block nonce (i + 2)) rk)`;;
 
-(* The i-th ciphertext block: keystream XOR plaintext *)
+(* The i-th ciphertext block: keystream XOR plaintext - little-endian *)
 
 let cipher_block = new_definition
  `cipher_block nonce rk inblock i =
     word_xor (aes_ctr_block nonce rk i) (inblock i)`;;
+
+(* The NIST convention is big-endian, however *)
+
+let nist_cipher_block = new_definition
+ `nist_cipher_block nonce rk inblock i =
+        word_reversefields 8 (cipher_block nonce rk inblock i)`;;
 
 (* Restricted Htable predicate: only the entries the kernel actually reads.
    The x4-unrolled loop uses H^1..H^4 and their Karatsuba mid terms (the
@@ -315,21 +322,17 @@ let htable_mem_4 = new_definition
   read (memory :> bytes128 ptr) s =
     byteswap128(h_power h 0) /\
   read (memory :> bytes128 (word_add ptr (word 16))) s =
-    word_join (karatsuba_mid(h_power h 0) : 64 word)
-              (karatsuba_mid(h_power h 1) : 64 word) /\
+    word_join (karatsuba_mid(h_power h 1) : 64 word)
+              (karatsuba_mid(h_power h 0) : 64 word) /\
   read (memory :> bytes128 (word_add ptr (word 32))) s =
     byteswap128(h_power h 1) /\
   read (memory :> bytes128 (word_add ptr (word 48))) s =
     byteswap128(h_power h 2) /\
   read (memory :> bytes128 (word_add ptr (word 64))) s =
-    word_join (karatsuba_mid(h_power h 2) : 64 word)
-              (karatsuba_mid(h_power h 3) : 64 word) /\
+    word_join (karatsuba_mid(h_power h 3) : 64 word)
+              (karatsuba_mid(h_power h 2) : 64 word) /\
   read (memory :> bytes128 (word_add ptr (word 80))) s =
     byteswap128(h_power h 3)`;;
-
-let HTABLE_MEM_IMP_4 = prove
- (`!h ptr s. htable_mem h ptr s ==> htable_mem_4 h ptr s`,
-  SIMP_TAC[htable_mem; htable_mem_4])
 
 (* ------------------------------------------------------------------------- *)
 (* Equivalences between the FIPS197 specs and the ARM hardare specs.         *)
@@ -404,6 +407,38 @@ let FIPS197_EQ_MIX_COLUMNS = prove
 (* Reconstruction of high-level concepts from the computed expressions.      *)
 (* ------------------------------------------------------------------------- *)
 
+let WORD_JOIN_COMBINE_LEMMA = prove
+ (`(!(x:N word) pos1 pos2.
+        pos1 + 8 = pos2
+        ==> word_join (word_subword x (pos2,8):byte)
+                      (word_subword x (pos1,8):byte):int16 =
+            word_subword x (pos1,16)) /\
+   (!(x:N word) pos1 pos2.
+        pos1 + 16 = pos2
+        ==> word_join (word_subword x (pos2,16):int16)
+                      (word_subword x (pos1,16):int16):int32 =
+            word_subword x (pos1,32)) /\
+   (!(x:N word) pos1 pos2.
+        pos1 + 32 = pos2
+        ==> word_join (word_subword x (pos2,32):int32)
+                      (word_subword x (pos1,32):int32):int64 =
+            word_subword x (pos1,64)) /\
+   (!(x:N word) pos1 pos2.
+        pos1 + 64 = pos2
+        ==> word_join (word_subword x (pos2,64):int64)
+                      (word_subword x (pos1,64):int64):int128 =
+            word_subword x (pos1,128)) /\
+   (!x:int128. word_subword x (0,128) = x)`,
+  REWRITE_TAC[CONJ_ASSOC] THEN
+  CONJ_TAC THENL [ALL_TAC; CONV_TAC WORD_BLAST] THEN
+  REPEAT STRIP_TAC THEN FIRST_X_ASSUM(SUBST_ALL_TAC o SYM) THEN
+  REWRITE_TAC[WORD_EQ_BITS_ALT; DIMINDEX_16; DIMINDEX_32;
+              DIMINDEX_64; DIMINDEX_128] THEN
+  CONV_TAC EXPAND_CASES_CONV THEN
+  REWRITE_TAC[BIT_WORD_JOIN; BIT_WORD_SUBWORD;
+        DIMINDEX_8; DIMINDEX_16; DIMINDEX_32; DIMINDEX_64; DIMINDEX_128] THEN
+  REWRITE_TAC[GSYM ADD_ASSOC] THEN CONV_TAC NUM_REDUCE_CONV);;
+
 let WORD_SUBWORD_REVERSEFIELDS_32 = prove
  (`word_subword (word_reversefields 32 x:int128) (0,32):int32 =
    word_subword x (96,32) /\
@@ -414,6 +449,11 @@ let WORD_SUBWORD_REVERSEFIELDS_32 = prove
    word_subword (word_reversefields 32 x:int128) (96,32):int32 =
    word_subword x (0,32)`,
   CONV_TAC WORD_BLAST);;
+
+let WORD_SUBWORD_BYTESWAP128 = prove
+ (`(!x. word_subword (byteswap128 x) (0,64):int64 = word_subword x (64,64)) /\
+   (!x. word_subword (byteswap128 x) (64,64):int64 = word_subword x (0,64))`,
+  REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
 
 let WORD_SUBWORD_CTR_BLOCK_32 = prove
  (`word_subword (ctr_block nonce cnt) (0,32):int32 = word cnt /\
@@ -444,6 +484,23 @@ let CTR_BLOCK_RECONSTRUCT_REV32 = prove
                (word_subword nonce (64,32):int32):int64) =
   word_reversefields 32 (ctr_block nonce ctr)`,
   REWRITE_TAC[ctr_block] THEN CONV_TAC WORD_BLAST);;
+
+let AES_CTR_BLOCK_RECONSTRUCT = prove
+ (`word_reversefields 8 (aes128_cipher (ctr_block nonce (i + 2)) rk) =
+   aes_ctr_block nonce rk i /\
+   word_reversefields 8 (aes128_cipher (ctr_block nonce (i + 3)) rk) =
+   aes_ctr_block nonce rk (i + 1) /\
+   word_reversefields 8 (aes128_cipher (ctr_block nonce (i + 4)) rk) =
+   aes_ctr_block nonce rk (i + 2) /\
+   word_reversefields 8 (aes128_cipher (ctr_block nonce (i + 5)) rk) =
+   aes_ctr_block nonce rk (i + 3)`,
+  REWRITE_TAC[aes_ctr_block; GSYM ADD_ASSOC] THEN
+  CONV_TAC NUM_REDUCE_CONV);;
+
+let CIPHER_BLOCK_NIST = prove
+ (`cipher_block nonce rk inblock i =
+        word_reversefields 8 (nist_cipher_block nonce rk inblock i)`,
+  REWRITE_TAC[nist_cipher_block; WORD_REVERSEFIELDS_REVERSEFIELDS]);;
 
 (*** Direct implementation of AES128 using the hardware primitives ***)
 
@@ -890,8 +947,8 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
       read Q13 s = byteswap128
        (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
       read Q14 s = word_join
-       (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0))
-       (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1)) /\
+       (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1))
+       (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
         (!j. j < nblocks
              ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s =
                  inblock j) /\
@@ -1006,3 +1063,288 @@ let AES_GCM_ENC_KERNEL_SUBROUTINE_CORRECT = prove(
       D8; D9; D10; D11; D12; D13; D14; D15]` 160);;
 
 ****)
+
+(* ------------------------------------------------------------------------- *)
+(* DONK: note that we could actually do a "classic" ghash computation if     *)
+(* we wanted using RBIT.16b instead of REV64.16b - all that's wrong is the   *)
+(* order of the 64-bit words but that doesn't matter. But this is just       *)
+(* academic since Claude suggests POLYVAL's reduction is likely to be        *)
+(* inherently faster anyway.                                                 *)
+(* ------------------------------------------------------------------------- *)
+
+(*****
+let alt_lemma = prove
+ (`!c:int128. word_reversefields 1 (usimd16 (word_reversefields 1) c) =
+              word_reversefields 64 (usimd2 (word_reversefields 8) c)`,
+  REWRITE_TAC[usimd16; usimd8; usimd4; usimd2] THEN
+  REWRITE_TAC[DIMINDEX_8; DIMINDEX_16; DIMINDEX_32; DIMINDEX_64] THEN
+  CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
+  CONV_TAC WORD_BLAST);;
+****)
+
+(* ------------------------------------------------------------------------- *)
+(* DONK: prototypical simplification of non-trivial parts:                   *)
+(* ------------------------------------------------------------------------- *)
+
+(******
+
+e(REWRITE_TAC[AES_CTR_BLOCK_RECONSTRUCT]);;
+e(REWRITE_TAC[GSYM cipher_block]);;
+e(REWRITE_TAC[CIPHER_BLOCK_NIST]);;
+e(REWRITE_TAC[WORD_SUBWORD_REVERSEFIELDS]);;
+e(SIMP_TAC[WORD_JOIN_COMBINE_LEMMA; ARITH]);;
+e(REWRITE_TAC[WORD_SUBWORD_XOR]);;
+e(REWRITE_TAC[WORD_SUBWORD_BYTESWAP128]);;
+
+****)
+
+(* ------------------------------------------------------------------------- *)
+(* DONK: more careful reduction of the non-trivial goals.                    *)
+(* ------------------------------------------------------------------------- *)
+
+(*******
+
+
+let ee tac = (e tac; r 1; e tac; r 1);;
+
+ee(POP_ASSUM_LIST(K ALL_TAC));;
+
+let gs = !current_goalstack;;
+
+let gl = gs;;
+
+current_goalstack := gs;;
+
+(* ------------------------------------------------------------------------- *)
+(* DONK: sound basic simplifications                                         *)
+(* ------------------------------------------------------------------------- *)
+
+ee(REWRITE_TAC[ADD_ASSOC; ARITH]);;
+ee(REWRITE_TAC[AES_CTR_BLOCK_RECONSTRUCT]);;
+ee(REWRITE_TAC[GSYM cipher_block]);;
+ee(REWRITE_TAC[CIPHER_BLOCK_NIST]);;
+ee(REWRITE_TAC[WORD_SUBWORD_REVERSEFIELDS]);;
+ee(SIMP_TAC[WORD_JOIN_COMBINE_LEMMA; ARITH]);;
+ee(REWRITE_TAC[WORD_SUBWORD_XOR]);;
+ee(REWRITE_TAC[WORD_SUBWORD_BYTESWAP128]);;
+ee(CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV));;
+ee(REWRITE_TAC[WORD_SUBWORD_XOR]);;
+ee(CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV));;
+ee(REPEAT(CONJ_TAC THENL [CONV_TAC WORD_RULE; ALL_TAC]));;
+
+ee(REWRITE_TAC [WORD_BLAST
+   `word_subword((word_join:int128->int128->int256) h l) (64,128):int128 =
+    word_join (word_subword h (0,64):int64)
+              (word_subword l (64,64):int64)`] THEN
+   GEN_REWRITE_TAC RAND_CONV [usimd2] THEN
+   REWRITE_TAC[DIMINDEX_64] THEN
+   REWRITE_TAC[BITBLAST_RULE
+    `word_reversefields 8
+       (word_subword (x:int128) (0,64):int64) =
+     word_subword (word_reversefields 8 x) (64,64) /\
+     word_reversefields 8
+       (word_subword (x:int128) (64,64):int64) =
+     word_subword (word_reversefields 8 x) (0,64)`] THEN
+   MATCH_MP_TAC(BITBLAST_RULE
+    `x:int128 = y
+     ==> word_join (word_subword x (0,64):int64)
+                   (word_subword x (64,64):int64):int128 =
+         word_join (word_subword y (0,64):int64)
+                   (word_subword y (64,64):int64):int128`));;
+
+let gl = !current_goalstack;;
+
+(* ------------------------------------------------------------------------- *)
+(* The appropriate reduction pattern.                                        *)
+(* ------------------------------------------------------------------------- *)
+
+let polyval_reduce_prop5 = new_definition
+ `polyval_reduce_prop5 p1 p2 p3 =
+        let (HI:int128->int64) = \x. word_subword x (64,64)
+        and (LO:int128->int64) = \x. word_subword x (0,64) in
+        let ks = word_xor (word_xor p1 p2) p3 in
+        let w1 = word_pmul (LO p1) (word 13979173243358019584 : int64) in
+        let w2 = word_pmul
+                 (word_xor (word_xor (LO w1) (HI p1))
+                           (LO(word_xor (word_xor p1 p2) p3)))
+                 (word 13979173243358019584 : int64) in
+        word_xor
+           (word_join
+              (LO (word_xor (word_xor w1 (word_join (LO p1) (HI p1))) ks))
+              (HI (word_xor (word_xor w1 (word_join (LO p1) (HI p1))) ks))
+              : int128)
+           (word_xor w2 p2 : int128)`;;
+
+let RECONSTRUCT_POLYVAL_REDUCE_PROP5 =
+  REWRITE_RULE[LET_DEF; LET_END_DEF] (GSYM polyval_reduce_prop5);;
+
+(* ------------------------------------------------------------------------- *)
+(* DONK: more comprehensible tail                                            *)
+(* ------------------------------------------------------------------------- *)
+
+current_goalstack := gl;;
+
+e(MAP_EVERY ABBREV_TAC
+   [`sofar = usimd2 (word_reversefields 8)
+      (nist_ghash (aes128_cipher (word 0) rk) (word_reversefields 8 tag0)
+        (list_of_seq (cipher_block nonce rk inblock) (4 * loop_count + i)))`;
+    `cipherblock =
+      nist_cipher_block nonce rk inblock (4 * loop_count + i)`;
+    `h = h_power (ghash_twist (aes128_cipher (word 0) rk)) 0`;
+    `k = karatsuba_mid (h_power
+          (ghash_twist (aes128_cipher (word 0) rk)) 0)`] THEN
+
+  REWRITE_TAC[WORD_BLAST
+   `word_xor (word_subword (x:int128) (0,64):int64)
+             (word_subword (y:int128) (0,64):int64) =
+    word_subword (word_xor x y) (0,64)`] THEN
+  REWRITE_TAC[WORD_BLAST
+   `word_xor (word_subword (x:int128) (64,64):int64)
+             (word_subword (y:int128) (64,64):int64) =
+    word_subword (word_xor x y) (64,64)`] THEN
+
+  REWRITE_TAC[RECONSTRUCT_POLYVAL_REDUCE_PROP5] THEN
+
+  MAP_EVERY ABBREV_TAC
+   [`(HI:int128->int64) x = word_subword x (64,64)`;
+    `(LO:int128->int64) x = word_subword x (0,64)`] THEN
+  ASM_REWRITE_TAC[]);;
+
+
+(* ------------------------------------------------------------------------- *)
+(* DONK: more comprehensible main loop.                                      *)
+(* ------------------------------------------------------------------------- *)
+
+r 1;;
+
+e(MAP_EVERY ABBREV_TAC
+   [`sofar = usimd2 (word_reversefields 8)
+      (nist_ghash (aes128_cipher (word 0) rk) (word_reversefields 8 tag0)
+        (list_of_seq (cipher_block nonce rk inblock) (4 * i)))`;
+    `cipherblock_0 = nist_cipher_block nonce rk inblock (4 * i)`;
+    `cipherblock_1 = nist_cipher_block nonce rk inblock (4 * i + 1)`;
+    `cipherblock_2 = nist_cipher_block nonce rk inblock (4 * i + 2)`;
+    `cipherblock_3 = nist_cipher_block nonce rk inblock (4 * i + 3)`;
+    `h0 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 0`;
+    `h1 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 1`;
+    `h2 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 2`;
+    `h3 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 3`] THEN
+
+  REWRITE_TAC[WORD_BLAST
+   `word_xor (word_subword (x:int128) (0,64):int64)
+             (word_subword (y:int128) (0,64):int64) =
+    word_subword (word_xor x y) (0,64)`] THEN
+  REWRITE_TAC[WORD_BLAST
+   `word_xor (word_subword (x:int128) (64,64):int64)
+             (word_subword (y:int128) (64,64):int64) =
+    word_subword (word_xor x y) (64,64)`] THEN
+
+  REWRITE_TAC[RECONSTRUCT_POLYVAL_REDUCE_PROP5] THEN
+
+  MAP_EVERY ABBREV_TAC
+   [`(HI:int128->int64) x = word_subword x (64,64)`;
+    `(LO:int128->int64) x = word_subword x (0,64)`] THEN
+  ASM_REWRITE_TAC[]);;
+
+(* ------------------------------------------------------------------------- *)
+(* DONK: the crux is now some relationship like this                         *)
+(* ------------------------------------------------------------------------- *)
+
+let POLYVAL_REDUCE_PROP5 = prove
+ (`polyval_reduce_prop5 p1 p2 p3 =
+    polyval_reduce_prop3
+      ((word_join : int128 -> int128 -> (256)word)
+         (word_join (word_subword p2 (64,64):int64)
+                    (word_xor (word_subword (word_xor (word_xor p1 p2) p3)
+            (64,64):int64)
+   (word_subword p2
+  (0,64):int64))
+                    : int128)
+         (word_join (word_xor (word_subword
+          (word_xor (word_xor p1 p2) p3) (0,64):int64) (word_subword p1
+  (64,64):int64))
+                    (word_subword p1 (0,64):int64)
+                    : int128))`,
+
+  REPEAT GEN_TAC THEN
+    REWRITE_TAC[polyval_reduce_prop5; polyval_reduce_prop3;
+                LET_DEF; LET_END_DEF] THEN
+    CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
+
+    ABBREV_TAC
+     `w1 =  (word_pmul:int64->int64->int128)
+        (word_subword (p1:int128) (0,64)) (word 13979173243358019584)` THEN
+    ABBREV_TAC `ks:int128 = word_xor (word_xor p1 p2) p3` THEN
+    REWRITE_TAC[WORD_SUBWORD_XOR] THEN
+    CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
+
+    ABBREV_TAC
+     `w2:int128 = word_pmul
+   (word_xor (word_xor (word_subword (w1:int128) (0,64):int64)
+                       (word_subword (p1:int128) (64,64):int64))
+             (word_subword (ks:int128) (0,64):int64))
+       (word 13979173243358019584:int64)` THEN
+
+   FIRST_ASSUM(MP_TAC o GEN_REWRITE_RULE (LAND_CONV o LAND_CONV)
+    [WORD_BITWISE_RULE
+      `word_xor (word_xor w1 p1) ks = word_xor (word_xor ks p1) w1`]) THEN
+   DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
+  BITBLAST_TAC);;
+
+(* ------------------------------------------------------------------------- *)
+(* A variant of the earlier Karatsuba lemmas better matching the code        *)
+(* ------------------------------------------------------------------------- *)
+
+let PMUL_KARATSUBA_JOIN = prove
+ (`!(a:int128) (b:int128).
+    (word_pmul a b : 256 word) =
+    let p1 = word_pmul (word_subword a (0,64):int64)
+                       (word_subword b (0,64):int64) : int128 in
+    let p2 = word_pmul (word_subword a (64,64):int64)
+                       (word_subword b (64,64):int64) : int128 in
+    let p3 = word_pmul (word_xor (word_subword a (0,64):int64)
+                                 (word_subword a (64,64):int64))
+                       (word_xor (word_subword b (0,64):int64)
+                                 (word_subword b (64,64):int64)) : int128 in
+    let ks = word_xor (word_xor p1 p2) p3 in
+    (word_join : int128 -> int128 -> 256 word)
+      (word_join (word_subword p2 (64,64):int64)
+                 (word_xor (word_subword ks (64,64):int64)
+                           (word_subword p2 (0,64):int64)) : int128)
+      (word_join (word_xor (word_subword ks (0,64):int64)
+                           (word_subword p1 (64,64):int64))
+                 (word_subword p1 (0,64):int64) : int128)`,
+  REPEAT GEN_TAC THEN
+  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+  REWRITE_TAC[REWRITE_RULE[LET_DEF; LET_END_DEF] PMUL_KARATSUBA] THEN
+  CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
+  CONV_TAC WORD_BLAST);;
+
+(* ------------------------------------------------------------------------- *)
+(* DONK: back to tail goal and break it down a bit                           *)
+(* ------------------------------------------------------------------------- *)
+
+r 1;;
+
+let gsp = !current_goalstack;;
+
+current_goalstack := gsp;;
+
+e(TRANS_TAC EQ_TRANS
+    `polyval_reduce_prop3
+        (word_pmul (word_xor (byteswap128 sofar) cipherblock) (h:int128))` THEN
+  CONJ_TAC);;
+
+e(REWRITE_TAC[PMUL_KARATSUBA_JOIN] THEN
+  REWRITE_TAC[byteswap128; WORD_SUBWORD_XOR] THEN
+  CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
+
+  ASM_REWRITE_TAC[] THEN
+  LET_TAC THEN ASM_REWRITE_TAC[] THEN
+  EXPAND_TAC "k" THEN REWRITE_TAC[karatsuba_mid] THEN
+  ASM_REWRITE_TAC[] THEN
+
+  REWRITE_TAC[POLYVAL_REDUCE_PROP5] THEN ASM_REWRITE_TAC[]);;
+
+
+*****)
