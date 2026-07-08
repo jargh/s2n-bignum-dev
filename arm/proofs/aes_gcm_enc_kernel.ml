@@ -632,8 +632,8 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
                 ==> read (memory :> bytes128 (word_add out_p (word(16*i)))) s =
                     word_xor (aes_ctr_block nonce rk i) (inblock i)) /\
            read (memory :> bytes128 tag_p) s =
-             nist_ghash (aes128_cipher (word 0) rk) (word_reversefields 8 tag0)
-               (list_of_seq (cipher_block nonce rk inblock)
+             nist_ghash (aes128_cipher (word 0) rk) tag0
+               (list_of_seq (nist_cipher_block nonce rk inblock)
                             (val len_bits DIV 128)) /\
            read (memory :> bytes128 ivec_p) s =
              word_reversefields 8
@@ -701,7 +701,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         read X9 s = word loop_remain /\
         read Q31 s = word_reversefields 32 (ctr_block nonce 2) /\
         read Q11 s =
-          usimd2 (word_reversefields 8) (word_reversefields 8 tag0) /\
+          byteswap128 tag0 /\
         htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
         (!i. i < nblocks
              ==> read (memory :> bytes128 (word_add in_p (word(16*i)))) s =
@@ -762,9 +762,9 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         read Q31 s = word_reversefields 32
                        (ctr_block nonce (4 * loop_count + 2)) /\
         read Q11 s =
-          usimd2 (word_reversefields 8)
-            (nist_ghash (aes128_cipher (word 0) rk) (word_reversefields 8 tag0)
-               (list_of_seq (cipher_block nonce rk inblock)
+          byteswap128
+            (nist_ghash (aes128_cipher (word 0) rk) tag0
+               (list_of_seq (nist_cipher_block nonce rk inblock)
                             (4 * loop_count))) /\
         htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
         (!j. j < nblocks
@@ -812,9 +812,9 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         read X9 s = word loop_remain /\
         read Q31 s = word_reversefields 32 (ctr_block nonce (4 * i + 2)) /\
         read Q11 s =
-          usimd2 (word_reversefields 8)
-            (nist_ghash (aes128_cipher (word 0) rk) (word_reversefields 8 tag0)
-               (list_of_seq (cipher_block nonce rk inblock) (4 * i))) /\
+          byteswap128
+            (nist_ghash (aes128_cipher (word 0) rk) tag0
+               (list_of_seq (nist_cipher_block nonce rk inblock) (4 * i))) /\
         htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
         (!j. j < nblocks
              ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s =
@@ -937,9 +937,9 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
       read Q31 s = word_reversefields 32
                     (ctr_block nonce (4 * loop_count + i + 2)) /\
       read Q11 s =
-        usimd2 (word_reversefields 8)
-          (nist_ghash (aes128_cipher (word 0) rk) (word_reversefields 8 tag0)
-             (list_of_seq (cipher_block nonce rk inblock)
+        byteswap128
+            (nist_ghash (aes128_cipher (word 0) rk) tag0
+               (list_of_seq (nist_cipher_block nonce rk inblock)
                           (4 * loop_count + i))) /\
       htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
       read Q12 s = byteswap128
@@ -1185,9 +1185,9 @@ let RECONSTRUCT_POLYVAL_REDUCE_PROP5 =
 current_goalstack := gl;;
 
 e(MAP_EVERY ABBREV_TAC
-   [`sofar = usimd2 (word_reversefields 8)
-      (nist_ghash (aes128_cipher (word 0) rk) (word_reversefields 8 tag0)
-        (list_of_seq (cipher_block nonce rk inblock) (4 * loop_count + i)))`;
+   [`sofar = byteswap128
+            (nist_ghash (aes128_cipher (word 0) rk) tag0
+               (list_of_seq (nist_cipher_block nonce rk inblock) (4 * loop_count + i)))`;
     `cipherblock =
       nist_cipher_block nonce rk inblock (4 * loop_count + i)`;
     `h = h_power (ghash_twist (aes128_cipher (word 0) rk)) 0`;
@@ -1218,9 +1218,9 @@ e(MAP_EVERY ABBREV_TAC
 r 1;;
 
 e(MAP_EVERY ABBREV_TAC
-   [`sofar = usimd2 (word_reversefields 8)
-      (nist_ghash (aes128_cipher (word 0) rk) (word_reversefields 8 tag0)
-        (list_of_seq (cipher_block nonce rk inblock) (4 * i)))`;
+   [`sofar = byteswap128
+            (nist_ghash (aes128_cipher (word 0) rk) tag0
+               (list_of_seq (nist_cipher_block nonce rk inblock) (4 * i)))`;
     `cipherblock_0 = nist_cipher_block nonce rk inblock (4 * i)`;
     `cipherblock_1 = nist_cipher_block nonce rk inblock (4 * i + 1)`;
     `cipherblock_2 = nist_cipher_block nonce rk inblock (4 * i + 2)`;
@@ -1321,30 +1321,70 @@ let PMUL_KARATSUBA_JOIN = prove
   CONV_TAC WORD_BLAST);;
 
 (* ------------------------------------------------------------------------- *)
-(* DONK: back to tail goal and break it down a bit                           *)
+(* DONK: back to the tail goal and restate it manually                       *)
 (* ------------------------------------------------------------------------- *)
 
 r 1;;
 
 let gsp = !current_goalstack;;
 
+
+
 current_goalstack := gsp;;
 
 e(TRANS_TAC EQ_TRANS
     `polyval_reduce_prop3
         (word_pmul (word_xor (byteswap128 sofar) cipherblock) (h:int128))` THEN
-  CONJ_TAC);;
+  CONJ_TAC THENL
+   [REWRITE_TAC[PMUL_KARATSUBA_JOIN_ALT] THEN
+    REWRITE_TAC[byteswap128; WORD_SUBWORD_XOR] THEN
+    CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
+    ASM_REWRITE_TAC[] THEN
+    LET_TAC THEN ASM_REWRITE_TAC[] THEN
+    EXPAND_TAC "k" THEN REWRITE_TAC[karatsuba_mid] THEN
+    ASM_REWRITE_TAC[] THEN REPEAT LET_TAC THEN
+    REWRITE_TAC[POLYVAL_REDUCE_PROP5] THEN ASM_REWRITE_TAC[] THEN NO_TAC;
+    ALL_TAC]);;
 
-e(REWRITE_TAC[PMUL_KARATSUBA_JOIN] THEN
-  REWRITE_TAC[byteswap128; WORD_SUBWORD_XOR] THEN
-  CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
+(* ------------------------------------------------------------------------- *)
+(* DONK: now similarly restate the more complicated unrolled goal            *)
+(* ------------------------------------------------------------------------- *)
 
-  ASM_REWRITE_TAC[] THEN
-  LET_TAC THEN ASM_REWRITE_TAC[] THEN
-  EXPAND_TAC "k" THEN REWRITE_TAC[karatsuba_mid] THEN
-  ASM_REWRITE_TAC[] THEN
+r 1;;
 
-  REWRITE_TAC[POLYVAL_REDUCE_PROP5] THEN ASM_REWRITE_TAC[]);;
+e(TRANS_TAC EQ_TRANS
+  `polyval_reduce_prop3
+        (word_xor
+        (word_pmul (cipherblock_3:int128) (h0:int128))
+        (word_xor
+        (word_pmul (cipherblock_2:int128) (h1:int128))
+        (word_xor
+        (word_pmul (cipherblock_1:int128) (h2:int128))
+        (word_pmul (word_xor (byteswap128 sofar) cipherblock_0)
+                   (h3:int128)))))` THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[PMUL_KARATSUBA_JOIN_ALT] THEN
+    REWRITE_TAC[byteswap128; WORD_SUBWORD_XOR] THEN
+    CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
+    REWRITE_TAC[karatsuba_mid] THEN
+    ASM_REWRITE_TAC[] THEN
+    REPEAT(LET_TAC THEN ASM_REWRITE_TAC[]) THEN
+    ONCE_REWRITE_TAC[MESON[WORD_XOR_SYM]
+     `word_pmul (word_xor a b) (word_xor c d) =
+      word_pmul (word_xor b a) (word_xor c d)`] THEN
+    ASM_REWRITE_TAC[] THEN
+    REWRITE_TAC[POLYVAL_REDUCE_PROP5] THEN ASM_REWRITE_TAC[] THEN
+    MAP_EVERY EXPAND_TAC ["ks"; "ks'"; "ks''"; "ks'''"] THEN
+    REWRITE_TAC(map (GSYM o ASSUME)
+     [`!x. word_subword (x:int128) (64,64):int64 = HI x`;
+      `!x. word_subword (x:int128) (0,64):int64 = LO x`]) THEN
+    CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
+    AP_TERM_TAC THEN POP_ASSUM_LIST(K ALL_TAC) THEN BITBLAST_TAC;
+    ALL_TAC]);;
+
+(* ------------------------------------------------------------------------- *)
+(* DONK: both are simplified to classic-looking Horner steps.                *)
+(* ------------------------------------------------------------------------- *)
 
 
 *****)
