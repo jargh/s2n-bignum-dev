@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
 
 // ----------------------------------------------------------------------------
-// AES-GCM encryption kernel (AES-128)
+// AES-GCM encryption kernel (AES-128), SLOTHY-clean variant: x4_scalar_iv_mem2
 // Encrypts the input in CTR mode while accumulating the GHASH of the output.
 //
-//    extern uint64_t aes_gcm_enc_kernel(const uint8_t *in, uint64_t len_bits,
-//                                       uint8_t *out, uint64_t *tag,
-//                                       const uint8_t *ivec,
-//                                       const s2n_bignum_AES_KEY *key,
-//                                       const uint64_t *Htable);
+//    extern uint64_t aes_gcm_enc_kernel_x4_scalar_iv_mem2(const uint8_t *in, uint64_t len_bits,
+//                                                                 uint8_t *out, uint64_t *tag,
+//                                                                 const uint8_t *ivec,
+//                                                                 const s2n_bignum_AES_KEY *key,
+//                                                                 const uint64_t *Htable);
 //
 // Processes the input "in" of "len_bits" bits (a whole number of 16-byte
 // blocks) under AES-128 in GCM mode: each block is encrypted in counter mode
@@ -34,9 +34,9 @@
 #include "_internal_s2n_bignum_arm.h"
 
         .arch armv8-a+crypto
-        S2N_BN_SYM_VISIBILITY_DIRECTIVE(aes_gcm_enc_kernel)
-        S2N_BN_FUNCTION_TYPE_DIRECTIVE(aes_gcm_enc_kernel)
-        S2N_BN_SYM_PRIVACY_DIRECTIVE(aes_gcm_enc_kernel)
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(aes_gcm_enc_kernel_x4_scalar_iv_mem2)
+        S2N_BN_FUNCTION_TYPE_DIRECTIVE(aes_gcm_enc_kernel_x4_scalar_iv_mem2)
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(aes_gcm_enc_kernel_x4_scalar_iv_mem2)
         .text
 
 // Arguments
@@ -55,9 +55,21 @@ constant_temp .req x25
 count           .req x1
 full_blocks     .req x7
 remainder       .req x9
+unroll          .req x10
+
+ctr_tmp   .req x14
+ctr_tmp_w .req w14
+
+ivec_0_63    .req x11
+ivec_64_96   .req x12
+ivec_64_96_w .req w12
+
+ctr      .req w13
+ctr_x    .req x13
 
 aes_st    .req v0
 aes_st_q  .req q0
+aes_st_d  .req d0
 
 res       .req v0
 res_q     .req q0
@@ -65,7 +77,10 @@ res_q     .req q0
 ghash_hi    .req v9
 ghash_lo    .req v8
 ghash_mid   .req v10
+ghash_mid_d .req d10
+
 ghash_tmp   .req v11
+ghash_tmp_d .req d11
 
 ghash_mod   .req v7
 ghash_mod_d .req d7
@@ -132,10 +147,6 @@ rk10   .req v28
 plain   .req v29
 plain_q .req q29
 
-rctr_inc   .req v30
-rtmp_ctr   .req v31
-rtmp_ctr_q .req q31
-
 tag    .req v11
 tag_q  .req q11
 
@@ -143,10 +154,11 @@ tag_q  .req q11
 
 #define STACK_SIZE_GPRS  (6*16)
 #define STACK_SIZE_VREGS (4*16)
-#define STACK_SIZE  (STACK_SIZE_GPRS + STACK_SIZE_VREGS)
+#define STACK_SIZE  (STACK_SIZE_GPRS + STACK_SIZE_VREGS + UNROLL*16)
 
 #define STACK_BASE_GPRS  (0)
 #define STACK_BASE_VREGS (STACK_SIZE_GPRS)
+#define STACK_BASE_AES_ST (STACK_SIZE_GPRS + STACK_SIZE_VREGS)
 
 /********************************************************************/
 /*                 Generic preamble/postamble macros                */
@@ -186,12 +198,13 @@ tag_q  .req q11
 
 // Derive number of iterations of unrolled loop and single-block loop
 .macro prepare_loop_counts
+        mov  unroll, #UNROLL
         // Number of AES Blocks (16b each)
         lsr  full_blocks, byte_len, #4
-        // Number of iterations of the unrolled loop (UNROLL=4, so divide by 4)
-        lsr  count, full_blocks, #2
-        // Number of iterations for the tail loop (full_blocks mod 4)
-        and  remainder, full_blocks, #3
+        // Number of iterations of the unrolled loop
+        udiv count, full_blocks, unroll
+        // Number of iterations for the tail loop handling 1 block each
+        msub remainder, count, unroll, full_blocks
 .endm
 
 /********************************************************************/
@@ -199,25 +212,22 @@ tag_q  .req q11
 /********************************************************************/
 
 .macro load_iv
-        ldr     rtmp_ctr_q, [ivec]
+        ldp        ivec_0_63, ivec_64_96, [ivec]
+        stp        ivec_0_63, ivec_64_96, [sp, #(STACK_BASE_AES_ST + 0*16)] // @slothy:writes=stack_0
+        stp        ivec_0_63, ivec_64_96, [sp, #(STACK_BASE_AES_ST + 1*16)] // @slothy:writes=stack_1
+        stp        ivec_0_63, ivec_64_96, [sp, #(STACK_BASE_AES_ST + 2*16)] // @slothy:writes=stack_2
+        stp        ivec_0_63, ivec_64_96, [sp, #(STACK_BASE_AES_ST + 3*16)] // @slothy:writes=stack_3
 
-        // set up counter increment
-	mov	constant_temp, #0x100000000
-	movi	rctr_inc.16b,  #0x0
-	fmov	rctr_inc.d[1], constant_temp
-
-        rev32   rtmp_ctr.16b, rtmp_ctr.16b
+        lsr        ctr_x, ivec_64_96, #32
+        rev        ctr, ctr
+        orr        ivec_64_96_w, ivec_64_96_w, ivec_64_96_w // clear top 32 bit
 .endm
 
-// Increase AES counter
-.macro aes_ctr_inc
-        add    rtmp_ctr.4s, rtmp_ctr.4s, rctr_inc.4s
-.endm
-
-// Increase AES counter and initialize new AES state
-.macro next_ctr_init_aes aes_st
-        rev32  \aes_st\().16b, rtmp_ctr.16b
-        aes_ctr_inc
+.macro next_ctr_init_aes aes_st, loc
+        rev        ctr_tmp_w, ctr
+        str        ctr_tmp_w, [sp, #(STACK_BASE_AES_ST + \loc*16 + 12)] // @slothy:writes=stack_\loc
+        ldr        \aes_st\()_q, [sp, #(STACK_BASE_AES_ST + \loc*16)]  // @slothy:reads=stack_\loc
+        add        ctr, ctr, #1
 .endm
 
 // A single AES round
@@ -260,8 +270,8 @@ tag_q  .req q11
         eor3 \out\().16b, \plain\().16b, rk10.16b, \aes_st\().16b
 .endm
 
-.macro aes_full_block aes_st, input, output
-        next_ctr_init_aes \aes_st
+.macro aes_full_block aes_st, input, output, loc
+        next_ctr_init_aes \aes_st, \loc
         aesr_0_8 \aes_st\(), rk
         aesr_final \aes_st, \input, \output
 .endm
@@ -385,8 +395,8 @@ tag_q  .req q11
         pmull   ghash_lo.1q, \input\().1d, \Hk\().1d
         // High product
         pmull2  ghash_hi.1q, \input\().2d, \Hk\().2d
-        // Middle product: (high64 XOR low64) via ext then eor (low lane)
-        ext     ghash_tmp.16b, \input\().16b, \input\().16b, #8
+        // Middle product
+        mov     ghash_tmp_d, \input\().d[1]
         eor     ghash_tmp.8b, ghash_tmp.8b, \input\().8b
         pmull   ghash_mid.1q, ghash_tmp.1d, \Hk_mid\().1d
 .endm
@@ -412,8 +422,8 @@ tag_q  .req q11
         // High product
         pmull2  ghash_tmp.1q, \input\().2d, \Hk\().2d
         eor     ghash_hi.16b, ghash_hi.16b, ghash_tmp.16b
-        // Middle product: (high64 XOR low64) via ext then eor (low lane)
-        ext     ghash_tmp.16b, \input\().16b, \input\().16b, #8
+        // Middle product
+        mov     ghash_tmp_d, \input\().d[1]
         eor     ghash_tmp.8b, ghash_tmp.8b, \input\().8b
         pmull   ghash_tmp.1q, ghash_tmp.1d, \Hk_mid\().1d
         eor     ghash_mid.16b, ghash_mid.16b, ghash_tmp.16b
@@ -455,10 +465,9 @@ tag_q  .req q11
 .endm
 
 .macro prepare_ghash
-        // Prepare constant for modular reduction: 0xc200000000000000
-        // Use constant_temp (x25) as scratch; it is free after load_iv.
-        movz constant_temp, #0xc200, lsl #48
-        fmov ghash_mod_d, constant_temp
+        // Prepare constant for modular reduction
+        movi ghash_mod.8b, #0xc2
+        shl  ghash_mod_d, ghash_mod_d, #56
 .endm
 
 /********************************************************************/
@@ -466,11 +475,12 @@ tag_q  .req q11
 /********************************************************************/
 
         .align        4
-S2N_BN_SYMBOL(aes_gcm_enc_kernel):
+S2N_BN_SYMBOL(aes_gcm_enc_kernel_x4_scalar_iv_mem2):
 
     // AARCH64_VALID_CALL_TARGET
         CFI_START
         CFI_DEC_SP(STACK_SIZE)
+
 
 Lenc_preamble_start:
         save_gprs
@@ -491,27 +501,27 @@ Lenc_preamble_end:
 Lloop_unrolled_start:
 
         ldr plain_q, [input], #(4*16)
-        aes_full_block aes_st, plain, res
+        aes_full_block aes_st, plain, res, 0
         str res_q, [output], #(4*16)
 
         load_htable_34
         ghash_init_1 res, Ht4, Ht34, tag
 
         ldr plain_q, [input, #(-3*16)]
-        aes_full_block aes_st, plain, res
+        aes_full_block aes_st, plain, res, 1
         str res_q, [output, #(-3*16)]
 
         ghash_acc_0 res, Ht3, Ht34
 
         ldr plain_q, [input, #(-2*16)]
-        aes_full_block aes_st, plain, res
+        aes_full_block aes_st, plain, res, 2
         str res_q, [output, #(-2*16)]
 
         load_htable_12
         ghash_acc_1 res, Ht2, Ht12
 
         ldr plain_q, [input, #(-1*16)]
-        aes_full_block aes_st, plain, res
+        aes_full_block aes_st, plain, res, 3
         str res_q, [output, #(-1*16)]
 
         ghash_acc_0 res, Ht1, Ht12
@@ -528,7 +538,7 @@ Lloop_unrolled_end:
 Lloop_1x_start:
 
         ldr plain_q, [input], #16
-        aes_full_block aes_st, plain, res
+        aes_full_block aes_st, plain, res, 0
         str res_q, [output], #16
         ghash_init_0 res, Ht1, Ht12, tag
 
@@ -543,9 +553,12 @@ Lloop_1x_end:
         // Store new authentication tag
         rev64 tag.16b, tag.16b
         str tag_q, [tag_ptr]
+
         // Store updated counter
-        rev32 rtmp_ctr.16b, rtmp_ctr.16b
-        str rtmp_ctr_q, [ivec]
+        // rev32 rtmp_ctr.16b, rtmp_ctr.16b
+        // str rtmp_ctr_q, [ivec]
+        rev ctr_tmp_w, ctr
+        str ctr_tmp_w, [ivec, #12]
 
         restore_vregs
         restore_gprs
@@ -555,7 +568,7 @@ Lenc_postamble_end:
 
         CFI_RET
 
-S2N_BN_SIZE_DIRECTIVE(aes_gcm_enc_kernel)
+S2N_BN_SIZE_DIRECTIVE(aes_gcm_enc_kernel_x4_scalar_iv_mem2)
 
 #if defined(__linux__) && defined(__ELF__)
 .section .note.GNU-stack, "", %progbits

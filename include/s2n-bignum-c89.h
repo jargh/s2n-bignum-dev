@@ -31,12 +31,59 @@ struct s2n_bignum_aes_key_st {
 };
 typedef struct s2n_bignum_aes_key_st s2n_bignum_AES_KEY;
 
-/* AES_GCM_ENC_KERNEL (AES-128) */
+/* AES_GCM_ENC_KERNEL (AES-128), SLOTHY-clean variants */
 /* Encrypt in[len_bits/8] (a whole number of 16-byte blocks) in GCM mode, */
 /* updating the GHASH tag[16] and counter ivec[16]; returns bytes processed. */
 /* Inputs in[len_bits/8], len_bits, key[176], ivec[16], Htable[192]; */
-/* outputs out[len_bits/8], tag[16] (updated), ivec[16] (updated) */
-extern uint64_t aes_gcm_enc_kernel(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+/* outputs out[len_bits/8], tag[16] (updated), ivec[16] (updated). */
+/* The _x4_<variant> suffix names the SLOTHY clean/enc source variant; all */
+/* share this identical ABI. x4_basic is the s2n-bignum-adapted, formally */
+/* verified one; the rest are imported verbatim (pre-tweaks/proofs). */
+extern uint64_t aes_gcm_enc_kernel_x4_basic(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_dual_acc(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_dual_acc_keep_htable(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_fast_tail(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_ilp(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_keep_htable(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_keep_htable_rotate(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_late_tag(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_reload_round_keys_full(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_reload_round_keys_partial(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_scalar_iv(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_scalar_iv2(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_scalar_iv2_late_tag_keep_htable_scalar_rk(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_scalar_iv_keep_htable_scalar_rk2(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_scalar_iv_mem(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_scalar_iv_mem2(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_scalar_iv_mem2_late_tag(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_scalar_iv_mem2_late_tag_fast_tail(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_scalar_iv_mem2_late_tag_keep_htable_scalar_rk(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+extern uint64_t aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk(const uint8_t *in, uint64_t len_bits, uint8_t *out,
         uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
 
 /* AES_XTS_DECRYPT (256-bit) */

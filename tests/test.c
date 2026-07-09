@@ -16717,21 +16717,33 @@ int test_aes_xts_roundtrip(void)
 }
 
 // ****************************************************************************
-// Random-input testing of AES-128-GCM encryption kernel against reference
+// Random-input testing of AES-128-GCM encryption kernels against reference
 // ****************************************************************************
 //
-// aes_gcm_enc_kernel processes only whole 16-byte blocks: it encrypts the input
-// in CTR mode (from the supplied counter block), XORs to form the ciphertext,
-// folds the ciphertext into the GHASH accumulator "tag", and increments the
-// counter per block. The GHASH subkey H = AES_K(0^128) is supplied indirectly
-// via the precomputed Htable. We compare the assembly against a clean reference
-// (tests/ref_aes_gcm.c) over the ciphertext, the updated tag, and the updated
-// counter block, for random keys, counters, starting tags and message lengths,
-// using the bit-density generator for inputs.
+// The aes_gcm_enc_kernel_* variants (imported from the SLOTHY clean/enc
+// sources) all share one ABI: they process only whole 16-byte blocks,
+// encrypting the input in CTR mode (from the supplied counter block), XORing to
+// form the ciphertext, folding the ciphertext into the GHASH accumulator "tag",
+// and incrementing the counter per block. The GHASH subkey H = AES_K(0^128) is
+// supplied indirectly via the precomputed Htable. We compare each variant
+// against a clean reference (tests/ref_aes_gcm.c) over the ciphertext, the
+// updated tag, and the updated counter block, for random keys, counters,
+// starting tags and message lengths, using the bit-density generator.
+//
+// All variants have the identical prototype, captured by this type:
+typedef uint64_t (*aes_gcm_enc_fn)(const uint8_t *in, uint64_t len_bits,
+                                   uint8_t *out, uint64_t *tag,
+                                   const uint8_t *ivec,
+                                   const s2n_bignum_AES_KEY *key,
+                                   const uint64_t *Htable);
 
-int test_aes_gcm_enc_kernel(void)
+// Shared driver: exercises one variant "fn" (named "name") against the
+// reference. Returns 0 on success, 1 on any disparity (matching the test
+// harness convention).
+static int test_one_aes_gcm_enc(const char *name, aes_gcm_enc_fn fn)
 {
 #ifdef __x86_64__
+  (void)name; (void)fn;
   return 1;
 #else
   uint64_t t;
@@ -16740,7 +16752,7 @@ int test_aes_gcm_enc_kernel(void)
   s2n_bignum_AES_KEY ek;
   size_t len, nblocks;
 
-  printf("Testing aes_gcm_enc_kernel against reference with %d cases\n",tests);
+  printf("Testing %s against reference with %d cases\n", name, tests);
 
   for (t = 0; t < (uint64_t)tests; ++t)
    { // Random key (full density spectrum), and derive H + Htable
@@ -16765,9 +16777,9 @@ int test_aes_gcm_enc_kernel(void)
      memset(bb2, 0, len);
      memset(bb3, 0, len);
 
-     // Assembly kernel
-     aes_gcm_enc_kernel(bb1, (uint64_t)len * 8, bb2,
-                        (uint64_t *)tag_asm, iv_asm, &ek, (uint64_t *)Htable);
+     // Assembly kernel (the variant under test)
+     fn(bb1, (uint64_t)len * 8, bb2,
+        (uint64_t *)tag_asm, iv_asm, &ek, (uint64_t *)Htable);
 
      // Reference
      ref_aes_gcm_enc_kernel(bb1, (uint64_t)len * 8, bb3, tag_ref, iv_ref, &ek);
@@ -16775,7 +16787,7 @@ int test_aes_gcm_enc_kernel(void)
      if (memcmp(bb2, bb3, len) != 0 ||
          memcmp(tag_asm, tag_ref, 16) != 0 ||
          memcmp(iv_asm, iv_ref, 16) != 0)
-      { printf("### Disparity: aes_gcm_enc_kernel len=%zu\n", len);
+      { printf("### Disparity: %s len=%zu\n", name, len);
         printf("    key=");
         for (int i = 0; i < 16; ++i) printf("%02x", key[i]);
         printf("\n    ctxt %s, tag %s, ctr %s\n",
@@ -16785,13 +16797,54 @@ int test_aes_gcm_enc_kernel(void)
         return 1;
       }
      else if (VERBOSE)
-      { printf("OK: aes_gcm_enc_kernel len=%zu\n", len);
+      { printf("OK: %s len=%zu\n", name, len);
       }
    }
   printf("All OK\n");
   return 0;
 #endif
 }
+
+// One zero-argument test entry per variant, so each can be registered and
+// selected by name in the harness. DEFINE_GCM_ENC_TEST(tag) generates
+// test_aes_gcm_enc_kernel_<tag>() calling the shared driver with the matching
+// kernel. The X-macro list GCM_ENC_VARIANTS is the single source of truth,
+// reused for registration below.
+#define GCM_ENC_VARIANTS(_)                                    \
+  _(x4_basic)                                                  \
+  _(x4_dual_acc)                                               \
+  _(x4_dual_acc_keep_htable)                                   \
+  _(x4_fast_tail)                                              \
+  _(x4_ilp)                                                    \
+  _(x4_keep_htable)                                            \
+  _(x4_keep_htable_rotate)                                     \
+  _(x4_late_tag)                                               \
+  _(x4_reload_round_keys_full)                                 \
+  _(x4_reload_round_keys_partial)                              \
+  _(x4_scalar_iv)                                              \
+  _(x4_scalar_iv2)                                             \
+  _(x4_scalar_iv2_late_tag_keep_htable_scalar_rk)              \
+  _(x4_scalar_iv_keep_htable_scalar_rk2)                       \
+  _(x4_scalar_iv_mem)                                          \
+  _(x4_scalar_iv_mem2)                                         \
+  _(x4_scalar_iv_mem2_late_tag)                                \
+  _(x4_scalar_iv_mem2_late_tag_fast_tail)                      \
+  _(x4_scalar_iv_mem2_late_tag_keep_htable_scalar_rk)          \
+  _(x4_scalar_iv_mem_late_tag)                                 \
+  _(x4_scalar_iv_mem_late_tag_keep_htable)                     \
+  _(x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk)           \
+  _(x4_scalar_iv_mem_late_tag_scalar_rk)
+
+#ifndef __x86_64__
+#define GCM_ENC_TEST_DEFN(tag)                                          \
+  int test_aes_gcm_enc_kernel_##tag(void)                               \
+  { return test_one_aes_gcm_enc("aes_gcm_enc_kernel_" #tag,             \
+                                aes_gcm_enc_kernel_##tag); }
+#else
+#define GCM_ENC_TEST_DEFN(tag)                                          \
+  int test_aes_gcm_enc_kernel_##tag(void) { return 1; }
+#endif
+GCM_ENC_VARIANTS(GCM_ENC_TEST_DEFN)
 
 // ****************************************************************************
 // Analogous testing of relevant functions against TweetNaCl as reference
@@ -17723,7 +17776,9 @@ int main(int argc, char *argv[])
     functionaltest(sha3,"sha3_keccak2_f1600",test_sha3_keccak2_f1600);
     functionaltest(sha3,"sha3_keccak2_f1600_alt",test_sha3_keccak2_f1600_alt);
     functionaltest(sha3,"sha3_keccak4_f1600_alt2",test_sha3_keccak4_f1600_alt2);
-    functionaltest(aes,"aes_gcm_enc_kernel",test_aes_gcm_enc_kernel);
+#define GCM_ENC_TEST_REG(tag) \
+    functionaltest(aes,"aes_gcm_enc_kernel_" #tag,test_aes_gcm_enc_kernel_##tag);
+    GCM_ENC_VARIANTS(GCM_ENC_TEST_REG)
     functionaltest(aes,"aes_xts_encrypt",test_aes_xts_encrypt);
     functionaltest(aes,"aes_xts_decrypt",test_aes_xts_decrypt);
     functionaltest(aes,"aes_xts_roundtrip",test_aes_xts_roundtrip);

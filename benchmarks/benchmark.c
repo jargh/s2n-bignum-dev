@@ -1120,6 +1120,35 @@ void call_sm2_montjmixadd_alt(void) repeat(sm2_montjmixadd_alt(b1,b2,b3))
 void call_sm2_montjscalarmul(void) repeatfewer(10,sm2_montjscalarmul(b1,b2,b3))
 void call_sm2_montjscalarmul_alt(void) repeatfewer(10,sm2_montjscalarmul_alt(b1,b2,b3))
 
+// The AES-128-GCM encryption kernel variants (imported from the SLOTHY
+// clean/enc sources) all share one ABI. This X-macro list is the single source
+// of truth for the variant set, reused for the x86 stubs, the aarch64 benchmark
+// call functions, and their registration in main.
+#define GCM_ENC_VARIANTS(_)                                    \
+  _(x4_basic)                                                  \
+  _(x4_dual_acc)                                               \
+  _(x4_dual_acc_keep_htable)                                   \
+  _(x4_fast_tail)                                              \
+  _(x4_ilp)                                                    \
+  _(x4_keep_htable)                                            \
+  _(x4_keep_htable_rotate)                                     \
+  _(x4_late_tag)                                               \
+  _(x4_reload_round_keys_full)                                 \
+  _(x4_reload_round_keys_partial)                              \
+  _(x4_scalar_iv)                                              \
+  _(x4_scalar_iv2)                                             \
+  _(x4_scalar_iv2_late_tag_keep_htable_scalar_rk)              \
+  _(x4_scalar_iv_keep_htable_scalar_rk2)                       \
+  _(x4_scalar_iv_mem)                                          \
+  _(x4_scalar_iv_mem2)                                         \
+  _(x4_scalar_iv_mem2_late_tag)                                \
+  _(x4_scalar_iv_mem2_late_tag_fast_tail)                      \
+  _(x4_scalar_iv_mem2_late_tag_keep_htable_scalar_rk)          \
+  _(x4_scalar_iv_mem_late_tag)                                 \
+  _(x4_scalar_iv_mem_late_tag_keep_htable)                     \
+  _(x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk)           \
+  _(x4_scalar_iv_mem_late_tag_scalar_rk)
+
 #ifdef __x86_64__
 
 static int32_t __attribute__((aligned(32))) mldsa_avx2_qdata[16] = {
@@ -1175,11 +1204,13 @@ void call_aes_xts_decrypt_128(void) {}
 void call_aes_xts_decrypt_256(void) {}
 void call_aes_xts_decrypt_512(void) {}
 
-void call_aes_gcm_enc_kernel_16(void) {}
-void call_aes_gcm_enc_kernel_64(void) {}
-void call_aes_gcm_enc_kernel_256(void) {}
-void call_aes_gcm_enc_kernel_1024(void) {}
-void call_aes_gcm_enc_kernel_4096(void) {}
+#define GCM_ENC_BENCH_STUB(tag)                    \
+  void call_aes_gcm_enc_kernel_##tag##_16(void) {} \
+  void call_aes_gcm_enc_kernel_##tag##_64(void) {} \
+  void call_aes_gcm_enc_kernel_##tag##_256(void) {} \
+  void call_aes_gcm_enc_kernel_##tag##_1024(void) {} \
+  void call_aes_gcm_enc_kernel_##tag##_4096(void) {}
+GCM_ENC_VARIANTS(GCM_ENC_BENCH_STUB)
 
 #else
 
@@ -1268,27 +1299,41 @@ void call_aes_xts_decrypt_128(void) { repeat(aes_xts_decrypt_helper(128)); }
 void call_aes_xts_decrypt_256(void) { repeat(aes_xts_decrypt_helper(256)); }
 void call_aes_xts_decrypt_512(void) { repeatfewer(10,aes_xts_decrypt_helper(512)); }
 
-// Helper for AES-128-GCM encryption kernel with parameterized length (bytes).
-// The kernel reads 11 AES-128 round keys (key->rd_key), a 16-byte counter
-// (aes_iv), a 16-byte tag (b3) and a 192-byte Htable (bb[0]); timing is
-// independent of their exact contents, which we just seed from the buffers.
+// Helpers for the AES-128-GCM encryption kernel variants (imported from the
+// SLOTHY clean/enc sources), all sharing one ABI. Each variant kernel reads 11
+// AES-128 round keys (key->rd_key), a 16-byte counter (aes_iv), a 16-byte tag
+// (b3) and a 192-byte Htable (bb[0]); timing is independent of their exact
+// contents, which we just seed from the buffers.
+//
+// (GCM_ENC_VARIANTS is defined once before the arch split above.) The macro
+// generates the per-variant, per-length call_* functions via a shared
+// parameterized helper, and is reused for registration in main.
 static s2n_bignum_AES_KEY aes_gcm_key;
-static void aes_gcm_enc_kernel_helper(size_t len)
+static void aes_gcm_enc_kernel_setup(void)
 {
   int j;
   for (j = 0; j < 22; ++j) aes_gcm_key.rd_key[j] = b1[j % BUFFERSIZE];
   aes_gcm_key.rounds = 10; // AES-128
   for (j = 0; j < 16; ++j) aes_iv[j] = (uint8_t)(b3[j] & 0xFF);
-
-  aes_gcm_enc_kernel((uint8_t*)b0, (uint64_t)len * 8, (uint8_t*)b2,
-                     (uint64_t*)b3, aes_iv, &aes_gcm_key, bb[0]);
 }
 
-void call_aes_gcm_enc_kernel_16(void)   { repeat(aes_gcm_enc_kernel_helper(16)); }
-void call_aes_gcm_enc_kernel_64(void)   { repeat(aes_gcm_enc_kernel_helper(64)); }
-void call_aes_gcm_enc_kernel_256(void)  { repeat(aes_gcm_enc_kernel_helper(256)); }
-void call_aes_gcm_enc_kernel_1024(void) { repeatfewer(10,aes_gcm_enc_kernel_helper(1024)); }
-void call_aes_gcm_enc_kernel_4096(void) { repeatfewer(40,aes_gcm_enc_kernel_helper(4096)); }
+// Generate call_aes_gcm_enc_kernel_<tag>_<len> for each variant and length.
+#define GCM_ENC_BENCH_ONE(tag)                                              \
+  static void aes_gcm_enc_kernel_##tag##_helper(size_t len)                 \
+  { aes_gcm_enc_kernel_setup();                                             \
+    aes_gcm_enc_kernel_##tag((uint8_t*)b0, (uint64_t)len * 8, (uint8_t*)b2, \
+                             (uint64_t*)b3, aes_iv, &aes_gcm_key, bb[0]); }  \
+  void call_aes_gcm_enc_kernel_##tag##_16(void)                             \
+    { repeat(aes_gcm_enc_kernel_##tag##_helper(16)); }                      \
+  void call_aes_gcm_enc_kernel_##tag##_64(void)                            \
+    { repeat(aes_gcm_enc_kernel_##tag##_helper(64)); }                      \
+  void call_aes_gcm_enc_kernel_##tag##_256(void)                            \
+    { repeat(aes_gcm_enc_kernel_##tag##_helper(256)); }                     \
+  void call_aes_gcm_enc_kernel_##tag##_1024(void)                           \
+    { repeatfewer(10,aes_gcm_enc_kernel_##tag##_helper(1024)); }            \
+  void call_aes_gcm_enc_kernel_##tag##_4096(void)                           \
+    { repeatfewer(40,aes_gcm_enc_kernel_##tag##_helper(4096)); }
+GCM_ENC_VARIANTS(GCM_ENC_BENCH_ONE)
 
 #endif
 
@@ -1776,11 +1821,13 @@ int main(int argc, char *argv[])
   timingtest(aes,"aes_xts_decrypt (128 bytes)",call_aes_xts_decrypt_128);
   timingtest(aes,"aes_xts_decrypt (256 bytes)",call_aes_xts_decrypt_256);
   timingtest(aes,"aes_xts_decrypt (512 bytes)",call_aes_xts_decrypt_512);
-  timingtest(aes,"aes_gcm_enc_kernel (16 bytes)",call_aes_gcm_enc_kernel_16);
-  timingtest(aes,"aes_gcm_enc_kernel (64 bytes)",call_aes_gcm_enc_kernel_64);
-  timingtest(aes,"aes_gcm_enc_kernel (256 bytes)",call_aes_gcm_enc_kernel_256);
-  timingtest(aes,"aes_gcm_enc_kernel (1024 bytes)",call_aes_gcm_enc_kernel_1024);
-  timingtest(aes,"aes_gcm_enc_kernel (4096 bytes)",call_aes_gcm_enc_kernel_4096);
+#define GCM_ENC_BENCH_REG(tag)                                                                        \
+  timingtest(aes,"aes_gcm_enc_kernel_" #tag " (16 bytes)",call_aes_gcm_enc_kernel_##tag##_16);        \
+  timingtest(aes,"aes_gcm_enc_kernel_" #tag " (64 bytes)",call_aes_gcm_enc_kernel_##tag##_64);        \
+  timingtest(aes,"aes_gcm_enc_kernel_" #tag " (256 bytes)",call_aes_gcm_enc_kernel_##tag##_256);      \
+  timingtest(aes,"aes_gcm_enc_kernel_" #tag " (1024 bytes)",call_aes_gcm_enc_kernel_##tag##_1024);    \
+  timingtest(aes,"aes_gcm_enc_kernel_" #tag " (4096 bytes)",call_aes_gcm_enc_kernel_##tag##_4096);
+  GCM_ENC_VARIANTS(GCM_ENC_BENCH_REG)
 
   // Summarize performance in arithmetic and geometric means
 

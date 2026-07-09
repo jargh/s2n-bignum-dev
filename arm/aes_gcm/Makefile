@@ -28,7 +28,7 @@ endif
 
 # List of object files
 
-OBJ = aes_gcm_enc_kernel.o
+OBJ = $(patsubst %.S,%.o,$(wildcard aes_gcm_enc_kernel_*.S))
 
 
 %.o : %.S ; $(CC) -E -I../../include $< | $(GAS) -o $@ -

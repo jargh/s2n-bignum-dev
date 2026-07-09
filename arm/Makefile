@@ -420,7 +420,29 @@ UNOPT_OBJ = p256/unopt/bignum_montmul_p256_base.o \
 AES_XTS_OBJ = aes-xts/aes_xts_decrypt.o \
               aes-xts/aes_xts_encrypt.o
 
-AES_GCM_OBJ = aes_gcm/aes_gcm_enc_kernel.o
+AES_GCM_OBJ = aes_gcm/aes_gcm_enc_kernel_x4_basic.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_dual_acc.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_dual_acc_keep_htable.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_fast_tail.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_ilp.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_keep_htable.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_keep_htable_rotate.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_late_tag.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_reload_round_keys_full.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_reload_round_keys_partial.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv2.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv2_late_tag_keep_htable_scalar_rk.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_keep_htable_scalar_rk2.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem2.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem2_late_tag.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem2_late_tag_fast_tail.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem2_late_tag_keep_htable_scalar_rk.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk.o
 
 
 OBJ = $(POINT_OBJ) $(BIGNUM_OBJ) $(AES_XTS_OBJ) $(AES_GCM_OBJ)

@@ -19,11 +19,11 @@ needs "common/karatsuba_pmul.ml";;
 (* The machine code.                                                         *)
 (* ------------------------------------------------------------------------- *)
 
-(* print_literal_from_elf "arm/aes_gcm/aes_gcm_enc_kernel.o";; *)
+(* print_literal_from_elf "arm/aes_gcm/aes_gcm_enc_kernel_x4_basic.o";; *)
 
-let aes_gcm_enc_kernel_mc =
-  define_assert_from_elf "aes_gcm_enc_kernel_mc"
-                         "arm/aes_gcm/aes_gcm_enc_kernel.o"
+let aes_gcm_enc_kernel_x4_basic_mc =
+  define_assert_from_elf "aes_gcm_enc_kernel_x4_basic_mc"
+                         "arm/aes_gcm/aes_gcm_enc_kernel_x4_basic.o"
 [
   0xd10283ff;       (* sub      sp, sp, #0xa0 *)
   0xa90053f3;       (* stp      x19, x20, [sp] *)
@@ -282,7 +282,7 @@ let aes_gcm_enc_kernel_mc =
   0xd65f03c0        (* ret *)
 ];;
 
-let AES_GCM_ENC_KERNEL_EXEC = ARM_MK_EXEC_RULE aes_gcm_enc_kernel_mc;;
+let AES_GCM_ENC_KERNEL_X4_BASIC_EXEC = ARM_MK_EXEC_RULE aes_gcm_enc_kernel_x4_basic_mc;;
 
 (* ------------------------------------------------------------------------- *)
 (* Some specification concepts.                                              *)
@@ -711,17 +711,17 @@ let PMUL_KARATSUBA_JOIN_ALT = prove
  *** specifying them as the values in any memory cells.
  ***)
 
-let AES_GCM_ENC_KERNEL_CORRECT = prove
+let AES_GCM_ENC_KERNEL_X4_BASIC_CORRECT = prove
  (`!in_p out_p len_bits tag_p ivec_p key_p htable_p tag0 nonce rk inblock pc.
        ALLPAIRS nonoverlapping
         [(out_p, 16 * val len_bits DIV 128); (tag_p, 16); (ivec_p, 16)]
-        [(word pc, LENGTH aes_gcm_enc_kernel_mc);
+        [(word pc, LENGTH aes_gcm_enc_kernel_x4_basic_mc);
          (in_p,  16 * val len_bits DIV 128); (key_p, 176); (htable_p, 192)] /\
        PAIRWISE nonoverlapping
         [(out_p, 16 * val len_bits DIV 128); (tag_p, 16); (ivec_p, 16)]
     ==>
     ensures arm
-      (\s. aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_mc /\
+      (\s. aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_x4_basic_mc /\
            read PC s = word (pc + 0x2c) /\
            C_ARGUMENTS
             [in_p; len_bits; out_p; tag_p; ivec_p; key_p; htable_p] s /\
@@ -756,7 +756,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
                   memory :> bytes(ivec_p, 16)])`,
   GEN_TAC THEN GEN_TAC THEN W64_GEN_TAC `len_bits:num` THEN REPEAT GEN_TAC THEN
   REWRITE_TAC[C_ARGUMENTS; MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
-  REWRITE_TAC[ALLPAIRS; PAIRWISE; ALL; fst AES_GCM_ENC_KERNEL_EXEC] THEN
+  REWRITE_TAC[ALLPAIRS; PAIRWISE; ALL; fst AES_GCM_ENC_KERNEL_X4_BASIC_EXEC] THEN
 
   (*** Abbreviate the loop counts to keep goal terms manageable ***)
 
@@ -817,7 +817,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
                  inblock i)` THEN
   REWRITE_TAC[htable_mem_4; GSYM CONJ_ASSOC] THEN CONJ_TAC THENL
    [ENSURES_INIT_TAC "s0" THEN
-    MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [n] THEN
+    MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_BASIC_EXEC [n] THEN
           RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
         (1--24) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[WORD_USHR_COMPOSE] THEN
@@ -885,7 +885,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
   REWRITE_TAC[htable_mem_4; GSYM CONJ_ASSOC] THEN CONJ_TAC THENL
    [ASM_CASES_TAC `loop_count = 0` THENL
      [POP_ASSUM SUBST_ALL_TAC THEN
-      ARM_SIM_TAC AES_GCM_ENC_KERNEL_EXEC [1] THEN
+      ARM_SIM_TAC AES_GCM_ENC_KERNEL_X4_BASIC_EXEC [1] THEN
       REWRITE_TAC[ADD_CLAUSES; MULT_CLAUSES; CONJUNCT1 LT] THEN
       REWRITE_TAC[list_of_seq; nist_ghash] THEN CONV_TAC WORD_RULE;
       ALL_TAC] THEN
@@ -932,7 +932,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
              ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s =
                  word_xor (aes_ctr_block nonce rk j) (inblock j))` THEN
     ASM_REWRITE_TAC[htable_mem_4; GSYM CONJ_ASSOC] THEN REPEAT CONJ_TAC THENL
-     [ARM_SIM_TAC AES_GCM_ENC_KERNEL_EXEC [1] THEN
+     [ARM_SIM_TAC AES_GCM_ENC_KERNEL_X4_BASIC_EXEC [1] THEN
       REWRITE_TAC[ADD_CLAUSES; MULT_CLAUSES; SUB_0; WORD_ADD_0; LT;
                   list_of_seq; nist_ghash];
 
@@ -957,7 +957,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
         REWRITE_TAC[ARITH_RULE `64 * a = 16 * 4 * a`] THEN
         REPEAT CONJ_TAC THEN FIRST_X_ASSUM MATCH_MP_TAC THEN SIMPLE_ARITH_TAC;
         ALL_TAC] THEN
-      MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [n] THEN
+      MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_BASIC_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
           (1--152) THEN
       ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
@@ -1062,13 +1062,13 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
       (**** Trivial loop-back goal (main unrolled loop) ***)
 
       X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
-      ARM_SIM_TAC AES_GCM_ENC_KERNEL_EXEC [1] THEN
+      ARM_SIM_TAC AES_GCM_ENC_KERNEL_X4_BASIC_EXEC [1] THEN
       ASM_SIMP_TAC[WORD_SUB; LT_IMP_LE; VAL_EQ_0; WORD_SUB_EQ_0] THEN
       ASM_REWRITE_TAC[GSYM VAL_EQ];
 
       (*** Trivial bridge between the two loops ***)
 
-      ARM_SIM_TAC AES_GCM_ENC_KERNEL_EXEC [1] THEN
+      ARM_SIM_TAC AES_GCM_ENC_KERNEL_X4_BASIC_EXEC [1] THEN
       REWRITE_TAC[SUB_REFL]];
 
     ALL_TAC] THEN
@@ -1078,7 +1078,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
   ASM_CASES_TAC `loop_remain = 0` THENL
    [POP_ASSUM SUBST_ALL_TAC THEN
     ENSURES_INIT_TAC "s0" THEN
-    MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [n] THEN
+    MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_BASIC_EXEC [n] THEN
           RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
         (1--9) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
@@ -1141,7 +1141,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
                word_xor (aes_ctr_block nonce rk j) (inblock j))` THEN
   ASM_REWRITE_TAC[htable_mem_4; GSYM CONJ_ASSOC] THEN REPEAT CONJ_TAC THENL
    [ENSURES_INIT_TAC "s0" THEN
-    MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [n] THEN
+    MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_BASIC_EXEC [n] THEN
           RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
         (1--4) THEN
     ENSURES_FINAL_STATE_TAC THEN
@@ -1159,7 +1159,7 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
      [REWRITE_TAC[ARITH_RULE `64 * a + 16 * b = 16 * (4 * a + b)`] THEN
       FIRST_X_ASSUM MATCH_MP_TAC THEN SIMPLE_ARITH_TAC;
       ALL_TAC] THEN
-    MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_EXEC [n] THEN
+    MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_BASIC_EXEC [n] THEN
       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
      (1--44) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
@@ -1232,13 +1232,13 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
     (*** Trivial loop-back goal (tail loop) ***)
 
     X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
-    ARM_SIM_TAC AES_GCM_ENC_KERNEL_EXEC [1] THEN
+    ARM_SIM_TAC AES_GCM_ENC_KERNEL_X4_BASIC_EXEC [1] THEN
     ASM_SIMP_TAC[WORD_SUB; LT_IMP_LE; VAL_EQ_0; WORD_SUB_EQ_0] THEN
     ASM_REWRITE_TAC[GSYM VAL_EQ];
 
     (**** Final writeback, reversal etc. ***)
 
-    ARM_SIM_TAC AES_GCM_ENC_KERNEL_EXEC (1--6) THEN
+    ARM_SIM_TAC AES_GCM_ENC_KERNEL_X4_BASIC_EXEC (1--6) THEN
     REWRITE_TAC[ADD_ASSOC] THEN
     SUBGOAL_THEN `4 * loop_count + loop_remain = nblocks` SUBST_ALL_TAC THENL
      [SIMPLE_ARITH_TAC; ASM_REWRITE_TAC[]] THEN
@@ -1261,21 +1261,21 @@ let AES_GCM_ENC_KERNEL_CORRECT = prove
  *** obligation is discharged with no residual subgoal.
  ***)
 
-let AES_GCM_ENC_KERNEL_SUBROUTINE_CORRECT = prove
+let AES_GCM_ENC_KERNEL_X4_BASIC_SUBROUTINE_CORRECT = prove
  (`!in_p out_p len_bits tag_p ivec_p key_p htable_p tag0 nonce rk inblock
     pc stackpointer returnaddress.
     aligned 16 stackpointer /\
     ALLPAIRS nonoverlapping
       [(out_p, 16 * val len_bits DIV 128); (tag_p, 16); (ivec_p, 16);
        (word_sub stackpointer (word 160), 160)]
-      [(word pc, LENGTH aes_gcm_enc_kernel_mc);
+      [(word pc, LENGTH aes_gcm_enc_kernel_x4_basic_mc);
        (in_p,  16 * val len_bits DIV 128); (key_p, 176); (htable_p, 192)] /\
     PAIRWISE nonoverlapping
       [(out_p, 16 * val len_bits DIV 128); (tag_p, 16); (ivec_p, 16);
        (word_sub stackpointer (word 160), 160)]
     ==>
     ensures arm
-      (\s. aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_mc /\
+      (\s. aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_x4_basic_mc /\
            read PC s = word pc /\
            read SP s = stackpointer /\
            read X30 s = returnaddress /\
@@ -1308,13 +1308,13 @@ let AES_GCM_ENC_KERNEL_SUBROUTINE_CORRECT = prove
                   memory :> bytes(tag_p, 16);
                   memory :> bytes(ivec_p, 16);
                   memory :> bytes(word_sub stackpointer (word 160), 160)])`,
-  REWRITE_TAC[fst AES_GCM_ENC_KERNEL_EXEC; htable_mem_4] THEN
+  REWRITE_TAC[fst AES_GCM_ENC_KERNEL_X4_BASIC_EXEC; htable_mem_4] THEN
   CONV_TAC(ONCE_DEPTH_CONV WORDLIST_FROM_MEMORY_CONV) THEN
   ARM_ADD_RETURN_STACK_TAC
     ~pre_post_nsteps:(11, 11)
-    AES_GCM_ENC_KERNEL_EXEC
+    AES_GCM_ENC_KERNEL_X4_BASIC_EXEC
     (CONV_RULE(ONCE_DEPTH_CONV WORDLIST_FROM_MEMORY_CONV)
-       (REWRITE_RULE[fst AES_GCM_ENC_KERNEL_EXEC; htable_mem_4]
-          AES_GCM_ENC_KERNEL_CORRECT))
+       (REWRITE_RULE[fst AES_GCM_ENC_KERNEL_X4_BASIC_EXEC; htable_mem_4]
+          AES_GCM_ENC_KERNEL_X4_BASIC_CORRECT))
     `[X19; X20; X21; X22; X23; X24; X25; X26; X27; X28; X29; X30;
       D8; D9; D10; D11; D12; D13; D14; D15]` 160);;
