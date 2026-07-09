@@ -290,6 +290,7 @@ for arch in ["arm", "x86"]:
 
 # A list of functions that are either only in arm or x86
 onlyInArm = [
+  "aes_gcm_enc_kernel_",
   "aes_xts_decrypt",
   "aes_xts_encrypt",
   "bignum_copy_row_from_table_8n",
@@ -417,7 +418,10 @@ for archname in ["arm","x86"]:
     arg_elem_bytesizes = dict()
     isPtr = lambda fullty, elemty: fullty.startswith(elemty + "*")
     isPtrOrArray = lambda fullty, elemty: fullty.startswith(elemty + "[") or fullty.startswith(elemty + "*")
-    for argname, argtype, _ in fnsig.args:
+    # The input/output comment is lower-cased when parsed (see getMemInoutFrom-
+    # Comment), so key the byte-size table by the lower-cased argument name too;
+    # this lets buffer args with capitals (e.g. Htable) match case-insensitively.
+    for argname, argtype, _ in ((a.lower(), b, c) for (a, b, c) in fnsig.args):
       if isPtrOrArray(argtype, "int64_t") or isPtrOrArray(argtype, "uint64_t"):
         arg_elem_bytesizes[argname] = 8
       elif isPtrOrArray(argtype, "int32_t") or isPtrOrArray(argtype, "uint32_t"):

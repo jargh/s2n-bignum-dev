@@ -1,4 +1,625 @@
 let subroutine_signatures = [
+("aes_gcm_enc_kernel_x4_basic",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_dual_acc",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_dual_acc_keep_htable",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_fast_tail",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_ilp",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_keep_htable",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_keep_htable_rotate",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_late_tag",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_reload_round_keys_full",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_reload_round_keys_partial",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_scalar_iv",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_scalar_iv2",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_scalar_iv2_late_tag_keep_htable_scalar_rk",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_scalar_iv_keep_htable_scalar_rk2",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_scalar_iv_mem",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_scalar_iv_mem2",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_scalar_iv_mem2_late_tag",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_scalar_iv_mem2_late_tag_fast_tail",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_scalar_iv_mem2_late_tag_keep_htable_scalar_rk",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk",
+  ([(*args*)
+     ("in", "uint8_t*", (*is const?*)"true");
+     ("len_bits", "uint64_t", (*is const?*)"false");
+     ("out", "uint8_t*", (*is const?*)"false");
+     ("tag", "uint64_t*", (*is const?*)"false");
+     ("ivec", "uint8_t*", (*is const?*)"true");
+     ("key", "s2n_bignum_AES_KEY*", (*is const?*)"true");
+     ("Htable", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("in", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+    ("key", "176"(* num elems *), 1(* elem bytesize *));
+    ("htable", "192"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("out", "len_bits/8"(* num elems *), 1(* elem bytesize *));
+    ("tag", "16"(* num elems *), 8(* elem bytesize *));
+    ("ivec", "16"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
 ("aes_xts_decrypt",
   ([(*args*)
      ("in", "uint8_t*", (*is const?*)"true");

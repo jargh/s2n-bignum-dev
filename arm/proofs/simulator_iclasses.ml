@@ -149,6 +149,10 @@ let iclasses =
   "01001110000x1000000011xxxxxxxxxx"; (* original DUP Vd.2d, xn *)
   "0x001110000xxxxx000011xxxxxxxxxx"; (* other variants too     *)
 
+  (*** DUP (element), scalar: mov Dd, Vn.d[idx] and narrower element forms.
+       imm5 must have a set bit in [3:0]; here we fix D-element (imm5 = 1x000). ***)
+  "010111100001x000000001xxxxxxxxxx";
+
   (*** EOR ***)
   "0x101110001xxxxx000111xxxxxxxxxx";
 
@@ -282,6 +286,9 @@ let iclasses =
   "0x00111101xxxxxx010101xxxxxxxxxx";
   "0x001111001xxxxx010101xxxxxxxxxx";
   "0x0011110001xxxx010101xxxxxxxxxx";
+
+  (*** SHL (scalar): only the 64-bit form, immh = 1xxx ***)
+  "0101111101xxxxxx010101xxxxxxxxxx";
   "0x00111100001xxx010101xxxxxxxxxx";
 
   (*** SHRN ***)

@@ -543,6 +543,15 @@ let decode = new_definition `!w:int32. decode w =
     let datasize = if q then 128 else 64 in
     SOME (arm_DUP_GEN (QREG' Rd) (XREG' Rn) esize datasize)
 
+  | [0b01011110000:11; imm5:5; 0b000001:6; Rn:5; Rd:5] ->
+    // DUP (element), scalar form (e.g. mov Dd, Vn.d[index]). imm5 encodes both
+    // the element size (position of lowest set bit) and the index (bits above).
+    let size = word_ctz imm5 in
+    if size > 3 then NONE else
+    let esize = 8 * 2 EXP size in
+    let idx = val imm5 DIV (2 EXP (size + 1)) in
+    SOME (arm_DUP_ELEM (QREG' Rd) (QREG' Rn) idx esize)
+
   | [0:1; q; 0b101110000:9; Rm:5; 0:1; imm4:4; 0:1; Rn:5; Rd:5] ->
     // EXT
     if ~q /\ bit 3 imm4 then NONE // "UNDEFINED"
@@ -832,6 +841,14 @@ let decode = new_definition `!w:int32. decode w =
       let datasize = if q then 128 else 64 in
       let amt = val(word_join immh immb:7 word) - esize in
       SOME (arm_SHL_VEC (QREG' Rd) (QREG' Rn) amt esize datasize)
+
+  | [0:1; 1:1; 0b0111110:7; immh:4; immb:3; 0b010101:6; Rn:5; Rd:5] ->
+    // SHL (scalar): only the 64-bit (esize = datasize = 64) form is defined,
+    // which requires the top bit of immh set; other immh are UNDEFINED.
+    if ~(bit 3 immh) then NONE
+    else
+      let amt = val(word_join immh immb:7 word) - 64 in
+      SOME (arm_SHL_VEC (QREG' Rd) (QREG' Rn) amt 64 64)
 
   | [0:1; q; 0b0011110:7; immh:4; immb:3; 0b101001:6; Rn:5; Rd:5] ->
     // SSHLL, SSHLL2 (or MOVI with cmode=1010 when immh=0 and Q=1)

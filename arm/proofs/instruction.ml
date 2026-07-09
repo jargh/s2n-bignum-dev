@@ -1216,6 +1216,16 @@ let arm_DUP_GEN = define
             else word_duplicate (word_zx n:8 word) in
           (Rd := word_zx d:(128)word) s`;;
 
+(*** DUP (element), scalar form (e.g. mov Dd, Vn.d[index]). Extracts the
+ *** index-th esize-bit element of Rn and writes it, zero-extended, to the
+ *** (128-bit) SIMD destination Rd. This is the scalar-copy encoding, distinct
+ *** from arm_DUP_GEN (which duplicates from a general register).           ***)
+let arm_DUP_ELEM = define
+ `arm_DUP_ELEM Rd Rn idx esize =
+    \s. let n:(128)word = read Rn (s:armstate) in
+        let e:(64)word = word_subword n (idx * esize, esize) in
+        (Rd := word_zx e:(128)word) s`;;
+
 let arm_EON = define
  `arm_EON Rd Rm Rn =
     \s. let m = read Rm s
@@ -1547,7 +1557,8 @@ let arm_SHL_VEC = define
         else
           let n:(64)word = word_subword n (0,64) in
           let d:(64)word =
-            if esize = 32 then usimd2 (\x. word_shl x amt) n
+            if esize = 64 then word_shl n amt
+            else if esize = 32 then usimd2 (\x. word_shl x amt) n
             else if esize = 16 then usimd4 (\x. word_shl x amt) n
             else usimd8 (\x. word_shl x amt) n in
           (Rd := word_zx d:(128)word) s`;;
@@ -3560,7 +3571,7 @@ let ARM_OPERATION_CLAUSES =
        arm_CBNZ_ALT; arm_CBZ_ALT; arm_CCMN; arm_CCMP; arm_CLZ;
        arm_CMGE_VEC_ALT; arm_CMGT_VEC_ALT; arm_CMHI_VEC_ALT; arm_CMLE_VEC_ZERO_ALT; arm_CNT_ALT;
        arm_CSEL; arm_CSINC; arm_CSINV; arm_CSNEG;
-       arm_DUP_GEN_ALT;
+       arm_DUP_ELEM; arm_DUP_GEN_ALT;
        arm_EON; arm_EOR; arm_EOR_VEC; arm_EOR3; arm_EXT; arm_EXTR;
        arm_FCSEL; arm_FMOV_FtoI; arm_FMOV_ItoF; arm_INS; arm_INS_GEN;
        arm_LSL; arm_LSLV; arm_LSR; arm_LSRV;
