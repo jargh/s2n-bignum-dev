@@ -65,7 +65,9 @@ res_q     .req q0
 ghash_hi    .req v9
 ghash_lo    .req v8
 ghash_mid   .req v10
+ghash_mid_d .req d10
 ghash_tmp   .req v11
+ghash_tmp_d .req d11
 
 ghash_mod   .req v7
 ghash_mod_d .req d7
@@ -385,8 +387,8 @@ tag_q  .req q11
         pmull   ghash_lo.1q, \input\().1d, \Hk\().1d
         // High product
         pmull2  ghash_hi.1q, \input\().2d, \Hk\().2d
-        // Middle product: (high64 XOR low64) via ext then eor (low lane)
-        ext     ghash_tmp.16b, \input\().16b, \input\().16b, #8
+        // Middle product
+        mov     ghash_tmp_d, \input\().d[1]
         eor     ghash_tmp.8b, ghash_tmp.8b, \input\().8b
         pmull   ghash_mid.1q, ghash_tmp.1d, \Hk_mid\().1d
 .endm
@@ -412,8 +414,8 @@ tag_q  .req q11
         // High product
         pmull2  ghash_tmp.1q, \input\().2d, \Hk\().2d
         eor     ghash_hi.16b, ghash_hi.16b, ghash_tmp.16b
-        // Middle product: (high64 XOR low64) via ext then eor (low lane)
-        ext     ghash_tmp.16b, \input\().16b, \input\().16b, #8
+        // Middle product
+        mov     ghash_tmp_d, \input\().d[1]
         eor     ghash_tmp.8b, ghash_tmp.8b, \input\().8b
         pmull   ghash_tmp.1q, ghash_tmp.1d, \Hk_mid\().1d
         eor     ghash_mid.16b, ghash_mid.16b, ghash_tmp.16b
@@ -455,10 +457,9 @@ tag_q  .req q11
 .endm
 
 .macro prepare_ghash
-        // Prepare constant for modular reduction: 0xc200000000000000
-        // Use constant_temp (x25) as scratch; it is free after load_iv.
-        movz constant_temp, #0xc200, lsl #48
-        fmov ghash_mod_d, constant_temp
+        // Prepare constant for modular reduction
+        movi ghash_mod.8b, #0xc2
+        shl  ghash_mod_d, ghash_mod_d, #56
 .endm
 
 /********************************************************************/
