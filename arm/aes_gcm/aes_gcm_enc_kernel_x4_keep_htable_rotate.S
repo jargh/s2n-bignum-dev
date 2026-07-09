@@ -55,7 +55,6 @@ constant_temp .req x25
 count           .req x1
 full_blocks     .req x7
 remainder       .req x9
-unroll          .req x10
 
 aes_st0   .req v0
 aes_st0_q .req q0
@@ -437,10 +436,12 @@ tag_q  .req q11
 .endm
 
 .macro prepare_loop_counts
-        mov  unroll, #UNROLL
+        // Number of AES Blocks (16b each)
         lsr  full_blocks, byte_len, #4
-        udiv count, full_blocks, unroll
-        msub remainder, count, unroll, full_blocks
+        // Number of iterations of the unrolled loop (UNROLL=4, so divide by 4)
+        lsr  count, full_blocks, #2
+        // Number of iterations for the tail loop (full_blocks mod 4)
+        and  remainder, full_blocks, #3
 .endm
 
 .macro load_tag
