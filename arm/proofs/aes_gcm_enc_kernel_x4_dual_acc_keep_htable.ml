@@ -1212,7 +1212,7 @@ let AES_GCM_ENC_KERNEL_X4_DUAL_ACC_KEEP_HTABLE_CORRECT = prove
                     (word_subword y (64,64):int64):int128`) THEN
     MAP_EVERY ABBREV_TAC
      [`sofar = (nist_ghash (aes128_cipher (word 0) rk) tag0
-                 (list_of_seq (nist_cipher_block nonce rk inblock) 
+                 (list_of_seq (nist_cipher_block nonce rk inblock)
                               (4 * loop_count + i)))`;
       `cipherblock =
         nist_cipher_block nonce rk inblock (4 * loop_count + i)`;
@@ -1237,7 +1237,7 @@ let AES_GCM_ENC_KERNEL_X4_DUAL_ACC_KEEP_HTABLE_CORRECT = prove
     EXPAND_TAC "h" THEN REWRITE_TAC[h_power] THEN
     REWRITE_TAC[GSYM NIST_DOT_IS_POLYVAL_DOT] THEN
     REWRITE_TAC[ARITH_RULE `(k + 1) = SUC k`] THEN
-    REWRITE_TAC[list_of_seq; NIST_GHASH_APPEND; 
+    REWRITE_TAC[list_of_seq; NIST_GHASH_APPEND;
                 NIST_GHASH_CONS; nist_ghash] THEN
     ASM_REWRITE_TAC[];
 
