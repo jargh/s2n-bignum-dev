@@ -892,7 +892,6 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_KEEP_HTABLE_SCALAR_RK2_CORRECT = prove
         read X13 s = word_zx (word (4 * loop_count + 2):int32):int64 /\
         read X15 s = word(len_bits DIV 8) /\
         read X1 s = word 0 /\
-        read X7 s = word nblocks /\
         read X16 s = word loop_remain /\
         read Q30 s =
           byteswap128
@@ -953,7 +952,6 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_KEEP_HTABLE_SCALAR_RK2_CORRECT = prove
         read X13 s = word_zx (word (4 * i + 2):int32):int64 /\
         read X15 s = word(len_bits DIV 8) /\
         read X1 s = word(loop_count - i) /\
-        read X7 s = word nblocks /\
         read X16 s = word loop_remain /\
         read Q30 s =
           byteswap128
@@ -1200,13 +1198,10 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_KEEP_HTABLE_SCALAR_RK2_CORRECT = prove
                (list_of_seq (nist_cipher_block nonce rk inblock)
                           (4 * loop_count + i))) /\
       read Q12 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
-      read Q13 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
       read Q14 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
       htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
       read Q12 s = byteswap128
         (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
-      read Q13 s = byteswap128
-       (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
       read Q14 s = word_join
        (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1))
        (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
