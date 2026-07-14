@@ -932,11 +932,6 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_CORRECT = prove
           word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
         read (memory :> bytes32 (word_add stackpointer (word 216))) s =
           word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,32):int32 /\
-        read X11 s =
-          word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
-        read X12 s =
-          word_zx (word_zx (word_subword
-            (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
         read X13 s = word_zx (word (4 * loop_count + 2):int32):int64 /\
         read X15 s = word(len_bits DIV 8) /\
         read X1 s = word 0 /\
@@ -1003,11 +998,6 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_CORRECT = prove
           word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
         read (memory :> bytes32 (word_add stackpointer (word 216))) s =
           word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,32):int32 /\
-        read X11 s =
-          word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
-        read X12 s =
-          word_zx (word_zx (word_subword
-            (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
         read X13 s = word_zx (word (4 * i + 2):int32):int64 /\
         read X15 s = word(len_bits DIV 8) /\
         read X1 s = word(loop_count - i) /\
@@ -1058,23 +1048,23 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_CORRECT = prove
       (*** counter word (bytes32@OFF+12).                                           ***)
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (1--3) THEN
-      MERGE_CTR128_TAC 160 "s3" THEN
+          (1--6) THEN
+      MERGE_CTR128_TAC 160 "s6" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (4--40) THEN
-      MERGE_CTR128_TAC 176 "s40" THEN
+          (7--9) THEN
+      MERGE_CTR128_TAC 176 "s9" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (41--76) THEN
-      MERGE_CTR128_TAC 192 "s76" THEN
+          (10--13) THEN
+      MERGE_CTR128_TAC 192 "s13" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (77--115) THEN
-      MERGE_CTR128_TAC 208 "s115" THEN
+          (14--15) THEN
+      MERGE_CTR128_TAC 208 "s15" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (116--160) THEN
+          (16--160) THEN
       ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
       REWRITE_TAC[ARITH_RULE `j < 4 * (i + 1) <=>
                               j < 4 * i \/ j = 4 * i \/ j = 4 * i + 1 \/
@@ -1280,11 +1270,6 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_CORRECT = prove
         word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
       read (memory :> bytes32 (word_add stackpointer (word 216))) s =
         word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,32):int32 /\
-      read X11 s =
-        word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
-      read X12 s =
-        word_zx (word_zx (word_subword
-          (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
       read X13 s = word_zx (word (4 * loop_count + i + 2):int32):int64 /\
       read X15 s = word(len_bits DIV 8) /\
       read X9 s = word(loop_remain - i) /\
@@ -1296,8 +1281,6 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_CORRECT = prove
       htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
       read Q12 s = byteswap128
         (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
-      read Q13 s = byteswap128
-       (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
       read Q14 s = word_join
        (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1))
        (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
@@ -1332,11 +1315,11 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_CORRECT = prove
     (*** merge the two 64-bit stores before the 128-bit reload.                  ***)
     MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_EXEC [n] THEN
       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-     (1--3) THEN
-    MERGE_CTR128_TAC 160 "s3" THEN
+     (1--4) THEN
+    MERGE_CTR128_TAC 160 "s4" THEN
     MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_EXEC [n] THEN
       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-     (4--46) THEN
+     (5--46) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
     REWRITE_TAC[ARITH_RULE `j < a + i + 1 <=> j < a + i \/ j = a + i`] THEN
     ASM_REWRITE_TAC[TAUT `p \/ q ==> r <=> (p ==> r) /\ (q ==> r)`] THEN
