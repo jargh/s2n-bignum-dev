@@ -938,7 +938,6 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_CORRECT = pr
         read X13 s = word_zx (word (4 * loop_count + 2):int32):int64 /\
         read X15 s = word(len_bits DIV 8) /\
         read X1 s = word 0 /\
-        read X7 s = word nblocks /\
         read X16 s = word loop_remain /\
         read Q30 s =
           byteswap128
@@ -1000,7 +999,6 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_CORRECT = pr
         read X13 s = word_zx (word (4 * i + 2):int32):int64 /\
         read X15 s = word(len_bits DIV 8) /\
         read X1 s = word(loop_count - i) /\
-        read X7 s = word nblocks /\
         read X16 s = word loop_remain /\
         read Q30 s =
           byteswap128
@@ -1065,23 +1063,23 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_CORRECT = pr
       (*** a second MERGE_CTR128_TAC resolves Q29 = word_join x23 x22.              ***)
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (1--28) THEN
-      MERGE_CTR128_TAC 272 "s28" THEN
+          (1--16) THEN
+      MERGE_CTR128_TAC 272 "s16" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (29--65) THEN
-      MERGE_CTR128_TAC 256 "s65" THEN
+          (17--37) THEN
+      MERGE_CTR128_TAC 240 "s37" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (66--105) THEN
-      MERGE_CTR128_TAC 240 "s105" THEN
+          (38--61) THEN
+      MERGE_CTR128_TAC 256 "s61" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (106--145) THEN
-      MERGE_CTR128_TAC 224 "s145" THEN
+          (62--82) THEN
+      MERGE_CTR128_TAC 224 "s82" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (146--171) THEN
+          (83--171) THEN
       ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
       REWRITE_TAC[ARITH_RULE `j < 4 * (i + 1) <=>
                               j < 4 * i \/ j = 4 * i \/ j = 4 * i + 1 \/
@@ -1287,8 +1285,6 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_CORRECT = pr
       htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
       read Q12 s = byteswap128
         (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
-      read Q13 s = byteswap128
-       (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
       read Q14 s = word_join
        (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1))
        (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
@@ -1333,11 +1329,11 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_CORRECT = pr
     (*** "ldr q29,[sp,#224]") -> MERGE_CTR128_TAC resolves Q29 = word_join x23 x22. ***)
     MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-     (1--28) THEN
-    MERGE_CTR128_TAC 224 "s28" THEN
+     (1--10) THEN
+    MERGE_CTR128_TAC 224 "s10" THEN
     MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-     (29--51) THEN
+     (11--51) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
     REWRITE_TAC[ARITH_RULE `j < a + i + 1 <=> j < a + i \/ j = a + i`] THEN
     ASM_REWRITE_TAC[TAUT `p \/ q ==> r <=> (p ==> r) /\ (q ==> r)`] THEN
