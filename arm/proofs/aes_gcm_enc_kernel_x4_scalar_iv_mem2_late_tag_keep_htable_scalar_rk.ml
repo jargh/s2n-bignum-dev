@@ -1011,15 +1011,9 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_CORRECT 
           word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
         read (memory :> bytes32 (word_add stackpointer (word 216))) s =
           word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,32):int32 /\
-        read X11 s =
-          word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
-        read X12 s =
-          word_zx (word_zx (word_subword
-            (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
         read X13 s = word_zx (word (4 * loop_count + 2):int32):int64 /\
         read X15 s = word(len_bits DIV 8) /\
         read X1 s = word 0 /\
-        read X7 s = word nblocks /\
         read X16 s = word loop_remain /\
         read Q30 s =
           byteswap128
@@ -1089,15 +1083,9 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_CORRECT 
           word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
         read (memory :> bytes32 (word_add stackpointer (word 216))) s =
           word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,32):int32 /\
-        read X11 s =
-          word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
-        read X12 s =
-          word_zx (word_zx (word_subword
-            (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
         read X13 s = word_zx (word (4 * i + 2):int32):int64 /\
         read X15 s = word(len_bits DIV 8) /\
         read X1 s = word(loop_count - i) /\
-        read X7 s = word nblocks /\
         read X16 s = word loop_remain /\
         read Q30 s =
           byteswap128
@@ -1158,39 +1146,39 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_CORRECT 
       (*** 4/40/79/118 and Q29 at 27/63/102/141.  Body is 167 steps (cbnz 0x350).    ***)
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (1--4) THEN
-      MERGE_CTR128_TAC 208 "s4" THEN
+          (1--8) THEN
+      MERGE_CTR128_TAC 160 "s8" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (5--27) THEN
-      MERGE_Q29_TAC 272 "s27" THEN
+          (9--9) THEN
+      MERGE_CTR128_TAC 208 "s9" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (28--40) THEN
-      MERGE_CTR128_TAC 192 "s40" THEN
+          (10--17) THEN
+      MERGE_CTR128_TAC 176 "s17" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (41--63) THEN
-      MERGE_Q29_TAC 256 "s63" THEN
+          (18--22) THEN
+      MERGE_Q29_TAC 272 "s22" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (64--79) THEN
-      MERGE_CTR128_TAC 176 "s79" THEN
+          (23--35) THEN
+      MERGE_Q29_TAC 240 "s35" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (80--102) THEN
-      MERGE_Q29_TAC 240 "s102" THEN
+          (36--38) THEN
+      MERGE_Q29_TAC 256 "s38" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (103--118) THEN
-      MERGE_CTR128_TAC 160 "s118" THEN
+          (39--47) THEN
+      MERGE_Q29_TAC 224 "s47" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (119--141) THEN
-      MERGE_Q29_TAC 224 "s141" THEN
+          (48--54) THEN
+      MERGE_CTR128_TAC 192 "s54" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (142--167) THEN
+          (55--167) THEN
       ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
       REWRITE_TAC[ARITH_RULE `j < 4 * (i + 1) <=>
                               j < 4 * i \/ j = 4 * i \/ j = 4 * i + 1 \/
@@ -1399,11 +1387,6 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_CORRECT 
         word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
       read (memory :> bytes32 (word_add stackpointer (word 216))) s =
         word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,32):int32 /\
-      read X11 s =
-        word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
-      read X12 s =
-        word_zx (word_zx (word_subword
-          (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
       read X13 s = word_zx (word (4 * loop_count + i + 2):int32):int64 /\
       read X15 s = word(len_bits DIV 8) /\
       read X16 s = word(loop_remain - i) /\
@@ -1415,14 +1398,9 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_CORRECT 
       htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
       read Q12 s = byteswap128
         (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
-      read Q13 s = byteswap128
-       (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
       read Q14 s = word_join
        (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1))
        (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
-      read Q15 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2) /\
-      read Q16 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3) /\
-      read Q17 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2)) /\
         (!j. j < nblocks
              ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s =
                  inblock j) /\
@@ -1458,15 +1436,15 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_CORRECT 
     (*** offset 224).  Body is 50 steps (cbnz 0x420 at step 51).                    *)
     MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-     (1--4) THEN
-    MERGE_CTR128_TAC 160 "s4" THEN
+     (1--5) THEN
+    MERGE_CTR128_TAC 160 "s5" THEN
     MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-     (5--27) THEN
-    MERGE_Q29_TAC 224 "s27" THEN
+     (6--9) THEN
+    MERGE_Q29_TAC 224 "s9" THEN
     MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_KEEP_HTABLE_SCALAR_RK_EXEC [n] THEN
       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-     (28--50) THEN
+     (10--50) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
     REWRITE_TAC[ARITH_RULE `j < a + i + 1 <=> j < a + i \/ j = a + i`] THEN
     ASM_REWRITE_TAC[TAUT `p \/ q ==> r <=> (p ==> r) /\ (q ==> r)`] THEN
