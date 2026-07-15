@@ -5,7 +5,7 @@
 // AES-GCM encryption kernel (AES-128), SLOTHY-clean variant: x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk
 // Encrypts the input in CTR mode while accumulating the GHASH of the output.
 //
-//    extern uint64_t aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk(const uint8_t *in, uint64_t len_bits,
+//    extern uint64_t aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk_unopt(const uint8_t *in, uint64_t len_bits,
 //                                                                                               uint8_t *out, uint64_t *tag,
 //                                                                                               const uint8_t *ivec,
 //                                                                                               const s2n_bignum_AES_KEY *key,
@@ -34,9 +34,9 @@
 #include "_internal_s2n_bignum_arm.h"
 
         .arch armv8-a+crypto
-        S2N_BN_SYM_VISIBILITY_DIRECTIVE(aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk)
-        S2N_BN_FUNCTION_TYPE_DIRECTIVE(aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk)
-        S2N_BN_SYM_PRIVACY_DIRECTIVE(aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk)
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk_unopt)
+        S2N_BN_FUNCTION_TYPE_DIRECTIVE(aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk_unopt)
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk_unopt)
         .text
 
 // Arguments
@@ -522,7 +522,7 @@ tag_q  .req q30
 /********************************************************************/
 
         .align        4
-S2N_BN_SYMBOL(aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk):
+S2N_BN_SYMBOL(aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk_unopt):
 
     // AARCH64_VALID_CALL_TARGET
         CFI_START
@@ -615,7 +615,7 @@ Lenc_postamble_end:
 
         CFI_RET
 
-S2N_BN_SIZE_DIRECTIVE(aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk)
+S2N_BN_SIZE_DIRECTIVE(aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk_unopt)
 
 #if defined(__linux__) && defined(__ELF__)
 .section .note.GNU-stack, "", %progbits
