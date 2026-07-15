@@ -1043,67 +1043,55 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_CORRECT = prove
       (*** a second MERGE_CTR128_TAC resolves Q29 = word_join x23 x22.              ***)
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (1--5) THEN
-      MERGE_CTR128_TAC 208 "s5" THEN
+          (1--10) THEN
+      MERGE_CTR128_TAC 208 "s10" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (6--6) THEN
+          (11--12) THEN
+      MERGE_CTR128_TAC 160 "s12" THEN
+      MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
+            RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
+          (13--21) THEN
+      MERGE_CTR128_TAC 192 "s21" THEN
+      MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
+            RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
+          (22--25) THEN
+      MERGE_CTR128_TAC 176 "s25" THEN
       DISCARD_MATCHING_ASSUMPTIONS
        [`read (memory :> bytes128 (word_add stackpointer (word 208))) s = x`;
         `read (memory :> bytes64 (word_add stackpointer (word 208))) s = x`;
         `read (memory :> bytes64 (word_add stackpointer (word 216))) s = x`] THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (7--28) THEN
-      MERGE_CTR128_TAC 208 "s28" THEN
-      MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
-            RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (29--45) THEN
-      MERGE_CTR128_TAC 192 "s45" THEN
-      MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
-            RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (46--46) THEN
+          (26--30) THEN
+      MERGE_CTR128_TAC 208 "s30" THEN
       DISCARD_MATCHING_ASSUMPTIONS
        [`read (memory :> bytes128 (word_add stackpointer (word 192))) s = x`;
         `read (memory :> bytes64 (word_add stackpointer (word 192))) s = x`;
         `read (memory :> bytes64 (word_add stackpointer (word 200))) s = x`] THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (47--68) THEN
-      MERGE_CTR128_TAC 192 "s68" THEN
-      MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
-            RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (69--85) THEN
-      MERGE_CTR128_TAC 176 "s85" THEN
-      MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
-            RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (86--86) THEN
-      DISCARD_MATCHING_ASSUMPTIONS
-       [`read (memory :> bytes128 (word_add stackpointer (word 176))) s = x`;
-        `read (memory :> bytes64 (word_add stackpointer (word 176))) s = x`;
-        `read (memory :> bytes64 (word_add stackpointer (word 184))) s = x`] THEN
-      MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
-            RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (87--108) THEN
-      MERGE_CTR128_TAC 176 "s108" THEN
-      MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
-            RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (109--128) THEN
-      MERGE_CTR128_TAC 160 "s128" THEN
-      MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
-            RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (129--129) THEN
+          (31--40) THEN
+      MERGE_CTR128_TAC 192 "s40" THEN
       DISCARD_MATCHING_ASSUMPTIONS
        [`read (memory :> bytes128 (word_add stackpointer (word 160))) s = x`;
         `read (memory :> bytes64 (word_add stackpointer (word 160))) s = x`;
         `read (memory :> bytes64 (word_add stackpointer (word 168))) s = x`] THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (130--151) THEN
-      MERGE_CTR128_TAC 160 "s151" THEN
+          (41--50) THEN
+      MERGE_CTR128_TAC 160 "s50" THEN
+      DISCARD_MATCHING_ASSUMPTIONS
+       [`read (memory :> bytes128 (word_add stackpointer (word 176))) s = x`;
+        `read (memory :> bytes64 (word_add stackpointer (word 176))) s = x`;
+        `read (memory :> bytes64 (word_add stackpointer (word 184))) s = x`] THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (152--177) THEN
+          (51--57) THEN
+      MERGE_CTR128_TAC 176 "s57" THEN
+      MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
+            RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
+          (58--177) THEN
       ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
       REWRITE_TAC[ARITH_RULE `j < 4 * (i + 1) <=>
                               j < 4 * i \/ j = 4 * i \/ j = 4 * i + 1 \/
@@ -1309,8 +1297,6 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_CORRECT = prove
       htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
       read Q12 s = byteswap128
         (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
-      read Q13 s = byteswap128
-       (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
       read Q14 s = word_join
        (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1))
        (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
@@ -1355,22 +1341,22 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_CORRECT = prove
     (*** ("stp x22,x23,[sp,#160]" at step 28, "ldr q29,[sp,#160]") -> Q29.       ***)
     MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-     (1--5) THEN
-    MERGE_CTR128_TAC 160 "s5" THEN
+     (1--6) THEN
+    MERGE_CTR128_TAC 160 "s6" THEN
     MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-     (6--6) THEN
+     (7--9) THEN
     DISCARD_MATCHING_ASSUMPTIONS
      [`read (memory :> bytes128 (word_add stackpointer (word 160))) s = x`;
       `read (memory :> bytes64 (word_add stackpointer (word 160))) s = x`;
       `read (memory :> bytes64 (word_add stackpointer (word 168))) s = x`] THEN
     MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-     (7--28) THEN
-    MERGE_CTR128_TAC 160 "s28" THEN
+     (10--10) THEN
+    MERGE_CTR128_TAC 160 "s10" THEN
     MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_EXEC [n] THEN
       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-     (29--51) THEN
+     (11--51) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
     REWRITE_TAC[ARITH_RULE `j < a + i + 1 <=> j < a + i \/ j = a + i`] THEN
     ASM_REWRITE_TAC[TAUT `p \/ q ==> r <=> (p ==> r) /\ (q ==> r)`] THEN
