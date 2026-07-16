@@ -16833,7 +16833,8 @@ static int test_one_aes_gcm_enc(const char *name, aes_gcm_enc_fn fn)
   _(x4_scalar_iv_mem_late_tag)                                 \
   _(x4_scalar_iv_mem_late_tag_keep_htable)                     \
   _(x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk)           \
-  _(x4_scalar_iv_mem_late_tag_scalar_rk)
+  _(x4_scalar_iv_mem_late_tag_scalar_rk)                       \
+  _(x4_scalar_iv_mem_late_tag_scalar_rk_swp)
 
 #ifndef __x86_64__
 #define GCM_ENC_TEST_DEFN(tag)                                          \
