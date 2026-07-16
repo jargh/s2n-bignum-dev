@@ -934,9 +934,6 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_CORRECT = prove
           word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,32):int32 /\
         read X11 s =
           word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
-        read X12 s =
-          word_zx (word_zx (word_subword
-            (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
         read X13 s = word_zx (word (4 * loop_count + 2):int32):int64 /\
         read X15 s = word(len_bits DIV 8) /\
         read X1 s = word 0 /\
@@ -1005,9 +1002,6 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_CORRECT = prove
           word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,32):int32 /\
         read X11 s =
           word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
-        read X12 s =
-          word_zx (word_zx (word_subword
-            (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
         read X13 s = word_zx (word (4 * i + 2):int32):int64 /\
         read X15 s = word(len_bits DIV 8) /\
         read X1 s = word(loop_count - i) /\
@@ -1058,23 +1052,23 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_CORRECT = prove
       (*** and the reload one step later; splice MERGE_CTR128_TAC after each str.    ***)
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (1--7) THEN
-      MERGE_CTR128_TAC 208 "s7" THEN
+          (1--10) THEN
+      MERGE_CTR128_TAC 176 "s10" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (8--40) THEN
-      MERGE_CTR128_TAC 192 "s40" THEN
+          (11--12) THEN
+      MERGE_CTR128_TAC 160 "s12" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (41--79) THEN
-      MERGE_CTR128_TAC 176 "s79" THEN
+          (13--24) THEN
+      MERGE_CTR128_TAC 208 "s24" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (80--115) THEN
-      MERGE_CTR128_TAC 160 "s115" THEN
+          (25--28) THEN
+      MERGE_CTR128_TAC 192 "s28" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_EXEC [n] THEN
             RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-          (116--161) THEN
+          (29--161) THEN
       ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
       REWRITE_TAC[ARITH_RULE `j < 4 * (i + 1) <=>
                               j < 4 * i \/ j = 4 * i \/ j = 4 * i + 1 \/
@@ -1259,11 +1253,11 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_CORRECT = prove
         ALL_TAC] THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_EXEC [n] THEN
         RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-       (1--12) THEN
-      MERGE_CTR128_TAC 160 "s12" THEN
+       (1--13) THEN
+      MERGE_CTR128_TAC 160 "s13" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_EXEC [n] THEN
         RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-       (13--54) THEN
+       (14--54) THEN
       ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
       REWRITE_TAC[ARITH_RULE `j < a + 1 <=> j < a \/ j = a`] THEN
       ASM_REWRITE_TAC[TAUT `p \/ q ==> r <=> (p ==> r) /\ (q ==> r)`] THEN
@@ -1350,15 +1344,15 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_CORRECT = prove
         ALL_TAC] THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_EXEC [n] THEN
         RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-       (1--11) THEN
-      MERGE_CTR128_TAC 176 "s11" THEN
+       (1--13) THEN
+      MERGE_CTR128_TAC 160 "s13" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_EXEC [n] THEN
         RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-       (12--44) THEN
-      MERGE_CTR128_TAC 160 "s44" THEN
+       (14--14) THEN
+      MERGE_CTR128_TAC 176 "s14" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_EXEC [n] THEN
         RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-       (45--90) THEN
+       (15--90) THEN
       ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
       REWRITE_TAC[ARITH_RULE `j < a + 2 <=> j < a \/ j = a \/ j = a + 1`] THEN
       ASM_REWRITE_TAC[TAUT `p \/ q ==> r <=> (p ==> r) /\ (q ==> r)`] THEN
@@ -1471,19 +1465,19 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_CORRECT = prove
         ALL_TAC] THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_EXEC [n] THEN
         RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-       (1--9) THEN
-      MERGE_CTR128_TAC 192 "s9" THEN
+       (1--12) THEN
+      MERGE_CTR128_TAC 192 "s12" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_EXEC [n] THEN
         RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-       (10--42) THEN
-      MERGE_CTR128_TAC 176 "s42" THEN
+       (13--16) THEN
+      MERGE_CTR128_TAC 176 "s16" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_EXEC [n] THEN
         RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-       (43--80) THEN
-      MERGE_CTR128_TAC 160 "s80" THEN
+       (17--22) THEN
+      MERGE_CTR128_TAC 160 "s22" THEN
       MAP_EVERY(fun n -> ARM_STEPS_TAC AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM2_LATE_TAG_FAST_TAIL_EXEC [n] THEN
         RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV)))
-       (81--126) THEN
+       (23--126) THEN
       ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
       REWRITE_TAC[ARITH_RULE
         `j < a + 3 <=> j < a \/ j = a \/ j = a + 1 \/ j = a + 2`] THEN
