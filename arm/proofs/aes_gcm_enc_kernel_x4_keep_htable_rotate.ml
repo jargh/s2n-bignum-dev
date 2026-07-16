@@ -25,342 +25,342 @@ let aes_gcm_enc_kernel_x4_keep_htable_rotate_mc =
   define_assert_from_elf "aes_gcm_enc_kernel_x4_keep_htable_rotate_mc"
                          "arm/aes_gcm/aes_gcm_enc_kernel_x4_keep_htable_rotate.o"
 [
-  0xd10283ff;       (* arm_SUB SP SP (rvalue (word 160)) *)
-  0xa90053f3;       (* arm_STP X19 X20 SP (Immediate_Offset (iword (&0))) *)
-  0xa9015bf5;       (* arm_STP X21 X22 SP (Immediate_Offset (iword (&16))) *)
-  0xa90263f7;       (* arm_STP X23 X24 SP (Immediate_Offset (iword (&32))) *)
-  0xa9036bf9;       (* arm_STP X25 X26 SP (Immediate_Offset (iword (&48))) *)
-  0xa90473fb;       (* arm_STP X27 X28 SP (Immediate_Offset (iword (&64))) *)
-  0xa9057bfd;       (* arm_STP X29 X30 SP (Immediate_Offset (iword (&80))) *)
-  0x6d0627e8;       (* arm_STP D8 D9 SP (Immediate_Offset (iword (&96))) *)
-  0x6d072fea;       (* arm_STP D10 D11 SP (Immediate_Offset (iword (&112))) *)
-  0x6d0837ec;       (* arm_STP D12 D13 SP (Immediate_Offset (iword (&128))) *)
-  0x6d093fee;       (* arm_STP D14 D15 SP (Immediate_Offset (iword (&144))) *)
-  0xd343fc2f;       (* arm_LSR X15 X1 3 *)
-  0x3dc000b2;       (* arm_LDR Q18 X5 (Immediate_Offset (word 0)) *)
-  0x3dc004b3;       (* arm_LDR Q19 X5 (Immediate_Offset (word 16)) *)
-  0x3dc008b4;       (* arm_LDR Q20 X5 (Immediate_Offset (word 32)) *)
-  0x3dc00cb5;       (* arm_LDR Q21 X5 (Immediate_Offset (word 48)) *)
-  0x3dc010b6;       (* arm_LDR Q22 X5 (Immediate_Offset (word 64)) *)
-  0x3dc014b7;       (* arm_LDR Q23 X5 (Immediate_Offset (word 80)) *)
-  0x3dc018b8;       (* arm_LDR Q24 X5 (Immediate_Offset (word 96)) *)
-  0x3dc01cb9;       (* arm_LDR Q25 X5 (Immediate_Offset (word 112)) *)
-  0x3dc020ba;       (* arm_LDR Q26 X5 (Immediate_Offset (word 128)) *)
-  0x3dc024bb;       (* arm_LDR Q27 X5 (Immediate_Offset (word 144)) *)
-  0x3dc028bc;       (* arm_LDR Q28 X5 (Immediate_Offset (word 160)) *)
-  0x3dc0006b;       (* arm_LDR Q11 X3 (Immediate_Offset (word 0)) *)
-  0x4e20096b;       (* arm_REV64_VEC Q11 Q11 8 *)
-  0x3dc0009f;       (* arm_LDR Q31 X4 (Immediate_Offset (word 0)) *)
-  0xd2c00039;       (* arm_MOVZ X25 (word 1) 32 *)
-  0x4f00e41e;       (* arm_MOVI Q30 (word 0) *)
-  0x9eaf033e;       (* arm_FMOV_ItoF Q30 X25 1 *)
-  0x6e200bff;       (* arm_REV32_VEC Q31 Q31 8 *)
-  0xd344fde7;       (* arm_LSR X7 X15 4 *)
-  0xd342fce1;       (* arm_LSR X1 X7 2 *)
-  0x924004e9;       (* arm_AND X9 X7 (rvalue (word 3)) *)
-  0x0f06e447;       (* arm_MOVI D7 (word 14033993530586874562) *)
-  0x5f7854e7;       (* arm_SHL_VEC Q7 Q7 56 64 64 *)
-  0x3dc00ccf;       (* arm_LDR Q15 X6 (Immediate_Offset (word 48)) *)
-  0x3dc014d0;       (* arm_LDR Q16 X6 (Immediate_Offset (word 80)) *)
-  0x3dc010d1;       (* arm_LDR Q17 X6 (Immediate_Offset (word 64)) *)
-  0x3dc000cc;       (* arm_LDR Q12 X6 (Immediate_Offset (word 0)) *)
-  0x3dc008cd;       (* arm_LDR Q13 X6 (Immediate_Offset (word 32)) *)
-  0x3dc004ce;       (* arm_LDR Q14 X6 (Immediate_Offset (word 16)) *)
-  0x6e200be0;       (* arm_REV32_VEC Q0 Q31 8 *)
-  0x4ebe87ff;       (* arm_ADD_VEC Q31 Q31 Q30 32 128 *)
-  0x6e200be1;       (* arm_REV32_VEC Q1 Q31 8 *)
-  0x4ebe87ff;       (* arm_ADD_VEC Q31 Q31 Q30 32 128 *)
-  0x6e200be2;       (* arm_REV32_VEC Q2 Q31 8 *)
-  0x4ebe87ff;       (* arm_ADD_VEC Q31 Q31 Q30 32 128 *)
-  0x6e200be3;       (* arm_REV32_VEC Q3 Q31 8 *)
-  0x4ebe87ff;       (* arm_ADD_VEC Q31 Q31 Q30 32 128 *)
-  0x4e284a40;       (* arm_AESE Q0 Q18 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284a60;       (* arm_AESE Q0 Q19 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284a80;       (* arm_AESE Q0 Q20 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284aa0;       (* arm_AESE Q0 Q21 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284ac0;       (* arm_AESE Q0 Q22 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284ae0;       (* arm_AESE Q0 Q23 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284b00;       (* arm_AESE Q0 Q24 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284b20;       (* arm_AESE Q0 Q25 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284b40;       (* arm_AESE Q0 Q26 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284a41;       (* arm_AESE Q1 Q18 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284a61;       (* arm_AESE Q1 Q19 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284a81;       (* arm_AESE Q1 Q20 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284aa1;       (* arm_AESE Q1 Q21 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284ac1;       (* arm_AESE Q1 Q22 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284ae1;       (* arm_AESE Q1 Q23 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284b01;       (* arm_AESE Q1 Q24 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284b21;       (* arm_AESE Q1 Q25 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284b41;       (* arm_AESE Q1 Q26 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284a42;       (* arm_AESE Q2 Q18 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284a62;       (* arm_AESE Q2 Q19 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284a82;       (* arm_AESE Q2 Q20 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284aa2;       (* arm_AESE Q2 Q21 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284ac2;       (* arm_AESE Q2 Q22 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284ae2;       (* arm_AESE Q2 Q23 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284b02;       (* arm_AESE Q2 Q24 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284b22;       (* arm_AESE Q2 Q25 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284b42;       (* arm_AESE Q2 Q26 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284a43;       (* arm_AESE Q3 Q18 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0x4e284a63;       (* arm_AESE Q3 Q19 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0x4e284a83;       (* arm_AESE Q3 Q20 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0x4e284aa3;       (* arm_AESE Q3 Q21 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0x4e284ac3;       (* arm_AESE Q3 Q22 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0x4e284ae3;       (* arm_AESE Q3 Q23 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0x4e284b03;       (* arm_AESE Q3 Q24 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0x4e284b23;       (* arm_AESE Q3 Q25 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0x4e284b43;       (* arm_AESE Q3 Q26 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0xb4001281;       (* arm_CBZ X1 (word 592) *)
-  0x3cc4041d;       (* arm_LDR Q29 X0 (Postimmediate_Offset (word 64)) *)
-  0x4e284b60;       (* arm_AESE Q0 Q27 *)
-  0x6e3c1fbd;       (* arm_EOR_VEC Q29 Q29 Q28 128 *)
-  0x6e201fa0;       (* arm_EOR_VEC Q0 Q29 Q0 128 *)
-  0x3c840440;       (* arm_STR Q0 X2 (Postimmediate_Offset (word 64)) *)
-  0x3cdd001d;       (* arm_LDR Q29 X0 (Immediate_Offset (word 18446744073709551568)) *)
-  0x4e284b61;       (* arm_AESE Q1 Q27 *)
-  0x6e3c1fbd;       (* arm_EOR_VEC Q29 Q29 Q28 128 *)
-  0x6e211fa1;       (* arm_EOR_VEC Q1 Q29 Q1 128 *)
-  0x3c9d0041;       (* arm_STR Q1 X2 (Immediate_Offset (word 18446744073709551568)) *)
-  0x3cde001d;       (* arm_LDR Q29 X0 (Immediate_Offset (word 18446744073709551584)) *)
-  0x4e284b62;       (* arm_AESE Q2 Q27 *)
-  0x6e3c1fbd;       (* arm_EOR_VEC Q29 Q29 Q28 128 *)
-  0x6e221fa2;       (* arm_EOR_VEC Q2 Q29 Q2 128 *)
-  0x3c9e0042;       (* arm_STR Q2 X2 (Immediate_Offset (word 18446744073709551584)) *)
-  0x3cdf001d;       (* arm_LDR Q29 X0 (Immediate_Offset (word 18446744073709551600)) *)
-  0x4e284b63;       (* arm_AESE Q3 Q27 *)
-  0x6e3c1fbd;       (* arm_EOR_VEC Q29 Q29 Q28 128 *)
-  0x6e231fa3;       (* arm_EOR_VEC Q3 Q29 Q3 128 *)
-  0x3c9f0043;       (* arm_STR Q3 X2 (Immediate_Offset (word 18446744073709551600)) *)
-  0x4e200800;       (* arm_REV64_VEC Q0 Q0 8 *)
-  0x6e2b1c00;       (* arm_EOR_VEC Q0 Q0 Q11 128 *)
-  0x0ef0e008;       (* arm_PMULL_VEC Q8 Q0 Q16 64 *)
-  0x4ef0e009;       (* arm_PMULL2_VEC Q9 Q0 Q16 64 *)
-  0x6e00400b;       (* arm_EXT Q11 Q0 Q0 64 *)
-  0x6e201d6b;       (* arm_EOR_VEC Q11 Q11 Q0 128 *)
-  0x4ef1e16a;       (* arm_PMULL2_VEC Q10 Q11 Q17 64 *)
-  0x4e200821;       (* arm_REV64_VEC Q1 Q1 8 *)
-  0x0eefe02b;       (* arm_PMULL_VEC Q11 Q1 Q15 64 *)
-  0x6e2b1d08;       (* arm_EOR_VEC Q8 Q8 Q11 128 *)
-  0x4eefe02b;       (* arm_PMULL2_VEC Q11 Q1 Q15 64 *)
-  0x6e2b1d29;       (* arm_EOR_VEC Q9 Q9 Q11 128 *)
-  0x5e18042b;       (* arm_DUP_ELEM Q11 Q1 1 64 *)
-  0x2e211d6b;       (* arm_EOR_VEC Q11 Q11 Q1 64 *)
-  0x0ef1e16b;       (* arm_PMULL_VEC Q11 Q11 Q17 64 *)
-  0x6e2b1d4a;       (* arm_EOR_VEC Q10 Q10 Q11 128 *)
-  0x4e200842;       (* arm_REV64_VEC Q2 Q2 8 *)
-  0x0eede04b;       (* arm_PMULL_VEC Q11 Q2 Q13 64 *)
-  0x6e2b1d08;       (* arm_EOR_VEC Q8 Q8 Q11 128 *)
-  0x4eede04b;       (* arm_PMULL2_VEC Q11 Q2 Q13 64 *)
-  0x6e2b1d29;       (* arm_EOR_VEC Q9 Q9 Q11 128 *)
-  0x6e02404b;       (* arm_EXT Q11 Q2 Q2 64 *)
-  0x6e221d6b;       (* arm_EOR_VEC Q11 Q11 Q2 128 *)
-  0x4eeee16b;       (* arm_PMULL2_VEC Q11 Q11 Q14 64 *)
-  0x6e2b1d4a;       (* arm_EOR_VEC Q10 Q10 Q11 128 *)
-  0x4e200863;       (* arm_REV64_VEC Q3 Q3 8 *)
-  0x0eece06b;       (* arm_PMULL_VEC Q11 Q3 Q12 64 *)
-  0x6e2b1d08;       (* arm_EOR_VEC Q8 Q8 Q11 128 *)
-  0x4eece06b;       (* arm_PMULL2_VEC Q11 Q3 Q12 64 *)
-  0x6e2b1d29;       (* arm_EOR_VEC Q9 Q9 Q11 128 *)
-  0x5e18046b;       (* arm_DUP_ELEM Q11 Q3 1 64 *)
-  0x2e231d6b;       (* arm_EOR_VEC Q11 Q11 Q3 64 *)
-  0x0eeee16b;       (* arm_PMULL_VEC Q11 Q11 Q14 64 *)
-  0x6e2b1d4a;       (* arm_EOR_VEC Q10 Q10 Q11 128 *)
-  0x6e291d00;       (* arm_EOR_VEC Q0 Q8 Q9 128 *)
-  0x0ee7e121;       (* arm_PMULL_VEC Q1 Q9 Q7 64 *)
-  0x6e094129;       (* arm_EXT Q9 Q9 Q9 64 *)
-  0x6e201d4a;       (* arm_EOR_VEC Q10 Q10 Q0 128 *)
-  0x6e211d21;       (* arm_EOR_VEC Q1 Q9 Q1 128 *)
-  0x6e211d4a;       (* arm_EOR_VEC Q10 Q10 Q1 128 *)
-  0x0ee7e149;       (* arm_PMULL_VEC Q9 Q10 Q7 64 *)
-  0x6e291d08;       (* arm_EOR_VEC Q8 Q8 Q9 128 *)
-  0x6e0a414a;       (* arm_EXT Q10 Q10 Q10 64 *)
-  0x6e2a1d0b;       (* arm_EOR_VEC Q11 Q8 Q10 128 *)
-  0x6e0b416b;       (* arm_EXT Q11 Q11 Q11 64 *)
-  0x6e200be0;       (* arm_REV32_VEC Q0 Q31 8 *)
-  0x4ebe87ff;       (* arm_ADD_VEC Q31 Q31 Q30 32 128 *)
-  0x6e200be1;       (* arm_REV32_VEC Q1 Q31 8 *)
-  0x4ebe87ff;       (* arm_ADD_VEC Q31 Q31 Q30 32 128 *)
-  0x6e200be2;       (* arm_REV32_VEC Q2 Q31 8 *)
-  0x4ebe87ff;       (* arm_ADD_VEC Q31 Q31 Q30 32 128 *)
-  0x6e200be3;       (* arm_REV32_VEC Q3 Q31 8 *)
-  0x4ebe87ff;       (* arm_ADD_VEC Q31 Q31 Q30 32 128 *)
-  0x4e284a40;       (* arm_AESE Q0 Q18 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284a60;       (* arm_AESE Q0 Q19 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284a80;       (* arm_AESE Q0 Q20 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284aa0;       (* arm_AESE Q0 Q21 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284ac0;       (* arm_AESE Q0 Q22 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284ae0;       (* arm_AESE Q0 Q23 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284b00;       (* arm_AESE Q0 Q24 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284b20;       (* arm_AESE Q0 Q25 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284b40;       (* arm_AESE Q0 Q26 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284a41;       (* arm_AESE Q1 Q18 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284a61;       (* arm_AESE Q1 Q19 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284a81;       (* arm_AESE Q1 Q20 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284aa1;       (* arm_AESE Q1 Q21 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284ac1;       (* arm_AESE Q1 Q22 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284ae1;       (* arm_AESE Q1 Q23 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284b01;       (* arm_AESE Q1 Q24 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284b21;       (* arm_AESE Q1 Q25 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284b41;       (* arm_AESE Q1 Q26 *)
-  0x4e286821;       (* arm_AESMC Q1 Q1 *)
-  0x4e284a42;       (* arm_AESE Q2 Q18 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284a62;       (* arm_AESE Q2 Q19 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284a82;       (* arm_AESE Q2 Q20 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284aa2;       (* arm_AESE Q2 Q21 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284ac2;       (* arm_AESE Q2 Q22 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284ae2;       (* arm_AESE Q2 Q23 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284b02;       (* arm_AESE Q2 Q24 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284b22;       (* arm_AESE Q2 Q25 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284b42;       (* arm_AESE Q2 Q26 *)
-  0x4e286842;       (* arm_AESMC Q2 Q2 *)
-  0x4e284a43;       (* arm_AESE Q3 Q18 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0x4e284a63;       (* arm_AESE Q3 Q19 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0x4e284a83;       (* arm_AESE Q3 Q20 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0x4e284aa3;       (* arm_AESE Q3 Q21 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0x4e284ac3;       (* arm_AESE Q3 Q22 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0x4e284ae3;       (* arm_AESE Q3 Q23 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0x4e284b03;       (* arm_AESE Q3 Q24 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0x4e284b23;       (* arm_AESE Q3 Q25 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0x4e284b43;       (* arm_AESE Q3 Q26 *)
-  0x4e286863;       (* arm_AESMC Q3 Q3 *)
-  0xd1000421;       (* arm_SUB X1 X1 (rvalue (word 1)) *)
-  0xb5ffedc1;       (* arm_CBNZ X1 (word 2096568) *)
-  0x6ebe87ff;       (* arm_SUB_VEC Q31 Q31 Q30 32 128 *)
-  0x6ebe87ff;       (* arm_SUB_VEC Q31 Q31 Q30 32 128 *)
-  0x6ebe87ff;       (* arm_SUB_VEC Q31 Q31 Q30 32 128 *)
-  0xb40005c9;       (* arm_CBZ X9 (word 184) *)
-  0x3cc1041d;       (* arm_LDR Q29 X0 (Postimmediate_Offset (word 16)) *)
-  0x4e284b60;       (* arm_AESE Q0 Q27 *)
-  0x6e3c1fbd;       (* arm_EOR_VEC Q29 Q29 Q28 128 *)
-  0x6e201fa0;       (* arm_EOR_VEC Q0 Q29 Q0 128 *)
-  0x3c810440;       (* arm_STR Q0 X2 (Postimmediate_Offset (word 16)) *)
-  0x4e200800;       (* arm_REV64_VEC Q0 Q0 8 *)
-  0x6e2b1c00;       (* arm_EOR_VEC Q0 Q0 Q11 128 *)
-  0x0eece008;       (* arm_PMULL_VEC Q8 Q0 Q12 64 *)
-  0x4eece009;       (* arm_PMULL2_VEC Q9 Q0 Q12 64 *)
-  0x5e18040b;       (* arm_DUP_ELEM Q11 Q0 1 64 *)
-  0x2e201d6b;       (* arm_EOR_VEC Q11 Q11 Q0 64 *)
-  0x0eeee16a;       (* arm_PMULL_VEC Q10 Q11 Q14 64 *)
-  0x6e291d00;       (* arm_EOR_VEC Q0 Q8 Q9 128 *)
-  0x0ee7e121;       (* arm_PMULL_VEC Q1 Q9 Q7 64 *)
-  0x6e094129;       (* arm_EXT Q9 Q9 Q9 64 *)
-  0x6e201d4a;       (* arm_EOR_VEC Q10 Q10 Q0 128 *)
-  0x6e211d21;       (* arm_EOR_VEC Q1 Q9 Q1 128 *)
-  0x6e211d4a;       (* arm_EOR_VEC Q10 Q10 Q1 128 *)
-  0x0ee7e149;       (* arm_PMULL_VEC Q9 Q10 Q7 64 *)
-  0x6e291d08;       (* arm_EOR_VEC Q8 Q8 Q9 128 *)
-  0x6e0a414a;       (* arm_EXT Q10 Q10 Q10 64 *)
-  0x6e2a1d0b;       (* arm_EOR_VEC Q11 Q8 Q10 128 *)
-  0x6e0b416b;       (* arm_EXT Q11 Q11 Q11 64 *)
-  0x6e200be0;       (* arm_REV32_VEC Q0 Q31 8 *)
-  0x4ebe87ff;       (* arm_ADD_VEC Q31 Q31 Q30 32 128 *)
-  0x4e284a40;       (* arm_AESE Q0 Q18 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284a60;       (* arm_AESE Q0 Q19 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284a80;       (* arm_AESE Q0 Q20 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284aa0;       (* arm_AESE Q0 Q21 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284ac0;       (* arm_AESE Q0 Q22 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284ae0;       (* arm_AESE Q0 Q23 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284b00;       (* arm_AESE Q0 Q24 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284b20;       (* arm_AESE Q0 Q25 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0x4e284b40;       (* arm_AESE Q0 Q26 *)
-  0x4e286800;       (* arm_AESMC Q0 Q0 *)
-  0xd1000529;       (* arm_SUB X9 X9 (rvalue (word 1)) *)
-  0xb5fffa89;       (* arm_CBNZ X9 (word 2096976) *)
-  0x6ebe87ff;       (* arm_SUB_VEC Q31 Q31 Q30 32 128 *)
-  0xaa0f03e0;       (* arm_MOV X0 X15 *)
-  0x4e20096b;       (* arm_REV64_VEC Q11 Q11 8 *)
-  0x3d80006b;       (* arm_STR Q11 X3 (Immediate_Offset (word 0)) *)
-  0x6e200bff;       (* arm_REV32_VEC Q31 Q31 8 *)
-  0x3d80009f;       (* arm_STR Q31 X4 (Immediate_Offset (word 0)) *)
-  0x6d4627e8;       (* arm_LDP D8 D9 SP (Immediate_Offset (iword (&96))) *)
-  0x6d472fea;       (* arm_LDP D10 D11 SP (Immediate_Offset (iword (&112))) *)
-  0x6d4837ec;       (* arm_LDP D12 D13 SP (Immediate_Offset (iword (&128))) *)
-  0x6d493fee;       (* arm_LDP D14 D15 SP (Immediate_Offset (iword (&144))) *)
-  0xa94053f3;       (* arm_LDP X19 X20 SP (Immediate_Offset (iword (&0))) *)
-  0xa9415bf5;       (* arm_LDP X21 X22 SP (Immediate_Offset (iword (&16))) *)
-  0xa94263f7;       (* arm_LDP X23 X24 SP (Immediate_Offset (iword (&32))) *)
-  0xa9436bf9;       (* arm_LDP X25 X26 SP (Immediate_Offset (iword (&48))) *)
-  0xa94473fb;       (* arm_LDP X27 X28 SP (Immediate_Offset (iword (&64))) *)
-  0xa9457bfd;       (* arm_LDP X29 X30 SP (Immediate_Offset (iword (&80))) *)
-  0x910283ff;       (* arm_ADD SP SP (rvalue (word 160)) *)
-  0xd65f03c0        (* arm_RET X30 *)
+  0xd10283ff;
+  0xa90053f3;
+  0xa9015bf5;
+  0xa90263f7;
+  0xa9036bf9;
+  0xa90473fb;
+  0xa9057bfd;
+  0x6d0627e8;
+  0x6d072fea;
+  0x6d0837ec;
+  0x6d093fee;
+  0xd343fc2f;
+  0x3dc000b2;
+  0x3dc004b3;
+  0x3dc008b4;
+  0x3dc00cb5;
+  0x3dc010b6;
+  0x3dc014b7;
+  0x3dc018b8;
+  0x3dc01cb9;
+  0x3dc020ba;
+  0x3dc024bb;
+  0x3dc028bc;
+  0x3dc0006b;
+  0x4e20096b;
+  0x3dc0009f;
+  0xd2c00039;
+  0x4f00e41e;
+  0x9eaf033e;
+  0x6e200bff;
+  0xd344fde7;
+  0xd342fce1;
+  0x924004e9;
+  0x0f06e447;
+  0x5f7854e7;
+  0x3dc00ccf;
+  0x3dc014d0;
+  0x3dc010d1;
+  0x3dc000cc;
+  0x3dc008cd;
+  0x3dc004ce;
+  0x6e200be0;
+  0x4ebe87ff;
+  0x6e200be1;
+  0x4ebe87ff;
+  0x6e200be2;
+  0x4ebe87ff;
+  0x6e200be3;
+  0x4ebe87ff;
+  0x4e284a40;
+  0x4e286800;
+  0x4e284a60;
+  0x4e286800;
+  0x4e284a80;
+  0x4e286800;
+  0x4e284aa0;
+  0x4e286800;
+  0x4e284ac0;
+  0x4e286800;
+  0x4e284ae0;
+  0x4e286800;
+  0x4e284b00;
+  0x4e286800;
+  0x4e284b20;
+  0x4e286800;
+  0x4e284b40;
+  0x4e286800;
+  0x4e284a41;
+  0x4e286821;
+  0x4e284a61;
+  0x4e286821;
+  0x4e284a81;
+  0x4e286821;
+  0x4e284aa1;
+  0x4e286821;
+  0x4e284ac1;
+  0x4e286821;
+  0x4e284ae1;
+  0x4e286821;
+  0x4e284b01;
+  0x4e286821;
+  0x4e284b21;
+  0x4e286821;
+  0x4e284b41;
+  0x4e286821;
+  0x4e284a42;
+  0x4e286842;
+  0x4e284a62;
+  0x4e286842;
+  0x4e284a82;
+  0x4e286842;
+  0x4e284aa2;
+  0x4e286842;
+  0x4e284ac2;
+  0x4e286842;
+  0x4e284ae2;
+  0x4e286842;
+  0x4e284b02;
+  0x4e286842;
+  0x4e284b22;
+  0x4e286842;
+  0x4e284b42;
+  0x4e286842;
+  0x4e284a43;
+  0x4e286863;
+  0x4e284a63;
+  0x4e286863;
+  0x4e284a83;
+  0x4e286863;
+  0x4e284aa3;
+  0x4e286863;
+  0x4e284ac3;
+  0x4e286863;
+  0x4e284ae3;
+  0x4e286863;
+  0x4e284b03;
+  0x4e286863;
+  0x4e284b23;
+  0x4e286863;
+  0x4e284b43;
+  0x4e286863;
+  0xb4001281;
+  0x3cc4040a;
+  0x4e284b60;
+  0x3cdd0009;
+  0x4e284b61;
+  0x3cde0008;
+  0x4e284b62;
+  0x3cdf0006;
+  0x4e284b63;
+  0x6e3c1d4a;
+  0x4ebe87fd;
+  0x6e3c1d29;
+  0x6e201d4a;
+  0x6e200be0;
+  0x6e211d3f;
+  0x6e200ba1;
+  0x3c84044a;
+  0x4e284a40;
+  0x4e286800;
+  0x3c9d005f;
+  0x4e284a41;
+  0x4e286821;
+  0x6e3c1d08;
+  0x4e284a60;
+  0x4e286800;
+  0x6e3c1cc4;
+  0x4e284a61;
+  0x4e286821;
+  0x6e221d09;
+  0x4e284a80;
+  0x4e286800;
+  0x6e231c86;
+  0x4e284a81;
+  0x4e286821;
+  0x3c9e0049;
+  0x4e284aa0;
+  0x4e286800;
+  0x3c9f0046;
+  0x4e284aa1;
+  0x4e286821;
+  0x4e200948;
+  0x4e284ac0;
+  0x4e286800;
+  0x4e200be3;
+  0x4e284ac1;
+  0x4e286821;
+  0x6e2b1d08;
+  0x4e284ae0;
+  0x4e286800;
+  0x0eefe07f;
+  0x5e18046a;
+  0x0ef0e102;
+  0x6e08410b;
+  0x4ef0e104;
+  0x2e231d4a;
+  0x6e281d68;
+  0x4eefe065;
+  0x6e3f1c42;
+  0x0ef1e14b;
+  0x4ef1e103;
+  0x6e251c8a;
+  0x4e20093f;
+  0x4e284b00;
+  0x4e286800;
+  0x6e2b1c6b;
+  0x4e284ae1;
+  0x4e286821;
+  0x0eede3e9;
+  0x6e1f43e3;
+  0x4eede3e5;
+  0x4e2008c6;
+  0x6e291c48;
+  0x4e284b20;
+  0x4e286800;
+  0x6e251d49;
+  0x0eece0ca;
+  0x6e3f1c63;
+  0x4eece0c2;
+  0x6e2a1d04;
+  0x4e284b40;
+  0x4e286800;
+  0x4ebe87bf;
+  0x4e284b01;
+  0x4e286821;
+  0x4eeee065;
+  0x6e221d2a;
+  0x6e200be2;
+  0x4e284b21;
+  0x4e286821;
+  0x5e1804c9;
+  0x0ee7e15d;
+  0x4ebe87ff;
+  0x4e284a42;
+  0x4e286842;
+  0x2e261d26;
+  0x4e284b41;
+  0x4e286821;
+  0x6e200be3;
+  0x4e284a62;
+  0x4e286842;
+  0x6e251d69;
+  0x0eeee0c8;
+  0x6e2a1c86;
+  0x4e284a43;
+  0x4e286863;
+  0x6e281d28;
+  0x4e284a82;
+  0x4e286842;
+  0x6e0a414b;
+  0x4e284a63;
+  0x4e286863;
+  0x6e261d0a;
+  0x4e284aa2;
+  0x4e286842;
+  0x6e3d1d69;
+  0x4e284a83;
+  0x4e286863;
+  0x4ebe87ff;
+  0x4e284ac2;
+  0x4e286842;
+  0x6e291d49;
+  0x4e284aa3;
+  0x4e286863;
+  0x4e284ae2;
+  0x4e286842;
+  0x6e09412a;
+  0x4e284ac3;
+  0x4e286863;
+  0x0ee7e125;
+  0x4e284ae3;
+  0x4e286863;
+  0x6e251c8b;
+  0x4e284b02;
+  0x4e286842;
+  0x4e284b03;
+  0x4e286863;
+  0x6e2a1d69;
+  0x4e284b22;
+  0x4e286842;
+  0x4e284b23;
+  0x4e286863;
+  0x6e09412b;
+  0x4e284b42;
+  0x4e286842;
+  0x4e284b43;
+  0x4e286863;
+  0xd1000421;
+  0xb5ffedc1;
+  0x6ebe87ff;
+  0x6ebe87ff;
+  0x6ebe87ff;
+  0xb40005c9;
+  0x4e284b60;
+  0x3cc10408;
+  0x6e3c1d02;
+  0x6e201c4f;
+  0x6e200be0;
+  0x4ebe87ff;
+  0x3c81044f;
+  0x4e2009e9;
+  0x4e284a40;
+  0x4e286800;
+  0x6e2b1d2d;
+  0x4e284a60;
+  0x4e286800;
+  0x5e1805ab;
+  0x4eece1a4;
+  0x0eece1bd;
+  0x0ee7e091;
+  0x2e2d1d63;
+  0x6e241fab;
+  0x4e284a80;
+  0x4e286800;
+  0x0eeee066;
+  0x6e044084;
+  0x4e284aa0;
+  0x4e286800;
+  0x6e311c90;
+  0x6e2b1cca;
+  0x4e284ac0;
+  0x4e286800;
+  0x6e301d48;
+  0x4e284ae0;
+  0x4e286800;
+  0x0ee7e104;
+  0x4e284b00;
+  0x4e286800;
+  0x6e241fb1;
+  0x6e084104;
+  0x4e284b20;
+  0x4e286800;
+  0x6e241e24;
+  0x4e284b40;
+  0x4e286800;
+  0x6e04408b;
+  0xd1000529;
+  0xb5fffa89;
+  0x6ebe87ff;
+  0xaa0f03e0;
+  0x4e20096b;
+  0x3d80006b;
+  0x6e200bff;
+  0x3d80009f;
+  0x6d4627e8;
+  0x6d472fea;
+  0x6d4837ec;
+  0x6d493fee;
+  0xa94053f3;
+  0xa9415bf5;
+  0xa94263f7;
+  0xa9436bf9;
+  0xa94473fb;
+  0xa9457bfd;
+  0x910283ff;
+  0xd65f03c0;
 ];;
 
 let AES_GCM_ENC_KERNEL_X4_KEEP_HTABLE_ROTATE_EXEC = ARM_MK_EXEC_RULE aes_gcm_enc_kernel_x4_keep_htable_rotate_mc;;
@@ -1435,11 +1435,7 @@ let AES_GCM_ENC_KERNEL_X4_KEEP_HTABLE_ROTATE_CORRECT = prove
                           (4 * loop_count + i))) /\
       htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
       read Q12 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
-      read Q13 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
       read Q14 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
-      read Q15 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2) /\
-      read Q16 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3) /\
-      read Q17 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2)) /\
         (!j. j < nblocks
              ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s =
                  inblock j) /\
