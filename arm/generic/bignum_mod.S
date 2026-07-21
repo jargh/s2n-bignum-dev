@@ -68,6 +68,10 @@
 #define w x21
 #define c x22
 
+// Shadow of the top accumulator word (formerly spilled to z[k])
+
+#define zt x23
+
 // Aliases for other settings
 
 #define t0 hh
@@ -83,15 +87,20 @@ S2N_BN_SYMBOL(bignum_mod):
 
         CFI_PUSH2(x19,x20)
         CFI_PUSH2(x21,x22)
+        CFI_PUSH2(x23,x24)
 
-// bignum_of_word(k+1,z,0ull);
+// Zero the k result words z[0..k-1]; the (k+1)'th accumulator word that the
+// original spilled to z[k] is now kept in the register zt. (As before, the
+// degenerate k = 0 case still writes z[0]; for a nonzero modulus, which is a
+// precondition, this writes exactly z[0..k-1].)
 
+        mov     zt, xzr
         mov     ii, xzr
 Lbignum_mod_initloop:
         str     xzr, [z, ii, lsl #3]
         add     ii, ii, #1
         cmp     k, ii
-        bcs     Lbignum_mod_initloop
+        bhi     Lbignum_mod_initloop
 
 // If n = 0 do nothing
 
@@ -323,12 +332,24 @@ Lbignum_mod_trivnegadd:
 Lbignum_mod_offendm:
         mvn     tt, tt
         mul     ll, q, tt
+
+// The top accumulator word (ii == k) is held in zt rather than z[k], so both
+// its load and its store go to the register; only ii < k touches memory.
+
+        cmp     ii, k
+        bne     Lbignum_mod_trivmem
+        add     ss, zt, hh
+        add     ss, ss, ll
+        extr    c, ss, c, #(64 - BLOCKSIZE)
+        mov     zt, c
+        b       Lbignum_mod_trivlogged
+Lbignum_mod_trivmem:
         ldr     ss, [z, ii, lsl #3]
         add     ss, ss, hh
         add     ss, ss, ll
-
         extr    c, ss, c, #(64 - BLOCKSIZE)
         str     c, [z, ii, lsl #3]
+Lbignum_mod_trivlogged:
 
         cmp     ii, pcode
         csel    lf, c, lf, cc
@@ -352,7 +373,13 @@ Lbignum_mod_offendm:
         cmp     ii, l
         beq     Lbignum_mod_noel
         lsr     c, ss, #(64 - BLOCKSIZE)
+        cmp     ii, k
+        bne     Lbignum_mod_noelmem
+        mov     zt, c
+        b       Lbignum_mod_noellogged
+Lbignum_mod_noelmem:
         str     c, [z, ii, lsl #3]
+Lbignum_mod_noellogged:
 
         cmp     ii, pcode
         csel    lf, c, lf, cc
@@ -429,9 +456,9 @@ Lbignum_mod_negaddloop1:
         bne     Lbignum_mod_negaddloop1
 Lbignum_mod_negaddtail1:
         sub     hh, hh, q
-        ldr     ss, [z, ii, lsl #3]
+        mov     ss, zt                  // top word (was z[k])
         add     ss, ss, hh
-        str     ss, [z, ii, lsl #3]
+        mov     zt, ss                  // top word (was z[k])
 
         cmp     ii, pcode
         csel    lf, ss, lf, cc
@@ -481,7 +508,7 @@ Lbignum_mod_negaddloop2:
         sub     tt, ii, k
         cbnz    tt, Lbignum_mod_negaddloop2
 Lbignum_mod_negaddtail2:
-        ldr     ss, [z, ii, lsl #3]
+        mov     ss, zt                  // top word (was z[k])
         adc     ss, ss, hh
         cmp     ss, q
 
@@ -506,6 +533,7 @@ Lbignum_mod_optaddtail:
 
 Lbignum_mod_end:
 
+        CFI_POP2(x23,x24)
         CFI_POP2(x21,x22)
         CFI_POP2(x19,x20)
 
