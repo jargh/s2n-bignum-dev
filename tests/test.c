@@ -6998,9 +6998,11 @@ int test_bignum_mod(void)
      for (i = 0; i < K; ++i) b4[i] = (i < k) ? b1[i] : 0;
      reference_divmod(K,b6,b5,b3,b4);             // b5 = x mod m (K digits)
 
-     // Sentinels: this implementation legitimately uses z[k] as scratch, so
-     // the caller must supply k+1 digits. Guard z[k+1] to catch any write
-     // that strays even further than that.
+     // Sentinels. The x86 implementation writes exactly the k result words
+     // z[0..k-1], so z[k] must be left untouched (checked below under
+     // __x86_64__). The ARM version still uses z[k] as scratch, so there the
+     // sentinel at z[k] is merely expected to be clobbered; z[k+1] guards
+     // against any write straying beyond z[k] on either architecture.
 
      b2[k] = UINT64_C(0x5555555555555555);
      b2[k+1] = UINT64_C(0xAAAAAAAAAAAAAAAA);
@@ -7016,6 +7018,14 @@ int test_bignum_mod(void)
                b2[j],b2[0],b5[j],b5[0]);
         return 1;
       }
+#ifdef __x86_64__
+     if (b2[k] != UINT64_C(0x5555555555555555))
+      { printf("### Memory corruption: bignum_mod wrote past z[k-1] "
+               "(guard at z[%"PRIu64"] clobbered) [sizes %4"PRIu64" mod %4"PRIu64"]\n",
+               k,n,k);
+        return 1;
+      }
+#endif
      if (b2[k+1] != UINT64_C(0xAAAAAAAAAAAAAAAA))
       { printf("### Memory corruption: bignum_mod wrote past z[k] "
                "(guard at z[%"PRIu64"] clobbered) [sizes %4"PRIu64" mod %4"PRIu64"]\n",

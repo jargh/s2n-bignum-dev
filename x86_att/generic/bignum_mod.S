@@ -38,7 +38,7 @@
 #define STACKVARSIZE 72
 
 #define kk      (%rsp)                  // modulus size k
-#define zz      8(%rsp)                 // output pointer z (also kept in rsi)
+#define zt      8(%rsp)                 // shadow of the top word (was z[k])
 #define nn      16(%rsp)                // input size n
 #define xx      24(%rsp)                // input pointer x
 #define mmm     32(%rsp)                // modulus pointer m (also kept in r8)
@@ -90,20 +90,24 @@ S2N_BN_SYMBOL(bignum_mod):
 // Keep z in rsi and m in r8 live; the rest go to slots.
 
         movq    %rdi, kk
-        movq    %rsi, zz
         movq    %rdx, nn
         movq    %rcx, xx
         movq    %r8, mmm
 
-// bignum_of_word(k+1,z,0ull);  zero z[0..k] (k+1 words; z[k] used as scratch)
+// bignum_of_word(k,z,0ull);  zero the k result words z[0..k-1]. The (k+1)'th
+// accumulator word that the original spilled to z[k] is now kept in "zt".
 
         xorq    %rax, %rax
+        movq    %rax, zt                // shadow top word starts at 0
         xorq    %rcx, %rcx
+        cmpq    %rdi, %rcx
+        je      Lbignum_mod_initdone    // k = 0: nothing to zero
 Lbignum_mod_initloop:
         movq    %rax, (z,%rcx,8)
         incq    %rcx
         cmpq    %rdi, %rcx
-        jbe     Lbignum_mod_initloop
+        jb      Lbignum_mod_initloop    // zero z[0..k-1] only, never z[k]
+Lbignum_mod_initdone:
 
 // If n = 0 do nothing
 
@@ -336,17 +340,20 @@ Lbignum_mod_innerloop:
 
 Lbignum_mod_trivnegadd:
         xorl    %eax, %eax              // tt = 0
+        leaq    (z,%r10,8), %rdi        // &z[ii]
+        leaq    zt, %rdx                // &zt (shadow top word)
         cmpq    kk, %r10
-        je      Lbignum_mod_offendm
+        cmoveq  %rdx, %rdi              // ii == k ? &zt : &z[ii]
+        je      Lbignum_mod_offendm     // ii == k: no m[k], tt stays 0
         movq    (m,%r10,8), %rax        // tt = m[ii]
 Lbignum_mod_offendm:
         notq    %rax
-        mulq    q                       // rax = lo(q * ~tt)
-        movq    (z,%r10,8), %rcx        // ss = z[ii]
+        mulq    q                       // rax = lo(q * ~tt); rdx (=&zt) now dead
+        movq    (%rdi), %rcx            // ss = *(z[ii] or zt)
         addq    %r9, %rcx               // ss += hh
         addq    %rax, %rcx              // ss += ll
         shrdq   $(64 - BLOCKSIZE), %rcx, %r11 // c = extr(ss, c, 64-BLOCKSIZE)
-        movq    %r11, (z,%r10,8)
+        movq    %r11, (%rdi)            // store c to z[ii] or zt
         cmpq    pc, %r10
         cmovbq  %r11, lf
         cmoveq  %r11, hf
@@ -372,7 +379,11 @@ Lbignum_mod_offendm:
         movq    %rcx, %rax              // ss
         shrq    $(64 - BLOCKSIZE), %rax // ss >> (64-BLOCKSIZE)
         movq    %rax, %r11              // c = ss >> (64-BLOCKSIZE)
-        movq    %r11, (z,%r10,8)
+        leaq    (z,%r10,8), %rax        // &z[ii]
+        leaq    zt, %rdi                // &zt
+        cmpq    kk, %r10
+        cmoveq  %rdi, %rax              // ii == k ? &zt : &z[ii]
+        movq    %r11, (%rax)
         cmpq    pc, %r10
         cmovbq  %r11, lf
         cmoveq  %r11, hf
@@ -451,9 +462,9 @@ Lbignum_mod_negaddloop1:
         jne     Lbignum_mod_negaddloop1
 Lbignum_mod_negaddtail1:
         subq    q, %r9                  // hh -= q
-        movq    (z,%r10,8), %rcx        // z[k]
+        movq    zt, %rcx                // top word (was z[k])
         addq    %r9, %rcx
-        movq    %rcx, (z,%r10,8)        // z[k] = ss
+        movq    %rcx, zt                // top word (was z[k])
         cmpq    pc, %r10
         cmovbq  %rcx, lf
         cmoveq  %rcx, hf
@@ -514,8 +525,8 @@ Lbignum_mod_negaddloop2:
         jne     Lbignum_mod_negaddloop2
 Lbignum_mod_negaddtail2:
         negq    %rdi                    // CF = cy bit
-        movq    (z,%r10,8), %rcx        // z[k]
-        adcq    %r9, %rcx               // ss = z[k] + hh + cy
+        movq    zt, %rcx                // top word (was z[k])
+        adcq    %r9, %rcx               // ss = top + hh + cy
         cmpq    q, %rcx
         sbbq    %rax, %rax              // rax = (top < q) ? -1 : 0  -> mask t
 
