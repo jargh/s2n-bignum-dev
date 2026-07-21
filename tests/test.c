@@ -6962,6 +6962,65 @@ int test_bignum_madd_n25519_alt(void)
   return 0;
 }
 
+int test_bignum_mod(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+  uint64_t t, i, k, n, K, j;
+  printf("Testing bignum_mod with %d cases\n",tests);
+  for (t = 0; t < tests; ++t)
+   { k = 1 + (unsigned) rand() % (MAXSIZE - 1);   // k >= 1 (modulus nonzero)
+     n = (unsigned) rand() % MAXSIZE;
+     if (rand() & 1) random_sparse_bignum(n,b0); else random_bignum(n,b0);
+     if (rand() & 1) random_sparse_bignum(k,b1); else random_bignum(k,b1);
+     if (reference_iszero(k,b1)) b1[0] = 1;       // enforce nonzero modulus
+
+     // Reference remainder x mod m via equal-length long division, with
+     // both operands zero-extended to K = max(n,k) digits. The remainder is
+     // strictly less than m so it fits back into k digits.
+
+     K = (n > k) ? n : k;
+     for (i = 0; i < K; ++i) b3[i] = (i < n) ? b0[i] : 0;
+     for (i = 0; i < K; ++i) b4[i] = (i < k) ? b1[i] : 0;
+     reference_divmod(K,b6,b5,b3,b4);             // b5 = x mod m (K digits)
+
+     // Sentinels: this implementation legitimately uses z[k] as scratch, so
+     // the caller must supply k+1 digits. Guard z[k+1] to catch any write
+     // that strays even further than that.
+
+     b2[k] = UINT64_C(0x5555555555555555);
+     b2[k+1] = UINT64_C(0xAAAAAAAAAAAAAAAA);
+
+     bignum_mod(k,b2,n,b0,b1);
+
+     j = k - 1;
+     if (reference_compare(k,b2,k,b5) != 0)
+      { printf("### Disparity: [sizes %4"PRIu64" mod %4"PRIu64"] "
+               "0x%016"PRIx64"...%016"PRIx64" mod 0x%016"PRIx64"...%016"PRIx64" = "
+               "0x%016"PRIx64"...%016"PRIx64" not 0x%016"PRIx64"...%016"PRIx64"\n",
+               n,k,(n?b0[n-1]:0),(n?b0[0]:0),b1[k-1],b1[0],
+               b2[j],b2[0],b5[j],b5[0]);
+        return 1;
+      }
+     if (b2[k+1] != UINT64_C(0xAAAAAAAAAAAAAAAA))
+      { printf("### Memory corruption: bignum_mod wrote past z[k] "
+               "(guard at z[%"PRIu64"] clobbered) [sizes %4"PRIu64" mod %4"PRIu64"]\n",
+               k+1,n,k);
+        return 1;
+      }
+     else if (VERBOSE)
+      { printf("OK: [sizes %4"PRIu64" mod %4"PRIu64"] "
+               "0x%016"PRIx64"...%016"PRIx64" mod 0x%016"PRIx64"...%016"PRIx64" = "
+               "0x%016"PRIx64"...%016"PRIx64"\n",
+               n,k,(n?b0[n-1]:0),(n?b0[0]:0),b1[k-1],b1[0],b2[j],b2[0]);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
 int test_bignum_mod_m25519(void)
 { uint64_t t, k;
   printf("Testing bignum_mod_m25519 with %d cases\n",tests);
@@ -17365,6 +17424,7 @@ int main(int argc, char *argv[])
   functionaltest(all,"bignum_madd",test_bignum_madd);
   functionaltest(bmi,"bignum_madd_n25519",test_bignum_madd_n25519);
   functionaltest(all,"bignum_madd_n25519_alt",test_bignum_madd_n25519_alt);
+  functionaltest(arm,"bignum_mod",test_bignum_mod);
   functionaltest(all,"bignum_mod_m25519",test_bignum_mod_m25519);
   functionaltest(all,"bignum_mod_m25519_4",test_bignum_mod_m25519_4);
   functionaltest(all,"bignum_mod_n25519",test_bignum_mod_n25519);
