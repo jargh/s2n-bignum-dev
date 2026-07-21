@@ -6971,9 +6971,25 @@ int test_bignum_mod(void)
   printf("Testing bignum_mod with %d cases\n",tests);
   for (t = 0; t < tests; ++t)
    { k = 1 + (unsigned) rand() % (MAXSIZE - 1);   // k >= 1 (modulus nonzero)
-     n = (unsigned) rand() % MAXSIZE;
-     if (rand() & 1) random_sparse_bignum(n,b0); else random_bignum(n,b0);
-     if (rand() & 1) random_sparse_bignum(k,b1); else random_bignum(k,b1);
+
+     // Choose the input size n. Bias towards n >= k for most cases, since
+     // an input x substantially larger than the modulus m is what drives the
+     // block-by-block reduction loop that is the heart of the algorithm;
+     // still cover the full range (including n < k) some of the time.
+
+     if (rand() % 3 == 0) n = (unsigned) rand() % MAXSIZE;      // full range
+     else                 n = k + (unsigned) rand() % (MAXSIZE - k); // n in [k,MAXSIZE-1]
+
+     // Fill x and m with random_bignum, which randomizes the bit density and
+     // then generates digits at that density: this properly exercises the
+     // whole range of magnitudes (small, medium and dense) rather than
+     // flooding the test with trivial zero or tiny inputs. Occasionally use a
+     // sparse x for extra coverage of the leading-nonzero-word / bitsize logic
+     // and of bitfield extraction spanning zero words.
+
+     if ((rand() & 7) == 0) random_sparse_bignum(n,b0);
+     else                   random_bignum(n,b0);
+     random_bignum(k,b1);
      if (reference_iszero(k,b1)) b1[0] = 1;       // enforce nonzero modulus
 
      // Reference remainder x mod m via equal-length long division, with
