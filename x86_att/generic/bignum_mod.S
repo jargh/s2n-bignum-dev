@@ -229,16 +229,14 @@ Lbignum_mod_findertail:
         mulq    %r11
         addq    %r11, %rdx              // (64*n)/61
         imulq   $BLOCKSIZE, %rdx, %rdx  // 61 * ((64*n)/61)
-        movq    %rdx, %rax
-        subq    $BLOCKSIZE, %rax
+        leaq    -(BLOCKSIZE)(%rdx), %rax // that minus 61
         testq   $63, %rdx
         cmovnzq %rdx, %rax
         movq    %rax, i                 // i
 
 // j = BLOCKSIZE
 
-        movq    $BLOCKSIZE, %rax
-        movq    %rax, jj
+        movq    $BLOCKSIZE, jj
 
 // l = word_min(k+1,(j+63)/64);
 
@@ -267,9 +265,9 @@ Lbignum_mod_findertail:
 
         movq    pp, %rcx
         movq    %r11, %rax              // c
+        xorl    %edx, %edx              // 0, for the p >= 64 case
         shrq    %cl, %rax               // c >> p
         cmpq    $64, %rcx
-        movq    $0, %rdx
         cmovncq %rdx, %rax              // if p >= 64, h = 0
         movq    %rax, hs                // h
 
@@ -393,8 +391,8 @@ Lbignum_mod_noel:
 // Field selection tidy-up: lf meaningful only if pcode <= ii+1
 //   ii < pcode -> lf = 0 ; ii == pcode -> lf = c ; ii > pcode -> lf unchanged
 
+        xorl    %eax, %eax
         cmpq    pc, %r10
-        movq    $0, %rax
         cmovbq  %rax, lf
         cmoveq  %r11, lf
 
@@ -403,14 +401,13 @@ Lbignum_mod_noel:
 
         movq    pp, %rcx
         andq    $63, %rcx               // t0
+        movq    %rcx, %r11              // keep t0 (neg below clobbers rcx)
         movq    lf, %rax
         shrq    %cl, %rax               // lf >> t0
         movq    hf, %rdx
         negq    %rcx                    // 64 - t0
         shlq    %cl, %rdx               // hf << (64-t0)
         orq     %rax, %rdx              // hf | lf
-        movq    pp, %r11
-        andq    $63, %r11
         testq   %r11, %r11
         cmovzq  %rax, %rdx              // if t0==0, h = lf
         movq    %rdx, hs                // h
@@ -473,14 +470,13 @@ Lbignum_mod_negaddtail1:
 
         movq    pp, %rcx
         andq    $63, %rcx
+        movq    %rcx, %r11              // keep t0 (neg below clobbers rcx)
         movq    lf, %rax
         shrq    %cl, %rax
         movq    hf, %rdx
         negq    %rcx
         shlq    %cl, %rdx
         orq     %rax, %rdx
-        movq    pp, %r11
-        andq    $63, %r11
         testq   %r11, %r11
         cmovzq  %rax, %rdx
         movq    %rdx, hs                // h
@@ -528,12 +524,11 @@ Lbignum_mod_negaddtail2:
         movq    zt, %rcx                // top word (was z[k])
         adcq    %r9, %rcx               // ss = top + hh + cy
         cmpq    q, %rcx
-        sbbq    %rax, %rax              // rax = (top < q) ? -1 : 0  -> mask t
+        sbbq    %r9, %r9                // r9 = mask t = (top < q) ? -1 : 0
 
 // bignum_optadd(k,z,z,t,m); if t (mask) set, add m back into z[0..k-1].
 // Carry held explicitly in cy = rdi mask across the loop control.
 
-        movq    %rax, %r9               // mask t
         xorq    %r10, %r10              // ii = 0
         xorl    %edi, %edi              // cy = 0
         movq    kk, %rax
