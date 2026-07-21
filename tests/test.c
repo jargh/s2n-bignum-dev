@@ -6964,9 +6964,6 @@ int test_bignum_madd_n25519_alt(void)
 
 int test_bignum_mod(void)
 {
-#ifdef __x86_64__
-  return 1;
-#else
   uint64_t t, i, k, n, K, j;
   printf("Testing bignum_mod with %d cases\n",tests);
   for (t = 0; t < tests; ++t)
@@ -7034,7 +7031,6 @@ int test_bignum_mod(void)
    }
   printf("All OK\n");
   return 0;
-#endif
 }
 
 int test_bignum_mod_m25519(void)
@@ -17440,7 +17436,7 @@ int main(int argc, char *argv[])
   functionaltest(all,"bignum_madd",test_bignum_madd);
   functionaltest(bmi,"bignum_madd_n25519",test_bignum_madd_n25519);
   functionaltest(all,"bignum_madd_n25519_alt",test_bignum_madd_n25519_alt);
-  functionaltest(arm,"bignum_mod",test_bignum_mod);
+  functionaltest(all,"bignum_mod",test_bignum_mod);
   functionaltest(all,"bignum_mod_m25519",test_bignum_mod_m25519);
   functionaltest(all,"bignum_mod_m25519_4",test_bignum_mod_m25519_4);
   functionaltest(all,"bignum_mod_n25519",test_bignum_mod_n25519);

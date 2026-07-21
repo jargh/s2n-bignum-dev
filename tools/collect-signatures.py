@@ -296,7 +296,6 @@ onlyInArm = [
   "bignum_copy_row_from_table_16",
   "bignum_copy_row_from_table_32",
   "bignum_emontredc_8n_cdiff",
-  "bignum_mod",
   "bignum_mod_n256k1",
   "bignum_mod_p256k1",
   "curve25519_x25519_byte",
