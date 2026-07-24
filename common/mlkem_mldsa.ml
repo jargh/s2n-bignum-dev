@@ -39,103 +39,208 @@ let pure_inverse_ntt_mldsa = define
     rem &8380417`;;
 
 (* ------------------------------------------------------------------------- *)
+(* All bit permutations used in the NTT/iNTT code are specified uniformly    *)
+(* via "bitmap": bitmap [i_0;...;i_{k-1}] n is the number whose bit j is bit *)
+(* i_j of n, i.e. a pure "gather these source bits, in this order". Note the *)
+(* little-endian ordering: bitmap[1;0] swaps bits 0 and 1 for example.       *)
+(* Bits of the argument above the list length are retained as-is, which      *)
+(* makes some theorems more regular for all inputs.                          *)
+(* ------------------------------------------------------------------------- *)
+
+let bitmap = define
+ `bitmap l n =
+  nsum {i | i < LENGTH l} (\i. 2 EXP i * bitval(numbit (EL i l) n)) +
+  2 EXP (LENGTH l) * n DIV 2 EXP (LENGTH l)`;;
+
+let NUMBIT_BITMAP = prove
+ (`!l n i. numbit i (bitmap l n) <=>
+           if i < LENGTH l then numbit (EL i l) n else numbit i n`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[bitmap] THEN
+  SIMP_TAC[NUMBIT_ADD_SHIFT; BINARY_DIGITSUM_BOUND] THEN
+  SIMP_TAC[NUMBIT_BINARY_DIGITSUM; FINITE_NUMSEG_LT] THEN
+  COND_CASES_TAC THEN ASM_REWRITE_TAC[IN_ELIM_THM] THEN
+  REWRITE_TAC[numbit; DIV_DIV; GSYM EXP_ADD] THEN
+  REPLICATE_TAC 3 AP_TERM_TAC THEN ASM_ARITH_TAC);;
+
+let BITMAP_SIMPLE = prove
+ (`!l n.
+      n < 2 EXP LENGTH l
+      ==> bitmap l n =
+          nsum {i | i < LENGTH l} (\i. 2 EXP i * bitval(numbit (EL i l) n))`,
+  SIMP_TAC[bitmap; DIV_LT; ADD_CLAUSES; MULT_CLAUSES]);;
+
+(* ------------------------------------------------------------------------- *)
+(* A single conversion BITMAP_CONV evaluates any particular instance.        *)
+(* ------------------------------------------------------------------------- *)
+
+let BITMAP_CONV =
+  let conv =
+    GEN_REWRITE_CONV I [bitmap] THENC
+    DEPTH_CONV LENGTH_CONV THENC
+    GEN_REWRITE_CONV ONCE_DEPTH_CONV [NUMSEG_LT] THENC
+    NUM_REDUCE_CONV THENC
+    GEN_REWRITE_CONV ONCE_DEPTH_CONV [CONJUNCT1 NSUM_CLAUSES] THENC
+    ONCE_DEPTH_CONV EXPAND_NSUM_CONV THENC
+    DEPTH_CONV EL_CONV THENC
+    ONCE_DEPTH_CONV NUMBIT_CONV THENC
+    GEN_REWRITE_CONV ONCE_DEPTH_CONV [BITVAL_CLAUSES] THENC
+    NUM_REDUCE_CONV in
+  fun tm ->
+    match tm with
+      Comb(Comb(Const("bitmap",_),l),n) ->
+        if is_numeral n && is_list l && forall is_numeral (dest_list l)
+        then conv tm  else failwith "BITMAP_CONV"
+    | _ -> failwith "BITMAP_CONV";;
+
+(* ------------------------------------------------------------------------- *)
 (* Bit-reversing order as used in the standard/default order.                *)
 (* ------------------------------------------------------------------------- *)
 
 let bitreverse7 = define
- `bitreverse7(n) = val(word_reversefields 1 (word n:7 word))`;;
+  `bitreverse7 = bitmap [6;5;4;3;2;1;0]`;;
 
 let bitreverse8 = define
- `bitreverse8(n) = val(word_reversefields 1 (word n:8 word))`;;
+  `bitreverse8 = bitmap [7;6;5;4;3;2;1;0]`;;
 
 let bitreverse_pairs = define
- `bitreverse_pairs i = 2 * bitreverse7 (i DIV 2) + i MOD 2`;;
+  `bitreverse_pairs = bitmap [0;7;6;5;4;3;2;1]`;;
 
 let reorder = define
- `reorder p (a:num->int) = \i. a(p i)`;;
+  `reorder p (a:num->int) = \i. a(p i)`;;
+
+(* ------------------------------------------------------------------------- *)
+(* AVX2-optimized orderings for ML-KEM and ML-DSA NTT (bit-field permutes).   *)
+(* avx2_ntt_order'/avx2_reorder'/mldsa_avx2_ntt_order' are the inverses.      *)
+(* ------------------------------------------------------------------------- *)
 
 let avx2_ntt_order = define
- `avx2_ntt_order i =
-    bitreverse7(64 * (i DIV 64) + ((i MOD 64) DIV 16) + 4 * (i MOD 16))`;;
+  `avx2_ntt_order = bitmap [6;3;2;1;0;5;4]`;;
 
 let avx2_ntt_order' = define
- `avx2_ntt_order' i =
-    let j = bitreverse7 i in
-    (64 * (j DIV 64) + 16 * (j MOD 4) + (j MOD 64) DIV 4)`;;
+  `avx2_ntt_order' = bitmap [4;3;2;1;6;5;0]`;;
 
 let avx2_reorder = define
- `avx2_reorder i =
-    let r = (i DIV 16) MOD 2
-    and q = 16 * (i DIV 32) + i MOD 16 in
-    2 * avx2_ntt_order q + r`;;
+  `avx2_reorder = bitmap [4;7;3;2;1;0;6;5]`;;
 
 let avx2_reorder' = define
- `avx2_reorder' i =
-    let r = i MOD 2
-    and q = avx2_ntt_order'(i DIV 2) in
-    (q DIV 16) * 32 + r * 16 + q MOD 16`;;
-
-(* ------------------------------------------------------------------------- *)
-(* The simpler ones as used on ARM are actually involutions.                 *)
-(* ------------------------------------------------------------------------- *)
-
-let BITREVERSE7_INVOLUTION = prove
- (`!n. n < 128 ==> bitreverse7(bitreverse7 n) = n`,
-  CONV_TAC EXPAND_CASES_CONV THEN REWRITE_TAC[bitreverse7] THEN
-  CONV_TAC(DEPTH_CONV WORD_NUM_RED_CONV));;
-
-let BITREVERSE_PAIRS_INVOLUTION = prove
- (`!n. n < 256 ==> bitreverse_pairs(bitreverse_pairs n) = n`,
-  CONV_TAC EXPAND_CASES_CONV THEN
-  REWRITE_TAC[bitreverse_pairs; bitreverse7] THEN
-  CONV_TAC(DEPTH_CONV WORD_NUM_RED_CONV));;
-
-let AVX2_NTT_ORDER_INVOLUTION = prove
- (`!n. n < 128 ==> avx2_ntt_order'(avx2_ntt_order n) = n /\
-                   avx2_ntt_order(avx2_ntt_order' n) = n`,
-  CONV_TAC EXPAND_CASES_CONV THEN
-  REWRITE_TAC[avx2_ntt_order; avx2_ntt_order'; bitreverse7] THEN
-  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
-  CONV_TAC(DEPTH_CONV WORD_NUM_RED_CONV));;
-
-let AVX2_REORDER_INVOLUTION = prove
- (`!n. n < 256 ==> avx2_reorder'(avx2_reorder n) = n /\
-                   avx2_reorder(avx2_reorder' n) = n`,
-  CONV_TAC EXPAND_CASES_CONV THEN
-  REWRITE_TAC[avx2_reorder; avx2_reorder';
-              avx2_ntt_order; avx2_ntt_order'; bitreverse7] THEN
-  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
-  CONV_TAC(DEPTH_CONV WORD_NUM_RED_CONV));;
-
-(* ------------------------------------------------------------------------- *)
-(* AVX2-optimized ordering for ML-DSA NTT (swaps bit fields then reverses)   *)
-(* ------------------------------------------------------------------------- *)
-
-let bitmap = define
- `bitmap [] n = 0 /\
-  bitmap (CONS i t) n = bitval(numbit i n) + 2 * bitmap t n`;;
+  `avx2_reorder' = bitmap [5;4;3;2;0;7;6;1]`;;
 
 let mldsa_avx2_ntt_order = define
- `mldsa_avx2_ntt_order i =
-    bitreverse8(64 * (i DIV 64) + ((i MOD 64) DIV 8) + 8 * (i MOD 8))`;;
-
-let BITMAP_MLDSA_AVX2_NTT_ORDER = prove
- (`!n. n < 256 ==> bitmap [7;6;2;1;0;5;4;3] n = mldsa_avx2_ntt_order n`,
-  REWRITE_TAC[bitmap; numbit; mldsa_avx2_ntt_order; bitreverse8; bitval] THEN
-  CONV_TAC EXPAND_CASES_CONV THEN
-  CONV_TAC(DEPTH_CONV WORD_NUM_RED_CONV));;
+  `mldsa_avx2_ntt_order = bitmap [7;6;2;1;0;5;4;3]`;;
 
 let mldsa_avx2_ntt_order' = define
- `mldsa_avx2_ntt_order' = bitmap [4;3;2;7;6;5;1;0]`;;
+  `mldsa_avx2_ntt_order' = bitmap [4;3;2;7;6;5;1;0]`;;
+
+(* ------------------------------------------------------------------------- *)
+(* A single tactic proves all the order relationships.                       *)
+(* ------------------------------------------------------------------------- *)
+
+let BITMAP_EQ_TAC thl =
+  REPEAT STRIP_TAC THEN
+  GEN_REWRITE_TAC I [GSYM NUMBITS_EQ] THEN
+  REWRITE_TAC thl THEN REWRITE_TAC[NUMBIT_BITMAP] THEN
+  CONV_TAC(ONCE_DEPTH_CONV LENGTH_CONV) THEN
+  SIMP_TAC[MESON[] `(if p then x else y:bool) = y <=> (p ==> x = y)`] THEN
+  CONV_TAC EXPAND_CASES_CONV THEN CONV_TAC(DEPTH_CONV EL_CONV) THEN
+  CONV_TAC NUM_REDUCE_CONV;;
+
+let BITREVERSE7_INVOLUTION = prove
+ (`!n. bitreverse7(bitreverse7 n) = n`,
+  BITMAP_EQ_TAC[bitreverse7]);;
+
+let BITREVERSE_PAIRS_INVOLUTION = prove
+ (`!n. bitreverse_pairs(bitreverse_pairs n) = n`,
+  BITMAP_EQ_TAC[bitreverse_pairs]);;
+
+let AVX2_NTT_ORDER_INVOLUTION = prove
+ (`!n. avx2_ntt_order'(avx2_ntt_order n) = n /\
+       avx2_ntt_order(avx2_ntt_order' n) = n`,
+  BITMAP_EQ_TAC[avx2_ntt_order; avx2_ntt_order']);;
+
+let AVX2_REORDER_INVOLUTION = prove
+ (`!n. avx2_reorder'(avx2_reorder n) = n /\
+       avx2_reorder(avx2_reorder' n) = n`,
+  BITMAP_EQ_TAC[avx2_reorder; avx2_reorder']);;
 
 let MLDSA_AVX2_NTT_ORDER_INVOLUTION = prove
- (`!n. n < 256 ==> mldsa_avx2_ntt_order'(mldsa_avx2_ntt_order n) = n /\
-                   mldsa_avx2_ntt_order(mldsa_avx2_ntt_order' n) = n`,
-  CONV_TAC EXPAND_CASES_CONV THEN
-  REWRITE_TAC[mldsa_avx2_ntt_order; mldsa_avx2_ntt_order'] THEN
-  REWRITE_TAC[bitreverse8; bitmap; bitval; numbit] THEN
-  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
-  CONV_TAC(DEPTH_CONV WORD_NUM_RED_CONV));;
+ (`!n. mldsa_avx2_ntt_order'(mldsa_avx2_ntt_order n) = n /\
+       mldsa_avx2_ntt_order(mldsa_avx2_ntt_order' n) = n`,
+  BITMAP_EQ_TAC[mldsa_avx2_ntt_order; mldsa_avx2_ntt_order']);;
+
+(* ------------------------------------------------------------------------- *)
+(* Characterizations relating each order to the index arithmetic below.      *)
+(* These are somewhat similar/stereotypical but not cleanly automated.       *)
+(* ------------------------------------------------------------------------- *)
+
+let BITREVERSE_PAIRS_ALT = prove
+ (`!i. bitreverse_pairs i = 2 * bitreverse7 (i DIV 2) + i MOD 2`,
+  X_GEN_TAC `n:num` THEN ONCE_REWRITE_TAC[GSYM NUMBITS_EQ] THEN
+  ONCE_REWRITE_TAC[ARITH_RULE `2 * x + y = y + 2 EXP 1 * x`] THEN
+  SIMP_TAC[NUMBIT_ADD_SHIFT; ARITH_RULE `n MOD 2 < 2 EXP 1`] THEN
+  REWRITE_TAC[bitreverse_pairs; bitreverse7] THEN
+  REWRITE_TAC[NUMBIT_BITMAP; NUMBIT_DIV2] THEN
+  SIMP_TAC[ARITH_RULE `n < 1 <=> n = 0`; SUB_ADD; LE_1] THEN
+  X_GEN_TAC `i:num` THEN CONV_TAC(ONCE_DEPTH_CONV LENGTH_CONV) THEN
+  ASM_CASES_TAC `i = 0` THEN ASM_SIMP_TAC[NUMBIT_MOD2; ARITH; EL; HD] THEN
+  ASM_SIMP_TAC[ARITH_RULE `~(i = 0) ==> (i - 1 < 7 <=> i < 8)`] THEN
+  POP_ASSUM MP_TAC THEN MATCH_MP_TAC(MESON[]
+    `(p ==> q ==> x = y)
+     ==> q ==> (if p then x else z) = (if p then y else z)`) THEN
+  SPEC_TAC(`i:num`,`i:num`) THEN
+  CONV_TAC EXPAND_CASES_CONV THEN CONV_TAC NUM_REDUCE_CONV THEN
+  CONV_TAC(ONCE_DEPTH_CONV EL_CONV) THEN CONV_TAC NUM_REDUCE_CONV);;
+
+let AVX2_REORDER_ALT = prove
+ (`!k. avx2_reorder k MOD 2 = (k DIV 16) MOD 2 /\
+       avx2_reorder k DIV 2 = avx2_ntt_order (16 * (k DIV 32) + k MOD 16)`,
+  GEN_TAC THEN ONCE_REWRITE_TAC[CONJ_SYM] THEN
+  MATCH_MP_TAC DIVMOD_UNIQ THEN REWRITE_TAC[ARITH_RULE `x MOD 2 < 2`] THEN
+  ONCE_REWRITE_TAC[GSYM NUMBITS_EQ] THEN
+  REWRITE_TAC[avx2_reorder; avx2_ntt_order] THEN
+  ONCE_REWRITE_TAC[ARITH_RULE `a * 2 + b = b + 2 EXP 1 * a`] THEN
+  SIMP_TAC[NUMBIT_ADD_SHIFT; ARITH_RULE `n MOD 2 < 2 EXP 1`] THEN
+  SIMP_TAC[ARITH_RULE `n < 1 <=> n = 0`; SUB_ADD; LE_1] THEN
+  X_GEN_TAC `i:num` THEN COND_CASES_TAC THEN
+  ASM_REWRITE_TAC[NUMBIT_BITMAP; NUMBIT_MOD2] THEN
+  CONV_TAC(ONCE_DEPTH_CONV LENGTH_CONV) THEN ASM_REWRITE_TAC[ARITH] THENL
+   [REWRITE_TAC[ARITH_RULE `16 = 2 EXP 4`; NUMBIT_DIV_EXP] THEN
+    REWRITE_TAC[EL; HD; ADD_CLAUSES];
+    ASM_SIMP_TAC[ARITH_RULE `~(i = 0) ==> (i - 1 < 7 <=> i < 8)`] THEN
+    REWRITE_TAC[ARITH_RULE `16 * x + y = y + 2 EXP 4 * x`]] THEN
+  ASM_SIMP_TAC[NUMBIT_ADD_SHIFT; ARITH_RULE `x MOD 16 < 2 EXP 4`] THEN
+  REWRITE_TAC[ARITH_RULE `32 = 2 EXP 5`; NUMBIT_DIV_EXP] THEN
+  REWRITE_TAC[ARITH_RULE `16 = 2 EXP 4`; NUMBIT_MOD_EXP] THEN
+  SIMP_TAC[ARITH_RULE `~(i - 1 < 4) ==> i - 1 - 4 + 5 = i`] THEN
+  ASM_CASES_TAC `i < 8` THEN ASM_REWRITE_TAC[] THENL
+   [UNDISCH_TAC `~(i = 0)`;
+    COND_CASES_TAC THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC] THEN
+  POP_ASSUM MP_TAC THEN  SPEC_TAC(`i:num`,`i:num`) THEN
+  CONV_TAC EXPAND_CASES_CONV THEN CONV_TAC NUM_REDUCE_CONV THEN
+  CONV_TAC(ONCE_DEPTH_CONV EL_CONV) THEN CONV_TAC NUM_REDUCE_CONV);;
+
+let AVX2_REORDER'_SPLIT = prove
+ (`!r j.
+        r < 2 /\ j < 128
+        ==> avx2_reorder' (2 * j + r) =
+            avx2_ntt_order' j DIV 16 * 32 + r * 16 + avx2_ntt_order' j MOD 16`,
+  REPEAT STRIP_TAC THEN ONCE_REWRITE_TAC[GSYM NUMBITS_EQ] THEN
+  REWRITE_TAC[avx2_reorder'; avx2_ntt_order'] THEN
+  REWRITE_TAC[ARITH_RULE
+   `a * 32 + r * 16 + s = (s + 2 EXP 4 * r) + 2 EXP 5 * a`] THEN
+  ASM_SIMP_TAC[NUMBIT_ADD_SHIFT; ARITH_RULE `s MOD 16 < 2 EXP 4`;
+    ARITH_RULE `r < 2 ==> s MOD 16 + 2 EXP 4 * r < 2 EXP 5`] THEN
+  REWRITE_TAC[NUMBIT_BITMAP; ARITH_RULE `2 * x + y = y + 2 EXP 1 * x`] THEN
+  ASM_SIMP_TAC[NUMBIT_ADD_SHIFT; EXP_1] THEN
+  REWRITE_TAC[ARITH_RULE `16 = 2 EXP 4`; NUMBIT_DIV_EXP; NUMBIT_MOD_EXP] THEN
+  REWRITE_TAC[NUMBIT_BITMAP] THEN X_GEN_TAC `i:num` THEN
+  CONV_TAC(ONCE_DEPTH_CONV LENGTH_CONV) THEN
+  ASM_CASES_TAC `i < 8` THEN ASM_REWRITE_TAC[] THENL
+   [UNDISCH_TAC `i < 8`;
+    ASM_SIMP_TAC[ARITH_RULE `~(i - 5 + 4 < 7) ==> i - 5 + 4 = i - 1`] THEN
+    REPEAT(COND_CASES_TAC THEN ASM_REWRITE_TAC[]) THEN ASM_ARITH_TAC] THEN
+  SPEC_TAC(`i:num`,`i:num`) THEN
+  CONV_TAC EXPAND_CASES_CONV THEN CONV_TAC NUM_REDUCE_CONV THEN
+  CONV_TAC(ONCE_DEPTH_CONV EL_CONV) THEN CONV_TAC NUM_REDUCE_CONV);;
 
 (* ------------------------------------------------------------------------- *)
 (* Conversion of each element of an array to Montgomery form with B = 2^16.  *)
@@ -212,7 +317,7 @@ let mldsa_inverse_ntt = define
 
 let FORWARD_NTT = prove
  (`forward_ntt = reorder bitreverse_pairs o pure_forward_ntt`,
-  REWRITE_TAC[FUN_EQ_THM; o_DEF; bitreverse_pairs; reorder] THEN
+  REWRITE_TAC[FUN_EQ_THM; o_DEF; BITREVERSE_PAIRS_ALT; reorder] THEN
   REWRITE_TAC[forward_ntt; pure_forward_ntt] THEN
   REWRITE_TAC[ARITH_RULE `(2 * x + i MOD 2) DIV 2 = x`] THEN
   REWRITE_TAC[MOD_MULT_ADD; MOD_MOD_REFL]);;
@@ -235,7 +340,7 @@ let ARM_MLDSA_FORWARD_NTT = prove
 
 let INVERSE_NTT = prove
  (`inverse_ntt = tomont_3329 o pure_inverse_ntt o reorder bitreverse_pairs`,
-  REWRITE_TAC[FUN_EQ_THM; o_DEF; bitreverse_pairs; reorder] THEN
+  REWRITE_TAC[FUN_EQ_THM; o_DEF; BITREVERSE_PAIRS_ALT; reorder] THEN
   REWRITE_TAC[inverse_ntt; pure_inverse_ntt; tomont_3329] THEN
   REWRITE_TAC[ARITH_RULE `(2 * x + i MOD 2) DIV 2 = x`] THEN
   REWRITE_TAC[MOD_MULT_ADD; MOD_MOD_REFL] THEN
@@ -245,23 +350,30 @@ let INVERSE_NTT = prove
 
 let AVX2_FORWARD_NTT = prove
  (`avx2_forward_ntt = reorder avx2_reorder o pure_forward_ntt`,
-  REWRITE_TAC[FUN_EQ_THM; o_DEF; avx2_reorder; reorder] THEN
+  REWRITE_TAC[FUN_EQ_THM; o_DEF; reorder] THEN
   REWRITE_TAC[avx2_forward_ntt; pure_forward_ntt] THEN
   MAP_EVERY X_GEN_TAC [`x:num->int`; `k:num`] THEN
   CONV_TAC(ONCE_DEPTH_CONV let_CONV) THEN
-  SIMP_TAC[MOD_MULT_ADD; DIV_MULT_ADD; ARITH_EQ; MOD_MOD_REFL] THEN
-  REWRITE_TAC[ARITH_RULE `x MOD 2 DIV 2 = 0`; ADD_CLAUSES]);;
+  REWRITE_TAC[AVX2_REORDER_ALT]);;
 
 let AVX2_INVERSE_NTT = prove
  (`avx2_inverse_ntt = tomont_3329 o pure_inverse_ntt o reorder avx2_reorder'`,
-  REWRITE_TAC[FUN_EQ_THM; o_DEF; avx2_reorder'; reorder] THEN
+  REWRITE_TAC[FUN_EQ_THM; o_DEF; reorder] THEN
   REWRITE_TAC[avx2_inverse_ntt; pure_inverse_ntt; tomont_3329] THEN
-  REWRITE_TAC[ARITH_RULE `(2 * x + i MOD 2) DIV 2 = x`] THEN
-  REWRITE_TAC[MOD_MULT_ADD; MOD_MOD_REFL] THEN
   MAP_EVERY X_GEN_TAC [`x:num->int`; `k:num`] THEN
   CONV_TAC(ONCE_DEPTH_CONV let_CONV) THEN
-  CONV_TAC INT_REM_DOWN_CONV THEN REWRITE_TAC[INT_MUL_ASSOC] THEN
-  ONCE_REWRITE_TAC[GSYM INT_MUL_REM] THEN CONV_TAC INT_REDUCE_CONV);;
+  SUBGOAL_THEN
+   `isum(0..127)
+      (\j. x(avx2_reorder'(2 * j + k MOD 2)) * &1175 pow ((2 * j + 1) * k DIV 2)) =
+    isum(0..127)
+      (\j. x(avx2_ntt_order' j DIV 16 * 32 + k MOD 2 * 16 + avx2_ntt_order' j MOD 16) *
+           &1175 pow ((2 * j + 1) * k DIV 2))`
+   (fun th -> REWRITE_TAC[th]) THENL
+   [MATCH_MP_TAC ISUM_EQ_NUMSEG THEN GEN_TAC THEN STRIP_TAC THEN BETA_TAC THEN
+    ASM_SIMP_TAC[AVX2_REORDER'_SPLIT; ARITH_RULE `i <= 127 ==> i < 128`;
+                 ARITH_RULE `k MOD 2 < 2`];
+    CONV_TAC INT_REM_DOWN_CONV THEN REWRITE_TAC[INT_MUL_ASSOC] THEN
+    ONCE_REWRITE_TAC[GSYM INT_MUL_REM] THEN CONV_TAC INT_REDUCE_CONV]);;
 
 let MLDSA_FORWARD_NTT = prove
  (`mldsa_forward_ntt f k =
@@ -270,11 +382,17 @@ let MLDSA_FORWARD_NTT = prove
 
 (* ------------------------------------------------------------------------- *)
 (* Explicit computation rules to evaluate mod-3329 powers/sums less naively. *)
+(* Every order is a bitmap, so its explicit table over 0..bound is built the  *)
+(* same way: unfold the order to its bitmap, then apply the single BITMAP_CONV.*)
 (* ------------------------------------------------------------------------- *)
 
-let BITREVERSE7_CLAUSES = end_itlist CONJ (map
- (GEN_REWRITE_CONV I [bitreverse7] THENC DEPTH_CONV WORD_NUM_RED_CONV)
- (map (curry mk_comb `bitreverse7` o mk_small_numeral) (0--127)));;
+let BITMAP_CLAUSES perm bound =
+  end_itlist CONJ (map
+    (fun n -> (GEN_REWRITE_CONV ONCE_DEPTH_CONV [perm] THENC BITMAP_CONV)
+              (mk_comb(lhs(concl perm), mk_small_numeral n)))
+    (0--bound));;
+
+let BITREVERSE7_CLAUSES = BITMAP_CLAUSES bitreverse7 127;;
 
 let FORWARD_NTT_ALT = prove
  (`forward_ntt f k =
@@ -372,16 +490,9 @@ let FORWARD_NTT_CONV =
   GEN_REWRITE_CONV DEPTH_CONV [INT_OF_NUM_POW; INT_OF_NUM_REM] THENC
   ONCE_DEPTH_CONV EXP_MOD_CONV THENC INT_REDUCE_CONV;;
 
-let AVX2_NTT_ORDER_CLAUSES = end_itlist CONJ (map
- (GEN_REWRITE_CONV I [avx2_ntt_order] THENC DEPTH_CONV WORD_NUM_RED_CONV THENC
-  GEN_REWRITE_CONV I [BITREVERSE7_CLAUSES])
- (map (curry mk_comb `avx2_ntt_order` o mk_small_numeral) (0--127)));;
+let AVX2_NTT_ORDER_CLAUSES = BITMAP_CLAUSES avx2_ntt_order 127;;
 
-let AVX2_NTT_ORDER_CLAUSES' = end_itlist CONJ (map
- (GEN_REWRITE_CONV I [avx2_ntt_order'] THENC DEPTH_CONV WORD_NUM_RED_CONV THENC
- DEPTH_CONV let_CONV THENC
- GEN_REWRITE_CONV ONCE_DEPTH_CONV [BITREVERSE7_CLAUSES] THENC NUM_REDUCE_CONV)
- (map (curry mk_comb `avx2_ntt_order'` o mk_small_numeral) (0--127)));;
+let AVX2_NTT_ORDER_CLAUSES' = BITMAP_CLAUSES avx2_ntt_order' 127;;
 
 let AVX2_FORWARD_NTT_CONV =
   GEN_REWRITE_CONV I [AVX2_FORWARD_NTT_ALT] THENC
@@ -416,21 +527,11 @@ let AVX2_INVERSE_NTT_CONV =
 (* Explicit computation rules to evaluate mod-8380417 powers less naively.   *)
 (* ------------------------------------------------------------------------- *)
 
-let BITREVERSE8_CLAUSES = end_itlist CONJ (map
- (GEN_REWRITE_CONV I [bitreverse8] THENC DEPTH_CONV WORD_NUM_RED_CONV)
- (map (curry mk_comb `bitreverse8` o mk_small_numeral) (0--255)));;
+let BITREVERSE8_CLAUSES = BITMAP_CLAUSES bitreverse8 255;;
 
-let MLDSA_AVX2_NTT_ORDER_CLAUSES = end_itlist CONJ (map
- (GEN_REWRITE_CONV I [mldsa_avx2_ntt_order] THENC
-  DEPTH_CONV WORD_NUM_RED_CONV THENC
-  GEN_REWRITE_CONV I [BITREVERSE8_CLAUSES])
- (map (curry mk_comb `mldsa_avx2_ntt_order` o mk_small_numeral) (0--255)));;
+let MLDSA_AVX2_NTT_ORDER_CLAUSES = BITMAP_CLAUSES mldsa_avx2_ntt_order 255;;
 
-let MLDSA_AVX2_NTT_ORDER_CLAUSES' = end_itlist CONJ (map
- (GEN_REWRITE_CONV RATOR_CONV [mldsa_avx2_ntt_order'] THENC
-  GEN_REWRITE_CONV TOP_DEPTH_CONV [bitval; numbit; bitmap] THENC
-  DEPTH_CONV WORD_NUM_RED_CONV)
- (map (curry mk_comb `mldsa_avx2_ntt_order'` o mk_small_numeral) (0--255)));;
+let MLDSA_AVX2_NTT_ORDER_CLAUSES' = BITMAP_CLAUSES mldsa_avx2_ntt_order' 255;;
 
 let MLDSA_FORWARD_NTT_ALT = prove
  (`mldsa_forward_ntt f k =
