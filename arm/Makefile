@@ -443,7 +443,8 @@ AES_GCM_OBJ = aes_gcm/aes_gcm_enc_kernel_x4_basic.o \
               aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable.o \
               aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk.o \
               aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk.o \
-              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp.o
+              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_deint.o
 
 
 OBJ = $(POINT_OBJ) $(BIGNUM_OBJ) $(AES_XTS_OBJ) $(AES_GCM_OBJ)
