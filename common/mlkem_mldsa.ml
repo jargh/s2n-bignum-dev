@@ -2051,6 +2051,91 @@ let SIMD_SIMPLIFY_ABBREV_TAC =
       (MP_TAC th'' THEN MAP_EVERY AUTO_ABBREV_TAC tms THEN DISCH_TAC) (asl,w) in
   TRY(FIRST_X_ASSUM(ttac o check (simdable o concl)));;
 
+(* ------------------------------------------------------------------------- *)
+(* Caller-side drivers that discharge a "congruence-and-bounds" goal using    *)
+(* the machinery above.  These factor out the boilerplate that was previously *)
+(* copied, with minor variations, into every NTT/iNTT and pointwise/basemul   *)
+(* correctness proof.                                                         *)
+(*                                                                            *)
+(* The two universal building blocks:                                         *)
+(*   CONGBOUND_BOUNDS_TAC:      weaken a computed [l,u] bound to the goal's    *)
+(*                              [l',u'] (the second MONO_AND branch).          *)
+(*   CONGBOUND_ABS_BOUNDS_TAC:  same, after turning abs(x)<=b into -b<=x<=b.   *)
+(* ------------------------------------------------------------------------- *)
+
+let CONGBOUND_BOUNDS_TAC =
+  MATCH_MP_TAC(INT_ARITH
+   `l':int <= l /\ u <= u'
+    ==> l <= x /\ x <= u ==> l' <= x /\ x <= u'`) THEN
+  CONV_TAC INT_REDUCE_CONV;;
+
+let CONGBOUND_ABS_BOUNDS_TAC =
+  REWRITE_TAC[INT_ABS_BOUNDS] THEN CONGBOUND_BOUNDS_TAC;;
+
+(* The two local-function seeds used to prime ASM_CONGBOUND_RULE: either the   *)
+(* processed bound assumptions (the usual case) or the empty map (the mlkem    *)
+(* intt proofs, which rely purely on the local barred/barmul definitions).    *)
+
+let CONGBOUND_LFN_BOUNDED asl =
+  PROCESS_BOUND_ASSUMPTIONS
+    (CONJUNCTS(tryfind (CONV_RULE EXPAND_CASES_CONV o snd) asl));;
+
+let CONGBOUND_LFN_EMPTY (asl:(string * thm) list) = undefined;;
+
+(* The two per-architecture strategies for splitting the top-level goal        *)
+(* conjunction into individual coefficient goals before propagation.  ARM      *)
+(* proofs peel conjuncts while more than three remain; x86 proofs re-associate *)
+(* a 4-way conjunction and split off the last conjunct.                        *)
+
+let CONGBOUND_SPLIT_ARM =
+  REPEAT(W(fun (asl,w) ->
+    if length(conjuncts w) > 3 then CONJ_TAC else NO_TAC));;
+
+let CONGBOUND_SPLIT_X86 =
+  REPEAT(GEN_REWRITE_TAC I
+   [TAUT `p /\ q /\ r /\ s <=> (p /\ q /\ r) /\ s`] THEN CONJ_TAC);;
+
+(* The full NTT/iNTT driver.  Positional arguments:                            *)
+(*   lfn_seed    : CONGBOUND_LFN_BOUNDED or CONGBOUND_LFN_EMPTY                 *)
+(*   markers     : local-definition markers, e.g. [barmul] / [mldsa_montmul]   *)
+(*   split_tac   : CONGBOUND_SPLIT_ARM or CONGBOUND_SPLIT_X86                   *)
+(*   cong_prelude: extra tactic before the congruence chain (ALL_TAC on ARM;   *)
+(*                 REWRITE_TAC[INVERSE_MOD_CONV `inverse_mod q R`] on x86)      *)
+(*   ntt_conv    : the forward/inverse NTT evaluation conversion.              *)
+
+let CONGBOUND_NTT_TAC lfn_seed markers split_tac cong_prelude ntt_conv =
+  W(fun (asl,w) ->
+    let lfn = lfn_seed asl in
+    let asms =
+      map snd (filter (is_local_definition markers o concl o snd) asl) in
+    let lfn' = LOCAL_CONGBOUND_RULE lfn (rev asms) in
+    split_tac THEN
+    W(MP_TAC o ASM_CONGBOUND_RULE lfn' o
+        rand o lhand o rator o lhand o snd) THEN
+    (MATCH_MP_TAC MONO_AND THEN CONJ_TAC THENL
+      [cong_prelude THEN
+       MATCH_MP_TAC(REWRITE_RULE[IMP_CONJ_ALT] INT_CONG_TRANS) THEN
+       CONV_TAC(ONCE_DEPTH_CONV ntt_conv) THEN
+       REWRITE_TAC[GSYM INT_REM_EQ; o_THM] THEN CONV_TAC INT_REM_DOWN_CONV THEN
+       REWRITE_TAC[INT_REM_EQ] THEN
+       REWRITE_TAC[REAL_INT_CONGRUENCE; INT_OF_NUM_EQ; ARITH_EQ] THEN
+       REWRITE_TAC[GSYM REAL_OF_INT_CLAUSES] THEN
+       CONV_TAC(RAND_CONV REAL_POLY_CONV) THEN REAL_INTEGER_TAC;
+       CONGBOUND_BOUNDS_TAC]));;
+
+(* The basemul driver: congruence only (GEN_CONGBOUND_RULE over the whole      *)
+(* assumption list, keep CONJUNCT1), discharged by INT_RING after reducing     *)
+(* the modular arithmetic.  Takes no arguments - all six basemul proofs share  *)
+(* this verbatim (the per-arch/per-k variation is entirely in the def-unfold   *)
+(* rewrites the caller applies BEFORE this tactic).                           *)
+
+let CONGBOUND_INT_RING_TAC =
+  ASSUM_LIST((fun ths -> W(MP_TAC o CONJUNCT1 o GEN_CONGBOUND_RULE ths o
+    rand o lhand o rator o snd))) THEN
+  REWRITE_TAC[GSYM INT_REM_EQ] THEN CONV_TAC INT_REM_DOWN_CONV THEN
+  MATCH_MP_TAC EQ_IMP THEN AP_TERM_TAC THEN AP_THM_TAC THEN AP_TERM_TAC THEN
+  CONV_TAC INT_RING;;
+
 (* ========================================================================= *)
 (* ML-DSA use_hint shared infrastructure lemmas                              *)
 (* Used by both poly_use_hint_32 and poly_use_hint_88 proofs                 *)
