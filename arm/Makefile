@@ -444,7 +444,8 @@ AES_GCM_OBJ = aes_gcm/aes_gcm_enc_kernel_x4_basic.o \
               aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_keep_htable_scalar_rk.o \
               aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk.o \
               aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp.o \
-              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_deint.o
+              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_deint.o \
+              aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S.o
 
 
 OBJ = $(POINT_OBJ) $(BIGNUM_OBJ) $(AES_XTS_OBJ) $(AES_GCM_OBJ)
@@ -528,6 +529,10 @@ p521/bignum_sqr_p521.native: p521/unopt/bignum_sqr_p521_base.o
 fastmul/bignum_emontredc_8n_cdiff.native: fastmul/unopt/bignum_emontredc_8n_base.o fastmul/unopt/bignum_emontredc_8n_cdiff_base.o
 fastmul/bignum_mul_8_16.native: fastmul/unopt/bignum_mul_8_16_base.o
 fastmul/bignum_sqr_8_16.native: fastmul/unopt/bignum_sqr_8_16_base.o
+# The _swp_S "proof" is a whole-function program EQUIVALENCE to the _swp_deint
+# kernel (not yet a standalone correctness proof); it reads both kernels' .o via
+# define_from_elf, so it needs the _swp_deint object in addition to its own.
+aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S.native: aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_deint.o
 curve25519/curve25519_x25519.native: curve25519/bignum_inv_p25519.native
 curve25519/curve25519_x25519_alt.native: curve25519/bignum_inv_p25519.native
 curve25519/curve25519_x25519_byte.native: curve25519/bignum_inv_p25519.native
