@@ -39,18 +39,55 @@
 (*    =  0          =  0         ..._SWP_S_EQUIV_LC0_REM0                     *)
 (*                                                                           *)
 (* WORK IN PROGRESS: extend to a direct standalone functional-correctness    *)
-(* theorem ..._SWP_S_CORRECT (an `ensures`, matching ..._SWP_DEINT_CORRECT). *)
-(* Remaining: (1) STRENGTHEN the equivalence postcondition from the current  *)
-(* (Q30 GHASH accumulator + ivec[12] counter-tail) agreement to FULL output  *)
-(* agreement (out-buffer + tag + ivec memory equal on both sides).  Those    *)
-(* facts already exist at pc+0x6fc (the remainder-loop invariant threads     *)
-(* block-wise out-buffer equality and the maychange frame covers            *)
-(* out_b/tag_p/ivec_p); POSTAMBLE_EQUIV currently projects them away, so this *)
-(* is forwarding established equalities the last few instructions to         *)
-(* pc+0x710, not reproving them.  (2) bridge the strengthened ensures2 to an *)
-(* ensures for the swpS side via ENSURES2_ENSURES_N / PROVE_ENSURES_FROM_    *)
-(* EQUIV_AND_ENSURES_N_TAC, composing with ..._SWP_DEINT_CORRECT.            *)
-(* See ~/.claude/.../memory/gcm-deint-swp-equivalence.md for the full record.*)
+(* theorem ..._SWP_S_CORRECT (an `ensures`, matching ..._SWP_DEINT_CORRECT),  *)
+(* by transferring _swp_deint's correctness across the equivalence.  The      *)
+(* full design (validated, mechanics resolved) - see also                     *)
+(* ~/.claude/.../memory/gcm-deint-swp-equivalence.md:                         *)
+(*                                                                           *)
+(* TRANSFER CHAIN (this is the ONLY route: ensures2 -> single-program spec    *)
+(* must pass through ensures_n; the montmul/montsqr proofs do exactly this    *)
+(* via PROVE_ENSURES_FROM_EQUIV_AND_ENSURES_N_TAC in arm/proofs/equiv.ml):    *)
+(*   deint ensures  --ENSURES_AND_EVENTUALLY_N_AT_PC_PROVES_ENSURES_N-->      *)
+(*     deint ensures_n @ f_n1                                                  *)
+(*   deint ensures_n /\ this-file's ensures2  --ENSURES_N_ENSURES2_CONJ-->    *)
+(*     combined ensures2 (exit relation now carries deint's ABSOLUTE post     *)
+(*     on the s1/deint side)                                                   *)
+(*   combined ensures2  --ENSURES2_ENSURES_N-->  swpS ensures_n @ f_n2        *)
+(*   swpS ensures_n  --ENSURES_N_ENSURES-->  swpS ensures    (FINAL; the      *)
+(*     conclusion is a plain `ensures`, no ensures_n restatement needed)      *)
+(*                                                                           *)
+(* Two ingredients:                                                           *)
+(*  (A) deint's step count is NOT re-derived: the ensures2 proved here already *)
+(*      carries a concrete closed-form f_n1 (an nsum over the loop counts),   *)
+(*      and ensures2 unfolds to nested eventually_n whose OUTER component is   *)
+(*      exactly deint's `eventually_n arm (f_n1 s1) (\s1'. read PC s1' =      *)
+(*      word(pc+0x710)) s1`.  EVENTUALLY_N_MONO collapses the inner (s2)       *)
+(*      eventually_n, since `read PC s1' = pc+0x710` is already an s1-side     *)
+(*      conjunct of the exit relation.  That yields deint's eventually_n_at_pc.*)
+(*  (B) STRENGTHEN the exit relation (post_exit_body) from the current        *)
+(*      (Q30 + bytes32(ivec_p+12)) to full output agreement s1=s2 at 0x710:   *)
+(*        - out-buffer  bytes128(out_b+16i), i<nblocks: frame-stable across    *)
+(*          the postamble (neither side writes out_b); forward the entry       *)
+(*          forall (rem_accum_at loop_remain = nblocks blocks) by frame.       *)
+(*        - tag bytes128 tag_p: from Q30 equality (postamble does rev64 v30 ;  *)
+(*          str q30,[x3=tag_p]); read-of-store gives bytes128 tag_p = Q30 s5.  *)
+(*        - ivec bytes128 ivec_p: the kernel writes ONLY ivec[12..16) (the     *)
+(*          full `str [ivec]` is commented out); ivec[0..12) is never written. *)
+(*          bytes32(ivec_p+12) equality is already proven; ivec[0..12) is      *)
+(*          frame-stable from the 0x88 entry, where entry88 pins the absolute  *)
+(*          value read(bytes128 ivec_p) = word_reversefields 8 (ctr_block      *)
+(*          nonce 2) on BOTH sides.  Thread ivec[0..12) as an f_ptr-style      *)
+(*          frame graft, or split bytes128 = bytes12 ++ bytes32.               *)
+(*      Strengthening post_exit_body propagates to all six SWP_DEINT_SWPS_     *)
+(*      EQUIV_* theorems automatically (they carry POSTAMBLE's exit to 0x710   *)
+(*      via trans_weaken); only the WEAKEN_* lemmas need re-proving (MESON).   *)
+(*                                                                           *)
+(* The final assembly file must `needs` BOTH this equivalence and the          *)
+(* _swp_deint correctness proof (aes_gcm_..._swp_deint.ml, ..._SWP_DEINT_     *)
+(* CORRECT / DEINT_FROM88).  ENSURES2_ENSURES_N's 3 side-conditions: (a) exists*)
+(* deint entry state given a swpS one (entry88 same predicate, same params);  *)
+(* (b) exit relation implies deint's postcondition shape on s2 (needs (B));   *)
+(* (c) frame factors as C1 s1 s2 /\ C2 s1' s2' (maych_post is already that).   *)
 (* ========================================================================= *)
 
 needs "arm/proofs/base.ml";;
@@ -3588,3 +3625,85 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_SWP_S_EQUIV =
     AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_SWP_S_EQUIV_LC0_REM0 ];;
 
 Printf.printf "*** _swp_S <-> _swp_deint equivalence: 6/6 cases (all loop_count, all loop_remain<4) ***\n";;
+
+(* ========================================================================= *)
+(* Towards ..._SWP_S_CORRECT: step-count extraction (transfer ingredient A).  *)
+(*                                                                           *)
+(* ensures2 unfolds to nested eventually_n; its OUTER component is exactly    *)
+(* the LEFT (deint) program's step-count fact.  These two general lemmas peel *)
+(* a state-independent conclusion out of an eventually_n, and                 *)
+(* EXTRACT_DEINT_EVN specialises the outer eventually_n of a proved           *)
+(* equivalence to `eventually_n arm (f_n1 s1) (\s1'. read PC s1' =            *)
+(* word(pc+0x710)) s1` - deint's eventually_n_at_pc content at the            *)
+(* equivalence's own (data-dependent) step count, with NO re-derivation.      *)
+(* Feeds ENSURES_AND_EVENTUALLY_N_AT_PC_PROVES_ENSURES_N to obtain deint's    *)
+(* ensures_n, the LEFT premise of the ENSURES2_ENSURES_N transfer.            *)
+(* ------------------------------------------------------------------------- *)
+
+(* A state-independent conjunct escapes an eventually_n (non-vacuous by       *)
+(* STEPS_NOSTUCK): the trace of length n has an endpoint where the body       *)
+(* holds, and the conjunct does not depend on that endpoint.                  *)
+let EVENTUALLY_N_CONST_OUT = prove(
+  `!(step:S->S->bool) (A:bool) Q n s0.
+      eventually_n step n (\s. A /\ Q s) s0 ==> A`,
+  REWRITE_TAC[eventually_n] THEN REPEAT STRIP_TAC THEN
+  MP_TAC(ISPECL [`step:S->S->bool`;`n:num`;`s0:S`] STEPS_NOSTUCK) THEN
+  ANTS_TAC THENL [ASM_MESON_TAC[]; ALL_TAC] THEN
+  STRIP_TAC THEN FIRST_X_ASSUM(fun th -> FIRST_X_ASSUM(fun th2 ->
+     MP_TAC(MATCH_MP th th2))) THEN
+  SIMP_TAC[]);;
+
+(* More convenient forward form: eventually_n plus a body-implication yields   *)
+(* the (state-independent) consequent.                                        *)
+let EVENTUALLY_N_IMP_CONST = prove(
+  `!(step:S->S->bool) P n s (A:bool).
+      eventually_n step n P s /\ (!x. P x ==> A) ==> A`,
+  REWRITE_TAC[eventually_n] THEN REPEAT STRIP_TAC THEN
+  MP_TAC(ISPECL [`step:S->S->bool`;`n:num`;`s:S`] STEPS_NOSTUCK) THEN
+  ANTS_TAC THENL [ASM_MESON_TAC[]; ASM_MESON_TAC[]]);;
+
+(* From a proved whole-function equivalence theorem `equiv_th` (one of the six *)
+(* SWP_DEINT_SWPS_EQUIV_... theorems), build the deint-side eventually_n at    *)
+(* the equivalence's own step count f_n1:                                     *)
+(*   forall <params>. precond ==> !s1 s2. P (s1,s2) ==>                        *)
+(*      eventually_n arm (f_n1 s1) (\s1'. read PC s1' = word (pc + 0x710)) s1  *)
+let mk_extract_deint_evn equiv_th =
+  let qs, body = strip_forall (concl equiv_th) in
+  let precond, ens = dest_imp body in
+  let eargs = snd(strip_comb ens) in
+  let eP = List.nth eargs 1 and ef1 = List.nth eargs 4 in
+  let s1v = `s1:armstate` and s2v = `s2:armstate` in
+  let leftpc = `\s1':armstate. read PC s1' = word (pc + 0x710)` in
+  let evn = list_mk_icomb "eventually_n" [`arm`; mk_comb(ef1,s1v); leftpc; s1v] in
+  let inner = list_mk_forall([s1v;s2v], mk_imp(mk_comb(eP, mk_pair(s1v,s2v)), evn)) in
+  let goal = list_mk_forall(qs, mk_imp(precond, inner)) in
+  prove(goal,
+    REPEAT GEN_TAC THEN DISCH_TAC THEN
+    MP_TAC (SPEC_ALL equiv_th) THEN ASM_REWRITE_TAC[] THEN
+    REWRITE_TAC[ensures2] THEN
+    DISCH_THEN(fun th -> REPEAT GEN_TAC THEN DISCH_TAC THEN MP_TAC (SPECL [s1v;s2v] th)) THEN
+    ASM_REWRITE_TAC[] THEN
+    MATCH_MP_TAC (REWRITE_RULE[IMP_CONJ] EVENTUALLY_N_MONO) THEN
+    BETA_TAC THEN GEN_TAC THEN
+    W(fun (asl,w) -> DISCH_THEN(fun hyp ->
+       let args = snd(strip_comb(concl hyp)) in
+       let nN = List.nth args 1 and bdy = List.nth args 2 and s2t = List.nth args 3 in
+       MP_TAC(ISPECL [`arm`; bdy; nN; s2t; w] EVENTUALLY_N_IMP_CONST) THEN
+       REWRITE_TAC[hyp] THEN
+       DISCH_THEN MATCH_MP_TAC THEN
+       GEN_TAC THEN BETA_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[])));;
+
+let EXTRACT_DEINT_EVN_STEADY =
+  mk_extract_deint_evn SWP_DEINT_SWPS_EQUIV_STEADY;;
+let EXTRACT_DEINT_EVN_REM0 =
+  mk_extract_deint_evn SWP_DEINT_SWPS_EQUIV_REM0;;
+let EXTRACT_DEINT_EVN_LC1_REMPOS =
+  mk_extract_deint_evn SWP_DEINT_SWPS_EQUIV_LC1_REMPOS;;
+let EXTRACT_DEINT_EVN_LC1_REM0 =
+  mk_extract_deint_evn SWP_DEINT_SWPS_EQUIV_LC1_REM0;;
+let EXTRACT_DEINT_EVN_LC0_REMPOS =
+  mk_extract_deint_evn SWP_DEINT_SWPS_EQUIV_LC0_REMPOS;;
+let EXTRACT_DEINT_EVN_LC0_REM0 =
+  mk_extract_deint_evn SWP_DEINT_SWPS_EQUIV_LC0_REM0;;
+
+Printf.printf "*** deint step-count (eventually_n) extracted for all 6 cases ***\n";;

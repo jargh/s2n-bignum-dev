@@ -533,6 +533,14 @@ fastmul/bignum_sqr_8_16.native: fastmul/unopt/bignum_sqr_8_16_base.o
 # kernel (not yet a standalone correctness proof); it reads both kernels' .o via
 # define_from_elf, so it needs the _swp_deint object in addition to its own.
 aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S.native: aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_deint.o
+# The _swp_S_correct proof is a standalone functional-CORRECTNESS proof of the swp_S
+# kernel, transferred across the _swp_S equivalence from the _swp_deint correctness proof.
+# Like the equivalence it reads both kernels via define_from_elf, so it depends on both
+# objects; having no kernel object of its own, it needs this explicit rule (the generic
+# %.native rule would look for a nonexistent _swp_S_correct.o).  It is intentionally NOT in
+# OBJ, so the default `make proofs` sweep does not run it; build it on demand, e.g.
+#   make aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S_correct.correct
+aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S_correct.native: proofs/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S_correct.ml $(BASE_ML) aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S.o aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_deint.o ; ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
 curve25519/curve25519_x25519.native: curve25519/bignum_inv_p25519.native
 curve25519/curve25519_x25519_alt.native: curve25519/bignum_inv_p25519.native
 curve25519/curve25519_x25519_byte.native: curve25519/bignum_inv_p25519.native
