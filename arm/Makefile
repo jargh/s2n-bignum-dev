@@ -529,18 +529,21 @@ p521/bignum_sqr_p521.native: p521/unopt/bignum_sqr_p521_base.o
 fastmul/bignum_emontredc_8n_cdiff.native: fastmul/unopt/bignum_emontredc_8n_base.o fastmul/unopt/bignum_emontredc_8n_cdiff_base.o
 fastmul/bignum_mul_8_16.native: fastmul/unopt/bignum_mul_8_16_base.o
 fastmul/bignum_sqr_8_16.native: fastmul/unopt/bignum_sqr_8_16_base.o
-# The _swp_S "proof" is a whole-function program EQUIVALENCE to the _swp_deint
-# kernel (not yet a standalone correctness proof); it reads both kernels' .o via
-# define_from_elf, so it needs the _swp_deint object in addition to its own.
-aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S.native: aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_deint.o
-# The _swp_S_correct proof is a standalone functional-CORRECTNESS proof of the swp_S
-# kernel, transferred across the _swp_S equivalence from the _swp_deint correctness proof.
-# Like the equivalence it reads both kernels via define_from_elf, so it depends on both
+# The _swp_S proof is the CANONICAL standalone functional-CORRECTNESS proof of the
+# swp_S kernel (a single mid-pipeline invariant, direct - no program-equivalence
+# detour).  It is self-contained: it inlines the _swp_deint lemma substrate as HOL
+# proofs and reads ONLY its own kernel object via define_from_elf, so the generic
+# %.native rule (which supplies aes_gcm/..._swp_S.o) already covers it - no extra dep.
+# The _swp_S_via_equiv* proofs are the ALTERNATIVE equivalence-route correctness
+# development (retained): _via_equiv.ml (whole-fn equivalence to _swp_deint) +
+# _via_equiv_stageB.ml + _via_equiv_correct.ml (transfers correctness across it).
+# _via_equiv_correct reads both kernels via define_from_elf, so it depends on both
 # objects; having no kernel object of its own, it needs this explicit rule (the generic
-# %.native rule would look for a nonexistent _swp_S_correct.o).  It is intentionally NOT in
-# OBJ, so the default `make proofs` sweep does not run it; build it on demand, e.g.
-#   make aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S_correct.correct
-aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S_correct.native: proofs/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S_correct.ml $(BASE_ML) aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S.o aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_deint.o ; ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+# %.native rule would look for a nonexistent _swp_S_via_equiv_correct.o).  It is
+# intentionally NOT in OBJ, so the default `make proofs` sweep does not run it; build
+# it on demand, e.g.
+#   make aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S_via_equiv_correct.correct
+aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S_via_equiv_correct.native: proofs/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S_via_equiv_correct.ml $(BASE_ML) aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S.o aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_deint.o ; ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
 curve25519/curve25519_x25519.native: curve25519/bignum_inv_p25519.native
 curve25519/curve25519_x25519_alt.native: curve25519/bignum_inv_p25519.native
 curve25519/curve25519_x25519_byte.native: curve25519/bignum_inv_p25519.native

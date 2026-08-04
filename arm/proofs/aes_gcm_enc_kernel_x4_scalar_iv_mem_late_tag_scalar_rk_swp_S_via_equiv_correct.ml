@@ -1,8 +1,14 @@
 (* ============================================================================
-   Standalone functional-correctness proof of the SLOTHY-scheduled shipping AES-GCM
+   Functional-correctness proof of the SLOTHY-scheduled shipping AES-GCM
    kernel aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S (swpS_mc),
    transferred from its de-interleaved sibling (_swp_deint) across the proven
    whole-function program equivalence.
+
+   NB: this is the EQUIVALENCE-ROUTE correctness proof.  The CANONICAL correctness
+   proof of this kernel is the DIRECT one in
+   aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S.ml (a single
+   mid-pipeline invariant, no program-equivalence detour).  This file is retained
+   as an alternative development.
 
    Entry pc2+0x2c -> exit pc2+0x710, matching ..._SWP_DEINT_CORRECT.  Clean interface:
    the only precondition beyond the standard buffer-disjointness is a single
@@ -14,9 +20,9 @@
 
      base: _swp_deint proof  (aes_gcm_deint_mc, DEINT_EXEC, MERGE_CTR128_TAC,
              inv_tm/leg1_lc2_stmt/drain_gen_stmt, deint _CORRECT)
-         + _swp_S.ml          (swpS_mc, the 6 whole-fn equivalences, POSTAMBLE
+         + _swp_S_via_equiv.ml        (swpS_mc, the 6 whole-fn equivalences, POSTAMBLE
              apparatus, gti/graft_goal/trans_ helpers)
-         + _swp_S_stageB.ml   (POSTAMBLE_STRONG, STEADY_STRONG output-agreement equiv)
+         + _swp_S_via_equiv_stageB.ml (POSTAMBLE_STRONG, STEADY_STRONG output-agreement equiv)
 
      stage C - deint standalone ensures_n legs at the 0x354 seam:
          FILL_N ++ STEADY_LOOP_N ++ DRAIN_N ++ DEINT_TAIL_N(_REM0) ++ LEG1_LC1_N/LC0_N
@@ -38,8 +44,8 @@ needs "common/ghash_nist_bridge.ml";;
 needs "common/karatsuba_pmul.ml";;
 
 needs "arm/proofs/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_deint.ml";;
-needs "arm/proofs/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S.ml";;
-needs "arm/proofs/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S_stageB.ml";;
+needs "arm/proofs/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S_via_equiv.ml";;
+needs "arm/proofs/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S_via_equiv_stageB.ml";;
 
 (* ---- Stage C: deint ensures_n legs (inv_tm/leg1_lc2_stmt/drain_gen_stmt come from the _swp_deint proof) ---- *)(* ===== FILL_N: deint ensures_n 0x88->0x354 (fill leg, @179) ===== *)
 let FILL_N = prove(

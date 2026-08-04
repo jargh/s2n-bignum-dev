@@ -6,7 +6,7 @@
    what carries "swpS's output = deint's proven-correct output" and is exactly
    what ENSURES2_ENSURES_N needs in Stage D.
 
-   Load AFTER aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S.ml
+   Load AFTER aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S_via_equiv.ml
    (which supplies deint_mc/swpS_mc, DEINT_EXEC/SWPS_EXEC, the pre-POSTAMBLE
    equivalence legs PREAMBLE_G/MAIN_G/REDUCE_G/CBZ_G/REMLOOP_G, graft_goal/
    GRAFT_TAC, trans_exact/trans_weaken, step_ro, comp128, maych_post,
