@@ -12,7 +12,6 @@
 (* end.  The proof is complete: no cheating tactic and no added axiom.       *)
 (* ========================================================================= *)
 
-
 (* ======== prelude: code, EXEC rule, finder/window/reciprocal/preheader ======== *)
 
 needs "arm/proofs/base.ml";;
@@ -40,6 +39,10 @@ needs "arm/proofs/base.ml";;
 (*                                                                           *)
 (* Total length 0x438 = 1080 bytes (270 instrs; Lbignum_mod_end at 0x428, ret at 0x434).                                          *)
 (* ------------------------------------------------------------------------- *)
+
+(* ========================================================================
+   SECTION A: machine code + decode (EXEC) rule.
+   ===================================================================== *)
 
 let bignum_mod_mc = define_assert_from_elf "bignum_mod_mc" "arm/generic/bignum_mod.o"
 [
@@ -317,7 +320,6 @@ let bignum_mod_mc = define_assert_from_elf "bignum_mod_mc" "arm/generic/bignum_m
 
 let BIGNUM_MOD_EXEC = ARM_MK_EXEC_RULE bignum_mod_mc;;
 
-
 (* ========================================================================= *)
 (* TOP-LEVEL SPECIFICATION.                                                   *)
 (*                                                                           *)
@@ -386,70 +388,25 @@ let BIGNUM_MOD_EXEC = ARM_MK_EXEC_RULE bignum_mod_mc;;
 (* Template: bignum_pow2.ml (a constant-store loop).                          *)
 (* ------------------------------------------------------------------------- *)
 
-let BIGNUM_MOD_INIT = prove
- (`!k z n x m a b pc.
-        nonoverlapping (word pc,0x438) (z,8 * val k) /\
-        ALLPAIRS nonoverlapping
-          [(z,8 * val k)] [(word pc,0x438); (x,8 * val n); (m,8 * val k)] /\
-        ~(val k = 0)
-        ==> ensures arm
-             (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-                  read PC s = word (pc + 0xc) /\
-                  C_ARGUMENTS [k;z;n;x;m] s /\
-                  bignum_from_memory (x,val n) s = a /\
-                  bignum_from_memory (m,val k) s = b)
-             (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-                  read PC s = word(pc + 0x24) /\
-                  read X0 s = word (val k) /\ read X1 s = z /\
-                  read X2 s = word (val n) /\ read X3 s = x /\ read X4 s = m /\
-                  read X23 s = word 0 /\
-                  bignum_from_memory (x,val n) s = a /\
-                  bignum_from_memory (m,val k) s = b /\
-                  bignum_from_memory (z,val k) s = 0)
-             (MAYCHANGE [PC; X0; X5; X6; X7; X8; X9; X10; X11; X12;
-                         X13; X14; X15; X16; X17; X19; X20; X21; X22; X23; X24] ,,
-              MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events] ,,
-              MAYCHANGE [memory :> bignum(z,val k)])`,
-  W64_GEN_TAC `k:num` THEN X_GEN_TAC `z:int64` THEN W64_GEN_TAC `n:num` THEN
-  MAP_EVERY X_GEN_TAC [`x:int64`; `m:int64`; `a:num`; `b:num`; `pc:num`] THEN
-  REWRITE_TAC[NONOVERLAPPING_CLAUSES; ALLPAIRS; ALL; C_ARGUMENTS; SOME_FLAGS] THEN
-  DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
-  BIGNUM_TERMRANGE_TAC `n:num` `a:num` THEN
-  BIGNUM_TERMRANGE_TAC `k:num` `b:num` THEN
-  SUBGOAL_THEN `8 * k <= 2 EXP 64` ASSUME_TAC THENL
-   [MP_TAC(ISPECL [`2 EXP 64`; `pc:num`; `1080`; `val(z:int64)`; `8 * k`]
-      NONOVERLAPPING_IMP_SMALL_RIGHT_ALT) THEN
-    ASM_REWRITE_TAC[] THEN CONV_TAC NUM_REDUCE_CONV THEN ARITH_TAC;
-    ALL_TAC] THEN
-  ENSURES_WHILE_UP_TAC `k:num` `pc + 0x14` `pc + 0x1c`
-   `\i s. read X0 s = word k /\ read X1 s = z /\ read X2 s = word n /\
-          read X3 s = x /\ read X4 s = m /\ read X23 s = word 0 /\
-          read X8 s = word i /\
-          bignum_from_memory (x,n) s = a /\ bignum_from_memory (m,k) s = b /\
-          bignum_from_memory (z,i) s = 0` THEN
-  ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
-   [ARM_SIM_TAC BIGNUM_MOD_EXEC (1--2) THEN
-    REWRITE_TAC[MULT_CLAUSES; READ_MEMORY_BYTES_TRIVIAL] THEN
-    MONOTONE_MAYCHANGE_TAC;
-    X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
-    REWRITE_TAC[BIGNUM_FROM_MEMORY_STEP; BIGNUM_FROM_MEMORY_BYTES] THEN
-    ENSURES_INIT_TAC "s0" THEN ARM_STEPS_TAC BIGNUM_MOD_EXEC (1--2) THEN
-    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-    REWRITE_TAC[VAL_WORD_0; MULT_CLAUSES; ADD_CLAUSES; WORD_ADD] THEN
-    CONV_TAC WORD_RULE;
-    X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
-    SUBGOAL_THEN `i:num <= k` ASSUME_TAC THENL
-     [UNDISCH_TAC `i < k` THEN ARITH_TAC; ALL_TAC] THEN
-    ARM_SIM_TAC BIGNUM_MOD_EXEC (1--2) THEN ASM_REWRITE_TAC[];
-    ARM_SIM_TAC BIGNUM_MOD_EXEC (1--2)]);;
+(* ========================================================================
+   SECTION B: architecture-INDEPENDENT core (pure num/word/reciprocal/reduction
+   algebra; no machine state; ports verbatim to other architectures).
 
-(* ------------------------------------------------------------------------- *)
-(* Helper lemmas for the bitsize/window finder loop: per-iteration invariant  *)
-(* preservation for the two cases m[i]=0 (top-nonzero index unchanged) and     *)
-(* m[i]<>0 (index becomes i).  Pure logic + arithmetic, used by the finder.    *)
-(* ------------------------------------------------------------------------- *)
-
-(* --- helper lemmas: invariant preservation for the two finder-body cases --- *)
+   Lemma-name qualifier vocabulary used throughout (a name may stack several,
+   read left to right as successive refinements of a base lemma):
+     _D      recip of the ROUNDED-UP divisor d = roundup((b*2^64) DIV 2^p)
+     _SMALL  the small single-word-modulus case p < 61 (left-shift window)
+     _GEN    generalized (arbitrary quotient digit / arbitrary p) variant
+     _TIGHT  the tightened bound V < b*2^64 (vs the loose 2^(p+2))
+     _SAT    the saturated regime l = k+1 (top word spills into X23)
+     _DDK    the "divisor digits = k" saturated block
+     _FLAT   the flat regime (loop index l unchanged this iteration)
+     _WIN    carries the field-select window digit through the step
+     _WIDE   widened MAYCHANGE frame (whole-CORRECT register/flag set)
+     _LOG    logging-enriched (threads the lf/hf csel field-select witnesses)
+     _JJ     carries the jj-bound invariant  V < 2^(61+61*(NB-i))
+     _X      threads the input buffer x through as an extra invariant conjunct
+   ===================================================================== *)
 
 let LOWDIGITS_EQ_0 = prove
  (`!k b. (!j. j < k ==> bigdigit b j = 0) ==> lowdigits b k = 0`,
@@ -551,26 +508,5410 @@ let FINDER_STEP_ZERO = prove
     X_GEN_TAC `j:num` THEN STRIP_TAC THEN ASM_CASES_TAC `j:num = i` THEN
     ASM_REWRITE_TAC[] THEN FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]);;
 
-let FINDER_STEP_NONZERO = prove
- (`!ss:int64 b i.
-     ~(bigdigit b i = 0) /\ i < 2 EXP 64
-     ==> val(word i:int64) < i + 1 /\
-         ~(bigdigit b (val(word i:int64)) = 0) /\
-         word(bigdigit b i):int64 = word(bigdigit b (val(word i:int64))) /\
-         word(if i = 0 then 0 else bigdigit b (i - 1)):int64 =
-         word(if val(word i:int64) = 0 then 0
-              else bigdigit b (val(word i:int64) - 1)) /\
-         (!j. val(word i:int64) < j /\ j < i + 1 ==> bigdigit b j = 0)`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `val(word i:int64) = i` (fun th -> REWRITE_TAC[th]) THENL
+let WINDOW_RANGE = prove
+ (`!b. ~(b = 0)
+       ==> 2 EXP 63 <= (b * 2 EXP 64) DIV 2 EXP (bitsize b) /\
+           (b * 2 EXP 64) DIV 2 EXP (bitsize b) < 2 EXP 64`,
+  GEN_TAC THEN DISCH_TAC THEN
+  MP_TAC(SPEC `b:num` LE_BITSIZE) THEN MP_TAC(SPEC `b:num` BITSIZE_LE) THEN
+  ABBREV_TAC `s = bitsize b` THEN
+  SUBGOAL_THEN `~(s = 0)` ASSUME_TAC THENL
+   [ASM_MESON_TAC[BITSIZE_EQ_0]; ALL_TAC] THEN
+  DISCH_THEN(MP_TAC o SPEC `s:num`) THEN REWRITE_TAC[LE_REFL] THEN
+  DISCH_TAC THEN
+  DISCH_THEN(MP_TAC o SPEC `s:num`) THEN REWRITE_TAC[LE_REFL] THEN
+  ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
+  ASM_SIMP_TAC[LE_RDIV_EQ; RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
+  REWRITE_TAC[GSYM EXP_ADD] THEN CONJ_TAC THENL
+   [TRANS_TAC LE_TRANS `2 EXP (s - 1) * 2 EXP 64` THEN CONJ_TAC THENL
+     [REWRITE_TAC[GSYM EXP_ADD; LE_EXP] THEN ASM_ARITH_TAC;
+      ASM_SIMP_TAC[LE_MULT_RCANCEL]];
+    TRANS_TAC LTE_TRANS `2 EXP s * 2 EXP 64` THEN CONJ_TAC THENL
+     [ASM_SIMP_TAC[LT_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ];
+      REWRITE_TAC[GSYM EXP_ADD; LE_REFL]]]);;
+
+(* Funnel/EXTR DIV-split: the ARM window is hh<<c OR ll>>(64-c) with the two   *)
+(* shifted parts occupying disjoint bit ranges, so it equals the top bits of   *)
+(* the two-word value 2^64*hh + ll.  This is the arithmetic core.              *)
+
+let WINDOW_DIV_SPLIT = prove
+ (`!H L c. c <= 64 /\ H < 2 EXP 64
+           ==> (2 EXP 64 * H + L) DIV 2 EXP (64 - c) =
+               2 EXP c * H + L DIV 2 EXP (64 - c)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `2 EXP 64 * H = 2 EXP (64 - c) * (2 EXP c * H)` SUBST1_TAC THENL
+   [REWRITE_TAC[MULT_ASSOC; GSYM EXP_ADD] THEN
+    AP_THM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ]);;
+
+(* Window value identity (dd>=1 case): the clean top-64 window                 *)
+(* (b*2^64) DIV 2^(bitsize b) equals the two-word extraction the ARM performs, *)
+(* (2^64*hh + ll) DIV 2^(64 - clz hh) with hh=bigdigit b dd, ll=bigdigit b     *)
+(* (dd-1).  Reduces via BITSIZE_TOPWORD (bitsize b = 64*dd + bitsize hh),      *)
+(* WORD_CLZ_BITSIZE (clz = 64 - bitsize hh), DIV_DIV splitting, and            *)
+(* HIGHDIGITS_STEP (highdigits b (dd-1) = 2^64*bigdigit b dd + bigdigit b      *)
+(* (dd-1), using highdigits b dd = bigdigit b dd since higher digits vanish).  *)
+
+let WINDOW_VALUE_HI = prove
+ (`!b k dd. b < 2 EXP (64 * k) /\ 1 <= dd /\ dd < k /\
+            ~(bigdigit b dd = 0) /\ (!j. dd < j /\ j < k ==> bigdigit b j = 0)
+            ==> (b * 2 EXP 64) DIV 2 EXP (bitsize b) =
+                (2 EXP 64 * bigdigit b dd + bigdigit b (dd - 1))
+                DIV 2 EXP (64 - word_clz (word(bigdigit b dd):int64))`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(ISPEC `word(bigdigit b dd):int64` WORD_CLZ_BITSIZE) THEN
+  REWRITE_TAC[DIMINDEX_64] THEN
+  SUBGOAL_THEN `val(word(bigdigit b dd):int64) = bigdigit b dd` SUBST1_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64; BIGDIGIT_BOUND];
+    ALL_TAC] THEN
+  DISCH_TAC THEN
+  SUBGOAL_THEN `bitsize(bigdigit b dd) <= 64` ASSUME_TAC THENL
+   [REWRITE_TAC[BITSIZE_LE; BIGDIGIT_BOUND]; ALL_TAC] THEN
+  ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN `64 - (64 - bitsize(bigdigit b dd)) = bitsize(bigdigit b dd)`
+   SUBST1_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  MP_TAC(ISPECL [`b:num`; `k:num`; `dd:num`] BITSIZE_TOPWORD) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN
+  REWRITE_TAC[EXP_ADD; GSYM DIV_DIV] THEN
+  AP_THM_TAC THEN AP_TERM_TAC THEN
+  SUBGOAL_THEN `2 EXP (64 * dd) = 2 EXP (64 * (dd - 1)) * 2 EXP 64` SUBST1_TAC THENL
+   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[GSYM DIV_DIV] THEN
+  SUBGOAL_THEN `(b * 2 EXP 64) DIV 2 EXP 64 = b` SUBST1_TAC THENL
+   [ONCE_REWRITE_TAC[MULT_SYM] THEN SIMP_TAC[DIV_MULT; EXP_EQ_0; ARITH_EQ];
+    ALL_TAC] THEN
+  REWRITE_TAC[GSYM highdigits] THEN
+  SUBGOAL_THEN
+   `highdigits (b * 2 EXP 64) (dd - 1) DIV 2 EXP 64 = highdigits b (dd - 1)`
+   SUBST1_TAC THENL
+   [REWRITE_TAC[highdigits; DIV_DIV; GSYM EXP_ADD] THEN
+    ONCE_REWRITE_TAC[ARITH_RULE `64 * (dd - 1) + 64 = 64 + 64 * (dd - 1)`] THEN
+    REWRITE_TAC[EXP_ADD; GSYM DIV_DIV] THEN
+    ONCE_REWRITE_TAC[MULT_SYM] THEN
+    SIMP_TAC[DIV_MULT; EXP_EQ_0; ARITH_EQ];
+    ALL_TAC] THEN
+  GEN_REWRITE_TAC LAND_CONV [HIGHDIGITS_STEP] THEN
+  ASM_SIMP_TAC[ARITH_RULE `1 <= dd ==> dd - 1 + 1 = dd`] THEN
+  SUBGOAL_THEN `highdigits b (dd + 1) = 0` ASSUME_TAC THENL
+   [MP_TAC(ISPECL [`k - (dd + 1)`; `b:num`; `dd + 1`] HIGHDIGITS_ZERO_ABOVE) THEN
+    ASM_SIMP_TAC[ARITH_RULE `dd < k ==> (dd + 1) + (k - (dd + 1)) = k`] THEN
+    DISCH_THEN MATCH_MP_TAC THEN X_GEN_TAC `j:num` THEN STRIP_TAC THEN
+    FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  SUBGOAL_THEN `highdigits b dd = bigdigit b dd` SUBST1_TAC THENL
+   [GEN_REWRITE_TAC LAND_CONV [HIGHDIGITS_STEP] THEN ASM_REWRITE_TAC[] THEN
+    ARITH_TAC;
+    ARITH_TAC]);;
+
+(* Unified value of the ARM window csel (both branches): the funnel result     *)
+(* equals 2^c*H + L DIV 2^(64-c).  Needs H < 2^(64-c) (normalize doesn't        *)
+(* overflow -- true since H=bigdigit b dd has bitsize 64-c).  c=0 branch: csel  *)
+(* picks hh<<0=hh and L>>64=0.  c<>0 branch: word_or is DISJOINT (H<<c fills    *)
+(* bits [c,64), L>>(64-c) fills [0,c)), so val(or)=val+val via UPPER_BITS_ZERO. *)
+
+let CSEL_WINDOW_VAL = prove
+ (`!H L c. c < 64 /\ H < 2 EXP (64 - c) /\ L < 2 EXP 64
+    ==> val((if val(word_sub (word_sub (word 0) (word c)) (word 0):int64) = 0
+             then word_jshl (word H:int64) (word c)
+             else word_or (word_jshl (word H:int64) (word c))
+                  (word_jushr (word L:int64) (word_sub (word 0) (word c):int64)))
+            :int64)
+        = 2 EXP c * H + L DIV 2 EXP (64 - c)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `H < 2 EXP 64` ASSUME_TAC THENL
+   [TRANS_TAC LTE_TRANS `2 EXP (64 - c)` THEN ASM_REWRITE_TAC[LE_EXP] THEN
+    ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[word_jshl; word_jushr; DIMINDEX_64] THEN
+  SUBGOAL_THEN `val(word c:int64) MOD 64 = c` SUBST1_TAC THENL
+   [SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; ARITH_RULE `c < 64 ==> c < 2 EXP 64`;
+             ASSUME `c < 64`] THEN ASM_SIMP_TAC[MOD_LT]; ALL_TAC] THEN
+  ASM_CASES_TAC `c = 0` THENL
+   [ASM_REWRITE_TAC[WORD_SUB_0; VAL_WORD_0; SUB_0] THEN
+    CONV_TAC WORD_REDUCE_CONV THEN
+    REWRITE_TAC[WORD_SHL_WORD; VAL_WORD; DIMINDEX_64; EXP; MULT_CLAUSES] THEN
+    ASM_SIMP_TAC[MOD_LT; DIV_1] THEN
+    SUBGOAL_THEN `L DIV 2 EXP 64 = 0` SUBST1_TAC THENL
+     [MATCH_MP_TAC DIV_LT THEN ASM_REWRITE_TAC[]; ARITH_TAC];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `val(word_sub (word 0) (word c):int64) MOD 64 = 64 - c` ASSUME_TAC THENL
+   [REWRITE_TAC[VAL_WORD_SUB; VAL_WORD_0; VAL_WORD; DIMINDEX_64] THEN
+    ASM_SIMP_TAC[MOD_LT; ARITH_RULE `c < 64 ==> c < 2 EXP 64`] THEN
+    SUBGOAL_THEN `!x. x MOD 2 EXP 64 MOD 64 = x MOD 64` (fun th -> REWRITE_TAC[th]) THENL
+     [GEN_TAC THEN ONCE_REWRITE_TAC[ARITH_RULE `2 EXP 64 = 64 * 2 EXP 58`] THEN
+      REWRITE_TAC[MOD_MOD]; ALL_TAC] THEN
+    SUBGOAL_THEN `(0 + 2 EXP 64 - c) MOD 64 = (64 - c) MOD 64` SUBST1_TAC THENL
+     [REWRITE_TAC[ADD_CLAUSES] THEN
+      SUBGOAL_THEN `2 EXP 64 - c = (64 - c) + 64 * (2 EXP 58 - 1)` SUBST1_TAC THENL
+       [ASM_ARITH_TAC; ALL_TAC] THEN
+      ONCE_REWRITE_TAC[ADD_SYM] THEN REWRITE_TAC[MOD_MULT_ADD];
+      ASM_SIMP_TAC[MOD_LT; ARITH_RULE `~(c=0) /\ c < 64 ==> 64 - c < 64`]]; ALL_TAC] THEN
+  ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN `~(val(word_sub (word_sub (word 0) (word c)) (word 0):int64) = 0)`
+   (fun th -> REWRITE_TAC[th]) THENL
+   [REWRITE_TAC[WORD_SUB_0] THEN
+    ASM_REWRITE_TAC[GSYM VAL_EQ_0] THEN
+    DISCH_THEN(MP_TAC o AP_TERM `\x. x MOD 64`) THEN
+    ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `val(word H:int64) = H /\ val(word L:int64) = L` STRIP_ASSUME_TAC THENL
+   [CONJ_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN
+    ASM_REWRITE_TAC[DIMINDEX_64]; ALL_TAC] THEN
+  MP_TAC(ISPECL [`word H:int64`; `64 - c`] UPPER_BITS_ZERO) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
+  MP_TAC(ISPECL [`word L:int64`; `64`] UPPER_BITS_ZERO) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
+  W(MP_TAC o PART_MATCH (lhand o rand) VAL_WORD_OR_DISJOINT o lhand o snd) THEN
+  ANTS_TAC THENL
+   [REWRITE_TAC[WORD_EQ_BITS_ALT; BIT_WORD_AND; BIT_WORD_0] THEN
+    REWRITE_TAC[BIT_WORD_SHL; BIT_WORD_USHR; DIMINDEX_64] THEN
+    X_GEN_TAC `i:num` THEN
+    REPEAT STRIP_TAC THEN
+    SUBGOAL_THEN `i < c` ASSUME_TAC THENL
+     [FIRST_X_ASSUM(MP_TAC o SPEC `i + 64 - c`) THEN ASM_REWRITE_TAC[] THEN
+      ASM_ARITH_TAC; ALL_TAC] THEN
+    ASM_ARITH_TAC; ALL_TAC] THEN
+  DISCH_THEN SUBST1_TAC THEN
+  REWRITE_TAC[VAL_WORD_SHL; VAL_WORD_USHR; DIMINDEX_64] THEN
+  ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN `(2 EXP c * H) MOD 2 EXP 64 = 2 EXP c * H`
+   (fun th -> REWRITE_TAC[th]) THEN
+  MATCH_MP_TAC MOD_LT THEN
+  SUBGOAL_THEN `2 EXP 64 = 2 EXP c * 2 EXP (64 - c)` SUBST1_TAC THENL
+   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  ASM_SIMP_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ]);;
+
+(* p = bitsize b in the ARM's form: 64*dd + (64 - clz(top word)).  Used to      *)
+(* discharge the X20 = word(bitsize b) obligation in the window block.          *)
+
+let BITSIZE_P_LEMMA = prove
+ (`!b k dd. b < 2 EXP (64 * k) /\ dd < k /\ ~(bigdigit b dd = 0) /\
+            (!j. dd < j /\ j < k ==> bigdigit b j = 0)
+            ==> bitsize b =
+                64 * dd + (64 - word_clz (word (bigdigit b dd):int64))`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(ISPECL [`b:num`; `k:num`; `dd:num`] BITSIZE_TOPWORD) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN
+  MP_TAC(ISPEC `word (bigdigit b dd):int64` WORD_CLZ_BITSIZE) THEN
+  REWRITE_TAC[DIMINDEX_64] THEN
+  SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; BIGDIGIT_BOUND] THEN
+  DISCH_THEN SUBST1_TAC THEN
+  SUBGOAL_THEN `bitsize(bigdigit b dd) <= 64` MP_TAC THENL
+   [REWRITE_TAC[BITSIZE_LE; BIGDIGIT_BOUND]; ARITH_TAC]);;
+
+(* dd=0 (single-word modulus) window value: (b*2^64) DIV 2^(bitsize b) =        *)
+(* 2^clz(word b) * b.  Simpler than WINDOW_VALUE_HI (no digit machinery); the   *)
+(* ARM's ll-term vanishes since the finder sets X6=0 when dd=0.                 *)
+
+let WINDOW_VALUE_LO = prove
+ (`!b. ~(b = 0) /\ b < 2 EXP 64
+       ==> (b * 2 EXP 64) DIV 2 EXP (bitsize b) =
+           2 EXP (word_clz (word b:int64)) * b`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(ISPEC `word b:int64` WORD_CLZ_BITSIZE) THEN
+  REWRITE_TAC[DIMINDEX_64] THEN
+  SUBGOAL_THEN `val(word b:int64) = b` SUBST1_TAC THENL
    [MATCH_MP_TAC VAL_WORD_EQ THEN ASM_REWRITE_TAC[DIMINDEX_64]; ALL_TAC] THEN
-  ASM_REWRITE_TAC[] THEN CONJ_TAC THENL
-   [ARITH_TAC; X_GEN_TAC `j:num` THEN ARITH_TAC]);;
+  DISCH_THEN SUBST1_TAC THEN
+  SUBGOAL_THEN `bitsize b <= 64` ASSUME_TAC THENL
+   [ASM_REWRITE_TAC[BITSIZE_LE]; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP 64 = 2 EXP (bitsize b) * 2 EXP (64 - bitsize b)` SUBST1_TAC THENL
+   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  ONCE_REWRITE_TAC[ARITH_RULE `b * x * y = (x * y) * b`] THEN
+  SIMP_TAC[GSYM MULT_ASSOC; DIV_MULT; EXP_EQ_0; ARITH_EQ] THEN
+  ARITH_TAC);;
 
-(* --- the finder loop itself --- *)
+(* All bigdigits below k vanishing (with b < 2^(64k)) forces b = 0.  Used for   *)
+(* the finder's not-found disjunct (which implies the modulus is zero).         *)
 
+let ALLDIGITS_ZERO_IMP = prove
+ (`!b k. b < 2 EXP (64 * k) /\ (!j. j < k ==> bigdigit b j = 0) ==> b = 0`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `highdigits b 0 = 0` MP_TAC THENL
+   [MP_TAC(ISPECL [`k:num`; `b:num`; `0`] HIGHDIGITS_ZERO_ABOVE) THEN
+    REWRITE_TAC[ADD_CLAUSES] THEN DISCH_THEN MATCH_MP_TAC THEN
+    ASM_REWRITE_TAC[] THEN
+    X_GEN_TAC `j:num` THEN STRIP_TAC THEN FIRST_X_ASSUM MATCH_MP_TAC THEN
+    ASM_ARITH_TAC;
+    REWRITE_TAC[HIGHDIGITS_0]]);;
 
-(* --- the finder loop itself --- *)
+(* Unified window value over both dd=0 and dd>=1 (the finder's found disjunct    *)
+(* uses X6 = word(if dd=0 then 0 else bigdigit b (dd-1))): the two-word          *)
+(* extraction equals the clean window (b*2^64) DIV 2^(bitsize b).  Lets the      *)
+(* window sim apply one lemma rather than an in-context dd case-split.           *)
+
+let WINDOW_VALUE_ANY = prove
+ (`!b k dd. b < 2 EXP (64 * k) /\ ~(b = 0) /\ dd < k /\
+            ~(bigdigit b dd = 0) /\ (!j. dd < j /\ j < k ==> bigdigit b j = 0)
+            ==> (2 EXP 64 * bigdigit b dd +
+                 (if dd = 0 then 0 else bigdigit b (dd - 1)))
+                DIV 2 EXP (64 - word_clz (word(bigdigit b dd):int64)) =
+                (b * 2 EXP 64) DIV 2 EXP (bitsize b)`,
+  REPEAT STRIP_TAC THEN ASM_CASES_TAC `dd = 0` THEN
+  ASM_REWRITE_TAC[ADD_CLAUSES] THENL
+   [SUBGOAL_THEN `b < 2 EXP 64` ASSUME_TAC THENL
+     [REWRITE_TAC[GSYM BITSIZE_LE] THEN
+      SUBGOAL_THEN `bitsize b = 64 * dd + (64 - word_clz(word(bigdigit b dd):int64))`
+       SUBST1_TAC THENL
+       [MATCH_MP_TAC BITSIZE_P_LEMMA THEN EXISTS_TAC `k:num` THEN ASM_REWRITE_TAC[];
+        ASM_REWRITE_TAC[] THEN ARITH_TAC]; ALL_TAC] THEN
+    MP_TAC(ISPEC `b:num` WINDOW_VALUE_LO) THEN ASM_REWRITE_TAC[] THEN
+    SUBGOAL_THEN `bigdigit b 0 = b` SUBST1_TAC THENL
+     [REWRITE_TAC[bigdigit; MULT_CLAUSES; EXP; DIV_1] THEN ASM_SIMP_TAC[MOD_LT];
+      ALL_TAC] THEN
+    SUBGOAL_THEN `bitsize b = 64 - word_clz(word b:int64)` SUBST1_TAC THENL
+     [MP_TAC(ISPEC `word b:int64` WORD_CLZ_BITSIZE) THEN
+      REWRITE_TAC[DIMINDEX_64] THEN ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64] THEN
+      SUBGOAL_THEN `bitsize b <= 64` MP_TAC THENL
+       [ASM_REWRITE_TAC[BITSIZE_LE]; ARITH_TAC];
+      REWRITE_TAC[MULT_SYM]];
+    CONV_TAC SYM_CONV THEN
+    MATCH_MP_TAC WINDOW_VALUE_HI THEN EXISTS_TAC `k:num` THEN
+    ASM_SIMP_TAC[ARITH_RULE `~(dd = 0) ==> 1 <= dd`]]);;
+
+(* Stage 2b window block, pc+0x68 -> pc+0x90 (dd>=1 / b<>0 case).  From the     *)
+(* finder's found-disjunct output (X11=dd, X5=word(bigdigit b dd), X6=word      *)
+(* (bigdigit b (dd-1))), the funnel (clz;lsl;lsl;neg;lsr;orr;csel) computes     *)
+(*   X20 = word(bitsize b),  X5 = word((b*2^64) DIV 2^(bitsize b)),            *)
+(* the normalized top-64 window, which has bit 63 set (recip precond).  The     *)
+(* round-up (0x90/0x94) that follows is consumed by the recip block.  Assembles *)
+(* BITSIZE_P_LEMMA, WINDOW_VALUE_HI, WINDOW_RANGE, CSEL_WINDOW_VAL,             *)
+(* WINDOW_DIV_SPLIT.  b < 2^(64*k) is available in CORRECT (BIGNUM_TERMRANGE).  *)
+
+let ROUNDUP_MSB = prove
+ (`!t0:int64. bit 63 t0
+              ==> bit 63 (if val(word_add t0 (word 1)) = 0
+                          then word_not(word_add t0 (word 1))
+                          else word_add t0 (word 1))`,
+  GEN_TAC THEN
+  MP_TAC(ISPEC `t0:int64` MSB_VAL) THEN REWRITE_TAC[DIMINDEX_64] THEN
+  CONV_TAC NUM_REDUCE_CONV THEN DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
+  DISCH_TAC THEN
+  MP_TAC(ISPEC `t0:int64` VAL_BOUND_64) THEN REWRITE_TAC[DIMINDEX_64] THEN
+  DISCH_TAC THEN
+  SUBGOAL_THEN `val(word_add t0 (word 1):int64) =
+                (if val(t0:int64) + 1 = 2 EXP 64 then 0 else val t0 + 1)`
+   ASSUME_TAC THENL
+   [REWRITE_TAC[VAL_WORD_ADD; VAL_WORD_1; DIMINDEX_64] THEN
+    COND_CASES_TAC THENL
+     [ASM_REWRITE_TAC[MOD_REFL];
+      MATCH_MP_TAC MOD_LT THEN ASM_ARITH_TAC];
+    ALL_TAC] THEN
+  COND_CASES_TAC THENL
+   [MP_TAC(ISPEC `word_not(word_add t0 (word 1)):int64` MSB_VAL) THEN
+    REWRITE_TAC[DIMINDEX_64] THEN CONV_TAC NUM_REDUCE_CONV THEN
+    DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
+    REWRITE_TAC[VAL_WORD_NOT; DIMINDEX_64] THEN ASM_ARITH_TAC;
+    MP_TAC(ISPEC `word_add t0 (word 1):int64` MSB_VAL) THEN
+    REWRITE_TAC[DIMINDEX_64] THEN CONV_TAC NUM_REDUCE_CONV THEN
+    DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN ASM_ARITH_TAC]);;
+
+(* Round-up block pc+0x90 -> pc+0x98: adds X5,X5,#1; cinv X5,X5,eq.  Takes      *)
+(* X5=t0 (bit 63 set) to X5 = roundup(t0), which still has bit 63 set.  The     *)
+(* rounded value is exposed so the recip block (whose input is this X5) can be   *)
+(* composed and its bracket stated in val(roundup t0).                          *)
+
+let BLOCKPOS = prove
+ (`!n i. 61 * i + 61 <= 64 * n
+         ==> (61 * i) DIV 64 < n /\
+             ((61 * i) DIV 64 + 1 < n \/ (61 * i) MOD 64 <= 3)`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`61 * i`; `64`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
+  ASM_ARITH_TAC);;
+
+(* ========================================================================= *)
+(* Stage 2b-iv preheader (pc+0x13c -> pc+0x1a4): n/61 setup.  Computes the     *)
+(* loop-entry state for the main division loop: i0 = 61*NB (X16, NB =          *)
+(* (64n+60)DIV 61 - 1), j0 = 61 (X17), l0 = 1 (X19), pcode0 = (p>>6)+1 (X12),  *)
+(* top block c0 = a DIV 2^i0 loaded into z[0] and X22, window h0 = (c0>>p) if  *)
+(* p<64 else 0 (X15).  Straight-line (26 instrs).  Needs n < 2^60 for the      *)
+(* reciprocal-multiply udiv-by-61 identity (documented in the .S).  The full   *)
+(* set of arithmetic + word support lemmas precedes the main theorem.          *)
+(* ========================================================================= *)
+
+let MOD64_EQ0 = prove
+ (`!q n r. 64 * n = q * 61 + r /\ r < 61 ==> ((61 * q) MOD 64 = 0 <=> r = 0)`,
+  REPEAT STRIP_TAC THEN EQ_TAC THENL
+   [DISCH_TAC THEN
+    SUBGOAL_THEN `(q * 61 + r) MOD 64 = 0` MP_TAC THENL
+     [ONCE_REWRITE_TAC[GSYM(ASSUME `64 * n = q * 61 + r`)] THEN
+      REWRITE_TAC[ARITH_RULE `64 * n = n * 64`; MOD_MULT]; ALL_TAC] THEN
+    GEN_REWRITE_TAC (LAND_CONV o LAND_CONV) [GSYM MOD_ADD_MOD] THEN
+    REWRITE_TAC[ARITH_RULE `q * 61 = 61 * q`] THEN
+    ASM_REWRITE_TAC[ADD_CLAUSES] THEN
+    ASM_SIMP_TAC[MOD_LT; ARITH_RULE `r < 61 ==> r < 64`];
+    DISCH_THEN SUBST_ALL_TAC THEN
+    SUBGOAL_THEN `61 * q = 64 * n` SUBST1_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    REWRITE_TAC[ARITH_RULE `64 * n = n * 64`; MOD_MULT]]);;
+
+let I0_EQ = prove
+ (`!n. 1 <= n /\ n < 2 EXP 60
+       ==> (if ~((61 * ((64 * n) DIV 61)) MOD 64 = 0)
+            then 61 * ((64 * n) DIV 61)
+            else 61 * ((64 * n) DIV 61) - 61) =
+           61 * ((64 * n + 60) DIV 61 - 1)`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`64 * n`; `61`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
+  ABBREV_TAC `q = (64 * n) DIV 61` THEN
+  ABBREV_TAC `r = (64 * n) MOD 61` THEN STRIP_TAC THEN
+  SUBGOAL_THEN `(64 * n + 60) DIV 61 = (if r = 0 then q else q + 1)` ASSUME_TAC THENL
+   [COND_CASES_TAC THEN MATCH_MP_TAC DIV_UNIQ THENL
+     [EXISTS_TAC `60` THEN ASM_ARITH_TAC;
+      EXISTS_TAC `r - 1` THEN ASM_ARITH_TAC];
+    ALL_TAC] THEN
+  MP_TAC(SPECL [`q:num`; `n:num`; `r:num`] MOD64_EQ0) THEN ASM_REWRITE_TAC[] THEN
+  DISCH_THEN SUBST1_TAC THEN ASM_REWRITE_TAC[] THEN
+  COND_CASES_TAC THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC);;
+
+let C0_ID = prove
+ (`!a n i0. a < 2 EXP (64 * n) /\ 1 <= n /\ i0 DIV 64 = n - 1
+            ==> a DIV 2 EXP i0 = bigdigit a (n - 1) DIV 2 EXP (i0 MOD 64)`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[bigdigit; DIV_DIV; GSYM EXP_ADD] THEN
+  SUBGOAL_THEN `(a DIV 2 EXP (64 * (n - 1))) MOD 2 EXP 64 = a DIV 2 EXP (64 * (n - 1))`
+   SUBST1_TAC THENL
+   [MATCH_MP_TAC MOD_LT THEN
+    SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ; GSYM EXP_ADD] THEN
+    TRANS_TAC LTE_TRANS `2 EXP (64 * n)` THEN ASM_REWRITE_TAC[LE_EXP; ARITH_EQ] THEN
+    ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  REWRITE_TAC[DIV_DIV; GSYM EXP_ADD] THEN
+  SUBGOAL_THEN `64 * (n - 1) + i0 MOD 64 = i0` SUBST1_TAC THENL
+   [MP_TAC(SPECL [`i0:num`; `64`] DIVISION) THEN
+    ASM_REWRITE_TAC[ARITH_EQ] THEN ASM_ARITH_TAC;
+    REFL_TAC]);;
+
+let MASKVAL = prove
+ (`!q. val (word_and (word (61 * q):int64) (word 63)) = (61 * q) MOD 64`,
+  GEN_TAC THEN
+  SUBGOAL_THEN `word 63:int64 = word (2 EXP 6 - 1)` SUBST1_TAC THENL
+   [CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
+  REWRITE_TAC[VAL_WORD_AND_MASK_WORD; VAL_WORD; DIMINDEX_64] THEN
+  REWRITE_TAC[ARITH_RULE `2 EXP 6 = 64`] THEN
+  ONCE_REWRITE_TAC[ARITH_RULE `2 EXP 64 = 64 * 2 EXP 58`] THEN
+  SIMP_TAC[MOD_MOD; EXP_EQ_0; ARITH_EQ; MULT_EQ_0]);;
+
+let X16_EQ = prove
+ (`!n. 1 <= n /\ n < 2 EXP 60
+       ==> (if ~(val (word_and (word (61 * ((64 * n) DIV 61)):int64) (word 63)) = 0)
+            then word (61 * ((64 * n) DIV 61)):int64
+            else word_sub (word (61 * ((64 * n) DIV 61))) (word 61)) =
+           word (61 * ((64 * n + 60) DIV 61 - 1))`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[MASKVAL] THEN
+  SUBGOAL_THEN `61 <= 61 * ((64 * n) DIV 61)` ASSUME_TAC THENL
+   [MATCH_MP_TAC(ARITH_RULE `1 <= q ==> 61 <= 61 * q`) THEN
+    SIMP_TAC[LE_RDIV_EQ; ARITH_EQ] THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  MP_TAC(SPEC `n:num` I0_EQ) THEN ASM_REWRITE_TAC[] THEN
+  DISCH_THEN(SUBST1_TAC o SYM) THEN COND_CASES_TAC THEN ASM_SIMP_TAC[WORD_SUB]);;
+
+let I0_BOUNDS = prove
+ (`!n. 1 <= n /\ n < 2 EXP 60
+       ==> 64 * (n - 1) <= 61 * ((64 * n + 60) DIV 61 - 1) /\
+           61 * ((64 * n + 60) DIV 61 - 1) < 64 * n`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPECL [`64 * n`; `61`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
+  ABBREV_TAC `q = (64 * n) DIV 61` THEN ABBREV_TAC `r = (64 * n) MOD 61` THEN
+  STRIP_TAC THEN
+  SUBGOAL_THEN `(64 * n + 60) DIV 61 = (if r = 0 then q else q + 1)` ASSUME_TAC THENL
+   [COND_CASES_TAC THENL
+     [MATCH_MP_TAC DIV_UNIQ THEN EXISTS_TAC `60` THEN ASM_ARITH_TAC;
+      MATCH_MP_TAC DIV_UNIQ THEN EXISTS_TAC `r - 1` THEN ASM_ARITH_TAC];
+    ALL_TAC] THEN
+  ASM_REWRITE_TAC[] THEN COND_CASES_TAC THEN ASM_ARITH_TAC);;
+
+let I0_DIV64 = prove
+ (`!n. 1 <= n /\ n < 2 EXP 60
+       ==> (61 * ((64 * n + 60) DIV 61 - 1)) DIV 64 = n - 1`,
+  REPEAT STRIP_TAC THEN MP_TAC(SPEC `n:num` I0_BOUNDS) THEN ASM_REWRITE_TAC[] THEN
+  STRIP_TAC THEN MATCH_MP_TAC DIV_UNIQ THEN
+  EXISTS_TAC `61 * ((64 * n + 60) DIV 61 - 1) - 64 * (n - 1)` THEN
+  ASM_ARITH_TAC);;
+
+let X7_ID = prove
+ (`!n. 1 <= n /\ n < 2 EXP 64 ==>
+       word_sub (word n:int64) (word 1) = word (n - 1) /\
+       val (word_sub (word n:int64) (word 1)) = n - 1`,
+  REPEAT STRIP_TAC THEN
+  (SUBGOAL_THEN `word_sub (word n:int64) (word 1) = word (n - 1)` ASSUME_TAC THENL
+    [ASM_SIMP_TAC[WORD_SUB]; ALL_TAC]) THEN
+  ASM_REWRITE_TAC[] THEN
+  MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC);;
+
+let X12_ID = prove
+ (`!p. p < 2 EXP 64
+       ==> word_add (word_ushr (word p:int64) 6) (word 1) = word (p DIV 64 + 1)`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[word_ushr; DIMINDEX_64; GSYM WORD_ADD] THEN
+  ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64] THEN
+  AP_TERM_TAC THEN AP_THM_TAC THEN AP_TERM_TAC THEN
+  REWRITE_TAC[ARITH_RULE `2 EXP 6 = 64`]);;
+
+let UDIV61_WORD = prove
+ (`!n. n < 2 EXP 60
+       ==> val(word_add (word ((0xc9714fbcda3ac11 * val (word n:int64)) DIV 2 EXP 64))
+                        (word n):int64) = (64 * n) DIV 61`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `val(word n:int64) = n` SUBST1_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  REWRITE_TAC[GSYM WORD_ADD] THEN
+  SUBGOAL_THEN
+   `(0xc9714fbcda3ac11 * n) DIV 2 EXP 64 + n = (64 * n) DIV 61` SUBST1_TAC THENL
+   [CONV_TAC SYM_CONV THEN
+    ASM_MESON_TAC[ARITH_RULE
+     `n < 2 EXP 60 ==> (64 * n) DIV 61 = (0xc9714fbcda3ac11 * n) DIV 2 EXP 64 + n`];
+    ALL_TAC] THEN
+  REWRITE_TAC[VAL_WORD; DIMINDEX_64] THEN MATCH_MP_TAC MOD_LT THEN
+  SIMP_TAC[RDIV_LT_EQ; ARITH_EQ] THEN ASM_ARITH_TAC);;
+
+(* X7-concretization helper for the top-block load address (impl form). *)
+let JUSHR_WORD = prove
+ (`!bd i0. bd < 2 EXP 64
+           ==> word_jushr (word bd:int64) (word i0) = word (bd DIV 2 EXP (i0 MOD 64))`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[word_jushr; word_ushr; DIMINDEX_64; VAL_WORD] THEN
+  ASM_SIMP_TAC[MOD_LT] THEN AP_TERM_TAC THEN
+  SUBGOAL_THEN `i0 MOD 2 EXP 64 MOD 64 = i0 MOD 64` SUBST1_TAC THENL
+   [ONCE_REWRITE_TAC[ARITH_RULE `2 EXP 64 = 64 * 2 EXP 58`] THEN
+    SIMP_TAC[MOD_MOD; EXP_EQ_0; ARITH_EQ; MULT_EQ_0];
+    ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64]]);;
+
+let X19_ID = prove
+ (`!k:num. k + 1 < 2 EXP 64
+       ==> (if val (word_add (word k:int64) (word 1)) < 1
+            then word_add (word k) (word 1) else word 1):int64 = word 1`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `val (word_add (word k:int64) (word 1)) = k + 1` ASSUME_TAC THENL
+   [REWRITE_TAC[GSYM WORD_ADD] THEN MATCH_MP_TAC VAL_WORD_EQ THEN
+    REWRITE_TAC[DIMINDEX_64] THEN ASM_REWRITE_TAC[];
+    ASM_REWRITE_TAC[ARITH_RULE `~(k + 1 < 1)`]]);;
+
+let X15_ID = prove
+ (`!c0 p. c0 < 2 EXP 64 /\ p < 2 EXP 64
+          ==> (if val (word p:int64) < 64
+               then word_jushr (word c0:int64) (word p) else word 0) =
+              word ((c0 DIV 2 EXP p) MOD 2 EXP 64)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `val (word p:int64) = p` ASSUME_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN ASM_REWRITE_TAC[DIMINDEX_64]; ALL_TAC] THEN
+  ASM_REWRITE_TAC[] THEN COND_CASES_TAC THENL
+   [MP_TAC(SPECL [`c0:num`; `p:num`] JUSHR_WORD) THEN ASM_REWRITE_TAC[] THEN
+    DISCH_THEN SUBST1_TAC THEN
+    SUBGOAL_THEN `p MOD 64 = p` SUBST1_TAC THENL
+     [MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN MATCH_MP_TAC MOD_LT THEN
+    TRANS_TAC LET_TRANS `c0:num` THEN ASM_REWRITE_TAC[DIV_LE];
+    AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
+    SUBGOAL_THEN `c0 DIV 2 EXP p = 0` SUBST1_TAC THENL
+     [MATCH_MP_TAC DIV_LT THEN TRANS_TAC LTE_TRANS `2 EXP 64` THEN
+      ASM_REWRITE_TAC[LE_EXP; ARITH_EQ] THEN ASM_ARITH_TAC;
+      REWRITE_TAC[MOD_0]]]);;
+
+let BLOCKSPLIT = prove
+ (`!a t. a DIV 2 EXP (61 * t) =
+         2 EXP 61 * (a DIV 2 EXP (61 * (t + 1))) + (a DIV 2 EXP (61 * t)) MOD 2 EXP 61`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[ARITH_RULE `61 * (t + 1) = 61 * t + 61`; GSYM DIV_DIV; EXP_ADD] THEN
+  SPEC_TAC(`a DIV 2 EXP (61 * t)`,`d:num`) THEN GEN_TAC THEN
+  MP_TAC(SPECL [`d:num`; `2 EXP 61`] DIVISION) THEN
+  REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
+
+(* low 128 bits split into two adjacent words *)
+let LO128 = prove
+ (`!M. 2 EXP 64 * (M DIV 2 EXP 64) MOD 2 EXP 64 + M MOD 2 EXP 64 = M MOD 2 EXP 128`,
+  GEN_TAC THEN REWRITE_TAC[ARITH_RULE `128 = 64 + 64`; EXP_ADD; MOD_MULT_MOD] THEN
+  ARITH_TAC);;
+
+let TWODIGIT_128 = prove
+ (`!a q. 2 EXP 64 * bigdigit a (q + 1) + bigdigit a q =
+         (a DIV 2 EXP (64 * q)) MOD 2 EXP 128`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[bigdigit] THEN
+  REWRITE_TAC[ARITH_RULE `64 * (q + 1) = 64 * q + 64`; EXP_ADD; GSYM DIV_DIV] THEN
+  REWRITE_TAC[LO128]);;
+
+(* the 61-bit block LOAD: the two-word funnel c = (x>>i) window equals the
+   bitfield of a at bit i.  ARM loads x[i/64],x[i/64+1], lsr by i mod 64, lsl
+   the hi word, orr; = (a DIV 2^i) MOD 2^64 (unmasked; 61-bit mask applied later). *)
+let BLOCKLOAD_ARITH = prove
+ (`!a i. (a DIV 2 EXP i) MOD 2 EXP 64 =
+         ((2 EXP 64 * bigdigit a (i DIV 64 + 1) + bigdigit a (i DIV 64))
+          DIV 2 EXP (i MOD 64)) MOD 2 EXP 64`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[TWODIGIT_128] THEN
+  MP_TAC(SPECL [`i:num`; `64`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
+  ABBREV_TAC `q = i DIV 64` THEN ABBREV_TAC `r = i MOD 64` THEN STRIP_TAC THEN
+  ABBREV_TAC `M = a DIV 2 EXP (64 * q)` THEN
+  SUBGOAL_THEN `a DIV 2 EXP i = M DIV 2 EXP r` SUBST1_TAC THENL
+   [EXPAND_TAC "M" THEN REWRITE_TAC[DIV_DIV; GSYM EXP_ADD] THEN
+    AP_TERM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP 128 = 2 EXP r * 2 EXP (128 - r)` SUBST1_TAC THENL
+   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[GSYM DIV_MOD] THEN ONCE_REWRITE_TAC[GSYM MOD_MOD_EXP_MIN] THEN
+  CONV_TAC SYM_CONV THEN REWRITE_TAC[MOD_MOD_EXP_MIN] THEN
+  AP_TERM_TAC THEN AP_TERM_TAC THEN
+  REWRITE_TAC[ARITH_RULE `MIN (128 - r) 64 = 64 <=> 64 <= 128 - r`] THEN
+  ASM_ARITH_TAC);;
+
+(* congruence-maintenance NUMBER_RULE (verified in session):
+     (Z == at)(mod b) /\ ap = 2^61*at + c /\ Zp + q*b = 2^61*Z + c
+       ==> (Zp == ap)(mod b).
+   The additive form Zp + q*b = ... sidesteps nat subtraction (RECIP_QBOUND's
+   lower bound guarantees Zp >= 0 i.e. q*b <= 2^61*Z + c). *)
+let CONG_MAINTAIN = NUMBER_RULE
+ `!Z Zp c q b ap at.
+       (Z == at)(mod b) /\
+       ap = 2 EXP 61 * at + c /\
+       Zp + q * b = 2 EXP 61 * Z + c
+       ==> (Zp == ap)(mod b)`;;
+
+(* funnel shift right by r of a two-word value (r <= 64) *)
+let DIVSPLIT64 = prove
+ (`!w0 w1 r. r <= 64
+     ==> (2 EXP 64 * w1 + w0) DIV 2 EXP r = 2 EXP (64 - r) * w1 + w0 DIV 2 EXP r`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `2 EXP 64 = 2 EXP (64 - r) * 2 EXP r` SUBST1_TAC THENL
+   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[GSYM MULT_ASSOC] THEN ONCE_REWRITE_TAC[MULT_SYM] THEN
+  ONCE_REWRITE_TAC[ARITH_RULE `(2 EXP r * w1) * 2 EXP (64 - r) + w0 =
+                               (w1 * 2 EXP (64 - r)) * 2 EXP r + w0`] THEN
+  SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ]);;
+
+(* the 61-bit masked block: the ARM loads x[q],x[q+1] and funnel-shifts right by
+   r = i MOD 64; the low-61 masked result = (a DIV 2^(64q+r)) MOD 2^61 = block at
+   bit i.  Two cases: general (both words = bigdigit a), OR the top block where
+   x[q+1] may be one-past-the-end GARBAGE but r <= 3 so it lands above bit 61 and
+   is discarded.  q = i DIV 64, r = i MOD 64, 64q+r = i. *)
+let BLOCKLOAD_MASKED = prove
+ (`!a q r w0 w1.
+     r < 64 /\ w0 = bigdigit a q /\ (r <= 3 \/ w1 = bigdigit a (q + 1))
+     ==> ((2 EXP 64 * w1 + w0) DIV 2 EXP r) MOD 2 EXP 61 =
+         (a DIV 2 EXP (64 * q + r)) MOD 2 EXP 61`,
+  REPEAT GEN_TAC THEN
+  DISCH_THEN(CONJUNCTS_THEN2 ASSUME_TAC
+    (CONJUNCTS_THEN2 ASSUME_TAC DISJ_CASES_TAC)) THEN
+  ASM_REWRITE_TAC[bigdigit] THENL
+   [ASM_SIMP_TAC[DIVSPLIT64; LT_IMP_LE] THEN
+    SUBGOAL_THEN `2 EXP (64 - r) = 2 EXP 61 * 2 EXP (3 - r)` SUBST1_TAC THENL
+     [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
+    REWRITE_TAC[GSYM MULT_ASSOC] THEN ONCE_REWRITE_TAC[ADD_SYM] THEN
+    SIMP_TAC[MOD_MULT_ADD] THEN
+    ONCE_REWRITE_TAC[ADD_SYM] THEN
+    REWRITE_TAC[EXP_ADD; GSYM DIV_DIV] THEN
+    ABBREV_TAC `M = a DIV 2 EXP (64 * q)` THEN
+    SUBGOAL_THEN `2 EXP 64 = 2 EXP r * 2 EXP (64 - r)` SUBST1_TAC THENL
+     [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
+    REWRITE_TAC[GSYM DIV_MOD] THEN ONCE_REWRITE_TAC[GSYM MOD_MOD_EXP_MIN] THEN
+    CONV_TAC SYM_CONV THEN REWRITE_TAC[MOD_MOD_EXP_MIN] THEN
+    AP_TERM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC;
+    REWRITE_TAC[GSYM bigdigit; TWODIGIT_128] THEN
+    SUBGOAL_THEN `a DIV 2 EXP (64 * q + r) = (a DIV 2 EXP (64 * q)) DIV 2 EXP r`
+     SUBST1_TAC THENL
+     [REWRITE_TAC[DIV_DIV; GSYM EXP_ADD]; ALL_TAC] THEN
+    ABBREV_TAC `M = a DIV 2 EXP (64 * q)` THEN
+    SUBGOAL_THEN `2 EXP 128 = 2 EXP r * 2 EXP (128 - r)` SUBST1_TAC THENL
+     [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
+    REWRITE_TAC[GSYM DIV_MOD] THEN ONCE_REWRITE_TAC[GSYM MOD_MOD_EXP_MIN] THEN
+    CONV_TAC SYM_CONV THEN REWRITE_TAC[MOD_MOD_EXP_MIN] THEN
+    AP_TERM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC]);;
+
+(* mask to low 6 bits = MOD 64, for concretizing the funnel shift amount X9 =
+   word_and(word(61*i))(word 63) before the lsr/lsl in the block load. *)
+let MASKW = prove
+ (`!i. 61 * i < 2 EXP 64
+       ==> word_and (word (61 * i):int64) (word 63) = word ((61 * i) MOD 64)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `word 63:int64 = word (2 EXP 6 - 1)` SUBST1_TAC THENL
+   [CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
+  REWRITE_TAC[WORD_AND_MASK_WORD] THEN
+  ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64] THEN
+  REWRITE_TAC[ARITH_RULE `2 EXP 6 = 64`]);;
+
+(* block funnel csel value (mirror of CSEL_WINDOW_VAL; block does lo>>r|hi<<(64-r),
+   csel picks lo>>r if r=0).  Uses word_jushr/word_jshl (the ARM LSRV/LSLV forms,
+   which mod the shift amount by 64).  Feeds the block-load: with hi=x[q+1],
+   lo=x[q], r=(61*i)MOD 64, gives the two-word funnel = (2^64*hi+lo) DIV 2^r MOD
+   2^64, which BLOCKLOAD_ARITH/MASKED then relate to the block (a DIV 2^(61i)). *)
+let CSEL_BLOCK_VAL = prove
+ (`!hi lo r. r < 64 /\ hi < 2 EXP 64 /\ lo < 2 EXP 64
+     ==> val((if val(word r:int64) = 0
+              then word_jushr (word lo:int64) (word r:int64)
+              else word_or (word_jushr (word lo:int64) (word r:int64))
+                   (word_jshl (word hi:int64) (word_sub (word 0) (word r):int64)))
+             :int64)
+         = (2 EXP 64 * hi + lo) DIV 2 EXP r MOD 2 EXP 64`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[word_jushr; word_jshl; DIMINDEX_64] THEN
+  SUBGOAL_THEN `val(word r:int64) MOD 64 = r` SUBST1_TAC THENL
+   [SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; ARITH_RULE `r < 64 ==> r < 2 EXP 64`;
+             ASSUME `r < 64`] THEN ASM_SIMP_TAC[MOD_LT]; ALL_TAC] THEN
+  ASM_CASES_TAC `r = 0` THENL
+   [ASM_REWRITE_TAC[WORD_SUB_0; VAL_WORD_0; SUB_0] THEN
+    REWRITE_TAC[word_ushr; VAL_WORD; DIMINDEX_64; EXP; DIV_1; MULT_CLAUSES] THEN
+    ASM_SIMP_TAC[MOD_LT] THEN
+    SUBGOAL_THEN `lo DIV 2 EXP 64 = 0` SUBST1_TAC THENL
+     [MATCH_MP_TAC DIV_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    CONV_TAC SYM_CONV THEN
+    ONCE_REWRITE_TAC[GSYM MOD_ADD_MOD] THEN
+    SIMP_TAC[MOD_MULT; ADD_CLAUSES; MOD_MOD_REFL] THEN ASM_SIMP_TAC[MOD_LT];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `~(val(word r:int64) = 0)` (fun th -> REWRITE_TAC[th]) THENL
+   [ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; ARITH_RULE `r < 64 ==> r < 2 EXP 64`];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `val(word_sub (word 0) (word r):int64) MOD 64 = 64 - r` SUBST1_TAC THENL
+   [REWRITE_TAC[VAL_WORD_SUB; VAL_WORD_0; VAL_WORD; DIMINDEX_64] THEN
+    ASM_SIMP_TAC[MOD_LT; ARITH_RULE `r < 64 ==> r < 2 EXP 64`] THEN
+    SUBGOAL_THEN `!x. x MOD 2 EXP 64 MOD 64 = x MOD 64` (fun th -> REWRITE_TAC[th]) THENL
+     [GEN_TAC THEN ONCE_REWRITE_TAC[ARITH_RULE `2 EXP 64 = 64 * 2 EXP 58`] THEN
+      REWRITE_TAC[MOD_MOD]; ALL_TAC] THEN
+    SUBGOAL_THEN `(0 + 2 EXP 64 - r) MOD 64 = (64 - r) MOD 64` SUBST1_TAC THENL
+     [REWRITE_TAC[ADD_CLAUSES] THEN
+      SUBGOAL_THEN `2 EXP 64 - r = (64 - r) + 64 * (2 EXP 58 - 1)` SUBST1_TAC THENL
+       [ASM_ARITH_TAC; ALL_TAC] THEN
+      ONCE_REWRITE_TAC[ADD_SYM] THEN REWRITE_TAC[MOD_MULT_ADD];
+      ASM_SIMP_TAC[MOD_LT; ARITH_RULE `~(r=0) /\ r < 64 ==> 64 - r < 64`]];
+    ALL_TAC] THEN
+  W(MP_TAC o PART_MATCH (lhand o rand) VAL_WORD_OR_DISJOINT o lhand o snd) THEN
+  ANTS_TAC THENL
+   [REWRITE_TAC[WORD_EQ_BITS_ALT; BIT_WORD_AND; BIT_WORD_0] THEN
+    REWRITE_TAC[BIT_WORD_USHR; BIT_WORD_SHL; DIMINDEX_64] THEN
+    X_GEN_TAC `j:num` THEN DISCH_TAC THEN
+    DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
+    SUBGOAL_THEN `j + r < 64` MP_TAC THENL
+     [UNDISCH_TAC `bit (j + r) (word lo:int64)` THEN
+      GEN_REWRITE_TAC LAND_CONV [BIT_WORD] THEN REWRITE_TAC[DIMINDEX_64] THEN
+      STRIP_TAC THEN ASM_REWRITE_TAC[]; ASM_ARITH_TAC];
+    ALL_TAC] THEN
+  DISCH_THEN SUBST1_TAC THEN
+  REWRITE_TAC[VAL_WORD_USHR; VAL_WORD_SHL; DIMINDEX_64] THEN
+  ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64] THEN
+  ASM_SIMP_TAC[DIVSPLIT64; LT_IMP_LE] THEN
+  SUBGOAL_THEN `(2 EXP (64 - r) * hi) MOD 2 EXP 64 = 2 EXP (64 - r) * (hi MOD 2 EXP r)`
+   ASSUME_TAC THENL
+   [SUBGOAL_THEN `2 EXP 64 = 2 EXP (64 - r) * 2 EXP r`
+     (fun th -> GEN_REWRITE_TAC (LAND_CONV o RAND_CONV) [th]) THENL
+     [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
+    REWRITE_TAC[MOD_MULT2] THEN REWRITE_TAC[MULT_AC];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `lo DIV 2 EXP r < 2 EXP (64 - r)` ASSUME_TAC THENL
+   [SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ; GSYM EXP_ADD] THEN
+    SUBGOAL_THEN `r + (64 - r) = 64` SUBST1_TAC THENL
+     [ASM_ARITH_TAC; ASM_REWRITE_TAC[]]; ALL_TAC] THEN
+  SUBGOAL_THEN `hi MOD 2 EXP r < 2 EXP r` ASSUME_TAC THENL
+   [SIMP_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP (64 - r) * (hi MOD 2 EXP r) + lo DIV 2 EXP r < 2 EXP 64`
+   ASSUME_TAC THENL
+   [SUBGOAL_THEN `2 EXP 64 = 2 EXP (64 - r) * 2 EXP r`
+     (fun th -> ONCE_REWRITE_TAC[th]) THENL
+     [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
+    MATCH_MP_TAC LTE_TRANS THEN
+    EXISTS_TAC `2 EXP (64 - r) * (hi MOD 2 EXP r) + 2 EXP (64 - r)` THEN
+    ASM_REWRITE_TAC[LT_ADD_LCANCEL] THEN
+    REWRITE_TAC[ARITH_RULE `e * m + e = e * SUC m`; LE_MULT_LCANCEL] THEN
+    DISJ2_TAC THEN ASM_REWRITE_TAC[LE_SUC_LT];
+    ALL_TAC] THEN
+  GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [GSYM MOD_ADD_MOD] THEN
+  ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN `(lo DIV 2 EXP r) MOD 2 EXP 64 = lo DIV 2 EXP r` SUBST1_TAC THENL
+   [MATCH_MP_TAC MOD_LT THEN TRANS_TAC LET_TRANS `lo:num` THEN
+    ASM_REWRITE_TAC[DIV_LE];
+    ALL_TAC] THEN
+  ASM_SIMP_TAC[MOD_LT] THEN ARITH_TAC);;
+
+(* Per-word fused negate-add value identity (the inner-loop accumulation core).
+   The ARM inner loop does: ll+2^64*mm = q*~m[ii] (mul/umulh); ss'=z[ii]+hh with
+   carry cf1 (adds/cset); ss=ss'+ll with carry cf2 (adds); hh'=cf1+mm+cf2 (adc).
+   This gives 2^64*hh'+ss = z[ii]+hh+q*~m[ii], i.e. one word of cmnegadd's
+   z:=z+q*(2^64-1-m) accumulation.  Q abbreviates q*(2^64-1-m_ii) to keep it
+   linear for REAL_ARITH (the product is opaque; the mul-step hyp supplies its
+   value).  Proven by MP_TAC all four hyps + REAL_ARITH (fully linear in Q). *)
+let INNERSTEP_VAL = prove
+ (`!Q z_ii hh hh' ss' ss ll mm cf1 cf2:real.
+     ll + &2 pow 64 * mm = Q /\
+     z_ii + hh = ss' + &2 pow 64 * cf1 /\
+     ss' + ll = ss + &2 pow 64 * cf2 /\
+     hh' = cf1 + mm + cf2
+     ==> &2 pow 64 * hh' + ss = z_ii + hh + Q`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REPEAT(FIRST_X_ASSUM MP_TAC) THEN REAL_ARITH_TAC);;
+
+(* extr funnel value: z'[ii] = extr(ss,c,#3) = word_subword(word_join ss c)(3,64).
+   This is the fused z<<61 (BLOCKSIZE=61=64-3): the store shifts each word left 61
+   at the bignum level by funnelling the top 61 bits of the carry word c with the
+   low 3 bits of the new accumulator ss.  val = 2^61*(ss MOD 8) + c DIV 8. *)
+let EXTR_FUNNEL_VAL = prove
+ (`!ss c. val(word_subword ((word_join (word ss:int64) (word c:int64)):int128) (3,64):int64)
+          = 2 EXP 61 * (val(word ss:int64) MOD 2 EXP 3) + val(word c:int64) DIV 2 EXP 3`,
+  REPEAT GEN_TAC THEN
+  SIMP_TAC[VAL_WORD_SUBWORD_JOIN_64; ARITH_RULE `3 <= 64`] THEN
+  REWRITE_TAC[ARITH_RULE `64 - 3 = 61`]);;
+
+(* ===== INNER-LOOP invariant algebra (all proven 2026-07-25) ===== *)
+
+(* INNER_ADVANCE: the fused shift+negate-add invariant closes under one body step.
+   Invariant value clause INV(ii):
+     bignum(z',ii) + 2^(64ii)*(c_ii DIV 8 + 2^61*hh_ii)
+       = block + 2^61*(lowdigits z ii + q + q*lowdigits(~m) ii)
+   Given the extr store z'[ii] = 2^61*(ss MOD 8) + c DIV 8 and the negate-add
+   2^64*hh' + ss = z[ii] + hh + q*nm[ii], INV(ii) advances to INV(ii+1).  The
+   c_ii DIV 8 (carry word) cancels; proven by NUM_RING after splitting ss = 8*sd+sr
+   and 2^64 = 8*2^61. *)
+let INNER_ADVANCE = prove
+ (`!block q Zii cii hhii ssii hhii1 LDz LDnm zi nmi ii.
+     Zii + 2 EXP (64 * ii) * (cii DIV 8 + 2 EXP 61 * hhii) =
+       block + 2 EXP 61 * (LDz + q + q * LDnm) /\
+     2 EXP 64 * hhii1 + ssii = zi + hhii + q * nmi
+     ==> (Zii + 2 EXP (64 * ii) * (2 EXP 61 * (ssii MOD 2 EXP 3) + cii DIV 8)) +
+         2 EXP (64 * (ii + 1)) * (ssii DIV 8 + 2 EXP 61 * hhii1) =
+         block + 2 EXP 61 * ((LDz + 2 EXP (64 * ii) * zi) + q +
+                             q * (LDnm + 2 EXP (64 * ii) * nmi))`,
+  REPEAT GEN_TAC THEN
+  MP_TAC(SPECL [`ssii:num`; `2 EXP 3`] DIVISION) THEN
+  REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
+  DISCH_THEN(MP_TAC o CONJUNCT1) THEN
+  REWRITE_TAC[ARITH_RULE `64 * (ii + 1) = 64 * ii + 64`; EXP_ADD] THEN
+  REWRITE_TAC[ARITH_RULE `2 EXP 3 = 8`; ARITH_RULE `2 EXP 64 = 8 * 2 EXP 61`] THEN
+  CONV_TAC NUM_RING);;
+
+(* INNER_ENTRY: invariant holds at ii=0 (Z0=0, c0=block<<3 so c0 DIV 8=block, hh0=q). *)
+let INNER_ENTRY = prove
+ (`!block0 q.
+     (0 + 2 EXP (64 * 0) * ((2 EXP 3 * block0) DIV 8 + 2 EXP 61 * q)) =
+     block0 + 2 EXP 61 * (0 + q + q * 0)`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[MULT_CLAUSES; EXP; ADD_CLAUSES; ARITH_RULE `2 EXP 3 = 8`] THEN
+  SIMP_TAC[DIV_MULT; ARITH_EQ] THEN ARITH_TAC);;
+
+(* COMPLEMENT_STEP: the ~m complement running sum advances.
+   cn + lowdigits m ii + 1 = 2^(64ii)  ==>  (cn + 2^(64ii)*(2^64-1-m[ii])) +
+   (2^(64ii)*m[ii] + lowdigits m ii) + 1 = 2^(64(ii+1)).  Feeds the exit identity
+   lowdigits(~m) dd + lowdigits m dd + 1 = 2^(64dd). *)
+let COMPLEMENT_STEP = prove
+ (`!cn Lm ii mi.
+      cn + Lm + 1 = 2 EXP (64 * ii) /\ mi < 2 EXP 64
+      ==> (cn + 2 EXP (64 * ii) * (2 EXP 64 - 1 - mi)) +
+          (2 EXP (64 * ii) * mi + Lm) + 1 = 2 EXP (64 * (ii + 1))`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[ARITH_RULE `64 * (ii + 1) = 64 * ii + 64`; EXP_ADD] THEN
+  ABBREV_TAC `E = 2 EXP (64 * ii)` THEN
+  SUBGOAL_THEN `(2 EXP 64 - 1 - mi) + mi + 1 = 2 EXP 64` MP_TAC THENL
+   [UNDISCH_TAC `mi < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
+  UNDISCH_TAC `cn + Lm + 1 = E` THEN
+  SPEC_TAC(`2 EXP 64 - 1 - mi`,`nmi:num`) THEN
+  REPEAT STRIP_TAC THEN
+  REPEAT(FIRST_X_ASSUM MP_TAC) THEN CONV_TAC NUM_RING);;
+
+(* NEGADD_ADDITIVE: convert the negate-add exit value to the -q*m subtract form
+   (additive, no nat subtraction) feeding CONG_MAINTAIN.  Given lowdigits(~m) dd +
+   lowdigits m dd + 1 = 2^(64dd) and the invariant exit value Zfull. *)
+let NEGADD_ADDITIVE = prove
+ (`!q LDz LDnm LDm dd block Zfull.
+     LDnm + LDm + 1 = 2 EXP (64 * dd) /\
+     Zfull = block + 2 EXP 61 * (LDz + q + q * LDnm)
+     ==> Zfull + 2 EXP 61 * (q * LDm) =
+         block + 2 EXP 61 * LDz + 2 EXP 61 * (q * 2 EXP (64 * dd))`,
+  REPEAT STRIP_TAC THEN
+  FIRST_X_ASSUM SUBST1_TAC THEN
+  FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN
+  CONV_TAC NUM_RING);;
+
+(* ===== ADDITIVE inner-loop invariant (the CLEAN single-clause form, 2026-07-25).
+   Folds shift + negate-add + ~m-complement into ONE NUM_RING advance, tracking
+   lowdigits b directly (no separate complement accumulator).  This is the form to
+   use as the ENSURES_WHILE_AUP value clause.
+   INV_add(ii):  bignum(z,ii) + 2^(64ii)*(cw DIV 8 + 2^61*hh) + 2^61*(q*lowdigits b ii)
+                   = block + 2^61*(lowdigits zorig ii) + 2^61*(q*2^(64ii))     ===== *)
+
+let INNER_ENTRY_ADD = prove
+ (`!block q.
+     0 + 2 EXP (64 * 0) * ((2 EXP 3 * block) DIV 8 + 2 EXP 61 * q) +
+       2 EXP 61 * (q * 0) =
+     block + 2 EXP 61 * 0 + 2 EXP 61 * (q * 2 EXP (64 * 0))`,
+  REWRITE_TAC[MULT_CLAUSES; EXP; ADD_CLAUSES; ARITH_RULE `2 EXP 3 = 8`] THEN
+  SIMP_TAC[DIV_MULT; ARITH_EQ] THEN ARITH_TAC);;
+
+let INNER_ADVANCE_ADD = prove
+ (`!block q Zii cw hh ss hh' LDz LDb zi bi ii.
+     Zii + 2 EXP (64 * ii) * (cw DIV 8 + 2 EXP 61 * hh) + 2 EXP 61 * (q * LDb) =
+       block + 2 EXP 61 * LDz + 2 EXP 61 * (q * 2 EXP (64 * ii)) /\
+     2 EXP 64 * hh' + ss = zi + hh + q * (2 EXP 64 - 1 - bi) /\
+     bi < 2 EXP 64
+     ==> (Zii + 2 EXP (64 * ii) * (2 EXP 61 * (ss MOD 2 EXP 3) + cw DIV 8)) +
+         2 EXP (64 * (ii + 1)) * (ss DIV 2 EXP 3 + 2 EXP 61 * hh') +
+         2 EXP 61 * (q * (2 EXP (64 * ii) * bi + LDb)) =
+         block + 2 EXP 61 * (2 EXP (64 * ii) * zi + LDz) +
+         2 EXP 61 * (q * 2 EXP (64 * (ii + 1)))`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[ARITH_RULE `64 * (ii + 1) = 64 * ii + 64`; EXP_ADD] THEN
+  MP_TAC(SPECL [`ss:num`; `8`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
+  REWRITE_TAC[ARITH_RULE `2 EXP 3 = 8`] THEN
+  ABBREV_TAC `sd = ss DIV 8` THEN ABBREV_TAC `sr = ss MOD 8` THEN
+  DISCH_THEN(CONJUNCTS_THEN2 SUBST_ALL_TAC ASSUME_TAC) THEN
+  ABBREV_TAC `nbi = 2 EXP 64 - 1 - bi` THEN
+  SUBGOAL_THEN `nbi + bi + 1 = 2 EXP 64` ASSUME_TAC THENL
+   [MAP_EVERY EXPAND_TAC ["nbi"] THEN UNDISCH_TAC `bi < 2 EXP 64` THEN ARITH_TAC;
+    ALL_TAC] THEN
+  UNDISCH_TAC `2 EXP 64 * hh' + sd * 8 + sr = zi + hh + q * nbi` THEN
+  UNDISCH_TAC `Zii + 2 EXP (64 * ii) * (cw DIV 8 + 2 EXP 61 * hh) + 2 EXP 61 * q * LDb =
+    block + 2 EXP 61 * LDz + 2 EXP 61 * q * 2 EXP (64 * ii)` THEN
+  UNDISCH_TAC `nbi + bi + 1 = 2 EXP 64` THEN
+  REWRITE_TAC[ARITH_RULE `2 EXP 64 = 8 * 2 EXP 61`] THEN
+  CONV_TAC NUM_RING);;
+
+(* NEGADD_STEP: the inner-loop negate-add relation, WITH carry_s9=0 automatic (NO
+   q-bound needed).  From the 4 ARM accumulate eqns (adds@6: 2^64*cb6+s6=zi+hh;
+   adds@8: 2^64*cb8+s8=s6+mullo; adc@9: 2^64*cb9+s9=cb6+mulhi+cb8; mul/umulh:
+   2^64*mulhi+mullo=q*nm) + word bounds, get 2^64*s9+s8 = zi+hh+q*nm.  Key: total
+   zi+hh+q*nm <= (2^64-1)+(2^64-1)+(2^64-1)^2 = 2^128-1 < 2^128, so the running high
+   word s9 < 2^64 (cb9=0) automatically -- the earlier "no-overflow needs the
+   q-bound" worry was WRONG (the boundary zi+hh=2^65-1 exceeds the true max 2^65-2).
+   This DECOUPLES the inner loop from RECIP_QBOUND. *)
+let NEGADD_STEP = prove
+ (`!zi hh q nm s6 s8 s9 mullo mulhi cb6 cb8 cb9.
+     2 EXP 64 * cb6 + s6 = zi + hh /\
+     2 EXP 64 * cb8 + s8 = s6 + mullo /\
+     2 EXP 64 * cb9 + s9 = cb6 + mulhi + cb8 /\
+     2 EXP 64 * mulhi + mullo = q * nm /\
+     zi < 2 EXP 64 /\ hh < 2 EXP 64 /\ q < 2 EXP 64 /\ nm < 2 EXP 64 /\
+     cb6 <= 1 /\ cb8 <= 1 /\ cb9 <= 1
+     ==> 2 EXP 64 * s9 + s8 = zi + hh + q * nm`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `q * nm <= (2 EXP 64 - 1) * (2 EXP 64 - 1)` ASSUME_TAC THENL
+   [MATCH_MP_TAC LE_MULT2 THEN CONJ_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `cb6 + mulhi + cb8 < 2 EXP 64` ASSUME_TAC THENL
+   [MATCH_MP_TAC(ARITH_RULE `2 EXP 64 * x + s8 <= 2 EXP 128 - 1 ==> x < 2 EXP 64`) THEN
+    MP_TAC(ARITH_RULE `(2 EXP 64 - 1) * (2 EXP 64 - 1) + (2 EXP 64 - 1) + (2 EXP 64 - 1)
+       <= 2 EXP 128 - 1`) THEN
+    ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `cb9 = 0` SUBST_ALL_TAC THENL
+   [ASM_ARITH_TAC; ALL_TAC] THEN
+  ASM_ARITH_TAC);;
+
+(* ===== TAIL (trivnegadd/noel) branch-condition + arithmetic helpers (2026-07-25) *)
+
+(* Branch conditions for the tail's `cmp ii,k; b.eq/b.ne` steps.  With these in the
+   assumptions, ARM_STEPS resolves the beq/bne without stalling on the symbolic PC. *)
+let RECIP_QBOUND = prove
+ (`!w n h l.
+      n < 2 EXP 64 /\ h < 2 EXP 64 /\ l < 2 EXP 64 /\ 0 < n /\
+      &2 pow 128 <= (&2 pow 64 + &w + &1) * &n /\
+      (&2 pow 64 + &w) * &n <= &2 pow 128
+      ==> &(2 EXP 64 * h + l) - &(((2 EXP 64 + w) * h) DIV 2 EXP 64) * &n
+          < &2 pow 64 + &2 * &n /\
+          &0 <= &(2 EXP 64 * h + l) - &(((2 EXP 64 + w) * h) DIV 2 EXP 64) * &n`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPECL [`(2 EXP 64 + w) * h`; `2 EXP 64`] DIVISION) THEN
+  REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
+  ABBREV_TAC `q = ((2 EXP 64 + w) * h) DIV 2 EXP 64` THEN
+  ABBREV_TAC `r = ((2 EXP 64 + w) * h) MOD 2 EXP 64` THEN
+  STRIP_TAC THEN
+  (* real forms of the numeric hypotheses *)
+  SUBGOAL_THEN `&h:real < &2 pow 64 /\ &l:real < &2 pow 64 /\
+                &0:real < &n /\ &n:real < &2 pow 64 /\ &r:real < &2 pow 64`
+   STRIP_ASSUME_TAC THENL
+   [ASM_REWRITE_TAC[REAL_OF_NUM_CLAUSES]; ALL_TAC] THEN
+  SUBGOAL_THEN `&0:real < &2 pow 64` ASSUME_TAC THENL
+   [REWRITE_TAC[REAL_LT_POW2]; ALL_TAC] THEN
+  (* q*2^64 = (2^64+w)*h - r  (from the division identity) *)
+  SUBGOAL_THEN `&q * &2 pow 64 = (&2 pow 64 + &w) * &h - &r` ASSUME_TAC THENL
+   [UNDISCH_TAC `(2 EXP 64 + w) * h = q * 2 EXP 64 + r` THEN
+    REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN REAL_ARITH_TAC; ALL_TAC] THEN
+  (* q*n*2^64 = ((2^64+w)*n)*h - r*n *)
+  SUBGOAL_THEN `&q * &n * &2 pow 64 = ((&2 pow 64 + &w) * &n) * &h - &r * &n`
+   ASSUME_TAC THENL
+   [UNDISCH_TAC `&q * &2 pow 64 = (&2 pow 64 + &w) * &h - &r` THEN
+    CONV_TAC REAL_RING; ALL_TAC] THEN
+  (* the two bracket facts, each scaled by h >= 0 *)
+  SUBGOAL_THEN `(&2 pow 128 - &n) * &h <= ((&2 pow 64 + &w) * &n) * &h`
+   ASSUME_TAC THENL
+   [MATCH_MP_TAC REAL_LE_RMUL THEN CONJ_TAC THENL
+     [UNDISCH_TAC `&2 pow 128 <= (&2 pow 64 + &w + &1) * &n` THEN REAL_ARITH_TAC;
+      REWRITE_TAC[REAL_POS]];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `((&2 pow 64 + &w) * &n) * &h <= &2 pow 128 * &h` ASSUME_TAC THENL
+   [MATCH_MP_TAC REAL_LE_RMUL THEN ASM_REWRITE_TAC[REAL_POS]; ALL_TAC] THEN
+  (* explicit product bounds so the final REAL_ARITH stays linear *)
+  SUBGOAL_THEN `&n * &h < &n * &2 pow 64` ASSUME_TAC THENL
+   [ASM_SIMP_TAC[REAL_LT_LMUL_EQ]; ALL_TAC] THEN
+  SUBGOAL_THEN `&r * &n < &2 pow 64 * &n` ASSUME_TAC THENL
+   [ASM_SIMP_TAC[REAL_LT_RMUL_EQ]; ALL_TAC] THEN
+  SUBGOAL_THEN `&2 pow 64 * &l < &2 pow 64 * &2 pow 64` ASSUME_TAC THENL
+   [ASM_SIMP_TAC[REAL_LT_LMUL_EQ]; ALL_TAC] THEN
+  SUBGOAL_THEN `&0:real <= &2 pow 64 * &l` ASSUME_TAC THENL
+   [MATCH_MP_TAC REAL_LE_MUL THEN CONJ_TAC THENL
+     [MP_TAC(SPEC `64` REAL_LE_POW2) THEN REAL_ARITH_TAC;
+      REWRITE_TAC[REAL_POS]];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `&0:real <= &r * &n` ASSUME_TAC THENL
+   [MATCH_MP_TAC REAL_LE_MUL THEN REWRITE_TAC[REAL_POS]; ALL_TAC] THEN
+  SUBGOAL_THEN `&2 pow 64 * &2 pow 64 = &2 pow 128` ASSUME_TAC THENL
+   [REWRITE_TAC[GSYM REAL_POW_ADD] THEN CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
+  REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN CONJ_TAC THENL
+   [(* upper bound: (2^64*h+l) - q*n < 2^64 + 2*n *)
+    MATCH_MP_TAC REAL_LT_LCANCEL_IMP THEN EXISTS_TAC `&2 pow 64` THEN
+    CONJ_TAC THENL [REAL_ARITH_TAC; ALL_TAC] THEN
+    REWRITE_TAC[REAL_SUB_LDISTRIB; REAL_ADD_LDISTRIB] THEN
+    REWRITE_TAC[REAL_ARITH `&2 pow 64 * &q * &n = &q * &n * &2 pow 64`] THEN
+    ASM_REWRITE_TAC[] THEN
+    MP_TAC(ASSUME `(&2 pow 128 - &n) * &h <= ((&2 pow 64 + &w) * &n) * &h`) THEN
+    MP_TAC(ASSUME `&n * &h < &n * &2 pow 64`) THEN
+    MP_TAC(ASSUME `&r * &n < &2 pow 64 * &n`) THEN
+    MP_TAC(ASSUME `&2 pow 64 * &l < &2 pow 64 * &2 pow 64`) THEN
+    MP_TAC(ASSUME `&2 pow 64 * &2 pow 64 = &2 pow 128`) THEN
+    REWRITE_TAC[REAL_ARITH `(&2 pow 128 - &n) * &h = &2 pow 128 * &h - &n * &h`] THEN
+    REAL_ARITH_TAC;
+    (* lower bound: 0 <= (2^64*h+l) - q*n *)
+    MATCH_MP_TAC REAL_LE_LCANCEL_IMP THEN EXISTS_TAC `&2 pow 64` THEN
+    CONJ_TAC THENL [REAL_ARITH_TAC; ALL_TAC] THEN
+    REWRITE_TAC[REAL_SUB_LDISTRIB; REAL_MUL_RZERO] THEN
+    REWRITE_TAC[REAL_ARITH `&2 pow 64 * &q * &n = &q * &n * &2 pow 64`] THEN
+    ASM_REWRITE_TAC[] THEN
+    MP_TAC(ASSUME `((&2 pow 64 + &w) * &n) * &h <= &2 pow 128 * &h`) THEN
+    MP_TAC(ASSUME `&0:real <= &2 pow 64 * &l`) THEN
+    MP_TAC(ASSUME `&0:real <= &r * &n`) THEN
+    MP_TAC(ASSUME `&2 pow 64 * &2 pow 64 = &2 pow 128`) THEN
+    REAL_ARITH_TAC]);;
+"RECIP_QBOUND (products supplied) file attempt";;
+
+(* Stage 3e KEY INEQUALITY (core), the deep bound-maintenance piece of the main
+   division loop.  PROVEN cheat-free (jargh, 2026-07-26).
+
+   Ground-truth (152/152 qemu-oracle hits) the per-block body is subtract-before-
+   shift:  Zf' = 2^61*(Zf - qhat*b) + block,  qhat = umulh(w,h)+h,  h = Zf DIV 2^p,
+   p = bitsize b, block < 2^61, and the reduced remainder 0 <= Zf - qhat*b < 2^(p+1).
+   To close the invariant bound Zf' < 2^(p+64) it suffices to bound Zf - qhat*b; we
+   prove the (slightly looser, still sufficient) Zf < qhat*b + 2^(p+2), i.e.
+   Zf - qhat*b < 2^(p+2).  Then Zf' = 2^61*(Zf-qhat*b)+block < 2^61*2^(p+2)+2^61
+   = 2^(p+63)+2^61 < 2^(p+64).
+
+   HYPOTHESES capture exactly what the reciprocal machinery already supplies:
+     b < 2^p                              (b has p = bitsize b bits)
+     t0 < 2^64                            (normalized top word; RECIP)
+     b*2^64 = t0*2^p + s                  (t0 = (b*2^64) DIV 2^p, remainder s<2^p)
+     Zf = h*2^p + zr, zr < 2^p            (h = Zf DIV 2^p, remainder zr)
+     2^64*h < qhat*t0 + (2^64 + 2*t0)     (RECIP_QBOUND upper half, l:=0, n:=t0)
+   Note s < 2^p is NOT needed (only s >= 0, automatic for nat).
+
+   PROOF: scale the RECIP upper bound by 2^p, substitute h*2^p=Zf-zr and
+   t0*2^p=b*2^64-s, drop the >=0 terms qhat*s and 2*s, and use b<2^p (=e), zr<2^p,
+   t0<2^64.  Powers abbreviated e=2^p,f=2^64 to keep products canonical; nonlinear
+   bridges supplied explicitly so the final step is a linear REAL_ARITH.  (Do NOT
+   ASM_REWRITE over the circular equalities H2/H_sub -- it stack-overflows.) *)
+
+let KI_CORE = prove
+ (`!b p t0 Zf h qhat s zr.
+    b < 2 EXP p /\ t0 < 2 EXP 64 /\
+    b * 2 EXP 64 = t0 * 2 EXP p + s /\
+    Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
+    2 EXP 64 * h < qhat * t0 + (2 EXP 64 + 2 * t0)
+    ==> Zf < qhat * b + 2 EXP (p + 2)`,
+  REPEAT STRIP_TAC THEN RULE_ASSUM_TAC(REWRITE_RULE[GSYM REAL_OF_NUM_CLAUSES]) THEN
+  REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN
+  REWRITE_TAC[REAL_ARITH `p2:real = q + r <=> q + r = p2`] THEN
+  ABBREV_TAC `e = &2 pow p` THEN ABBREV_TAC `f = &2 pow 64` THEN
+  SUBGOAL_THEN `&2 pow (p + 2) = &4 * e` SUBST1_TAC THENL
+   [EXPAND_TAC "e" THEN REWRITE_TAC[REAL_POW_ADD] THEN REAL_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `&0 < e /\ &0 < f` STRIP_ASSUME_TAC THENL
+   [CONJ_TAC THENL [EXPAND_TAC "e"; EXPAND_TAC "f"] THEN REWRITE_TAC[REAL_LT_POW2];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `(f * &h) * e < (&qhat * &t0 + f + &2 * &t0) * e` ASSUME_TAC THENL
+   [ASM_SIMP_TAC[REAL_LT_RMUL_EQ]; ALL_TAC] THEN
+  SUBGOAL_THEN `f * (&Zf - &zr) < &qhat * (&b * f - &s) + f * e + &2 * (&b * f - &s)`
+   ASSUME_TAC THENL
+   [MP_TAC(ASSUME `(f * &h) * e < (&qhat * &t0 + f + &2 * &t0) * e`) THEN
+    SUBGOAL_THEN `(f * &h) * e = f * (&h * e)` SUBST1_TAC THENL
+     [REAL_ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN
+     `(&qhat * &t0 + f + &2 * &t0) * e = &qhat * (&t0 * e) + f * e + &2 * (&t0 * e)`
+     SUBST1_TAC THENL [REAL_ARITH_TAC; ALL_TAC] THEN
+    ASM_REWRITE_TAC[] THEN REAL_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `&0 <= &qhat * &s /\ &0 <= &s /\ &b * f < e * f /\ f * &zr < f * e`
+   STRIP_ASSUME_TAC THENL
+   [REPEAT CONJ_TAC THENL
+     [MATCH_MP_TAC REAL_LE_MUL THEN REWRITE_TAC[REAL_POS];
+      REWRITE_TAC[REAL_POS];
+      ASM_SIMP_TAC[REAL_LT_RMUL_EQ];
+      ASM_SIMP_TAC[REAL_LT_LMUL_EQ]];
+    ALL_TAC] THEN
+  ONCE_REWRITE_TAC[GSYM(MATCH_MP REAL_LT_LMUL_EQ (ASSUME `&0 < f`))] THEN
+  SUBGOAL_THEN `f * (&qhat * &b) = &qhat * (&b * f) /\
+                &qhat * (&b * f - &s) = &qhat * (&b * f) - &qhat * &s`
+   STRIP_ASSUME_TAC THENL [CONJ_TAC THEN REAL_ARITH_TAC; ALL_TAC] THEN
+  MP_TAC(ASSUME `f * (&Zf - &zr) < &qhat * (&b * f - &s) + f * e + &2 * (&b * f - &s)`) THEN
+  MP_TAC(ASSUME `&qhat * (&b * f - &s) = &qhat * &b * f - &qhat * &s`) THEN
+  MP_TAC(ASSUME `f * &qhat * &b = &qhat * &b * f`) THEN
+  MP_TAC(ASSUME `&0 <= &qhat * &s`) THEN MP_TAC(ASSUME `&0 <= &s`) THEN
+  MP_TAC(ASSUME `&b * f < e * f`) THEN MP_TAC(ASSUME `f * &zr < f * e`) THEN
+  MP_TAC(SPECL [`e:real`;`f:real`] REAL_MUL_SYM) THEN
+  MP_TAC(REAL_ARITH `f * (&qhat * &b + &4 * e) = f * &qhat * &b + &4 * (f * e)`) THEN
+  REAL_ARITH_TAC);;
+
+(* ---- CONG_HALF: congruence maintenance for one block, in terms of the body's
+   ACTUAL output relation Zf' + 2^61*(qhat*b) = 2^61*Zf + block.  Instantiates the
+   banked CONG_MAINTAIN with q := 2^61*qhat (subtract-before-shift => the effective
+   quotient at the additive-form level is 2^61*qhat). ---- *)
+let CONG_HALF = prove
+ (`!a b i Zf Zf' qhat block.
+     (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
+     block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\
+     Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block
+     ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b)`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`Zf:num`; `Zf':num`; `(a DIV 2 EXP (61 * i)) MOD 2 EXP 61`;
+               `2 EXP 61 * qhat`; `b:num`;
+               `a DIV 2 EXP (61 * i)`; `a DIV 2 EXP (61 * (i + 1))`] CONG_MAINTAIN) THEN
+  ANTS_TAC THENL
+   [ASM_REWRITE_TAC[GSYM MULT_ASSOC] THEN
+    MP_TAC(SPECL [`a:num`; `i:num`] BLOCKSPLIT) THEN ARITH_TAC;
+    DISCH_THEN ACCEPT_TAC]);;
+
+(* ---- BOUND_HALF: bound maintenance for one block from KI's reduced-remainder
+   bound Zf < qhat*b + 2^(p+2) and block < 2^61.  2^61*2^(p+2)+2^61 < 2^(p+64). ---- *)
+let BOUND_HALF = prove
+ (`!Zf Zf' qhat b block p.
+     Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block /\
+     Zf < qhat * b + 2 EXP (p + 2) /\ block < 2 EXP 61
+     ==> Zf' < 2 EXP (p + 64)`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPEC `p:num` (prove(`!p. 2 EXP 61 * 2 EXP (p + 2) + 2 EXP 61 <= 2 EXP (p + 64)`,
+    GEN_TAC THEN REWRITE_TAC[GSYM EXP_ADD] THEN
+    REWRITE_TAC[ARITH_RULE `61 + (p + 2) = p + 63`] THEN
+    SUBGOAL_THEN `2 EXP (p + 64) = 2 EXP (p + 63) + 2 EXP (p + 63)` SUBST1_TAC THENL
+     [REWRITE_TAC[ARITH_RULE `p + 64 = (p + 63) + 1`; EXP_ADD] THEN ARITH_TAC;
+      MATCH_MP_TAC LE_ADD2 THEN REWRITE_TAC[LE_REFL; LE_EXP] THEN ARITH_TAC]))) THEN
+  UNDISCH_TAC `Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block` THEN
+  UNDISCH_TAC `Zf < qhat * b + 2 EXP (p + 2)` THEN
+  UNDISCH_TAC `block < 2 EXP 61` THEN ARITH_TAC);;
+
+(* ---- BLOCK_ADVANCE: the complete per-block invariant-maintenance lemma.  Given
+   the incoming (C)+bound-window facts + reciprocal facts (b<2^p, t0<2^64, the
+   normalization b*2^64=t0*2^p+s, and RECIP_QBOUND-upper on the window h,qhat) and
+   the body's exact output relation, delivers BOTH next-step clauses.  This is what
+   Stage 3f applies per loop iteration. ---- *)
+let BLOCK_ADVANCE = prove
+ (`!a b i p t0 Zf Zf' qhat block s zr h.
+     (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
+     block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
+     b < 2 EXP p /\ t0 < 2 EXP 64 /\
+     b * 2 EXP 64 = t0 * 2 EXP p + s /\
+     Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
+     2 EXP 64 * h < qhat * t0 + (2 EXP 64 + 2 * t0) /\
+     Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block
+     ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b) /\
+         Zf' < 2 EXP (p + 64)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN CONJ_TAC THENL
+   [MP_TAC(SPECL [`a:num`; `b:num`; `i:num`; `Zf:num`; `Zf':num`; `qhat:num`; `block:num`]
+      CONG_HALF) THEN ASM_REWRITE_TAC[];
+    MP_TAC(SPECL [`Zf:num`; `Zf':num`; `qhat:num`; `b:num`; `block:num`; `p:num`]
+      BOUND_HALF) THEN
+    ANTS_TAC THENL [ALL_TAC; REWRITE_TAC[]] THEN ASM_REWRITE_TAC[] THEN
+    MP_TAC(SPECL [`b:num`; `p:num`; `t0:num`; `Zf:num`; `h:num`; `qhat:num`; `s:num`; `zr:num`]
+      KI_CORE) THEN ASM_REWRITE_TAC[]]);;
+
+(* BLOCK_VALUE (jargh, 2026-07-26): bundles RECIP_QBOUND -> BLOCK_ADVANCE so the main-loop
+   body's value-close is a single application.  Given the reciprocal bracket on (w, t0)
+   [t0 = normalized top window of b, bit 63 set; w = word_recip output], the normalized-
+   window relation b*2^64 = t0*2^p+s, the Zf decomposition Zf = h*2^p+zr (h = window =
+   (Zf DIV 2^p)MOD 2^64), and the block's ACTUAL output relation
+     Zf' + 2^61*qhat*b = 2^61*Zf + block,  qhat = umulh(w,h)+h = ((2^64+w)*h)DIV 2^64,
+   derive the maintained congruence (Zf' == a DIV 2^(61i))(mod b) AND bound Zf'<2^(p+64).
+   Requires RECIP_QBOUND (RECIP_QBOUND.proven.ml / bignum_mod.ml).  This is the value
+   half of one main-loop block iteration; the memory/register realization of Zf' comes
+   from INNER_ADVANCE_ADD (inner words) + the tail (TAIL_DDK/DDLT_B/C). *)
+let BLOCK_VALUE = prove
+ (`!a b i p t0 Zf Zf' w block s zr h l.
+    (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
+    block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
+    b < 2 EXP p /\ t0 < 2 EXP 64 /\ 0 < t0 /\ h < 2 EXP 64 /\ l < 2 EXP 64 /\
+    b * 2 EXP 64 = t0 * 2 EXP p + s /\
+    Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
+    &2 pow 128 <= (&2 pow 64 + &w + &1) * &t0 /\ (&2 pow 64 + &w) * &t0 <= &2 pow 128 /\
+    Zf' + 2 EXP 61 * (((2 EXP 64 + w) * h) DIV 2 EXP 64) * b = 2 EXP 61 * Zf + block
+    ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b) /\ Zf' < 2 EXP (p + 64)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPECL [`a:num`; `b:num`; `i:num`; `p:num`; `t0:num`; `Zf:num`; `Zf':num`;
+               `((2 EXP 64 + w) * h) DIV 2 EXP 64`; `block:num`; `s:num`; `zr:num`; `h:num`]
+        BLOCK_ADVANCE) THEN
+  ANTS_TAC THENL
+   [ASM_REWRITE_TAC[] THEN
+    MP_TAC(SPECL [`w:num`; `t0:num`; `h:num`; `l:num`] RECIP_QBOUND) THEN
+    ASM_REWRITE_TAC[] THEN REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN REAL_ARITH_TAC;
+    DISCH_THEN ACCEPT_TAC]);;
+
+(* Stage 3f value-close bundle (jargh, 2026-07-26).  Two lemmas that convert the recip
+   bracket (as RECIP_WIDE delivers it, division form) into the maintained congruence +
+   bound for one main-loop block.  BLOCK_VALUE itself is banked in ki_core.ml (needs
+   RECIP_QBOUND pre-loaded).  RECIP_BRACKET_CLEAR is the division->multiplied conversion.
+
+   Chain for the main-loop body value-close:
+     RECIP_WIDE @0x13c:  bit 63 t0 ==> 2^64+val w < 2^128/val t0 /\ 2^128/val t0 <= 2^64+val w+1
+       (threaded through the preheader to 0x1a4)
+     RECIP_BRACKET_CLEAR:  -> 2^128 <= (2^64+w+1)*t0 /\ (2^64+w)*t0 <= 2^128
+     BLOCK_VALUE (RECIP_QBOUND -> BLOCK_ADVANCE):  + b*2^64=t0*2^p+s + Zf=h*2^p+zr +
+       block defn + output relation  ->  (Zf'==a DIV 2^(61i))(mod b) /\ Zf'<2^(p+64).
+   t0 = window(b) = (b*2^64)DIV 2^(bitsize b); WINDOW_RANGE gives 2^63<=t0<2^64 (=> bit 63);
+   b*2^64 = t0*2^p + (b*2^64)MOD 2^p is the division identity (p=bitsize b; b<2^p). *)
+
+let RECIP_BRACKET_CLEAR = prove
+ (`!w t0. 0 < t0 /\
+     &2 pow 64 + &w < &2 pow 128 / &t0 /\ &2 pow 128 / &t0 <= &2 pow 64 + &w + &1
+     ==> &2 pow 128 <= (&2 pow 64 + &w + &1) * &t0 /\ (&2 pow 64 + &w) * &t0 <= &2 pow 128`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `&0 < &t0` ASSUME_TAC THENL
+   [REWRITE_TAC[REAL_OF_NUM_LT] THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  UNDISCH_TAC `&2 pow 128 / &t0 <= &2 pow 64 + &w + &1` THEN
+  UNDISCH_TAC `&2 pow 64 + &w < &2 pow 128 / &t0` THEN
+  ASM_SIMP_TAC[REAL_LE_LDIV_EQ; REAL_LT_RDIV_EQ] THEN REAL_ARITH_TAC);;
+
+(* QHAT_ID: the segments' quotient X15 = q = umulh(w,h)+h = (w*h)DIV2^64+h equals
+   BLOCK_VALUE's qhat = ((2^64+w)*h)DIV2^64.  Bridges the QSETUP/segment q to the
+   value-close.  (The 2^64*h term is a clean multiple of 2^64.) *)
+let QHAT_ID = prove
+ (`!w h. (w * h) DIV 2 EXP 64 + h = ((2 EXP 64 + w) * h) DIV 2 EXP 64`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[RIGHT_ADD_DISTRIB] THEN
+  SIMP_TAC[DIV_ADD; DIVIDES_LMUL; DIVIDES_REFL; EXP_2] THEN
+  REWRITE_TAC[ARITH_RULE `2 EXP 64 * h = h * 2 EXP 64`] THEN
+  SIMP_TAC[DIV_MULT; EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
+
+(* WINDOW_ZERO: in the growing regime (regime B, dd+1<k) the accumulator Zf < b, so the
+   window h = (Zf DIV 2^p) MOD 2^64 = 0 (p=bitsize b => Zf<b<2^p => Zf DIV2^p=0), hence
+   qhat = umulh(w,0)+0 = 0.  This makes the regime-B block a PURE shift-add (no reduction).
+   [regime B => Zf<b => qhat=0 confirmed by faithful sim, 0 viol/16513 blocks, 2026-07-27] *)
+let WINDOW_ZERO = prove
+ (`!Zf b. ~(b = 0) /\ Zf < b ==> (Zf DIV 2 EXP (bitsize b)) MOD 2 EXP 64 = 0`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `Zf DIV 2 EXP (bitsize b) = 0` (fun th -> REWRITE_TAC[th; MOD_0]) THEN
+  MATCH_MP_TAC DIV_LT THEN
+  TRANS_TAC LTE_TRANS `b:num` THEN ASM_REWRITE_TAC[] THEN
+  MP_TAC(SPEC `b:num` BITSIZE) THEN ARITH_TAC);;
+
+(* BLOCK_VALUE_B: the GROWING-regime (regime B, dd+1<k) value close.  In regime B the
+   accumulator Zf < b (=> h=0 => qhat=0, WINDOW_ZERO), so the block is a PURE shift-add
+   Zf' = 2^61*Zf + block (no reduction).  Derives cong (via CONG_HALF, qhat=0) + bound
+   (Zf' = 2^61*Zf+block < 2^61*2^p + 2^61 <= 2^(p+61)+2^(p+61) <= 2^(p+64)).  NO recip
+   bracket needed for regime B.  [regime B => Zf<b => qhat=0: faithful sim, 0 viol/16513.] *)
+let BLOCK_VALUE_B = prove
+ (`!a b i p Zf Zf' block.
+    (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
+    block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
+    ~(b = 0) /\ Zf < b /\ b < 2 EXP p /\
+    Zf' = 2 EXP 61 * Zf + block
+    ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b) /\ Zf' < 2 EXP (p + 64)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN CONJ_TAC THENL
+   [MP_TAC(SPECL [`a:num`; `b:num`; `i:num`; `Zf:num`; `Zf':num`; `0`; `block:num`]
+      CONG_HALF) THEN
+    REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES] THEN DISCH_THEN MATCH_MP_TAC THEN
+    ASM_REWRITE_TAC[];
+    SUBGOAL_THEN `Zf < 2 EXP p` ASSUME_TAC THENL
+     [TRANS_TAC LTE_TRANS `b:num` THEN ASM_SIMP_TAC[LT_IMP_LE]; ALL_TAC] THEN
+    SUBGOAL_THEN `2 EXP 61 * Zf < 2 EXP (p + 61)` ASSUME_TAC THENL
+     [SUBGOAL_THEN `2 EXP (p + 61) = 2 EXP 61 * 2 EXP p` SUBST1_TAC THENL
+       [REWRITE_TAC[EXP_ADD] THEN ARITH_TAC; ALL_TAC] THEN
+      ASM_REWRITE_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
+    SUBGOAL_THEN `block < 2 EXP (p + 61)` ASSUME_TAC THENL
+     [TRANS_TAC LTE_TRANS `2 EXP 61` THEN ASM_REWRITE_TAC[LE_EXP; ARITH_EQ] THEN ARITH_TAC;
+      ALL_TAC] THEN
+    SUBGOAL_THEN `2 EXP (p + 61) + 2 EXP (p + 61) <= 2 EXP (p + 64)` ASSUME_TAC THENL
+     [SUBGOAL_THEN `2 EXP (p + 64) = 2 EXP (p + 61) * 2 EXP 3` SUBST1_TAC THENL
+       [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN
+      ARITH_TAC; ALL_TAC] THEN
+    ASM_REWRITE_TAC[] THEN
+    MP_TAC(ISPECL [`2 EXP 61 * Zf`; `block:num`; `2 EXP (p + 61)`; `2 EXP (p + 64)`]
+      (ARITH_RULE `!X y Q P. X < Q /\ y < Q /\ Q + Q <= P ==> X + y < P`)) THEN
+    ASM_REWRITE_TAC[]]);;
+
+(* TAIL_MUL_FULL: the tail multiplies qhat by lowdigits b (dd+1) (words 0..dd of m), but
+   this EQUALS qhat*b for EVERY regime -- because in regime B (dd+1<k) either qhat=0
+   (normalized b, Zf<b) OR highdigits b (dd+1)=0 (b's nonzero words all <= dd, so
+   lowdigits b (dd+1)=b).  [faithful sim: qhat=0 \/ b<2^(64(dd+1)) in regime B, 0 viol/
+   23967; and qhat*(mult'd m)=qhat*b universally, 0 viol/72229.]  So the full-b block
+   relation Zf'+2^61*qhat*b=2^61*Zf+block holds UNIFORMLY, and BLOCK_VALUE (full-b) applies
+   to every regime -- NO partial-b problem ever, NO need for a separate shift-add close.
+   This is THE key identity that makes the uniform value-close correct. *)
+let TAIL_MUL_FULL = prove
+ (`!b dd qhat. (qhat = 0 \/ highdigits b (dd + 1) = 0)
+     ==> qhat * lowdigits b (dd + 1) = qhat * b`,
+  REPEAT STRIP_TAC THENL
+   [ASM_REWRITE_TAC[MULT_CLAUSES];
+    SUBGOAL_THEN `lowdigits b (dd + 1) = b` (fun th -> REWRITE_TAC[th]) THEN
+    MP_TAC(SPECL [`b:num`; `dd + 1`] (CONJUNCT1 HIGH_LOW_DIGITS)) THEN
+    ASM_REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES]]);;
+
+(* Stage 3f: recip-bracket invariant adapter.  Converts RECIP_WIDE's division-form bracket
+   (delivered at the preheader, guarded by `bit 63 t0`) into BLOCK_VALUE's multiplied-form
+   bracket -- the loop-CONSTANT clause to thread through the PDOWN invariant for the saturated
+   (C/DDK) regime close.  t0 = normalized window of b (2^63 <= val t0 < 2^64 by WINDOW_RANGE,
+   so bit 63 t0 fires the guard).  w = X21 = word_recip output.  Uses RECIP_BRACKET_CLEAR
+   (block_value.ml) + BIT63_VAL. *)
+
+let BIT63_VAL = prove
+ (`!x:int64. bit 63 x <=> 2 EXP 63 <= val x`,
+  GEN_TAC THEN REWRITE_TAC[BIT_VAL] THEN
+  MP_TAC(ISPEC `x:int64` VAL_BOUND) THEN REWRITE_TAC[DIMINDEX_64] THEN
+  SPEC_TAC(`val(x:int64)`,`v:num`) THEN GEN_TAC THEN DISCH_TAC THEN
+  SUBGOAL_THEN `2 EXP 63 <= v <=> ~(v DIV 2 EXP 63 = 0)` SUBST1_TAC THENL
+   [SIMP_TAC[DIV_EQ_0; EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `v DIV 2 EXP 63 = 0 \/ v DIV 2 EXP 63 = 1` MP_TAC THENL
+   [SUBGOAL_THEN `v DIV 2 EXP 63 < 2` MP_TAC THENL
+     [SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
+      REWRITE_TAC[GSYM EXP_ADD] THEN UNDISCH_TAC `v < 2 EXP 64` THEN ARITH_TAC;
+      ARITH_TAC];
+    STRIP_TAC THEN ASM_REWRITE_TAC[ARITH]]);;
+
+let LF_STEP = prove
+ (`!f newz lfin i pcode.
+     1 <= pcode /\ newz = f i /\
+     (~(i < 1) ==> lfin = f (MIN i pcode - 1))
+     ==> (1 <= i + 1
+          ==> (if i < pcode then newz else lfin) = f (MIN (i + 1) pcode - 1))`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN DISCH_TAC THEN
+  ASM_CASES_TAC `i < pcode` THEN ASM_REWRITE_TAC[] THENL
+   [AP_TERM_TAC THEN
+    SUBGOAL_THEN `MIN (i + 1) pcode = i + 1` SUBST1_TAC THENL
+     [ASM_ARITH_TAC; ARITH_TAC];
+    SUBGOAL_THEN `~(i < 1)` (fun th -> FIRST_X_ASSUM(MP_TAC o C MATCH_MP th)) THENL
+     [ASM_ARITH_TAC; ALL_TAC] THEN
+    DISCH_THEN SUBST1_TAC THEN AP_TERM_TAC THEN
+    SUBGOAL_THEN `MIN i pcode = pcode /\ MIN (i + 1) pcode = pcode`
+      (fun th -> REWRITE_TAC[th]) THEN ASM_ARITH_TAC]);;
+
+let HF_STEP_G_POS = prove
+ (`!(f:num->int64) newz hfin i pcode.
+     newz = f i /\ (pcode < i ==> hfin = f pcode) /\ (~(pcode < i) ==> hfin = word 0)
+     ==> (pcode < i + 1
+          ==> (if i = pcode then newz else hfin) = f pcode)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN DISCH_TAC THEN
+  ASM_CASES_TAC `i:num = pcode` THENL
+   [ASM_REWRITE_TAC[] THEN FIRST_X_ASSUM(fun th -> SUBST1_TAC(SYM th)) THEN
+    ASM_REWRITE_TAC[];
+    ASM_REWRITE_TAC[] THEN FIRST_X_ASSUM MATCH_MP_TAC THEN
+    UNDISCH_TAC `pcode < i + 1` THEN UNDISCH_TAC `~(i:num = pcode)` THEN ARITH_TAC]);;
+
+(* NEG's outgoing guard is `i + 1 <= pcode` (NOT ~(pcode < i + 1)): the body's leading
+   ASM_REWRITE_TAC[] normalizes the postcond's ~(pcode < i+1) to i+1 <= pcode via NOT_LT
+   before the FIRST dispatcher runs, so DISCH_THEN ACCEPT_TAC needs this exact shape. *)
+let HF_STEP_G_NEG = prove
+ (`!(f:num->int64) newz hfin i pcode.
+     newz = f i /\ (pcode < i ==> hfin = f pcode) /\ (~(pcode < i) ==> hfin = word 0)
+     ==> (i + 1 <= pcode
+          ==> (if i = pcode then newz else hfin) = word 0)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN DISCH_TAC THEN
+  SUBGOAL_THEN `~(i:num = pcode)` (fun th -> REWRITE_TAC[th]) THENL
+   [UNDISCH_TAC `i + 1 <= pcode` THEN ARITH_TAC; ALL_TAC] THEN
+  FIRST_X_ASSUM MATCH_MP_TAC THEN UNDISCH_TAC `i + 1 <= pcode` THEN ARITH_TAC);;
+
+(* Stage 3 INNER cmnegadd loop (pc+0x1f4 -> pc+0x238), ii=0..dd-1.
+   Fused z := (z<<61) - q*m + block  (the negate-add with the extr <<61 shift).
+   Additive invariant (INNER_ADVANCE_ADD / INNER_ENTRY_ADD, banked):
+     INV(i): bignum(z,i) s + 2^(64i)*(val(X22 s) DIV 8 + 2^61*val(X5 s))
+               + 2^61*(q * lowdigits b i)
+             = block + 2^61*(lowdigits zorig i) + 2^61*(q * 2^(64i))
+   m tracked as WHOLE-ARRAY bignum(m,k) s = b (untouched); only z uses highdigits.
+   lf/hf logging (X13/X14) DEFERRED -- added as separate clauses once core proven.
+   Body instr layout (18): 1 ldr m,2 mvn,3 mul,4 umulh,5 ldr z,6 adds,7 cset,
+   8 adds,9 adc,10 EXTR,11 str,12 cmp,13 csel lf,14 csel hf,15 mov c,16 add ii,
+   17 cmp,18 b.ne.  BODY = steps 1--16 (0x1f4->0x234); cmp+b.ne (17,18) = BACKEDGE.
+   Accum idxs [3;4;6;8;9]; MUST pin BOTH z[i] AND m[i] as concrete word-vars so
+   ARM_ACCSTEPS folds the adds/adc.  NEGADD_STEP proves carry_s9=0 automatically
+   (total < 2^128), so NO q-bound coupling.
+
+   STATUS (2026-07-25): ENTRY + BODY (sim + m/z preserve + value eqn) PROVEN.
+   BACKEDGE/EXIT standard ARM_SIM(1--2).  Requires banked: INNER_ENTRY_ADD,
+   INNER_ADVANCE_ADD, INNERSTEP_VAL/NEGADD_STEP, EXTR_FUNNEL_VAL. *)
+
+let VALUE_GROW_STEP = prove
+ (`!k dd q block zorig b cwin hi ss hh' bignum_lo_dd.
+     dd < k /\
+     bignum_lo_dd + 2 EXP (64 * dd) * (cwin DIV 8 + 2 EXP 61 * hi) +
+       2 EXP 61 * (q * lowdigits b dd) =
+       block + 2 EXP 61 * lowdigits zorig dd + 2 EXP 61 * (q * 2 EXP (64 * dd)) /\
+     2 EXP 64 * hh' + ss = bigdigit zorig dd + hi + q * (2 EXP 64 - 1 - bigdigit b dd) /\
+     bigdigit b dd < 2 EXP 64
+     ==> (bignum_lo_dd + 2 EXP (64 * dd) * (2 EXP 61 * ss MOD 2 EXP 3 + cwin DIV 8)) +
+         2 EXP (64 * (dd + 1)) * (ss DIV 2 EXP 3 + 2 EXP 61 * hh') +
+         2 EXP 61 * (q * lowdigits b (dd + 1)) =
+         block + 2 EXP 61 * lowdigits zorig (dd + 1) + 2 EXP 61 * (q * 2 EXP (64 * (dd + 1)))`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `lowdigits b (dd + 1) = 2 EXP (64 * dd) * bigdigit b dd + lowdigits b dd /\
+                lowdigits zorig (dd + 1) = 2 EXP (64 * dd) * bigdigit zorig dd + lowdigits zorig dd`
+    (fun th -> REWRITE_TAC[th]) THENL
+   [REWRITE_TAC[LOWDIGITS_CLAUSES]; ALL_TAC] THEN
+  MP_TAC(ISPECL [`block:num`; `q:num`; `bignum_lo_dd:num`; `cwin:num`; `hi:num`; `ss:num`;
+                `hh':num`; `lowdigits zorig dd`; `lowdigits b dd`; `bigdigit zorig dd`;
+                `bigdigit b dd`; `dd:num`] INNER_ADVANCE_ADD) THEN
+  ASM_REWRITE_TAC[]);;
+
+(* Stage 3 block-load segment (pc+0x1a4 -> pc+0x1d4): sub i; ldp x[q],x[q+1];
+   funnel >> (i MOD 64); csel -> X22 = the 61-bit block window (masked value).
+   Postcond: val(X22) MOD 2^61 = (a DIV 2^(61i)) MOD 2^61.
+
+   FULLY PROVEN cheat-free (jargh, 2026-07-25).  Needs banked:
+     BLOCKPOS, I0_BOUNDS, MASKW, CSEL_BLOCK_VAL (-> CSEL_BLOCK_VAL'),
+     BLOCKLOAD_MASKED.
+
+   KEY LESSON (pin placement): the ldp maps base E to E+8; ARM_STEPS reads word2
+   at word_add x (word(8*q + 8)) in that EXACT normal form (confirmed by VSTEP:
+     read X6 s5 = read (memory :> bytes64 (word_add x (word (8*q + 8)))) s4 ).
+   NO address-form tweak is needed -- word(8*q+8) is already the form the stepper
+   wants.  The ONLY requirement is that BOTH word pins (x[q] and x[q+1]) must be
+   installed at s0 BEFORE ARM_STEPS(1--4), so the stepper propagates them forward
+   to s4/s6 where the ldp consumes them.  A pin added as an s0-fact AFTER stepping
+   has already reached s4 is too late: ARM_STEPS reads memory from the state, and
+   only pins carried into that state resolve.  (Same class as the preheader X7 and
+   window shift lessons: ARM_STEPS reads from STATE, not from freshly-added hyps.)
+
+   The X9 shift address is concretized in TWO clean pieces to dodge ARITH_TAC
+   blowup when 61*i has been rewritten to q*64+r under the binders:
+     word_ushr (word(61*i)) 6 = word q      [VAL_WORD + DIV_MULT_ADD + DIV_LT]
+     word_shl  (word q) 3     = word(8*q)   [VAL_WORD + ARITH]
+   then RULE_ASSUM installs X9 = word_add x (word(8*q)).
+
+   CSEL_BLOCK_VAL' is the ARM-operand-order (jshl-first) form of CSEL_BLOCK_VAL,
+   obtained by ONCE_REWRITE[WORD_OR_SYM] THEN MATCH_MP_TAC CSEL_BLOCK_VAL. *)
+
+let CSEL_BLOCK_VAL' = prove
+ (`!hi lo r. r < 64 /\ hi < 2 EXP 64 /\ lo < 2 EXP 64
+     ==> val((if val(word r:int64) = 0
+              then word_jushr (word lo:int64) (word r:int64)
+              else word_or (word_jshl (word hi:int64) (word_sub (word 0) (word r):int64))
+                   (word_jushr (word lo:int64) (word r:int64)))
+             :int64)
+         = (2 EXP 64 * hi + lo) DIV 2 EXP r MOD 2 EXP 64`,
+  REPEAT STRIP_TAC THEN
+  ONCE_REWRITE_TAC[WORD_OR_SYM] THEN
+  MATCH_MP_TAC CSEL_BLOCK_VAL THEN ASM_REWRITE_TAC[]);;
+
+let TAIL_EXTR_VAL = prove
+ (`!t cwin. t < 8 /\ cwin < 2 EXP 64
+    ==> val(word_subword (word_join (word t:int64) (word cwin:int64):int128) (3,64):int64)
+        = 2 EXP 61 * t + cwin DIV 8`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[EXTR_FUNNEL_VAL] THEN
+  SUBGOAL_THEN `val(word t:int64) = t /\ val(word cwin:int64) = cwin` STRIP_ASSUME_TAC THENL
+   [CONJ_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN `t MOD 2 EXP 3 = t` (fun th -> REWRITE_TAC[th; ARITH_RULE `2 EXP 3 = 8`]) THEN
+  MATCH_MP_TAC MOD_LT THEN ASM_ARITH_TAC);;
+
+(* VALUE_BRIDGE_DDK: the dd=k tail's value bookkeeping.  Given the INNERLOOP additive
+   relation (words 0..k-1; note lowdigits b k = b, bignum(z,dd)=bignum(z,k) at dd=k),
+   the top-word negate-add carry equation 2^64*q + t10 = ztin + hi + q*(2^64-1)
+   (t10 = X10 = the extr's low input = ztin+hi-q, carry-out = q), and t10 < 8, derive
+     Zfull' + 2^61*(q*b) = 2^61*Zfull_in + block
+   where Zfull' = 2^(64k)*val(X23') + ZK, val(X23')=2^61*t10 + cwin DIV 8 (TAIL_EXTR_VAL),
+   Zfull_in = 2^(64k)*ztin + zorig.  Exactly the BLOCK_ADVANCE congruence input.
+   Proved THROUGH INNER_ADVANCE_ADD (ii=k, zi=ztin, bi=0, hh'=q) -- raw REAL_RING hits
+   a "find" bug on the assembled identity, so route through the banked step lemma; the
+   dropped 2^(64(k+1)) high carry vanishes via t10 DIV 8 = 0 and cancels the
+   2^61*q*2^(64(k+1)) term. *)
+let VALUE_BRIDGE_DDK = prove
+ (`!ZK cwin hi q b zorig block ztin t10 k.
+     2 EXP 64 * q + t10 = ztin + hi + q * (2 EXP 64 - 1) /\ t10 < 8 /\
+     ZK + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
+       block + 2 EXP 61 * zorig + 2 EXP 61 * q * 2 EXP (64 * k)
+     ==> ZK + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) + 2 EXP 61 * (q * b)
+         = block + 2 EXP 61 * (2 EXP (64 * k) * ztin + zorig)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `t10 MOD 8 = t10 /\ t10 DIV 8 = 0` STRIP_ASSUME_TAC THENL
+   [CONJ_TAC THENL [MATCH_MP_TAC MOD_LT; MATCH_MP_TAC DIV_LT] THEN ASM_REWRITE_TAC[];
+    ALL_TAC] THEN
+  MP_TAC(ISPECL [`block:num`; `q:num`; `ZK:num`; `cwin:num`; `hi:num`; `t10:num`;
+                `q:num`; `zorig:num`; `b:num`; `ztin:num`; `0`; `k:num`]
+        INNER_ADVANCE_ADD) THEN
+  ASM_REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES; ARITH_RULE `2 EXP 3 = 8`] THEN
+  ANTS_TAC THENL
+   [REWRITE_TAC[ARITH_RULE `2 EXP 64 - 1 - 0 = 2 EXP 64 - 1`] THEN
+    ASM_REWRITE_TAC[] THEN ARITH_TAC;
+    REWRITE_TAC[ARITH_RULE `64 * (k + 1) = 64 * k + 64`; EXP_ADD] THEN ARITH_TAC]);;
+
+(* WINDOW_FROM_LOGGED: FIELDSEL's funnel of the two logged digits = the window.
+   Given lf = bigdigit Zf' (pcode-1) = bigdigit Zf' (p DIV 64), hf = bigdigit Zf' pcode
+   = bigdigit Zf' (p DIV 64 + 1), FIELDSEL computes (2^64*hf+lf) DIV 2^(p MOD 64) MOD
+   2^64 which = (Zf' DIV 2^p) MOD 2^64 = window(Zf') by BLOCKLOAD_ARITH (i:=p).  So the
+   logging->window step is a single rewrite once the logging invariant is established. *)
+let WINDOW_FROM_LOGGED = prove
+ (`!Zf p. (2 EXP 64 * bigdigit Zf (p DIV 64 + 1) + bigdigit Zf (p DIV 64))
+            DIV 2 EXP (p MOD 64) MOD 2 EXP 64
+          = (Zf DIV 2 EXP p) MOD 2 EXP 64`,
+  REPEAT GEN_TAC THEN
+  GEN_REWRITE_TAC RAND_CONV [BLOCKLOAD_ARITH] THEN REFL_TAC);;
+
+(* Stage 3f: the QHAT-NO-WRAP chain for the SATURATED (DDK/C) blocks.  RESOLVES a subtlety
+   the growing B block never hit (B has qhat=0): for qhat!=0 the machine computes qhat into a
+   64-bit register as ((w*h)DIV2^64 + h) MOD 2^64, while DDK_VALUE_CLOSE/BLOCK_VALUE use the
+   UNREDUCED (w*h)DIV2^64+h.  They agree ONLY IF qhat < 2^64 (register MOD is identity).  This
+   is a genuine correctness obligation, established here from h<=t0 + the recip bracket K.
+
+   ORACLE-GROUNDED (2026-07-28, qemu): the maintained accumulator bound is the TIGHT
+   Zf < b*2^64 (0 viol / 109 loop heads, incl 57 saturated), NOT the loose Zf < 2^(p+64)
+   (which allows h up to ~2*t0 and would wrap qhat).  From Zf < b*2^64: window h = Zf DIV2^p
+   <= t0 (WINDOW_DIV_LE_T0; oracle h<t0 0 viol/93).  Then qhat < 2^64 (QHAT_NO_WRAP_FINAL).
+   The old QHAT_NO_WRAP (value_close_lemmas.ml, needs h<2^61) is UNUSABLE -- oracle shows h
+   reaches 62 bits (h>=2^61 in 9/72 blocks).
+
+   *** INVARIANT IMPACT: the PDOWN bound clause (B) must be Zf < b*2^64, tighter than the
+   currently-coded Zf < 2^(p+64).  b*2^64 <= 2^p*2^64 = 2^(p+64) so it is strictly stronger;
+   B/FLAT produce it (growing: Zf'=2^61 Zf+block < 2^61(b+1) <= b*2^64 for b>=1); saturated
+   maintains it (oracle).  Requires re-checking BLOCK_VALUE/KI_CORE/GROWING_VALUE_CLOSE/B-block,
+   which currently produce/consume 2^(p+64).  SEE INVARIANT_ANALYSIS.md "QHAT-WRAP RESOLVED". ***
+
+   Deps: QHAT_ID (block_value.ml); DIVIDES_PRIMEPOW, PRIME_2 (library). *)
+
+(* BRACKET_STRICT: the recip bracket upper half is STRICT given t0,w < 2^64.  Equality
+   (2^64+w)*t0 = 2^128 would force 2^64+w a power of 2 in (2^64,2^65] (dividing 2^128), i.e.
+   2^65, i.e. w = 2^64 -- contradicting w < 2^64.  So (2^64+w)*t0 < 2^128 strictly. *)
+let BRACKET_STRICT = prove
+ (`!w t0. t0 < 2 EXP 64 /\ w < 2 EXP 64 ==> ~((2 EXP 64 + w) * t0 = 2 EXP 128)`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(INST [`128`,`k:num`] (SPEC `2 EXP 64 + w` (MATCH_MP DIVIDES_PRIMEPOW PRIME_2))) THEN
+  SUBGOAL_THEN `(2 EXP 64 + w) divides (2 EXP 128)` (fun th -> REWRITE_TAC[th]) THENL
+   [REWRITE_TAC[divides] THEN EXISTS_TAC `t0:num` THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  DISCH_THEN(X_CHOOSE_THEN `j:num` (CONJUNCTS_THEN2 ASSUME_TAC ASSUME_TAC)) THEN
+  SUBGOAL_THEN `j = 64` ASSUME_TAC THENL
+   [SUBGOAL_THEN `2 EXP 64 <= 2 EXP j /\ 2 EXP j < 2 EXP 65` MP_TAC THENL
+     [UNDISCH_TAC `2 EXP 64 + w = 2 EXP j` THEN UNDISCH_TAC `w < 2 EXP 64` THEN
+      REWRITE_TAC[ARITH_RULE `2 EXP 65 = 2 EXP 64 + 2 EXP 64`] THEN ARITH_TAC;
+      REWRITE_TAC[LE_EXP; LT_EXP; ARITH] THEN ARITH_TAC];
+    ALL_TAC] THEN
+  UNDISCH_TAC `(2 EXP 64 + w) * t0 = 2 EXP 128` THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[ARITH_RULE `128 = 64 + 64`; EXP_ADD] THEN ONCE_REWRITE_TAC[EQ_SYM_EQ] THEN
+  SIMP_TAC[EQ_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ] THEN
+  DISCH_THEN(SUBST_ALL_TAC o SYM) THEN UNDISCH_TAC `2 EXP 64 < 2 EXP 64` THEN ARITH_TAC);;
+
+(* QHAT_NO_WRAP_FINAL: from h<=t0 + K bracket + t0,w<2^64, the register quotient does not wrap. *)
+let QHAT_NO_WRAP_FINAL = prove
+ (`!w h t0. h <= t0 /\ t0 < 2 EXP 64 /\ w < 2 EXP 64 /\
+            (&2 pow 64 + &w) * &t0 <= &2 pow 128
+      ==> (w * h) DIV 2 EXP 64 + h < 2 EXP 64`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[QHAT_ID] THEN
+  SUBGOAL_THEN `(2 EXP 64 + w) * t0 < 2 EXP 128` ASSUME_TAC THENL
+   [REWRITE_TAC[LT_LE] THEN CONJ_TAC THENL
+     [REWRITE_TAC[GSYM REAL_OF_NUM_LE] THEN
+      REWRITE_TAC[REAL_OF_NUM_ADD; REAL_OF_NUM_MUL; REAL_OF_NUM_POW] THEN
+      ASM_REWRITE_TAC[GSYM REAL_OF_NUM_POW; GSYM REAL_OF_NUM_MUL; GSYM REAL_OF_NUM_ADD];
+      MP_TAC(SPECL [`w:num`; `t0:num`] BRACKET_STRICT) THEN ASM_REWRITE_TAC[]];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `(2 EXP 64 + w) * h < 2 EXP 128` MP_TAC THENL
+   [TRANS_TAC LET_TRANS `(2 EXP 64 + w) * t0` THEN ASM_REWRITE_TAC[LE_MULT_LCANCEL];
+    REWRITE_TAC[ARITH_RULE `2 EXP 128 = 2 EXP 64 * 2 EXP 64`] THEN
+    SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ]]);;
+
+(* WINDOW_DIV_LE_T0: the TIGHT bound Zf < b*2^64 gives the window Zf DIV2^p <= t0 (< t0+1),
+   hence h = (Zf DIV2^p) MOD 2^64 <= t0 (the MOD is identity once we know Zf DIV2^p < 2^64). *)
+let WINDOW_DIV_LE_T0 = prove
+ (`!Zf b p t0 s0. Zf < b * 2 EXP 64 /\ b * 2 EXP 64 = t0 * 2 EXP p + s0 /\ s0 < 2 EXP p
+      ==> Zf DIV 2 EXP p < t0 + 1`,
+  REPEAT STRIP_TAC THEN SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
+  REWRITE_TAC[RIGHT_ADD_DISTRIB; MULT_CLAUSES] THEN
+  TRANS_TAC LTE_TRANS `b * 2 EXP 64` THEN ASM_REWRITE_TAC[] THEN
+  UNDISCH_TAC `b * 2 EXP 64 = t0 * 2 EXP p + s0` THEN UNDISCH_TAC `s0 < 2 EXP p` THEN ARITH_TAC);;
+
+(* WINDOW_LE_T0: package WINDOW_DIV_LE_T0 with the MOD -- the register window
+   h = (Zf DIV2^p) MOD 2^64 <= t0 = (b*2^64) DIV 2^p, directly from the tight bound. *)
+let WINDOW_LE_T0 = prove
+ (`!Zf b p. Zf < b * 2 EXP 64 /\ b < 2 EXP p /\ 1 <= p
+    ==> (Zf DIV 2 EXP p) MOD 2 EXP 64 <= (b * 2 EXP 64) DIV 2 EXP p`,
+  REPEAT STRIP_TAC THEN
+  MATCH_MP_TAC(ARITH_RULE `x <= t0 ==> x MOD 2 EXP 64 <= t0`) THEN
+  MATCH_MP_TAC(ARITH_RULE `x < t0 + 1 ==> x <= t0`) THEN
+  MATCH_MP_TAC WINDOW_DIV_LE_T0 THEN
+  MAP_EVERY EXISTS_TAC [`b:num`; `(b * 2 EXP 64) MOD 2 EXP p`] THEN
+  ASM_REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
+  MP_TAC(SPECL [`b * 2 EXP 64`; `2 EXP p`] DIVISION) THEN
+  REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
+
+(* DDK_QHAT_LT: the one-step qhat-no-wrap for the DDK/C blocks -- from the tight bound + K
+   bracket, the register qhat q = (w*h)DIV2^64 + h < 2^64, where h = (Zf DIV2^p)MOD2^64.
+   Composes WINDOW_LE_T0 + QHAT_NO_WRAP_FINAL.  This is what lets the saturated block match
+   the machine (register) qhat to DDK_VALUE_CLOSE's unreduced qhat. *)
+let DDK_QHAT_LT = prove
+ (`!Zf b p w. Zf < b * 2 EXP 64 /\ b < 2 EXP p /\ 1 <= p /\ w < 2 EXP 64 /\
+              0 < (b * 2 EXP 64) DIV 2 EXP p /\ (b * 2 EXP 64) DIV 2 EXP p < 2 EXP 64 /\
+              (&2 pow 64 + &w) * &((b * 2 EXP 64) DIV 2 EXP p) <= &2 pow 128
+    ==> (w * ((Zf DIV 2 EXP p) MOD 2 EXP 64)) DIV 2 EXP 64 + (Zf DIV 2 EXP p) MOD 2 EXP 64 < 2 EXP 64`,
+  REPEAT STRIP_TAC THEN
+  MATCH_MP_TAC QHAT_NO_WRAP_FINAL THEN
+  EXISTS_TAC `(b * 2 EXP 64) DIV 2 EXP p` THEN
+  ASM_REWRITE_TAC[] THEN MATCH_MP_TAC WINDOW_LE_T0 THEN ASM_REWRITE_TAC[]);;
+
+(* Stage 3f: the TIGHT bound clause (B) := Zf < b * 2^64, replacing the loose Zf < 2^(p+64).
+   RESOLVES the saturated qhat-no-wrap (h<=t0 => qhat<2^64) which the loose bound could not.
+   Paper chain (user-confirmed 2026-07-28; integer strictness is load-bearing):
+     L1 WINDOW_DIV_LE_T0 (qhat_nowrap.ml): Zf<b*2^64 => h = Zf DIV2^p <= t0.
+     L2 QHAT_NO_WRAP_FINAL+BRACKET_STRICT (qhat_nowrap.ml): h<=t0 + bracket => qhat<2^64.
+     L3 KI_CORE (ki_core.ml): reduced remainder R = Zf-qhat*b < 2^(p+2).
+     L4 BOUND_HALF_TIGHT (here): Zf'=2^61*R+block, R<=2^(p+2)-1, block<=2^61-1
+          => Zf' <= 2^(p+63)-1 < 2^(p+63) <= b*2^64  (2^(p-1)<=b).
+        The -2^61 from "R strictly < 2^(p+2)" EXACTLY cancels the +2^61 from block; the
+        near-power-of-2 corner (b=2^(p-1), b*2^64=2^(p+63) smallest) still clears by 1.
+        NO case split.
+   Consumers that only need the LOOSE Zf<2^(p+64) get it FREE: b*2^64 <= 2^p*2^64 = 2^(p+64).
+   Side condition 2^(p-1)<=b holds via BITSIZE_LOWER when p=bitsize b.
+   Deps: KI_CORE, CONG_HALF (ki_core.ml); RECIP_QBOUND; BITSIZE/BITSIZE_LE (library). *)
+
+let BITSIZE_LOWER = prove
+ (`!n. ~(n = 0) ==> 2 EXP (bitsize n - 1) <= n`,
+  GEN_TAC THEN DISCH_TAC THEN
+  SUBGOAL_THEN `~(bitsize n = 0)` ASSUME_TAC THENL
+   [ASM_REWRITE_TAC[BITSIZE_EQ_0]; ALL_TAC] THEN
+  REWRITE_TAC[GSYM NOT_LT] THEN DISCH_TAC THEN
+  MP_TAC(ISPECL [`n:num`; `bitsize n - 1`] BITSIZE_LE) THEN
+  REWRITE_TAC[ARITH_RULE `bitsize n <= bitsize n - 1 <=> bitsize n = 0`] THEN
+  ASM_REWRITE_TAC[]);;
+
+(* L4: the one genuinely new bound-maintenance step.  Pure integer arithmetic; the strictness
+   Zf < qhat*b + 2^(p+2) (over naturals, = Zf <= ...-1) is what makes the +block absorbable. *)
+let BOUND_HALF_TIGHT = prove
+ (`!Zf Zf' qhat b block p.
+     Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block /\
+     Zf < qhat * b + 2 EXP (p + 2) /\ block < 2 EXP 61 /\
+     2 EXP (p - 1) <= b /\ 1 <= p
+     ==> Zf' < b * 2 EXP 64`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `2 EXP (p + 2) = 8 * 2 EXP (p - 1)` SUBST_ALL_TAC THENL
+   [REWRITE_TAC[ARITH_RULE `8 = 2 EXP 3`] THEN REWRITE_TAC[GSYM EXP_ADD] THEN
+    AP_TERM_TAC THEN UNDISCH_TAC `1 <= p` THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP 64 * 2 EXP (p - 1) <= b * 2 EXP 64` ASSUME_TAC THENL
+   [ONCE_REWRITE_TAC[MULT_SYM] THEN
+    GEN_REWRITE_TAC (LAND_CONV) [MULT_SYM] THEN
+    REWRITE_TAC[LE_MULT_LCANCEL] THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP 61 * (8 * 2 EXP (p - 1)) = 2 EXP 64 * 2 EXP (p - 1)` ASSUME_TAC THENL
+   [REWRITE_TAC[MULT_ASSOC] THEN AP_THM_TAC THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN
+  ASM_ARITH_TAC);;
+
+(* BLOCK_ADVANCE_TIGHT: CONG_HALF + BOUND_HALF_TIGHT + KI_CORE.  Like BLOCK_ADVANCE (ki_core.ml)
+   but concludes Zf' < b*2^64.  Extra hyps 2^(p-1)<=b, 1<=p (discharge via BITSIZE_LOWER). *)
+let BLOCK_ADVANCE_TIGHT = prove
+ (`!a b i p t0 Zf Zf' qhat block s zr h.
+     (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
+     block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
+     b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\ t0 < 2 EXP 64 /\
+     b * 2 EXP 64 = t0 * 2 EXP p + s /\
+     Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
+     2 EXP 64 * h < qhat * t0 + (2 EXP 64 + 2 * t0) /\
+     Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block
+     ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b) /\
+         Zf' < b * 2 EXP 64`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN CONJ_TAC THENL
+   [MP_TAC(SPECL [`a:num`; `b:num`; `i:num`; `Zf:num`; `Zf':num`; `qhat:num`; `block:num`]
+      CONG_HALF) THEN ASM_REWRITE_TAC[];
+    MP_TAC(SPECL [`Zf:num`; `Zf':num`; `qhat:num`; `b:num`; `block:num`; `p:num`]
+      BOUND_HALF_TIGHT) THEN
+    ANTS_TAC THENL [ALL_TAC; REWRITE_TAC[]] THEN ASM_REWRITE_TAC[] THEN
+    MP_TAC(SPECL [`b:num`; `p:num`; `t0:num`; `Zf:num`; `h:num`; `qhat:num`; `s:num`; `zr:num`]
+      KI_CORE) THEN ASM_REWRITE_TAC[]]);;
+
+(* BLOCK_VALUE_TIGHT: BLOCK_ADVANCE_TIGHT wrapped with RECIP_QBOUND (bracket -> the 2^64*h<...
+   form).  Like BLOCK_VALUE (ki_core.ml) but concludes Zf' < b*2^64.  This is the saturated
+   value-close the DDK/C blocks consume. *)
+let BLOCK_VALUE_TIGHT = prove
+ (`!a b i p t0 Zf Zf' w block s zr h l.
+    (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
+    block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
+    b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
+    t0 < 2 EXP 64 /\ 0 < t0 /\ h < 2 EXP 64 /\ l < 2 EXP 64 /\
+    b * 2 EXP 64 = t0 * 2 EXP p + s /\
+    Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
+    &2 pow 128 <= (&2 pow 64 + &w + &1) * &t0 /\ (&2 pow 64 + &w) * &t0 <= &2 pow 128 /\
+    Zf' + 2 EXP 61 * (((2 EXP 64 + w) * h) DIV 2 EXP 64) * b = 2 EXP 61 * Zf + block
+    ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b) /\ Zf' < b * 2 EXP 64`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPECL [`a:num`; `b:num`; `i:num`; `p:num`; `t0:num`; `Zf:num`; `Zf':num`;
+               `((2 EXP 64 + w) * h) DIV 2 EXP 64`; `block:num`; `s:num`; `zr:num`; `h:num`]
+        BLOCK_ADVANCE_TIGHT) THEN
+  ANTS_TAC THENL
+   [ASM_REWRITE_TAC[] THEN
+    MP_TAC(SPECL [`w:num`; `t0:num`; `h:num`; `l:num`] RECIP_QBOUND) THEN
+    ASM_REWRITE_TAC[] THEN REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN REAL_ARITH_TAC;
+    DISCH_THEN ACCEPT_TAC]);;
+
+(* GROWING_BOUND_TIGHT: the growing-regime (qhat=0) analog, from the growing hypothesis Zf<2^p
+   as-is (h=window=0 => Zf<2^p).  Zf'=2^61*Zf+block < 2^(p+62) <= b*2^64 (2^(p-1)<=b), huge room.
+   This is what the B/FLAT value-close (GROWING_VALUE_CLOSE) uses to produce b*2^64. *)
+let GROWING_BOUND_TIGHT = prove
+ (`!Zf Zf' b block p. Zf < 2 EXP p /\ block < 2 EXP 61 /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
+                      Zf' = 2 EXP 61 * Zf + block
+    ==> Zf' < b * 2 EXP 64`,
+  REPEAT STRIP_TAC THEN ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN `2 EXP 61 * Zf + block < 2 EXP (p + 62)` MP_TAC THENL
+   [TRANS_TAC LTE_TRANS `2 EXP 61 * 2 EXP p + 2 EXP 61` THEN CONJ_TAC THENL
+     [MATCH_MP_TAC(ARITH_RULE `a < c /\ d < e ==> a + d < c + e`) THEN
+      ASM_SIMP_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ];
+      REWRITE_TAC[GSYM EXP_ADD] THEN
+      TRANS_TAC LE_TRANS `2 EXP (61 + p) + 2 EXP (61 + p)` THEN CONJ_TAC THENL
+       [MATCH_MP_TAC LE_ADD2 THEN CONJ_TAC THEN REWRITE_TAC[LE_EXP] THEN ARITH_TAC;
+        REWRITE_TAC[GSYM MULT_2; GSYM(CONJUNCT2 EXP); LE_EXP] THEN ARITH_TAC]];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP (p + 62) <= b * 2 EXP 64` MP_TAC THENL
+   [TRANS_TAC LE_TRANS `2 EXP (p - 1) * 2 EXP 64` THEN CONJ_TAC THENL
+     [REWRITE_TAC[GSYM EXP_ADD] THEN REWRITE_TAC[LE_EXP] THEN UNDISCH_TAC `1 <= p` THEN ARITH_TAC;
+      GEN_REWRITE_TAC RAND_CONV [MULT_SYM] THEN
+      GEN_REWRITE_TAC (LAND_CONV) [MULT_SYM] THEN
+      REWRITE_TAC[LE_MULT_LCANCEL] THEN ASM_REWRITE_TAC[]];
+    ARITH_TAC]);;
+
+(* Stage 3f: t10 < 8 DERIVED from the reduced-remainder bound -- ELIMINATES the last oracle
+   dependency for the DDK/C blocks.  t10 is the top word (position 64k+61) of the assembled new
+   accumulator Znew = 2^61*R + block, where R = Zf - qhat*b is this block's true reduced remainder
+   (R < 2^(p+2) by KI_CORE) and block < 2^61.  Since p <= 64*k (bitsize b, b<2^(64k)):
+     t10 = Znew DIV 2^(64k+61) < 8   (Znew < 2^(p+63)+2^61 <= 2^(64(k+1)) = 8*2^(64k+61)).
+   Same "3 spare bits" (61 = 64-3) phenomenon as the funnel, but PROVEN from KI, not oracle.
+   The DDK block connects this DIV-form t10 to VALUE_BRIDGE_DDK's funnel-form t10 (=ztin+hi-q) via
+   the tail's value semantics.  Replaces the capx10big oracle (which had shown t10 in {0,1}). *)
+let T10_FROM_R = prove
+ (`!R block p k. R < 2 EXP (p + 2) /\ block < 2 EXP 61 /\ p <= 64 * k
+    ==> (2 EXP 61 * R + block) DIV 2 EXP (64 * k + 61) < 8`,
+  REPEAT STRIP_TAC THEN
+  SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
+  REWRITE_TAC[ARITH_RULE `8 = 2 EXP 3`; GSYM EXP_ADD] THEN
+  TRANS_TAC LTE_TRANS `2 EXP (p + 63) + 2 EXP 61` THEN CONJ_TAC THENL
+   [MATCH_MP_TAC(ARITH_RULE `a < c /\ d < e ==> a + d < c + e`) THEN
+    CONJ_TAC THENL
+     [REWRITE_TAC[GSYM EXP_ADD] THEN
+      TRANS_TAC LTE_TRANS `2 EXP 61 * 2 EXP (p + 2)` THEN CONJ_TAC THENL
+       [ASM_SIMP_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ];
+        REWRITE_TAC[GSYM EXP_ADD; LE_EXP] THEN ARITH_TAC];
+      ASM_REWRITE_TAC[]];
+    TRANS_TAC LE_TRANS `2 EXP (64 * k + 63) + 2 EXP (64 * k + 63)` THEN CONJ_TAC THENL
+     [MATCH_MP_TAC LE_ADD2 THEN CONJ_TAC THEN REWRITE_TAC[LE_EXP] THEN ASM_ARITH_TAC;
+      REWRITE_TAC[GSYM MULT_2; GSYM(CONJUNCT2 EXP)] THEN REWRITE_TAC[LE_EXP] THEN ARITH_TAC]]);;
+(* T10_LT_8_BRIDGE: the SEG-B composite -- t10 < 8 from the block-advance eqn + the reduced-
+   remainder value form Zf' = 2^61*R+block (R = Zf-q*b, KI gives R<2^(p+2)) + p<=64k.  This is
+   how the DDK block discharges VALUE_BRIDGE_DDK's t10<8 hypothesis WITHOUT the oracle: instantiate
+   R := (2^(64k)*ztin+zorig) - q*b at assembly (KI/BLOCK_VALUE guarantee R>=0 and R<2^(p+2)).
+   t10 = ss MOD 2^64 (funnel top) <= Zf' DIV 2^(64k+61) = (2^61*R+block) DIV 2^(64k+61) < 8. *)
+let T10_LT_8_BRIDGE = prove
+ (`!ZK cwin hi q b zorig block ztin t10 k p R.
+     2 EXP 64 * q + t10 = ztin + hi + q * (2 EXP 64 - 1) /\
+     ZK + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
+       block + 2 EXP 61 * zorig + 2 EXP 61 * q * 2 EXP (64 * k) /\
+     ZK + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) = 2 EXP 61 * R + block /\
+     R < 2 EXP (p + 2) /\ block < 2 EXP 61 /\ p <= 64 * k
+     ==> t10 < 8`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`R:num`; `block:num`; `p:num`; `k:num`] T10_FROM_R) THEN
+  ASM_REWRITE_TAC[] THEN
+  MATCH_MP_TAC(ARITH_RULE `t10 <= x ==> x < 8 ==> t10 < 8`) THEN
+  FIRST_X_ASSUM(fun th -> if rand(concl th) = `2 EXP 61 * R + block` then MP_TAC th else NO_TAC) THEN
+  DISCH_THEN(fun th -> REWRITE_TAC[SYM th]) THEN
+  SIMP_TAC[LE_RDIV_EQ; EXP_EQ_0; ARITH_EQ] THEN
+  REWRITE_TAC[LEFT_ADD_DISTRIB; EXP_ADD] THEN
+  MATCH_MP_TAC(ARITH_RULE `a = c ==> a <= ZK + (c + d)`) THEN
+  REWRITE_TAC[MULT_AC]);;
+
+(* TAIL_CARRY_EQ_Q: given the top-word NO-BORROW (q <= Ztin+hi and (Ztin+hi)-q < 2^64), the tail's
+   funnel input ss = Ztin+hi+q*(2^64-1) satisfies  ss DIV 2^64 = q  (carry-out = qhat, the
+   saturation) and  ss MOD 2^64 = (Ztin+hi)-q = t10.  So 2^64*q + t10 = ss -- the exact premise
+   DDK_TOP_FUNNEL/VALUE_BRIDGE_DDK need.  *** PARSING LESSON: in HOL Light `-` binds TIGHTER than
+   `+`, so `Ztin+hi-q` = `Ztin+(hi-q)` (WRONG, truncates if q>hi).  MUST write `(Ztin+hi)-q`
+   with explicit parens.  This bit hard -- t10 = (Ztin+val hiw)-q everywhere, parenthesized. *)
+let TAIL_CARRY_EQ_Q = prove
+ (`!Ztin hi q. q <= Ztin + hi /\ (Ztin + hi) - q < 2 EXP 64
+   ==> (Ztin + hi + q * (2 EXP 64 - 1)) DIV 2 EXP 64 = q /\
+       (Ztin + hi + q * (2 EXP 64 - 1)) MOD 2 EXP 64 = (Ztin + hi) - q`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC DIVMOD_UNIQ THEN ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN `q <= q * 2 EXP 64` ASSUME_TAC THENL
+   [GEN_REWRITE_TAC LAND_CONV [ARITH_RULE `q = q * 1`] THEN
+    REWRITE_TAC[LE_MULT_LCANCEL] THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `q * (2 EXP 64 - 1) = q * 2 EXP 64 - q` SUBST1_TAC THENL
+   [REWRITE_TAC[LEFT_SUB_DISTRIB; MULT_CLAUSES]; ALL_TAC] THEN
+  UNDISCH_TAC `q <= q * 2 EXP 64` THEN UNDISCH_TAC `q <= Ztin + hi` THEN
+  SPEC_TAC(`q * 2 EXP 64`,`Q:num`) THEN REPEAT STRIP_TAC THEN ASM_ARITH_TAC);;
+
+(* Stage 3f: DDK top-word NO-BORROW, DERIVED (not oracle, not hi-threaded).
+   ================================================================================
+   The saturated (DDK) tail leaves X23' = word_subword(word_join(word ss)(word cwin))(3,64)
+   with ss = ztin+hi+q*(2^64-1).  DDK_TOP_FUNNEL/DDK_SEGB_VALUE need the top-word NO-BORROW
+     q <= Ztin+hi   and   (Ztin+hi)-q < 8   (= t10 < 8).
+   These reference hi=X5, an INTERNAL ghost created by PREFIX at 0x23c -- so they CANNOT be
+   threaded as block-entry (0x1a4) hypotheses.  They must be DERIVED inside seg-B.
+
+   KEY RESULT (DDK_NOBORROW_FROM_R): both follow, by pure arithmetic, from
+     (i)  the reduced-remainder DECOMPOSITION  2^(64k)*Ztin + zpre = q*b + R  with  0 <= R
+          [i.e. qhat is an UNDER-estimate: qhat*b <= Zf.  This is the reciprocal invariant;
+           empirically qerr_neg=0 (cap7 25/25).  It is a TRUE theorem and a legitimate
+           dischargeable hypothesis (from RECIP_QBOUND's lower half lifted to the full width),
+           *** NEVER an axiom ***];
+     (ii) the KI reduced-remainder bound  R < 2^(p+2)  [KI_CORE, already proven];
+     (iii) the PREFIX inner-loop block-advance equation (INNER, the "big =" at PREFIX's post),
+           here with ZK=zpre (z untouched by the DDK tail up to the top word):
+             zpre + 2^(64k)*(cwin DIV8 + 2^61*hi) + 2^61*q*b
+               = block + 2^61*zpre + 2^61*q*2^(64k)
+     (iv) block<2^61, cwin DIV8<2^61 (= (X22 val)DIV8 < 2^61), zpre<2^(64k), p<=64k, 1<=k.
+
+   PROOF IDEA.  Add 2^61*2^(64k)*Ztin to INNER and substitute 2^61*Zf = 2^61*q*b + 2^61*R
+   (from (i)), cancel 2^61*q*b:
+       A + MM*(Ztin+hi) = (block + 2^61*R) + MM*q          (EQ3),   MM := 2^61*2^(64k),
+   where A := zpre + 2^(64k)*(cwin DIV8) < MM  [zpre<2^(64k), cwin DIV8<=2^61-1] and
+   C := block + 2^61*R < MM*8  [block<2^61, 2^61*R < 2^(p+63) <= 2^(64k+63) = MM*8].
+     - q <= Ztin+hi:  else MM*q >= MM*(Ztin+hi)+MM forces A >= MM, contra A<MM.
+     - (Ztin+hi)-q < 8:  MM*((Ztin+hi)-q) = C - A <= C < MM*8, cancel MM.
+   So the LAST oracle-flavoured obligation of the whole main loop collapses to R>=0, which
+   is banked reciprocal theory.  t10<8 no longer needs T10_LT_8_BRIDGE's separate hyp plumbing
+   either -- (Ztin+hi)-q = t10 and this lemma delivers t10<8 directly.
+   ================================================================================ *)
+
+let DDK_NOBORROW_FROM_R = prove
+ (`!Ztin zpre b q hi cwin block k p R.
+     2 EXP (64 * k) * Ztin + zpre = q * b + R /\
+     R < 2 EXP (p + 2) /\ 0 <= R /\
+     block < 2 EXP 61 /\ cwin DIV 8 < 2 EXP 61 /\ zpre < 2 EXP (64 * k) /\
+     p <= 64 * k /\ 1 <= k /\
+     zpre + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
+       block + 2 EXP 61 * zpre + 2 EXP 61 * q * 2 EXP (64 * k)
+     ==> q <= Ztin + hi /\ (Ztin + hi) - q < 8`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  (* EQ3: fold the inner-loop eqn + R-decomposition into A + MM*(Ztin+hi) = C + MM*q *)
+  SUBGOAL_THEN
+   `zpre + 2 EXP (64*k) * (cwin DIV 8) + 2 EXP 61 * (2 EXP (64*k) * (Ztin+hi)) =
+    block + 2 EXP 61 * R + 2 EXP 61 * (2 EXP (64*k) * q)`
+   ASSUME_TAC THENL
+   [FIRST_X_ASSUM(fun th -> if lhs(concl th) =
+       `zpre + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b`
+      then MP_TAC th else NO_TAC) THEN
+    FIRST_X_ASSUM(fun th -> if lhs(concl th) = `2 EXP (64*k) * Ztin + zpre`
+      then MP_TAC th else NO_TAC) THEN
+    CONV_TAC NUM_RING;
+    ALL_TAC] THEN
+  (* the LHS-extra bound A < MM *)
+  SUBGOAL_THEN `zpre + 2 EXP (64 * k) * cwin DIV 8 < 2 EXP (64*k) * 2 EXP 61` ASSUME_TAC THENL
+   [TRANS_TAC LTE_TRANS `2 EXP (64*k) + 2 EXP (64*k) * (2 EXP 61 - 1)` THEN CONJ_TAC THENL
+     [MATCH_MP_TAC(ARITH_RULE
+        `zpre < M /\ Mc <= M * (2 EXP 61 - 1) ==> zpre + Mc < M + M * (2 EXP 61 - 1)`) THEN
+      ASM_REWRITE_TAC[LE_MULT_LCANCEL] THEN
+      UNDISCH_TAC `cwin DIV 8 < 2 EXP 61` THEN ARITH_TAC;
+      REWRITE_TAC[LEFT_SUB_DISTRIB; MULT_CLAUSES] THEN ARITH_TAC];
+    ALL_TAC] THEN
+  (* the RHS-extra bound C < MM*8 *)
+  SUBGOAL_THEN `block + 2 EXP 61 * R < 2 EXP 61 * 2 EXP (64*k) * 8` ASSUME_TAC THENL
+   [SUBGOAL_THEN `2 EXP 61 * R < 2 EXP (64*k+63)` ASSUME_TAC THENL
+     [TRANS_TAC LTE_TRANS `2 EXP 61 * 2 EXP (p+2)` THEN CONJ_TAC THENL
+       [REWRITE_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ] THEN ASM_REWRITE_TAC[];
+        REWRITE_TAC[GSYM EXP_ADD; LE_EXP] THEN UNDISCH_TAC `p <= 64*k` THEN ARITH_TAC];
+      ALL_TAC] THEN
+    SUBGOAL_THEN `block < 2 EXP (64*k+63)` ASSUME_TAC THENL
+     [TRANS_TAC LTE_TRANS `2 EXP 61` THEN ASM_REWRITE_TAC[LE_EXP] THEN ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `2 EXP 61 * 2 EXP (64*k) * 8 = 2 EXP (64*k+63) + 2 EXP (64*k+63)` SUBST1_TAC THENL
+     [REWRITE_TAC[EXP_ADD] THEN ARITH_TAC; ALL_TAC] THEN
+    ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  (* abstract MM = 2^61*2^(64k), A, C *)
+  RULE_ASSUM_TAC(REWRITE_RULE
+    [ARITH_RULE `2 EXP 61 * (2 EXP (64 * k) * x) = (2 EXP 61 * 2 EXP (64 * k)) * x`;
+     ARITH_RULE `2 EXP (64 * k) * 2 EXP 61 = 2 EXP 61 * 2 EXP (64 * k)`]) THEN
+  ABBREV_TAC `MM = 2 EXP 61 * 2 EXP (64*k)` THEN
+  (* the folded EQ3, stated in A/C-free form; proven from the stored (unfolded) hyp by NUM_RING *)
+  SUBGOAL_THEN
+   `(zpre + 2 EXP (64 * k) * cwin DIV 8) + MM * (Ztin + hi) =
+    (block + 2 EXP 61 * R) + MM * q`
+   ASSUME_TAC THENL
+   [FIRST_X_ASSUM(fun th -> if is_eq(concl th) &&
+       can (find_term (fun t -> t = `MM * (Ztin + hi)`)) (concl th)
+      then MP_TAC th else NO_TAC) THEN ARITH_TAC;
+    ALL_TAC] THEN
+  ABBREV_TAC `A = zpre + 2 EXP (64 * k) * cwin DIV 8` THEN
+  ABBREV_TAC `C = block + 2 EXP 61 * R` THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `zpre + 2 EXP (64 * k) * cwin DIV 8 = A`;
+                              ASSUME `block + 2 EXP 61 * R = C`]) THEN
+  (* q <= Ztin+hi via MM-cancellation *)
+  SUBGOAL_THEN `q <= Ztin + hi` ASSUME_TAC THENL
+   [SUBGOAL_THEN `MM * q < MM * ((Ztin+hi)+1)` MP_TAC THENL
+     [MATCH_MP_TAC(ARITH_RULE
+        `A + MM * (Ztin+hi) = C + MM * q /\ A < MM ==> MM * q < MM * ((Ztin+hi)+1)`) THEN
+      ASM_REWRITE_TAC[];
+      REWRITE_TAC[LT_MULT_LCANCEL] THEN
+      MATCH_MP_TAC(TAUT `(b ==> c) ==> a /\ b ==> c`) THEN ARITH_TAC];
+    ALL_TAC] THEN
+  ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN `MM * ((Ztin+hi)-q) < MM * 8` MP_TAC THENL
+   [MATCH_MP_TAC(ARITH_RULE
+      `A + MM * (Ztin+hi) = C + MM * q /\ q <= Ztin+hi /\ C < MM * 8 /\
+       MM * ((Ztin+hi)-q) = MM*(Ztin+hi) - MM*q
+       ==> MM * ((Ztin+hi)-q) < MM * 8`) THEN
+    ASM_REWRITE_TAC[LEFT_SUB_DISTRIB];
+    REWRITE_TAC[LT_MULT_LCANCEL] THEN
+    MATCH_MP_TAC(TAUT `(b ==> c) ==> a /\ b ==> c`) THEN ARITH_TAC]);;
+
+(* RGE0_FROM_BODY: R>=0 (qhat*b<=Zf) DERIVED from the machine's ADDITIVE body relation
+   Zf' + 2^61*(qhat*b) = 2^61*Zf + block and block<2^61 ALONE -- no reciprocal lower bound,
+   no threading, no oracle.  Since Zf'>=0: 2^61*qhat*b <= 2^61*Zf + block < 2^61*(Zf+1), so
+   qhat*b <= Zf.  This is what makes the DDK no-borrow entirely self-contained in seg-B: the
+   fused multiply-subtract's output equation certifies its own non-negativity. *)
+let RGE0_FROM_BODY = prove
+ (`!Zf Zf' qhat b block.
+     Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block /\ block < 2 EXP 61
+     ==> qhat * b <= Zf`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `2 EXP 61 * (qhat * b) <= 2 EXP 61 * Zf + block` MP_TAC THENL
+   [UNDISCH_TAC `Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block` THEN ARITH_TAC;
+    ALL_TAC] THEN
+  UNDISCH_TAC `block < 2 EXP 61` THEN ARITH_TAC);;
+
+(* DDK_NOBORROW_FROM_BODY: the seg-B-facing convenience form.  Takes EXACTLY the facts available
+   in seg-B -- the additive body relation (Zf'+2^61*qhat*b = 2^61*Zf+block), KI's upper reduced-
+   remainder bound (Zf < qhat*b+2^(p+2)), the PREFIX inner block-advance eqn, and the sizes --
+   and yields q<=Ztin+hi /\ t10<8.  Internally sets R := Zf - qhat*b, uses RGE0_FROM_BODY for
+   R>=0 and the additive+KI eqns for R<2^(p+2), then DDK_NOBORROW_FROM_R.  Here Zf = 2^(64k)*Ztin
+   + zpre and q = qhat (register).  NO oracle, NO hi-threaded hyp, NO reciprocal lower bound. *)
+let DDK_NOBORROW_FROM_BODY = prove
+ (`!Ztin zpre b q hi cwin block k p Zf'.
+     Zf' + 2 EXP 61 * (q * b) = 2 EXP 61 * (2 EXP (64 * k) * Ztin + zpre) + block /\
+     (2 EXP (64 * k) * Ztin + zpre) < q * b + 2 EXP (p + 2) /\
+     block < 2 EXP 61 /\ cwin DIV 8 < 2 EXP 61 /\ zpre < 2 EXP (64 * k) /\
+     p <= 64 * k /\ 1 <= k /\
+     zpre + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
+       block + 2 EXP 61 * zpre + 2 EXP 61 * q * 2 EXP (64 * k)
+     ==> q <= Ztin + hi /\ (Ztin + hi) - q < 8`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `q * b <= 2 EXP (64 * k) * Ztin + zpre` ASSUME_TAC THENL
+   [MATCH_MP_TAC RGE0_FROM_BODY THEN
+    MAP_EVERY EXISTS_TAC [`Zf':num`; `block:num`] THEN ASM_REWRITE_TAC[];
+    ALL_TAC] THEN
+  MP_TAC(ISPECL [`Ztin:num`; `zpre:num`; `b:num`; `q:num`; `hi:num`; `cwin:num`; `block:num`;
+                 `k:num`; `p:num`; `(2 EXP (64 * k) * Ztin + zpre) - q * b`] DDK_NOBORROW_FROM_R) THEN
+  ASM_REWRITE_TAC[LE_0] THEN DISCH_THEN MATCH_MP_TAC THEN
+  REPEAT CONJ_TAC THENL
+   [UNDISCH_TAC `q * b <= 2 EXP (64 * k) * Ztin + zpre` THEN ARITH_TAC;
+    UNDISCH_TAC `(2 EXP (64 * k) * Ztin + zpre) < q * b + 2 EXP (p + 2)` THEN
+    UNDISCH_TAC `q * b <= 2 EXP (64 * k) * Ztin + zpre` THEN ARITH_TAC]);;
+
+(* DDK_NOBORROW_THREADED: the DDK-block-facing form.  Takes R>=0 as the LOOP-INVARIANT-CARRIED
+   value hypothesis  q*b <= 2^(64k)*Ztin+zpre  (=Zf; TRUE at every real loop head -- oracle+200k-sim
+   confirmed, cont23j -- a legitimate dischargeable hyp threaded from the MAINLOOP invariant, NEVER
+   an axiom), plus the KI reduced-remainder bound  (Zf - q*b) < 2^(p+2)  (from KI_CORE), plus the
+   PREFIX inner block-advance eqn + sizes, and yields  q<=Ztin+hi /\ t10<8.  This is the clean
+   interface: the DDK block threads q*b<=Zf (with the recip bracket K), discharged at MAINLOOP-wrap.
+   Cf. cont23j: per-block R>=0 is genuine (the loop only runs blocks above the modulus scale; my
+   earlier "R>=0 fails" was PHANTOM blocks below the loop range). *)
+let DDK_NOBORROW_THREADED = prove
+ (`!Ztin zpre b q hi cwin block k p.
+    q * b <= 2 EXP (64 * k) * Ztin + zpre /\
+    (2 EXP (64 * k) * Ztin + zpre) - q * b < 2 EXP (p + 2) /\
+    block < 2 EXP 61 /\ cwin DIV 8 < 2 EXP 61 /\ zpre < 2 EXP (64 * k) /\ p <= 64 * k /\ 1 <= k /\
+    zpre + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
+      block + 2 EXP 61 * zpre + 2 EXP 61 * q * 2 EXP (64 * k)
+    ==> q <= Ztin + hi /\ (Ztin + hi) - q < 8`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(ISPECL [`Ztin:num`;`zpre:num`;`b:num`;`q:num`;`hi:num`;`cwin:num`;`block:num`;`k:num`;`p:num`;
+                 `(2 EXP (64 * k) * Ztin + zpre) - q * b`] DDK_NOBORROW_FROM_R) THEN
+  ANTS_TAC THENL
+   [REWRITE_TAC[LE_0] THEN ASM_REWRITE_TAC[] THEN
+    UNDISCH_TAC `q * b <= 2 EXP (64 * k) * Ztin + zpre` THEN ARITH_TAC;
+    DISCH_THEN ACCEPT_TAC]);;
+
+(* DDK_NOBORROW_FROM_R_GEN / _THREADED_GEN: the SEPARATE-ZK/zorig forms, needed by the actual DDK
+   block (cont23t).  The inner loop STORES z[0..k-1], so at 0x23c bignum(z,k)=ZK (the NEW z-memory,
+   post-inner-loop) DIFFERS from zorig (the ORIGINAL incoming zpre).  The block's inner block-advance
+   eqn has ZK on the LHS accumulator slot and zorig on the RHS (matching VALUE_BRIDGE_DDK's ZK/zorig).
+   These lemmas take them SEPARATELY (needs ZK<2^(64k), the k-word bignum bound).  The non-GEN forms
+   (above) conflate ZK=zorig=zpre (z-unchanged model) and DO NOT apply to the real block -- use the
+   GEN forms there.  Proof: identical EQ3-fold as DDK_NOBORROW_FROM_R with ZK in place of zpre in the
+   LHS-extra bracket A. *)
+let DDK_NOBORROW_FROM_R_GEN = prove
+ (`!Ztin zorig ZK b q hi cwin block k p R.
+     2 EXP (64 * k) * Ztin + zorig = q * b + R /\
+     R < 2 EXP (p + 2) /\ 0 <= R /\
+     block < 2 EXP 61 /\ cwin DIV 8 < 2 EXP 61 /\ ZK < 2 EXP (64 * k) /\
+     p <= 64 * k /\ 1 <= k /\
+     ZK + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
+       block + 2 EXP 61 * zorig + 2 EXP 61 * q * 2 EXP (64 * k)
+     ==> q <= Ztin + hi /\ (Ztin + hi) - q < 8`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN
+   `ZK + 2 EXP (64*k) * (cwin DIV 8) + 2 EXP 61 * (2 EXP (64*k) * (Ztin+hi)) =
+    block + 2 EXP 61 * R + 2 EXP 61 * (2 EXP (64*k) * q)`
+   ASSUME_TAC THENL
+   [FIRST_X_ASSUM(fun th -> if lhs(concl th) =
+       `ZK + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b`
+      then MP_TAC th else NO_TAC) THEN
+    FIRST_X_ASSUM(fun th -> if lhs(concl th) = `2 EXP (64*k) * Ztin + zorig`
+      then MP_TAC th else NO_TAC) THEN
+    CONV_TAC NUM_RING;
+    ALL_TAC] THEN
+  SUBGOAL_THEN `ZK + 2 EXP (64 * k) * cwin DIV 8 < 2 EXP (64*k) * 2 EXP 61` ASSUME_TAC THENL
+   [TRANS_TAC LTE_TRANS `2 EXP (64*k) + 2 EXP (64*k) * (2 EXP 61 - 1)` THEN CONJ_TAC THENL
+     [MATCH_MP_TAC(ARITH_RULE
+        `ZK < M /\ Mc <= M * (2 EXP 61 - 1) ==> ZK + Mc < M + M * (2 EXP 61 - 1)`) THEN
+      ASM_REWRITE_TAC[LE_MULT_LCANCEL] THEN UNDISCH_TAC `cwin DIV 8 < 2 EXP 61` THEN ARITH_TAC;
+      REWRITE_TAC[LEFT_SUB_DISTRIB; MULT_CLAUSES] THEN ARITH_TAC];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `block + 2 EXP 61 * R < 2 EXP 61 * 2 EXP (64*k) * 8` ASSUME_TAC THENL
+   [SUBGOAL_THEN `2 EXP 61 * R < 2 EXP (64*k+63)` ASSUME_TAC THENL
+     [TRANS_TAC LTE_TRANS `2 EXP 61 * 2 EXP (p+2)` THEN CONJ_TAC THENL
+       [REWRITE_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ] THEN ASM_REWRITE_TAC[];
+        REWRITE_TAC[GSYM EXP_ADD; LE_EXP] THEN UNDISCH_TAC `p <= 64*k` THEN ARITH_TAC];
+      ALL_TAC] THEN
+    SUBGOAL_THEN `block < 2 EXP (64*k+63)` ASSUME_TAC THENL
+     [TRANS_TAC LTE_TRANS `2 EXP 61` THEN ASM_REWRITE_TAC[LE_EXP] THEN ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `2 EXP 61 * 2 EXP (64*k) * 8 = 2 EXP (64*k+63) + 2 EXP (64*k+63)` SUBST1_TAC THENL
+     [REWRITE_TAC[EXP_ADD] THEN ARITH_TAC; ALL_TAC] THEN
+    ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE
+    [ARITH_RULE `2 EXP 61 * 2 EXP (64 * k) * x = (2 EXP 61 * 2 EXP (64 * k)) * x`;
+     ARITH_RULE `2 EXP (64 * k) * 2 EXP 61 = 2 EXP 61 * 2 EXP (64 * k)`]) THEN
+  ABBREV_TAC `MM = 2 EXP 61 * 2 EXP (64*k)` THEN
+  SUBGOAL_THEN
+   `(ZK + 2 EXP (64 * k) * cwin DIV 8) + MM * (Ztin + hi) = (block + 2 EXP 61 * R) + MM * q`
+   ASSUME_TAC THENL
+   [FIRST_X_ASSUM(fun th -> if is_eq(concl th) &&
+       can (find_term (fun t -> t = `MM * (Ztin + hi)`)) (concl th)
+      then MP_TAC th else NO_TAC) THEN ARITH_TAC;
+    ALL_TAC] THEN
+  ABBREV_TAC `A = ZK + 2 EXP (64 * k) * cwin DIV 8` THEN
+  ABBREV_TAC `C = block + 2 EXP 61 * R` THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `ZK + 2 EXP (64 * k) * cwin DIV 8 = A`;
+                              ASSUME `block + 2 EXP 61 * R = C`]) THEN
+  SUBGOAL_THEN `q <= Ztin + hi` ASSUME_TAC THENL
+   [SUBGOAL_THEN `MM * q < MM * ((Ztin+hi)+1)` MP_TAC THENL
+     [MATCH_MP_TAC(ARITH_RULE
+        `A + MM * (Ztin+hi) = C + MM * q /\ A < MM ==> MM * q < MM * ((Ztin+hi)+1)`) THEN
+      ASM_REWRITE_TAC[];
+      REWRITE_TAC[LT_MULT_LCANCEL] THEN MATCH_MP_TAC(TAUT `(b ==> c) ==> a /\ b ==> c`) THEN ARITH_TAC];
+    ALL_TAC] THEN
+  ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN `MM * ((Ztin+hi)-q) < MM * 8` MP_TAC THENL
+   [MATCH_MP_TAC(ARITH_RULE
+      `A + MM * (Ztin+hi) = C + MM * q /\ q <= Ztin+hi /\ C < MM * 8 /\
+       MM * ((Ztin+hi)-q) = MM*(Ztin+hi) - MM*q ==> MM * ((Ztin+hi)-q) < MM * 8`) THEN
+    ASM_REWRITE_TAC[LEFT_SUB_DISTRIB];
+    REWRITE_TAC[LT_MULT_LCANCEL] THEN MATCH_MP_TAC(TAUT `(b ==> c) ==> a /\ b ==> c`) THEN ARITH_TAC]);;
+
+let DDK_NOBORROW_THREADED_GEN = prove
+ (`!Ztin zorig ZK b q hi cwin block k p.
+    q * b <= 2 EXP (64 * k) * Ztin + zorig /\
+    (2 EXP (64 * k) * Ztin + zorig) - q * b < 2 EXP (p + 2) /\
+    block < 2 EXP 61 /\ cwin DIV 8 < 2 EXP 61 /\ ZK < 2 EXP (64 * k) /\ p <= 64 * k /\ 1 <= k /\
+    ZK + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
+      block + 2 EXP 61 * zorig + 2 EXP 61 * q * 2 EXP (64 * k)
+    ==> q <= Ztin + hi /\ (Ztin + hi) - q < 8`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(ISPECL [`Ztin:num`;`zorig:num`;`ZK:num`;`b:num`;`q:num`;`hi:num`;`cwin:num`;`block:num`;`k:num`;`p:num`;
+                 `(2 EXP (64 * k) * Ztin + zorig) - q * b`] DDK_NOBORROW_FROM_R_GEN) THEN
+  ANTS_TAC THENL
+   [REWRITE_TAC[LE_0] THEN ASM_REWRITE_TAC[] THEN
+    UNDISCH_TAC `q * b <= 2 EXP (64 * k) * Ztin + zorig` THEN ARITH_TAC;
+    DISCH_THEN ACCEPT_TAC]);;
+
+(* Stage 3f: KI_LOWER -- the reciprocal UNDER-estimate  qhat*b <= Zf  (reduced remainder R>=0).
+   ================================================================================
+   This is the honest source of the DDK top-word NO-BORROW (R>=0), the mirror of KI_CORE's
+   upper bound (R < 2^(p+2)).  R>=0 is NOT free (RGE0_FROM_BODY is circular for DDK, and the
+   window-level under-estimate does NOT lift -- see DDK_BUILD_PLAN cont23b/c).  It reduces
+   cleanly to a SINGLE reciprocal bound:
+
+     (RECIP_B):   (2^64+w) * b <= 2^(p+64)      [w = word_recip output, p = bitsize b]
+
+   VERIFIED (oracle-free, 4.9M random real (b,w=word_recip): 0 failures; TIGHT -- equality at
+   b=2^p-1, w=max).  (RECIP_B) needs BOTH banked reciprocal brackets
+     (2^64+w)*t0 <= 2^128   AND   2^128 <= (2^64+w+1)*t0
+   (t0 = (b*2^64) DIV 2^p, the normalized window) PLUS the window floor facts
+     t0*2^p <= b*2^64 < (t0+1)*2^p.  [It does NOT follow from the lower bracket alone --
+     2.1M-fail counterexample search confirmed the upper bracket is required.]
+
+   PROVEN HERE: KI_LOWER_FROM_RECIPB -- given (RECIP_B) and h*2^p<=Zf, derive qhat*b<=Zf.
+   This makes (RECIP_B) the SOLE remaining obligation for the whole DDK no-borrow / t10<8 chain
+   (then: KI_LOWER -> R>=0 ; KI_CORE -> R<2^(p+2) ; DDK_NOBORROW_FROM_R -> q<=Ztin+hi /\ t10<8).
+
+   *** (RECIP_B) itself is NOT YET proven in HOL *** -- it is a bounded, tested, clean lemma
+   (both brackets + floor), NOT an oracle and NOT an axiom.  TODO: prove it (real-arith mirror of
+   KI_CORE, or check whether the recip window-setup block 0x68-0x1a4 already yields the b-level form).
+   ================================================================================ *)
+
+(* The reduction: (RECIP_B) + (h*2^p<=Zf) ==> qhat*b<=Zf.  Fully proven.
+   Uses only the floor bound qhat*2^64<=(2^64+w)*h and (RECIP_B). *)
+let KI_LOWER_FROM_RECIPB = prove
+ (`!b p Zf h w.
+     (2 EXP 64 + w) * b <= 2 EXP (p + 64) /\
+     h * 2 EXP p <= Zf
+     ==> ((2 EXP 64 + w) * h) DIV 2 EXP 64 * b <= Zf`,
+  REPEAT STRIP_TAC THEN
+  ABBREV_TAC `QH = ((2 EXP 64 + w) * h) DIV 2 EXP 64` THEN
+  MATCH_MP_TAC(ARITH_RULE `QH * b <= h * 2 EXP p /\ h * 2 EXP p <= Zf ==> QH * b <= Zf`) THEN
+  ASM_REWRITE_TAC[] THEN
+  MATCH_MP_TAC(ARITH_RULE `QH * b * 2 EXP 64 <= (h * 2 EXP p) * 2 EXP 64 ==> QH * b <= h * 2 EXP p`) THEN
+  SUBGOAL_THEN `QH * 2 EXP 64 <= (2 EXP 64 + w) * h` ASSUME_TAC THENL
+   [EXPAND_TAC "QH" THEN REWRITE_TAC[MULT_SYM] THEN
+    MP_TAC(SPECL [`(2 EXP 64 + w) * h`; `2 EXP 64`] DIVISION) THEN
+    REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC; ALL_TAC] THEN
+  TRANS_TAC LE_TRANS `((2 EXP 64 + w) * h) * b` THEN CONJ_TAC THENL
+   [ONCE_REWRITE_TAC[ARITH_RULE `QH * b * 2 EXP 64 = (QH * 2 EXP 64) * b`] THEN
+    ASM_SIMP_TAC[LE_MULT_RCANCEL];
+    ONCE_REWRITE_TAC[ARITH_RULE `((2 EXP 64 + w) * h) * b = h * ((2 EXP 64 + w) * b)`] THEN
+    ONCE_REWRITE_TAC[ARITH_RULE `(h * 2 EXP p) * 2 EXP 64 = h * (2 EXP p * 2 EXP 64)`] THEN
+    MATCH_MP_TAC LE_MULT2 THEN REWRITE_TAC[LE_REFL] THEN
+    REWRITE_TAC[GSYM EXP_ADD] THEN ASM_REWRITE_TAC[]]);;
+
+(* qhat*t0 <= 2^64*h : the clean window-level under-estimate, from the recip LOWER bracket + floor.
+   (Not on the (RECIP_B) critical path, but a useful banked fact.) *)
+let QHAT_T0_LE = prove
+ (`!w t0 h. (&2 pow 64 + &w) * &t0 <= &2 pow 128
+    ==> ((2 EXP 64 + w) * h) DIV 2 EXP 64 * t0 <= 2 EXP 64 * h`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `((2 EXP 64 + w) * h) DIV 2 EXP 64 * 2 EXP 64 <= (2 EXP 64 + w) * h` ASSUME_TAC THENL
+   [REWRITE_TAC[MULT_SYM] THEN
+    MP_TAC(SPECL [`(2 EXP 64 + w) * h`; `2 EXP 64`] DIVISION) THEN
+    REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[GSYM REAL_OF_NUM_CLAUSES]) THEN
+  MATCH_MP_TAC REAL_LE_LCANCEL_IMP THEN EXISTS_TAC `&2 pow 64` THEN
+  CONJ_TAC THENL [REWRITE_TAC[REAL_LT_POW2]; ALL_TAC] THEN
+  TRANS_TAC REAL_LE_TRANS `((&2 pow 64 + &w) * &h) * &t0` THEN CONJ_TAC THENL
+   [SUBGOAL_THEN
+     `&2 pow 64 * &(((2 EXP 64 + w) * h) DIV 2 EXP 64) * &t0 =
+      (&(((2 EXP 64 + w) * h) DIV 2 EXP 64) * &2 pow 64) * &t0` SUBST1_TAC THENL
+     [CONV_TAC REAL_RING; ALL_TAC] THEN
+    MATCH_MP_TAC REAL_LE_RMUL THEN ASM_REWRITE_TAC[REAL_POS];
+    ONCE_REWRITE_TAC[REAL_ARITH `((&2 pow 64 + &w) * &h) * &t0 = &h * ((&2 pow 64 + &w) * &t0)`] THEN
+    REWRITE_TAC[REAL_ARITH `&2 pow 64 * &2 pow 64 * &h = &h * &2 pow 128`] THEN
+    MATCH_MP_TAC REAL_LE_LMUL THEN ASM_REWRITE_TAC[REAL_POS]]);;
+
+(* ============================================================================
+   recip_bridges.ml (cont108) -- small glue lemmas for the recip-of-d retrofit.
+   Reusable across all block retrofits.  Deps: none beyond core HOL.
+   ============================================================================ *)
+
+(* window from the Zf=h*2^p+zr decomposition (h<2^64) -- the RED_LEMMA_D window hyp. *)
+let WINDOW_FROM_ZF = prove
+ (`!h p zr Zf. Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\ h < 2 EXP 64
+       ==> h = (Zf DIV 2 EXP p) MOD 2 EXP 64`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `Zf DIV 2 EXP p = h` SUBST1_TAC THENL
+   [ASM_REWRITE_TAC[] THEN
+    SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ] THEN
+    ASM_SIMP_TAC[DIV_LT] THEN ARITH_TAC;
+    ASM_SIMP_TAC[MOD_LT]]);;
+
+(* recip-of-t0 LOWER bracket from recip-of-d LOWER, given t0<=d.  Discharges DDK_QHAT_LT's
+   (2^64+w)*t0 <= 2^128 hyp (t0 = (b*2^64)DIV2^p) from the recip-of-d LOWER (t0<=d in both regimes). *)
+let RECIP_T0_FROM_D = prove
+ (`!w d t0. t0 <= d /\ (2 EXP 64 + w) * d <= 2 EXP 128
+            ==> (2 EXP 64 + w) * t0 <= 2 EXP 128`,
+  REPEAT STRIP_TAC THEN
+  TRANS_TAC LE_TRANS `(2 EXP 64 + w) * d` THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN ASM_REWRITE_TAC[]);;
+
+(* t0 <= d from the roundup disjunction (non-sat d=t0+1 => t0<d; sat d=t0 => t0=d). *)
+let ROUNDUP_T0_LE = prove
+ (`!b p d.
+     (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
+      ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1))
+     ==> (b * 2 EXP 64) DIV 2 EXP p <= d`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[] THEN ARITH_TAC);;
+
+(* ============================================================================
+   roundup_val_disj.ml (cont108) -- ROUNDUP_VAL_DISJ.
+   Bridge: turn the machine-level roundup value at 0x98 (bignum_mod.S:145
+     w's argument d = if ~(val(word_add t0 (word 1))=0) then t0+1 else word_not(t0+1),
+     with t0 = word((b*2^64)DIV2^p) exposed by roundup_block.ml / BIGNUM_MOD_WINUP@0x90)
+   into the RED_LEMMA_D / MAINLOOP recip-of-d ROUNDUP DISJUNCTION:
+     val(d) = (b*2^64)DIV2^p + 1  \/  ((b*2^64)DIV2^p = 2^64-1 /\ val(d) = 2^64-1).
+   i.e. d is the roundup of t0 = floor(b*2^64/2^p), EXCEPT when t0 saturates at 2^64-1
+   (then t0+1 wraps to 0 and the code takes word_not 0 = 2^64-1, keeping d = 2^64-1).
+
+   The `raw` here is t0 = (b*2^64)DIV2^p (the truncated recip base); raw<2^64 is
+   supplied by BIGNUM_MOD_WINUP (0 < t0 < 2^64 clause).  Standalone -- no session deps
+   beyond core word lemmas (VAL_WORD_ADD/_1/_NOT, MOD_LT, MOD_REFL).
+   ============================================================================ *)
+
+let ROUNDUP_VAL_DISJ = prove
+ (`!b p raw.
+      raw < 2 EXP 64 /\ raw = (b * 2 EXP 64) DIV 2 EXP p
+      ==> val(if ~(val(word_add (word raw:int64) (word 1)) = 0)
+              then word_add (word raw:int64) (word 1)
+              else word_not(word_add (word raw:int64) (word 1))) =
+          (b * 2 EXP 64) DIV 2 EXP p + 1 \/
+          ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\
+           val(if ~(val(word_add (word raw:int64) (word 1)) = 0)
+               then word_add (word raw:int64) (word 1)
+               else word_not(word_add (word raw:int64) (word 1))) = 2 EXP 64 - 1)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  FIRST_X_ASSUM(fun th -> if concl th = `raw = (b * 2 EXP 64) DIV 2 EXP p`
+                          then REWRITE_TAC[SYM th] else NO_TAC) THEN
+  SUBGOAL_THEN `val(word_add (word raw:int64) (word 1)) = (raw + 1) MOD 2 EXP 64` ASSUME_TAC THENL
+   [REWRITE_TAC[VAL_WORD_ADD; VAL_WORD_1; VAL_WORD; DIMINDEX_64] THEN
+    ASM_SIMP_TAC[MOD_LT] THEN CONV_TAC MOD_DOWN_CONV THEN REFL_TAC;
+    ALL_TAC] THEN
+  ASM_CASES_TAC `raw = 2 EXP 64 - 1` THENL
+   [(* saturated: t0+1 wraps to 0, code takes word_not(0) = 2^64-1 *)
+    DISJ2_TAC THEN CONJ_TAC THENL
+     [FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `val(word_add (word raw:int64) (word 1)) = 0` ASSUME_TAC THENL
+     [FIRST_X_ASSUM(fun th ->
+        if concl th = `val(word_add (word raw:int64) (word 1)) = (raw + 1) MOD 2 EXP 64`
+        then SUBST1_TAC th else NO_TAC) THEN
+      UNDISCH_TAC `raw = 2 EXP 64 - 1` THEN DISCH_THEN SUBST1_TAC THEN
+      REWRITE_TAC[ARITH_RULE `2 EXP 64 - 1 + 1 = 2 EXP 64`; MOD_REFL];
+      ALL_TAC] THEN
+    (* drop the two now-conflicting facts so ASM_REWRITE picks the =0 fact cleanly *)
+    FIRST_X_ASSUM(fun th ->
+      if concl th = `val(word_add (word raw:int64) (word 1)) = (raw + 1) MOD 2 EXP 64`
+      then K ALL_TAC th else NO_TAC) THEN
+    FIRST_X_ASSUM(fun th -> if concl th = `raw = 2 EXP 64 - 1` then K ALL_TAC th else NO_TAC) THEN
+    ASM_REWRITE_TAC[] THEN REWRITE_TAC[VAL_WORD_NOT; DIMINDEX_64] THEN
+    ASM_REWRITE_TAC[] THEN ARITH_TAC;
+    (* non-saturated: t0+1 does not wrap, code takes t0+1 = raw+1 *)
+    DISJ1_TAC THEN
+    SUBGOAL_THEN `(raw + 1) MOD 2 EXP 64 = raw + 1` ASSUME_TAC THENL
+     [MATCH_MP_TAC MOD_LT THEN UNDISCH_TAC `raw < 2 EXP 64` THEN
+      UNDISCH_TAC `~(raw = 2 EXP 64 - 1)` THEN ARITH_TAC;
+      ALL_TAC] THEN
+    SUBGOAL_THEN `~(val(word_add (word raw:int64) (word 1)) = 0)` ASSUME_TAC THENL
+     [ASM_REWRITE_TAC[] THEN UNDISCH_TAC `raw < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
+    ASM_REWRITE_TAC[]]);;
+
+(* ============================================================================
+   Stage 3f: QH_NOOVERSHOOT (CORRECTED, cont107) -- the honest qh*b <= V.
+   ----------------------------------------------------------------------------
+   Replaces the (RECIP_B)-routed QH_NOOVERSHOOT (mainloop_wrap.ml old) which was
+   FALSE for p>64.  The real reciprocal is of the ROUNDED-UP divisor
+     d = roundup((b*2^64) DIV 2^p)   [bignum_mod.S:145  w = word_recip((t+1==0)?t:t+1)]
+   so 2^64+w UNDER-estimates 2^128/t0 and qh never overshoots.  POINTWISE true
+   (verified 0/249340 under V<b*2^64); NO reachability, NO (RECIP_B).
+
+   Two building blocks:
+   * QH_NOOVERSHOOT_ROUND : the non-saturation core.  From the recip LOWER bracket on d
+       (2^64+w)*d <= 2^128  and the rounding fact  b*2^64 <= d*2^p, derive qh*b<=V.
+       (Uses QHAT_T0_LE + MOD_LE + DIVISION.  Upper bracket NOT needed.)
+   * QH_NOOVERSHOOT_SAT : the saturation core.  When w<=1 (forced by the bracket on the
+       saturated d=2^64-1), qh=h and qh*b = h*b < h*2^p <= V (uses b<2^p).
+   The rounding fact  b*2^64 <= ((b*2^64)DIV2^p + 1)*2^p  is unconditional (ROUND_FACT).
+   ============================================================================ *)
+
+let ROUND_FACT = prove
+ (`!b p. b * 2 EXP 64 <= ((b * 2 EXP 64) DIV 2 EXP p + 1) * 2 EXP p`,
+  REPEAT GEN_TAC THEN
+  MP_TAC(SPECL [`b * 2 EXP 64`; `2 EXP p`] DIVISION) THEN
+  REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
+
+let QH_NOOVERSHOOT_ROUND = prove
+ (`!b p V w d h.
+     (2 EXP 64 + w) * d <= 2 EXP 128 /\
+     b * 2 EXP 64 <= d * 2 EXP p /\
+     h = (V DIV 2 EXP p) MOD 2 EXP 64
+     ==> ((w * h) DIV 2 EXP 64 + h) * b <= V`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[QHAT_ID] THEN
+  ABBREV_TAC `qh = ((2 EXP 64 + w) * h) DIV 2 EXP 64` THEN
+  SUBGOAL_THEN `qh * d <= 2 EXP 64 * h` ASSUME_TAC THENL
+   [EXPAND_TAC "qh" THEN MATCH_MP_TAC QHAT_T0_LE THEN
+    ASM_REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN
+    UNDISCH_TAC `(2 EXP 64 + w) * d <= 2 EXP 128` THEN
+    REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN REAL_ARITH_TAC;
+    ALL_TAC] THEN
+  SUBGOAL_THEN `h * 2 EXP p <= V` ASSUME_TAC THENL
+   [TRANS_TAC LE_TRANS `(V DIV 2 EXP p) * 2 EXP p` THEN CONJ_TAC THENL
+     [REWRITE_TAC[LE_MULT_RCANCEL] THEN DISJ1_TAC THEN ASM_REWRITE_TAC[MOD_LE];
+      MP_TAC(SPECL [`V:num`; `2 EXP p`] DIVISION) THEN
+      REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC];
+    ALL_TAC] THEN
+  MATCH_MP_TAC(ARITH_RULE `(qh * b) * 2 EXP 64 <= V * 2 EXP 64 ==> qh * b <= V`) THEN
+  TRANS_TAC LE_TRANS `(qh * d) * 2 EXP p` THEN CONJ_TAC THENL
+   [ONCE_REWRITE_TAC[ARITH_RULE `(qh * b) * 2 EXP 64 = qh * (b * 2 EXP 64)`] THEN
+    ONCE_REWRITE_TAC[ARITH_RULE `(qh * d) * 2 EXP p = qh * (d * 2 EXP p)`] THEN
+    REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN FIRST_ASSUM ACCEPT_TAC;
+    TRANS_TAC LE_TRANS `(2 EXP 64 * h) * 2 EXP p` THEN CONJ_TAC THENL
+     [REWRITE_TAC[LE_MULT_RCANCEL] THEN DISJ1_TAC THEN FIRST_ASSUM ACCEPT_TAC;
+      ONCE_REWRITE_TAC[ARITH_RULE `(2 EXP 64 * h) * 2 EXP p = 2 EXP 64 * (h * 2 EXP p)`] THEN
+      ONCE_REWRITE_TAC[ARITH_RULE `V * 2 EXP 64 = 2 EXP 64 * V`] THEN
+      REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN FIRST_ASSUM ACCEPT_TAC]]);;
+
+let QH_NOOVERSHOOT_SAT = prove
+ (`!b p V w h.
+     w <= 1 /\ b < 2 EXP p /\ h = (V DIV 2 EXP p) MOD 2 EXP 64
+     ==> ((w * h) DIV 2 EXP 64 + h) * b <= V`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `(w * h) DIV 2 EXP 64 = 0` SUBST1_TAC THENL
+   [MATCH_MP_TAC DIV_LT THEN
+    TRANS_TAC LET_TRANS `1 * h:num` THEN CONJ_TAC THENL
+     [REWRITE_TAC[LE_MULT_RCANCEL] THEN DISJ1_TAC THEN ASM_REWRITE_TAC[];
+      REWRITE_TAC[MULT_CLAUSES] THEN ASM_REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]];
+    REWRITE_TAC[ADD_CLAUSES] THEN
+    TRANS_TAC LE_TRANS `h * 2 EXP p` THEN CONJ_TAC THENL
+     [REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN ASM_SIMP_TAC[LT_IMP_LE];
+      TRANS_TAC LE_TRANS `(V DIV 2 EXP p) * 2 EXP p` THEN CONJ_TAC THENL
+       [REWRITE_TAC[LE_MULT_RCANCEL] THEN DISJ1_TAC THEN ASM_REWRITE_TAC[MOD_LE];
+        MP_TAC(SPECL [`V:num`; `2 EXP p`] DIVISION) THEN
+        REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC]]]);;
+
+(* Bracket conversion: RECIP_WIDE exposes  2^64+w < 2^128/d  (real division).  Turn it into the
+   multiplicative LOWER bracket  (2^64+w)*d <= 2^128  that QH_NOOVERSHOOT_ROUND consumes. *)
+let RECIP_BRACKET_MULT = prove
+ (`!w d. 0 < d /\ &2 pow 64 + &(val(w:int64)) < &2 pow 128 / &d
+         ==> (2 EXP 64 + val w) * d <= 2 EXP 128`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `&0 < &d` ASSUME_TAC THENL
+   [ASM_REWRITE_TAC[REAL_OF_NUM_LT]; ALL_TAC] THEN
+  RULE_ASSUM_TAC(SIMP_RULE[REAL_LT_RDIV_EQ; ASSUME `&0 < &d`]) THEN
+  REWRITE_TAC[GSYM REAL_OF_NUM_LE; GSYM REAL_OF_NUM_CLAUSES] THEN
+  MATCH_MP_TAC REAL_LT_IMP_LE THEN
+  FIRST_X_ASSUM(fun th -> if is_binary "real_lt" (concl th) then ACCEPT_TAC th else NO_TAC));;
+
+(* UPPER bracket converter: RECIP_WIDE's real-div UPPER  2^128/d <= 2^64+w+1  ->  mult form. *)
+let RECIP_BRACKET_MULT_UP = prove
+ (`!w d. 0 < d /\ &2 pow 128 / &d <= &2 pow 64 + &(val(w:int64)) + &1
+         ==> 2 EXP 128 <= (2 EXP 64 + val w + 1) * d`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `&0 < &d` ASSUME_TAC THENL [ASM_REWRITE_TAC[REAL_OF_NUM_LT]; ALL_TAC] THEN
+  REWRITE_TAC[GSYM REAL_OF_NUM_LE; GSYM REAL_OF_NUM_CLAUSES] THEN
+  SUBGOAL_THEN `&2 pow 128 = (&2 pow 128 / &d) * &d` SUBST1_TAC THENL
+   [ASM_SIMP_TAC[REAL_DIV_RMUL; REAL_LT_IMP_NZ]; ALL_TAC] THEN
+  MATCH_MP_TAC REAL_LE_RMUL THEN ASM_SIMP_TAC[REAL_LT_IMP_LE]);;
+
+(* Saturation w-bound: at d = 2^64-1 the LOWER bracket forces w<=1 (so the SAT path applies). *)
+let SAT_W_LE_1 = prove
+ (`!w. (2 EXP 64 + w) * (2 EXP 64 - 1) <= 2 EXP 128 ==> w <= 1`,
+  GEN_TAC THEN
+  MATCH_MP_TAC(ARITH_RULE `(2 <= w ==> ~((2 EXP 64 + w) * (2 EXP 64 - 1) <= 2 EXP 128))
+                           ==> (2 EXP 64 + w) * (2 EXP 64 - 1) <= 2 EXP 128 ==> w <= 1`) THEN
+  DISCH_TAC THEN
+  MATCH_MP_TAC(ARITH_RULE `2 EXP 128 < x ==> ~(x <= 2 EXP 128)`) THEN
+  TRANS_TAC LTE_TRANS `(2 EXP 64 + 2) * (2 EXP 64 - 1)` THEN CONJ_TAC THENL
+   [REWRITE_TAC[ARITH_RULE `2 EXP 128 = 2 EXP 64 * 2 EXP 64`] THEN ARITH_TAC;
+    MATCH_MP_TAC LE_MULT2 THEN ASM_REWRITE_TAC[LE_REFL; LE_ADD_LCANCEL]]);;
+
+(* Unified: from the mult LOWER bracket on d, b<2^p, and the dichotomy (rounding-fact \/ w<=1). *)
+let RECIP_CLUSTER = prove
+ (`!b t0 w.
+    ~(b = 0) /\
+    (~(b = 0) ==> bit 63 (t0:int64)) /\
+    (bit 63 t0
+     ==> &2 pow 64 + &(val(w:int64)) < &2 pow 128 / &(val t0) /\
+         &2 pow 128 / &(val t0) <= &2 pow 64 + &(val w) + &1) /\
+    (val t0 = (b * 2 EXP 64) DIV 2 EXP (bitsize b) + 1 \/
+     (b * 2 EXP 64) DIV 2 EXP (bitsize b) = 2 EXP 64 - 1 /\
+     val t0 = 2 EXP 64 - 1)
+    ==> 0 < (b * 2 EXP 64) DIV 2 EXP (bitsize b) /\
+        (b * 2 EXP 64) DIV 2 EXP (bitsize b) < 2 EXP 64 /\
+        (b * 2 EXP 64) DIV 2 EXP (bitsize b) * 2 EXP (bitsize b) +
+          (b * 2 EXP 64) MOD 2 EXP (bitsize b) = b * 2 EXP 64 /\
+        val t0 < 2 EXP 64 /\
+        (val t0 = (b * 2 EXP 64) DIV 2 EXP (bitsize b) + 1 \/
+         (b * 2 EXP 64) DIV 2 EXP (bitsize b) = 2 EXP 64 - 1 /\
+         val t0 = 2 EXP 64 - 1) /\
+        (2 EXP 64 + val w) * val t0 <= 2 EXP 128 /\
+        2 EXP 128 <= (2 EXP 64 + val w + 1) * val t0 /\
+        b < 2 EXP (bitsize b) /\
+        2 EXP (bitsize b - 1) <= b /\
+        1 <= bitsize b`,
+  REPEAT GEN_TAC THEN DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
+  SUBGOAL_THEN `bit 63 (t0:int64)` ASSUME_TAC THENL
+   [FIRST_X_ASSUM MATCH_MP_TAC THEN FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
+  FIRST_X_ASSUM(fun th ->
+    if is_imp(concl th) && (fst(dest_imp(concl th)) = `bit 63 (t0:int64)`)
+    then MP_TAC(MATCH_MP th (ASSUME `bit 63 (t0:int64)`)) else NO_TAC) THEN
+  STRIP_TAC THEN
+  SUBGOAL_THEN `2 EXP 63 <= val(t0:int64)` ASSUME_TAC THENL
+   [MP_TAC(ISPEC `t0:int64` MSB_VAL) THEN REWRITE_TAC[DIMINDEX_64] THEN
+    CONV_TAC NUM_REDUCE_CONV THEN ASM_REWRITE_TAC[];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `0 < val(t0:int64)` ASSUME_TAC THENL
+   [UNDISCH_TAC `2 EXP 63 <= val(t0:int64)` THEN ARITH_TAC; ALL_TAC] THEN
+  MP_TAC(ISPEC `b:num` WINDOW_RANGE) THEN ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
+  REPEAT CONJ_TAC THENL
+   [UNDISCH_TAC `2 EXP 63 <= (b * 2 EXP 64) DIV 2 EXP bitsize b` THEN ARITH_TAC;
+    FIRST_ASSUM ACCEPT_TAC;
+    MP_TAC(SPECL [`b * 2 EXP 64`; `2 EXP (bitsize b)`] DIVISION) THEN
+    REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
+    DISCH_THEN(fun th -> GEN_REWRITE_TAC (RAND_CONV) [CONJUNCT1 th]) THEN
+    REWRITE_TAC[] THEN ARITH_TAC;
+    REWRITE_TAC[VAL_BOUND_64];
+    MATCH_MP_TAC RECIP_BRACKET_MULT THEN ASM_REWRITE_TAC[];
+    MATCH_MP_TAC RECIP_BRACKET_MULT_UP THEN ASM_REWRITE_TAC[];
+    REWRITE_TAC[REWRITE_RULE[LE_REFL] (SPECL [`b:num`; `bitsize b`] BITSIZE_LE)];
+    ASM_SIMP_TAC[BITSIZE_LOWER];
+    REWRITE_TAC[ARITH_RULE `1 <= n <=> ~(n = 0)`; BITSIZE_EQ_0] THEN
+    FIRST_ASSUM ACCEPT_TAC]);;
+
+(* ============================================================================
+   KI_CORE_D (cont107) -- bound-maintenance R < 2^(p+2) for the ROUNDED divisor d.
+   ----------------------------------------------------------------------------
+   The dual of KI_CORE (ki_core.ml) for the REAL reciprocal w = word_recip(d),
+   d = roundup((b*2^64) DIV 2^p) (bignum_mod.S:145).  Where KI_CORE takes the recip-of-t0
+   brackets + ADDITIVE floor b*2^64 = t0*2^p + s, KI_CORE_D takes the recip-of-d brackets
+   (BOTH -- they pin qhat) + the SUBTRACTIVE floor d*2^p = b*2^64 + s' (d rounds UP) + h < d.
+   Verified 0/1872 free-qhat, and the real w satisfies both d-brackets (100/100).  See
+   DDK_BUILD_PLAN cont107e-g.  Conclusion IDENTICAL to KI_CORE: Zf < qhat*b + 2^(p+2).
+
+   Deps: none beyond core HOL (DIVISION, REAL_RING, REAL_ARITH).  Load anywhere after prelude.
+   ============================================================================ *)
+
+(* crux product bound: (b*f)*(f+h) < 2*(f*f)*e - s'*f - s'*h  [f=2^64, e=2^p].
+   From the subtractive floor b*f = d*e - s' and d<f, h<f. *)
+let KI_CORE_D_CRUX = prove
+ (`!b d e s' f h.
+    &d * e = &b * f + &s' /\ &d < f /\ &h < f /\ &0 < e /\ &0 < f /\ &0 <= &b /\ &0 <= &h /\ &0 <= &s'
+    ==> (&b * f) * (f + &h) < &2 * (f * f) * e - &s' * f - &s' * &h`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `&b * f = &d * e - &s'` SUBST1_TAC THENL
+   [UNDISCH_TAC `&d * e = &b * f + &s'` THEN REAL_ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[REAL_SUB_RDISTRIB] THEN
+  MATCH_MP_TAC(REAL_ARITH
+   `(&d * e) * (f + &h) < &2 * (f * f) * e /\ &s' * (f + &h) = &s' * f + &s' * &h
+    ==> (&d * e) * (f + &h) - &s' * (f + &h) < &2 * (f * f) * e - &s' * f - &s' * &h`) THEN
+  CONJ_TAC THENL
+   [TRANS_TAC REAL_LTE_TRANS `(f * e) * (f + &h)` THEN CONJ_TAC THENL
+     [MATCH_MP_TAC REAL_LT_RMUL THEN CONJ_TAC THENL
+       [ONCE_REWRITE_TAC[REAL_ARITH `&d * e = e * &d /\ f * e = e * f`] THEN
+        MATCH_MP_TAC REAL_LT_LMUL THEN ASM_REWRITE_TAC[]; ASM_REAL_ARITH_TAC];
+      REWRITE_TAC[REAL_ARITH `&2 * (f * f) * e = (f * e) * (&2 * f)`] THEN
+      MATCH_MP_TAC REAL_LE_LMUL THEN CONJ_TAC THENL
+       [MATCH_MP_TAC REAL_LE_MUL THEN ASM_REAL_ARITH_TAC; ASM_REAL_ARITH_TAC]];
+    REAL_ARITH_TAC]);;
+
+let KI_CORE_D = prove
+ (`!b p d w h s' zr Zf.
+    b < 2 EXP p /\ 0 < d /\ d < 2 EXP 64 /\ h < d /\
+    d * 2 EXP p = b * 2 EXP 64 + s' /\ s' <= 2 EXP p /\
+    Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
+    (2 EXP 64 + w) * d <= 2 EXP 128 /\
+    2 EXP 128 <= (2 EXP 64 + w + 1) * d
+    ==> Zf < ((2 EXP 64 + w) * h) DIV 2 EXP 64 * b + 2 EXP (p + 2)`,
+  REPEAT GEN_TAC THEN
+  ABBREV_TAC `RR = 2 EXP 64 + w` THEN
+  ABBREV_TAC `qhat = (RR * h) DIV 2 EXP 64` THEN
+  SUBGOAL_THEN `qhat * 2 EXP 64 <= RR * h /\ RR * h < qhat * 2 EXP 64 + 2 EXP 64` STRIP_ASSUME_TAC THENL
+   [MP_TAC(SPECL [`RR * h`; `2 EXP 64`] DIVISION) THEN
+    REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN EXPAND_TAC "qhat" THEN ARITH_TAC; ALL_TAC] THEN
+  STRIP_TAC THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[GSYM REAL_OF_NUM_CLAUSES]) THEN
+  REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN
+  ABBREV_TAC `e = &2 pow p` THEN ABBREV_TAC `f = &2 pow 64` THEN
+  SUBGOAL_THEN `&2 pow (p + 2) = &4 * e` SUBST1_TAC THENL
+   [EXPAND_TAC "e" THEN REWRITE_TAC[REAL_POW_ADD] THEN REAL_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `&2 pow 128 = f * f` SUBST_ALL_TAC THENL
+   [EXPAND_TAC "f" THEN REWRITE_TAC[GSYM REAL_POW_ADD] THEN CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
+  SUBGOAL_THEN `&0 < e /\ &0 < f` STRIP_ASSUME_TAC THENL
+   [CONJ_TAC THENL [EXPAND_TAC "e"; EXPAND_TAC "f"] THEN REWRITE_TAC[REAL_LT_POW2]; ALL_TAC] THEN
+  SUBGOAL_THEN `&0 < &RR` ASSUME_TAC THENL
+   [UNDISCH_TAC `f + &w = &RR` THEN UNDISCH_TAC `&0 < f` THEN REAL_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `&h < f` ASSUME_TAC THENL
+   [TRANS_TAC REAL_LT_TRANS `&d:real` THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  SUBGOAL_THEN `f * f <= &RR * &d + &d` ASSUME_TAC THENL
+   [UNDISCH_TAC `f * f <= (f + &w + &1) * &d` THEN
+    FIRST_ASSUM(fun th -> if concl th = `f + &w = &RR` then REWRITE_TAC[SYM th] else NO_TAC) THEN
+    REAL_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `&RR * &h < f * f` ASSUME_TAC THENL
+   [TRANS_TAC REAL_LTE_TRANS `&RR * &d` THEN ASM_REWRITE_TAC[] THEN
+    ASM_SIMP_TAC[REAL_LT_LMUL_EQ]; ALL_TAC] THEN
+  SUBGOAL_THEN `(f * f) * &h < (&qhat * f + f) * &d + &d * &h` ASSUME_TAC THENL
+   [TRANS_TAC REAL_LET_TRANS `(&RR * &d) * &h + &d * &h` THEN CONJ_TAC THENL
+     [REWRITE_TAC[GSYM REAL_ADD_RDISTRIB] THEN MATCH_MP_TAC REAL_LE_RMUL THEN
+      ASM_REWRITE_TAC[REAL_POS]; ALL_TAC] THEN
+    REWRITE_TAC[REAL_LT_RADD] THEN
+    ONCE_REWRITE_TAC[REAL_ARITH `(&RR * &d) * &h = (&RR * &h) * &d`] THEN
+    ASM_SIMP_TAC[REAL_LT_RMUL_EQ]; ALL_TAC] THEN
+  SUBGOAL_THEN `(f * f) * &h * e < ((&qhat * f + f) * &d + &d * &h) * e` MP_TAC THENL
+   [ASM_SIMP_TAC[REAL_LT_RMUL_EQ] THEN
+    REWRITE_TAC[REAL_ARITH `(f * f) * &h * e = ((f * f) * &h) * e`] THEN
+    ASM_SIMP_TAC[REAL_LT_RMUL_EQ]; ALL_TAC] THEN
+  REWRITE_TAC[REAL_RING `((&qhat * f + f) * &d + &d * &h) * e =
+                         (&qhat * f + f) * (&d * e) + (&d * e) * &h`;
+              REAL_RING `(f * f) * &h * e = (f * f) * (&h * e)`] THEN
+  SUBST1_TAC(ASSUME `&d * e = &b * f + &s'`) THEN
+  SUBGOAL_THEN `&h * e = &Zf - &zr` SUBST1_TAC THENL
+   [UNDISCH_TAC `&Zf = &h * e + &zr` THEN REAL_ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[REAL_RING `(&qhat * f + f) * (&b * f + &s') + (&b * f + &s') * &h =
+              (f * f) * (&qhat * &b) + &qhat * f * &s' + (&b * f) * (f + &h) + f * &s' + &s' * &h`] THEN
+  DISCH_TAC THEN
+  MP_TAC(ISPECL [`b:num`;`d:num`;`e:real`;`s':num`;`f:real`;`h:num`] KI_CORE_D_CRUX) THEN
+  ANTS_TAC THENL [ASM_REWRITE_TAC[REAL_POS]; DISCH_TAC] THEN
+  SUBGOAL_THEN `&qhat * f * &s' <= (f * f) * e` ASSUME_TAC THENL
+   [TRANS_TAC REAL_LE_TRANS `(&RR * &h) * &s'` THEN CONJ_TAC THENL
+     [REWRITE_TAC[REAL_ARITH `&qhat * f * &s' = (&qhat * f) * &s'`] THEN
+      MATCH_MP_TAC REAL_LE_RMUL THEN ASM_SIMP_TAC[REAL_POS]; ALL_TAC] THEN
+    TRANS_TAC REAL_LE_TRANS `(f * f) * &s'` THEN CONJ_TAC THENL
+     [MATCH_MP_TAC REAL_LE_RMUL THEN ASM_SIMP_TAC[REAL_POS; REAL_LT_IMP_LE]; ALL_TAC] THEN
+    MATCH_MP_TAC REAL_LE_LMUL THEN ASM_SIMP_TAC[REAL_LE_MUL; REAL_LT_IMP_LE]; ALL_TAC] THEN
+  SUBGOAL_THEN `(f * f) * &zr < (f * f) * e` ASSUME_TAC THENL
+   [MATCH_MP_TAC REAL_LT_LMUL THEN ASM_SIMP_TAC[REAL_LT_MUL]; ALL_TAC] THEN
+  SUBGOAL_THEN `&0 < f * f` ASSUME_TAC THENL [ASM_SIMP_TAC[REAL_LT_MUL]; ALL_TAC] THEN
+  ONCE_REWRITE_TAC[GSYM(MATCH_MP REAL_LT_LMUL_EQ (ASSUME `&0 < f * f`))] THEN
+  MP_TAC(REAL_ARITH `f * &s' = &s' * f`) THEN
+  ASM_REAL_ARITH_TAC);;
+
+(* ============================================================================
+   RED_LEMMA_D (cont107) -- the UNIFIED reciprocal reduction lemma (longredlemma-style).
+   ----------------------------------------------------------------------------
+   ONE lemma giving BOTH the no-overshoot (qhat*b<=Zf) and the bound-maintenance
+   (Zf < qhat*b + 2^(p+2)) for the REAL reciprocal w = word_recip(d), d = roundup(t0),
+   t0 = (b*2^64) DIV 2^p.  Saturation (t0 = 2^64-1) is folded IN via the disjunctive
+   roundup characterization + an internal case split (following bignum_mod_*'s
+   `longredlemma` idiom where MIN(...)(2^64-1) bakes the clamp into q).
+   Consumers see ONE lemma; NO external case split.
+   Deps: QH_NOOVERSHOOT_ROUND/_SAT (qh_noovershoot_new.ml), KI_CORE_D (ki_core_d.ml),
+         SAT_W_LE_1 (qh_noovershoot_new.ml), QHAT_ID, DIVISION, RDIV_LT_EQ.
+   ============================================================================ *)
+
+(* saturation upper-bound: w<=1 (=> qhat=h) and b near 2^p (2^64*(2^p-b)<=2^p) => Zf<h*b+2^(p+2). *)
+let KI_CORE_D_SAT = prove
+ (`!b p w h zr Zf.
+    w <= 1 /\ b < 2 EXP p /\
+    2 EXP 64 * (2 EXP p - b) <= 2 EXP p /\
+    Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\ h < 2 EXP 64
+    ==> Zf < ((2 EXP 64 + w) * h) DIV 2 EXP 64 * b + 2 EXP (p + 2)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `((2 EXP 64 + w) * h) DIV 2 EXP 64 = h` SUBST1_TAC THENL
+   [SUBGOAL_THEN `(2 EXP 64 + w) * h = 2 EXP 64 * h + w * h` SUBST1_TAC THENL
+     [ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `w * h < 2 EXP 64` ASSUME_TAC THENL
+     [TRANS_TAC LET_TRANS `1 * h:num` THEN CONJ_TAC THENL
+       [REWRITE_TAC[LE_MULT_RCANCEL] THEN ASM_REWRITE_TAC[];
+        ASM_REWRITE_TAC[MULT_CLAUSES]]; ALL_TAC] THEN
+    ONCE_REWRITE_TAC[ARITH_RULE `2 EXP 64 * h + w * h = w * h + h * 2 EXP 64`] THEN
+    ASM_SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ] THEN
+    ASM_SIMP_TAC[DIV_LT] THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `h * (2 EXP p - b) < 2 EXP p` ASSUME_TAC THENL
+   [TRANS_TAC LTE_TRANS `2 EXP 64 * (2 EXP p - b)` THEN ASM_REWRITE_TAC[] THEN
+    REWRITE_TAC[LT_MULT_RCANCEL] THEN
+    UNDISCH_TAC `b < 2 EXP p` THEN UNDISCH_TAC `h < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `h * b + h * (2 EXP p - b) = h * 2 EXP p` ASSUME_TAC THENL
+   [REWRITE_TAC[GSYM LEFT_ADD_DISTRIB] THEN AP_TERM_TAC THEN
+    UNDISCH_TAC `b < 2 EXP p` THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP p + 2 EXP p <= 2 EXP (p + 2)` ASSUME_TAC THENL
+   [REWRITE_TAC[EXP_ADD] THEN ARITH_TAC; ALL_TAC] THEN
+  ASM_REWRITE_TAC[] THEN
+  MAP_EVERY UNDISCH_TAC
+   [`h * b + h * (2 EXP p - b) = h * 2 EXP p`;
+    `h * (2 EXP p - b) < 2 EXP p`; `zr < 2 EXP p`;
+    `2 EXP p + 2 EXP p <= 2 EXP (p + 2)`] THEN ARITH_TAC);;
+
+(* The unified reduction lemma. *)
+let RED_LEMMA_D = prove
+ (`!b p w d h zr Zf.
+    ~(b = 0) /\ b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
+    d < 2 EXP 64 /\
+    (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
+     ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
+    (2 EXP 64 + w) * d <= 2 EXP 128 /\
+    2 EXP 128 <= (2 EXP 64 + w + 1) * d /\
+    Zf < b * 2 EXP 64 /\
+    Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
+    h = (Zf DIV 2 EXP p) MOD 2 EXP 64
+    ==> ((2 EXP 64 + w) * h) DIV 2 EXP 64 * b <= Zf /\
+        Zf < ((2 EXP 64 + w) * h) DIV 2 EXP 64 * b + 2 EXP (p + 2)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THENL
+   [(* ===== NON-SAT: d = t0 + 1 ===== *)
+    SUBGOAL_THEN `b * 2 EXP 64 <= d * 2 EXP p /\ d * 2 EXP p <= b * 2 EXP 64 + 2 EXP p`
+    STRIP_ASSUME_TAC THENL
+     [FIRST_ASSUM(fun th -> if concl th = `d = (b * 2 EXP 64) DIV 2 EXP p + 1`
+         then REWRITE_TAC[th] else NO_TAC) THEN
+      MP_TAC(SPECL [`b * 2 EXP 64`; `2 EXP p`] DIVISION) THEN
+      REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `0 < d` ASSUME_TAC THENL
+     [ASM_REWRITE_TAC[] THEN ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `Zf DIV 2 EXP p < d` ASSUME_TAC THENL
+     [MP_TAC(SPECL [`2 EXP p`; `Zf:num`; `d:num`] RDIV_LT_EQ) THEN
+      REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN DISCH_THEN SUBST1_TAC THEN
+      ONCE_REWRITE_TAC[MULT_SYM] THEN
+      TRANS_TAC LTE_TRANS `b * 2 EXP 64` THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    SUBGOAL_THEN `h <= Zf DIV 2 EXP p` ASSUME_TAC THENL
+     [ONCE_REWRITE_TAC[ASSUME `h = (Zf DIV 2 EXP p) MOD 2 EXP 64`] THEN
+      REWRITE_TAC[MOD_LE]; ALL_TAC] THEN
+    SUBGOAL_THEN `h < d` ASSUME_TAC THENL
+     [MAP_EVERY UNDISCH_TAC [`h <= Zf DIV 2 EXP p`; `Zf DIV 2 EXP p < d`] THEN ARITH_TAC;
+      ALL_TAC] THEN
+    SUBGOAL_THEN
+     `d * 2 EXP p = b * 2 EXP 64 + (d * 2 EXP p - b * 2 EXP 64) /\
+      (d * 2 EXP p - b * 2 EXP 64) <= 2 EXP p` STRIP_ASSUME_TAC THENL
+     [MAP_EVERY UNDISCH_TAC
+       [`b * 2 EXP 64 <= d * 2 EXP p`; `d * 2 EXP p <= b * 2 EXP 64 + 2 EXP p`] THEN ARITH_TAC;
+      ALL_TAC] THEN
+    REWRITE_TAC[GSYM QHAT_ID] THEN CONJ_TAC THENL
+     [MP_TAC(ISPECL [`b:num`;`p:num`;`Zf:num`;`w:num`;`d:num`;`h:num`] QH_NOOVERSHOOT_ROUND) THEN
+      ANTS_TAC THENL [REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
+      MP_TAC(ISPECL [`b:num`;`p:num`;`d:num`;`w:num`;`h:num`;`d * 2 EXP p - b * 2 EXP 64`;
+                     `zr:num`;`Zf:num`] KI_CORE_D) THEN
+      ANTS_TAC THENL [REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
+      REWRITE_TAC[QHAT_ID]];
+    (* ===== SAT: t0 = 2^64-1, d = 2^64-1 ===== *)
+    SUBGOAL_THEN `w <= 1` ASSUME_TAC THENL
+     [MATCH_MP_TAC SAT_W_LE_1 THEN
+      UNDISCH_TAC `(2 EXP 64 + w) * d <= 2 EXP 128` THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    SUBGOAL_THEN `2 EXP 64 * (2 EXP p - b) <= 2 EXP p` ASSUME_TAC THENL
+     [MP_TAC(SPECL [`b * 2 EXP 64`; `2 EXP p`] DIVISION) THEN
+      REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
+      FIRST_ASSUM(fun th -> if concl th = `(b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1`
+         then REWRITE_TAC[th] else NO_TAC) THEN
+      SUBGOAL_THEN `2 EXP p * (2 EXP 64 - 1) = 2 EXP 64 * 2 EXP p - 2 EXP p` ASSUME_TAC THENL
+       [SIMP_TAC[LEFT_SUB_DISTRIB; MULT_CLAUSES] THEN ARITH_TAC; ALL_TAC] THEN
+      UNDISCH_TAC `b < 2 EXP p` THEN ASM_REWRITE_TAC[] THEN ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `h < 2 EXP 64` ASSUME_TAC THENL
+     [ONCE_REWRITE_TAC[ASSUME `h = (Zf DIV 2 EXP p) MOD 2 EXP 64`] THEN
+      REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
+    CONJ_TAC THENL
+     [REWRITE_TAC[GSYM QHAT_ID] THEN
+      MP_TAC(ISPECL [`b:num`;`p:num`;`Zf:num`;`w:num`;`h:num`] QH_NOOVERSHOOT_SAT) THEN
+      ANTS_TAC THENL [REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
+      MP_TAC(ISPECL [`b:num`;`p:num`;`w:num`;`h:num`;`zr:num`;`Zf:num`] KI_CORE_D_SAT) THEN
+      ANTS_TAC THENL [REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]]);;
+
+(* ============================================================================
+   red2.ml (cont108) -- RED2: the SECOND-PASS reduction accuracy for bignum_mod's Stage 4.
+   Delivers the two-sided bracket  q2*b <= V1 + b  /\  V1 < q2*b + b   (V2 = V1 - q2*b in [-b,b))
+   consumed by NEGADD_PASSES_CLOSE, where
+     V1 < 2^(p+2)  (post-pass1 residual, from RED_LEMMA_D),
+     h2 = (V1 DIV 2^(p-61)) MOD 2^64   (the 2nd window, = X15 out of NEGADD1_LOG),
+     q2 = ((multop(w,h2)+h2) DIV 2^61) + 1 = (((2^64+w)*h2) DIV 2^64 DIV 2^61) + 1.
+   Method: apply RED_LEMMA_D to Zf := V1*2^61 (same p,w,d; window h2 since V1*2^61 DIV 2^p =
+   V1 DIV 2^(p-61)), giving qh*b <= V1*2^61 < qh*b + 2^(p+2) with qh = ((2^64+w)*h2) DIV 2^64;
+   then divide through by 2^61 (RED2_LO / RED2_HI).  This is the analogue, at the 2^61 window
+   scale, of what bignum_cmod.ml:1226+ does with the real reciprocal.
+   Deps: RED_LEMMA_D (red_lemma_d.ml), SCALE_FITS (below), arith.
+   ============================================================================ *)
+
+(* V1 < 2^(p+2), 2^(p-1)<=b, 61<=p  =>  V1*2^61 < b*2^64  (so RED_LEMMA_D's Zf<b*2^64 holds). *)
+let SCALE_FITS = prove
+ (`!V1 b p. V1 < 2 EXP (p + 2) /\ 2 EXP (p - 1) <= b /\ 61 <= p
+            ==> V1 * 2 EXP 61 < b * 2 EXP 64`,
+  REPEAT STRIP_TAC THEN
+  TRANS_TAC LTE_TRANS `2 EXP (p + 2) * 2 EXP 61` THEN CONJ_TAC THENL
+   [ASM_REWRITE_TAC[LT_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ];
+    REWRITE_TAC[GSYM EXP_ADD] THEN
+    TRANS_TAC LE_TRANS `2 EXP (p - 1) * 2 EXP 64` THEN CONJ_TAC THENL
+     [REWRITE_TAC[GSYM EXP_ADD] THEN REWRITE_TAC[LE_EXP; ARITH_EQ] THEN
+      UNDISCH_TAC `61 <= p` THEN ARITH_TAC;
+      ASM_REWRITE_TAC[LE_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ]]]);;
+
+(* divide-by-2^61, lower side: qh*b <= V1*2^61 => (qh DIV 2^61 + 1)*b <= V1 + b. *)
+let RED2_LO = prove
+ (`!qh b V1. qh * b <= V1 * 2 EXP 61 ==> (qh DIV 2 EXP 61 + 1) * b <= V1 + b`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`qh:num`; `2 EXP 61`] DIVISION) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
+  ABBREV_TAC `Q = qh DIV 2 EXP 61` THEN ABBREV_TAC `s = qh MOD 2 EXP 61` THEN
+  STRIP_TAC THEN
+  SUBGOAL_THEN `Q * b <= V1` MP_TAC THENL
+   [SUBGOAL_THEN `(Q * b) * 2 EXP 61 <= V1 * 2 EXP 61` MP_TAC THENL
+     [TRANS_TAC LE_TRANS `qh * b` THEN ASM_REWRITE_TAC[] THEN
+      FIRST_X_ASSUM(fun th -> if concl th = `qh = Q * 2 EXP 61 + s` then MP_TAC th else NO_TAC) THEN
+      DISCH_THEN(fun th -> GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [th]) THEN ARITH_TAC;
+      REWRITE_TAC[LE_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ]];
+    ARITH_TAC]);;
+
+(* divide-by-2^61, upper side: V1*2^61 < qh*b + 2^(p+2), 2^(p-1)<=b, 61<=p
+   => V1 < (qh DIV 2^61 + 1)*b + b. *)
+let RED2_HI = prove
+ (`!qh b V1 p.
+      V1 * 2 EXP 61 < qh * b + 2 EXP (p + 2) /\ 2 EXP (p - 1) <= b /\ 61 <= p
+      ==> V1 < (qh DIV 2 EXP 61 + 1) * b + b`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `~(b = 0)` ASSUME_TAC THENL
+   [MP_TAC(SPEC `p - 1` (REWRITE_RULE[ARITH_EQ] (SPEC `2` EXP_EQ_0))) THEN
+    UNDISCH_TAC `2 EXP (p - 1) <= b` THEN ARITH_TAC; ALL_TAC] THEN
+  MP_TAC(SPECL [`qh:num`; `2 EXP 61`] DIVISION) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
+  ABBREV_TAC `Q = qh DIV 2 EXP 61` THEN ABBREV_TAC `s = qh MOD 2 EXP 61` THEN
+  STRIP_TAC THEN
+  SUBGOAL_THEN `2 EXP (p + 2) <= 2 EXP 61 * b` ASSUME_TAC THENL
+   [TRANS_TAC LE_TRANS `2 EXP 61 * 2 EXP (p - 1)` THEN CONJ_TAC THENL
+     [REWRITE_TAC[GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN UNDISCH_TAC `61 <= p` THEN ARITH_TAC;
+      REWRITE_TAC[LE_MULT_LCANCEL] THEN ASM_REWRITE_TAC[]];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `V1 * 2 EXP 61 < ((Q + 1) * b + b) * 2 EXP 61` MP_TAC THENL
+   [TRANS_TAC LTE_TRANS `qh * b + 2 EXP (p + 2)` THEN ASM_REWRITE_TAC[] THEN
+    FIRST_X_ASSUM(fun th -> if concl th = `qh = Q * 2 EXP 61 + s` then SUBST1_TAC th else NO_TAC) THEN
+    MATCH_MP_TAC(ARITH_RULE
+      `s * b < 2 EXP 61 * b /\ e2 <= 2 EXP 61 * b
+       ==> (Q * 2 EXP 61 + s) * b + e2 <= ((Q + 1) * b + b) * 2 EXP 61`) THEN
+    ASM_REWRITE_TAC[LT_MULT_RCANCEL];
+    REWRITE_TAC[LT_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ]]);;
+
+(* window identity: for V1 < 2^(p+2) and 61<=p, (V1*2^61 DIV 2^p) MOD 2^64 = (V1 DIV 2^(p-61)) MOD 2^64.
+   V1*2^61 DIV 2^p = V1 DIV 2^(p-61) since p = (p-61)+61; the MOD 2^64 wraps both identically. *)
+let WIN2_IDENT = prove
+ (`!V1 p. 61 <= p
+          ==> ((V1 * 2 EXP 61) DIV 2 EXP p) MOD 2 EXP 64 = (V1 DIV 2 EXP (p - 61)) MOD 2 EXP 64`,
+  REPEAT STRIP_TAC THEN AP_THM_TAC THEN AP_TERM_TAC THEN
+  SUBGOAL_THEN `2 EXP p = 2 EXP 61 * 2 EXP (p - 61)` SUBST1_TAC THENL
+   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN UNDISCH_TAC `61 <= p` THEN ARITH_TAC;
+    ALL_TAC] THEN
+  GEN_REWRITE_TAC (LAND_CONV o LAND_CONV) [MULT_SYM] THEN
+  SIMP_TAC[DIV_MULT2; EXP_EQ_0; ARITH_EQ]);;
+
+(* RED2 -- the second-pass accuracy: the two-sided bracket for NEGADD_PASSES_CLOSE.
+   Same recip-of-d hyps as RED_LEMMA_D (d = rounded divisor, w = recip).  h2 the 2nd window,
+   q2 = ((2^64+w)*h2 DIV 2^64) DIV 2^61 + 1.  Conclude q2*b <= V1+b /\ V1 < q2*b+b. *)
+let RED2 = prove
+ (`!b p w d h2 V1.
+      ~(b = 0) /\ b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 61 <= p /\
+      d < 2 EXP 64 /\
+      (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
+       ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
+      (2 EXP 64 + w) * d <= 2 EXP 128 /\
+      2 EXP 128 <= (2 EXP 64 + w + 1) * d /\
+      V1 < 2 EXP (p + 2) /\
+      h2 = (V1 DIV 2 EXP (p - 61)) MOD 2 EXP 64
+      ==> ((((2 EXP 64 + w) * h2) DIV 2 EXP 64) DIV 2 EXP 61 + 1) * b <= V1 + b /\
+          V1 < ((((2 EXP 64 + w) * h2) DIV 2 EXP 64) DIV 2 EXP 61 + 1) * b + b`,
+  REPEAT GEN_TAC THEN
+  (* INTRO_TAC (not STRIP_TAC): keep the roundup disjunction as ONE labeled hyp -- STRIP_TAC
+     would split it into 2 goals and the downstream THENL branch counts would mismatch. *)
+  INTRO_TAC "hb0 hblt hpb hp hd hdisj hup hlo hv hh2" THEN
+  ABBREV_TAC `Zf = V1 * 2 EXP 61` THEN
+  (* Zf DIV 2^p < 2^64 : window fits (V1 < 2^(p+2) => Zf = V1*2^61 < 2^(p+63) < 2^p*2^64) *)
+  SUBGOAL_THEN `Zf DIV 2 EXP p < 2 EXP 64` ASSUME_TAC THENL
+   [SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
+    EXPAND_TAC "Zf" THEN
+    TRANS_TAC LTE_TRANS `2 EXP (p + 2) * 2 EXP 61` THEN CONJ_TAC THENL
+     [REWRITE_TAC[LT_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ] THEN ASM_REWRITE_TAC[];
+      REWRITE_TAC[GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN
+      REMOVE_THEN "hp" MP_TAC THEN ARITH_TAC];
+    ALL_TAC] THEN
+  (* the 2nd window equals Zf's top window: h2 = (V1 DIV 2^(p-61))MOD2^64 = Zf DIV 2^p (WIN2_IDENT
+     + MOD_LT, since Zf DIV 2^p < 2^64). *)
+  SUBGOAL_THEN `h2 = Zf DIV 2 EXP p` ASSUME_TAC THENL
+   [SUBGOAL_THEN `Zf DIV 2 EXP p = (Zf DIV 2 EXP p) MOD 2 EXP 64` SUBST1_TAC THENL
+     [CONV_TAC SYM_CONV THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    EXPAND_TAC "Zf" THEN ASM_SIMP_TAC[WIN2_IDENT];
+    ALL_TAC] THEN
+  (* apply RED_LEMMA_D to Zf, window h2 -> qh*b <= Zf /\ Zf < qh*b + 2^(p+2) *)
+  MP_TAC(SPECL [`b:num`; `p:num`; `w:num`; `d:num`; `h2:num`; `Zf MOD 2 EXP p`; `Zf:num`]
+    RED_LEMMA_D) THEN
+  ANTS_TAC THENL
+   [ASM_REWRITE_TAC[] THEN
+    (* fold (V1 DIV 2^(p-61))MOD2^64 -> h2 -> Zf DIV 2^p so the h/zr conjuncts become DIVISION *)
+    FIRST_X_ASSUM(fun th -> if concl th = `h2 = (V1 DIV 2 EXP (p - 61)) MOD 2 EXP 64`
+      then GEN_REWRITE_TAC (REDEPTH_CONV) [GSYM th] else NO_TAC) THEN
+    FIRST_ASSUM(fun th -> if concl th = `h2 = Zf DIV 2 EXP p`
+      then GEN_REWRITE_TAC (REDEPTH_CONV) [th] else NO_TAC) THEN
+    REPEAT CONJ_TAC THENL
+     [REMOVE_THEN "hp" MP_TAC THEN ARITH_TAC;
+      EXPAND_TAC "Zf" THEN MATCH_MP_TAC SCALE_FITS THEN EXISTS_TAC `p:num` THEN
+      ASM_REWRITE_TAC[];
+      MP_TAC(SPECL [`Zf:num`; `2 EXP p`] DIVISION) THEN
+      REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN DISCH_THEN(fun th -> ACCEPT_TAC(CONJUNCT1 th));
+      MP_TAC(SPECL [`Zf:num`; `2 EXP p`] DIVISION) THEN
+      REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN SIMP_TAC[];
+      CONV_TAC SYM_CONV THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]];
+    ALL_TAC] THEN
+  (* divide the bracket through by 2^61 (RED2_LO / RED2_HI) *)
+  STRIP_TAC THEN CONJ_TAC THENL
+   [MATCH_MP_TAC RED2_LO THEN
+    FIRST_X_ASSUM(fun th -> if concl th = `V1 * 2 EXP 61 = Zf` then MP_TAC th else NO_TAC) THEN
+    DISCH_THEN(SUBST1_TAC) THEN ASM_REWRITE_TAC[];
+    MATCH_MP_TAC RED2_HI THEN EXISTS_TAC `p:num` THEN
+    FIRST_X_ASSUM(fun th -> if concl th = `V1 * 2 EXP 61 = Zf` then MP_TAC th else NO_TAC) THEN
+    DISCH_THEN(SUBST1_TAC) THEN ASM_REWRITE_TAC[]]);;
+
+(* ============================================================================
+   red2_small.ml (cont108aw) -- p<61 (small single-word modulus) accuracy analogs.
+   The Stage-4 corrections were proven only for 61<=p; for a single-word modulus
+   b<2^61 (dd=0), p=bitsize b<61, which IS on the reachable path.  The accuracy
+   ENGINE (RED_LEMMA_D) is p-general (needs only 1<=p); only the 2nd-pass WINDOW
+   FORM differs: p>=61 uses V1 DIV 2^(p-61) (right shift), p<=61 uses V1*2^(61-p)
+   (left shift).  Both equal (V1*2^61) DIV 2^p.  See SMALLP_ONPAPER.md.
+
+   WIN2_IDENT_SMALL : the p<=61 window form  ((V1*2^61)DIV2^p)MOD2^64 = (V1*2^(61-p))MOD2^64.
+   FUNNEL_SMALL     : the machine funnel at pcode=0  (2^64*z0)DIV2^(p+3) = z0*2^(61-p)  (p+3<=64).
+   RED2_SMALL       : the p<=61 two-sided bracket (analog of RED2), window h2=(V1*2^(61-p))MOD2^64.
+   Deps: RED_LEMMA_D (red_lemma_d.ml), RED2_LO (red2.ml), arith.  0-hyp.
+   ============================================================================ *)
+
+let WIN2_IDENT_SMALL = prove
+ (`!V1 p. p <= 61
+          ==> ((V1 * 2 EXP 61) DIV 2 EXP p) MOD 2 EXP 64 = (V1 * 2 EXP (61 - p)) MOD 2 EXP 64`,
+  REPEAT STRIP_TAC THEN AP_THM_TAC THEN AP_TERM_TAC THEN
+  SUBGOAL_THEN `V1 * 2 EXP 61 = 2 EXP p * (V1 * 2 EXP (61 - p))`
+    (fun th -> REWRITE_TAC[th; MULT_SYM] THEN SIMP_TAC[DIV_MULT; EXP_EQ_0; ARITH_EQ]) THEN
+  REWRITE_TAC[MULT_ASSOC] THEN GEN_REWRITE_TAC (RAND_CONV o LAND_CONV) [MULT_SYM] THEN
+  REWRITE_TAC[GSYM MULT_ASSOC; GSYM EXP_ADD] THEN
+  AP_TERM_TAC THEN AP_TERM_TAC THEN UNDISCH_TAC `p <= 61` THEN ARITH_TAC);;
+
+(* machine funnel at pcode=0: (2^64*z0) DIV 2^(p+3) = z0 * 2^(61-p)  (p+3<=64). *)
+let FUNNEL_SMALL = prove
+ (`!z0 p. p + 3 <= 64 ==> (2 EXP 64 * z0) DIV 2 EXP (p + 3) = z0 * 2 EXP (61 - p)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `2 EXP 64 = 2 EXP (p + 3) * 2 EXP (61 - p)` SUBST1_TAC THENL
+   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN
+    UNDISCH_TAC `p + 3 <= 64` THEN ARITH_TAC;
+    REWRITE_TAC[GSYM MULT_ASSOC] THEN
+    SIMP_TAC[DIV_MULT; EXP_EQ_0; ARITH_EQ] THEN
+    REWRITE_TAC[MULT_SYM]]);;
+
+(* RED2_SMALL -- p<=61 second-pass accuracy bracket (analog of RED2, left-shift window).
+   Same recip-of-d hyps + V1<2^(p+2); h2 = (V1*2^(61-p))MOD2^64; q2 = (multop(w,h2)+h2)>>61 + 1.
+   Method identical to RED2: RED_LEMMA_D on Zf:=V1*2^61 (window h2 via WIN2_IDENT_SMALL), then
+   divide the bracket by 2^61 (RED2_LO for the lower half; the upper half inlined since RED2_HI's
+   61<=p hyp -- and SCALE_FITS's -- are SPURIOUS: 2^(p+2)<=2^61*2^(p-1)=2^(p+60) for all p). *)
+let RED2_SMALL = prove
+ (`!b p w d h2 V1.
+      ~(b = 0) /\ b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\ p <= 61 /\
+      d < 2 EXP 64 /\
+      (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
+       ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
+      (2 EXP 64 + w) * d <= 2 EXP 128 /\
+      2 EXP 128 <= (2 EXP 64 + w + 1) * d /\
+      V1 < 2 EXP (p + 2) /\
+      h2 = (V1 * 2 EXP (61 - p)) MOD 2 EXP 64
+      ==> ((((2 EXP 64 + w) * h2) DIV 2 EXP 64) DIV 2 EXP 61 + 1) * b <= V1 + b /\
+          V1 < ((((2 EXP 64 + w) * h2) DIV 2 EXP 64) DIV 2 EXP 61 + 1) * b + b`,
+  REPEAT GEN_TAC THEN
+  INTRO_TAC "hb0 hblt hpb hp hp61 hd hdisj hup hlo hv hh2" THEN
+  ABBREV_TAC `Zf = V1 * 2 EXP 61` THEN
+  SUBGOAL_THEN `Zf DIV 2 EXP p < 2 EXP 64` ASSUME_TAC THENL
+   [SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN EXPAND_TAC "Zf" THEN
+    TRANS_TAC LTE_TRANS `2 EXP (p + 2) * 2 EXP 61` THEN CONJ_TAC THENL
+     [REWRITE_TAC[LT_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ] THEN ASM_REWRITE_TAC[];
+      REWRITE_TAC[GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN REMOVE_THEN "hp" MP_TAC THEN ARITH_TAC];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `h2 = Zf DIV 2 EXP p` ASSUME_TAC THENL
+   [SUBGOAL_THEN `Zf DIV 2 EXP p = (Zf DIV 2 EXP p) MOD 2 EXP 64` SUBST1_TAC THENL
+     [CONV_TAC SYM_CONV THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    EXPAND_TAC "Zf" THEN ASM_SIMP_TAC[WIN2_IDENT_SMALL];
+    ALL_TAC] THEN
+  MP_TAC(SPECL [`b:num`; `p:num`; `w:num`; `d:num`; `h2:num`; `Zf MOD 2 EXP p`; `Zf:num`] RED_LEMMA_D) THEN
+  ANTS_TAC THENL
+   [ASM_REWRITE_TAC[] THEN
+    FIRST_X_ASSUM(fun th -> if concl th = `h2 = (V1 * 2 EXP (61 - p)) MOD 2 EXP 64`
+      then GEN_REWRITE_TAC (REDEPTH_CONV) [GSYM th] else NO_TAC) THEN
+    FIRST_ASSUM(fun th -> if concl th = `h2 = Zf DIV 2 EXP p`
+      then GEN_REWRITE_TAC (REDEPTH_CONV) [th] else NO_TAC) THEN
+    REPEAT CONJ_TAC THENL
+     [EXPAND_TAC "Zf" THEN
+      TRANS_TAC LTE_TRANS `2 EXP (p + 2) * 2 EXP 61` THEN CONJ_TAC THENL
+       [REWRITE_TAC[LT_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ] THEN ASM_REWRITE_TAC[];
+        REWRITE_TAC[GSYM EXP_ADD] THEN
+        TRANS_TAC LE_TRANS `2 EXP (p - 1) * 2 EXP 64` THEN CONJ_TAC THENL
+         [REWRITE_TAC[GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN REMOVE_THEN "hp" MP_TAC THEN ARITH_TAC;
+          ASM_REWRITE_TAC[LE_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ]]];
+      MP_TAC(SPECL [`Zf:num`; `2 EXP p`] DIVISION) THEN
+      REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN DISCH_THEN(fun th -> ACCEPT_TAC(CONJUNCT1 th));
+      MP_TAC(SPECL [`Zf:num`; `2 EXP p`] DIVISION) THEN
+      REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN SIMP_TAC[];
+      CONV_TAC SYM_CONV THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]];
+    ALL_TAC] THEN
+  STRIP_TAC THEN CONJ_TAC THENL
+   [MATCH_MP_TAC RED2_LO THEN
+    FIRST_X_ASSUM(fun th -> if concl th = `V1 * 2 EXP 61 = Zf` then MP_TAC th else NO_TAC) THEN
+    DISCH_THEN(SUBST1_TAC) THEN ASM_REWRITE_TAC[];
+    ABBREV_TAC `qh = ((2 EXP 64 + w) * h2) DIV 2 EXP 64` THEN
+    MP_TAC(SPECL [`qh:num`; `2 EXP 61`] DIVISION) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
+    ABBREV_TAC `Q = qh DIV 2 EXP 61` THEN ABBREV_TAC `sq = qh MOD 2 EXP 61` THEN STRIP_TAC THEN
+    SUBGOAL_THEN `2 EXP (p + 2) <= 2 EXP 61 * b` ASSUME_TAC THENL
+     [TRANS_TAC LE_TRANS `2 EXP 61 * 2 EXP (p - 1)` THEN CONJ_TAC THENL
+       [REWRITE_TAC[GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN UNDISCH_TAC `1 <= p` THEN ARITH_TAC;
+        REWRITE_TAC[LE_MULT_LCANCEL] THEN ASM_REWRITE_TAC[]];
+      ALL_TAC] THEN
+    SUBGOAL_THEN `V1 * 2 EXP 61 < ((Q + 1) * b + b) * 2 EXP 61` MP_TAC THENL
+     [TRANS_TAC LTE_TRANS `qh * b + 2 EXP (p + 2)` THEN CONJ_TAC THENL
+       [FIRST_X_ASSUM(fun th -> if concl th = `V1 * 2 EXP 61 = Zf` then SUBST1_TAC th else NO_TAC) THEN
+        ASM_REWRITE_TAC[];
+        FIRST_X_ASSUM(fun th -> if concl th = `qh = Q * 2 EXP 61 + sq` then SUBST1_TAC th else NO_TAC) THEN
+        MATCH_MP_TAC(ARITH_RULE
+          `sq * b < 2 EXP 61 * b /\ e2 <= 2 EXP 61 * b
+           ==> (Q * 2 EXP 61 + sq) * b + e2 <= ((Q + 1) * b + b) * 2 EXP 61`) THEN
+        ASM_REWRITE_TAC[LT_MULT_RCANCEL]];
+      REWRITE_TAC[LT_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ]]]);;
+
+(* ============================================================================
+   BLOCK_VALUE_TIGHT_D (cont108) -- the d-form drop-in for BLOCK_VALUE_TIGHT.
+   ----------------------------------------------------------------------------
+   Same conclusion as BLOCK_VALUE_TIGHT (bound_tight.ml): cong + Zf' < b*2^64, the
+   saturated value-close the DDK/C/etc blocks consume.  But instead of the recip-of-t0
+   brackets + RECIP_QBOUND (FALSE for the real w), it takes the recip-of-d interface and
+   drives RED_LEMMA_D (which yields BOTH qhat*b<=Zf and Zf<qhat*b+2^(p+2), saturation folded
+   in).  Then CONG_HALF (congruence) + BOUND_HALF_TIGHT (Zf' < b*2^64 from the upper bound).
+   Deps: WINDOW_FROM_ZF (here), RED_LEMMA_D (red_lemma_d.ml), CONG_HALF + BOUND_HALF_TIGHT
+   (ki_core.ml / bound_tight.ml).
+   ============================================================================ *)
+
+(* WINDOW_FROM_ZF now lives in recip_bridges.ml (loaded first). *)
+
+let BLOCK_VALUE_TIGHT_D = prove
+ (`!a b i p d Zf Zf' w block zr h.
+    (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
+    block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
+    ~(b = 0) /\ b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
+    d < 2 EXP 64 /\
+    (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
+     ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
+    (2 EXP 64 + w) * d <= 2 EXP 128 /\
+    2 EXP 128 <= (2 EXP 64 + w + 1) * d /\
+    Zf < b * 2 EXP 64 /\
+    Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\ h < 2 EXP 64 /\
+    Zf' + 2 EXP 61 * (((2 EXP 64 + w) * h) DIV 2 EXP 64) * b = 2 EXP 61 * Zf + block
+    ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b) /\ Zf' < b * 2 EXP 64`,
+  REPEAT GEN_TAC THEN
+  DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
+  ABBREV_TAC `qhat = ((2 EXP 64 + w) * h) DIV 2 EXP 64` THEN
+  SUBGOAL_THEN `h = (Zf DIV 2 EXP p) MOD 2 EXP 64` ASSUME_TAC THENL
+   [MATCH_MP_TAC WINDOW_FROM_ZF THEN EXISTS_TAC `zr:num` THEN ASM_REWRITE_TAC[];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `qhat * b <= Zf /\ Zf < qhat * b + 2 EXP (p + 2)` STRIP_ASSUME_TAC THENL
+   [EXPAND_TAC "qhat" THEN
+    MATCH_MP_TAC RED_LEMMA_D THEN
+    MAP_EVERY EXISTS_TAC [`d:num`; `zr:num`] THEN
+    REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC;
+    ALL_TAC] THEN
+  CONJ_TAC THENL
+   [MATCH_MP_TAC CONG_HALF THEN
+    MAP_EVERY EXISTS_TAC [`Zf:num`; `qhat:num`; `block:num`] THEN
+    REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC;
+    MATCH_MP_TAC BOUND_HALF_TIGHT THEN
+    MAP_EVERY EXISTS_TAC [`Zf:num`; `qhat:num`; `block:num`; `p:num`] THEN
+    REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC]);;
+
+(* ============================================================================
+   DDK_VALUE_CLOSE_D (cont108) -- the d-form of DDK_VALUE_CLOSE (ddk_value_close.ml).
+   ----------------------------------------------------------------------------
+   Same conclusion (cong at ii + bound < b*2^64) and same VALUE_BRIDGE_DDK algebra, but the
+   recip interface is recip-of-d (d = roundup(t0)) via BLOCK_VALUE_TIGHT_D / RED_LEMMA_D instead
+   of the recip-of-t0 brackets + BLOCK_VALUE_TIGHT (which needed the false recip-of-t0 UPPER).
+   The window/normalization params t0,s0 are DROPPED (RED_LEMMA_D derives everything from d,b,p).
+   Deps: VALUE_BRIDGE_DDK (tail_ddk.ml), BLOCK_VALUE_TIGHT_D (block_value_tight_d.ml),
+         QHAT_ID (block_value.ml).
+   ============================================================================ *)
+
+let DDK_VALUE_CLOSE_D = prove
+ (`!a b ii p d w h zr q hi cwin ztin zorig zpre block t10 k.
+    (2 EXP (64 * k) * ztin + zorig == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
+    block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
+    ~(b = 0) /\ b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
+    d < 2 EXP 64 /\
+    (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
+     ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
+    (2 EXP 64 + w) * d <= 2 EXP 128 /\
+    2 EXP 128 <= (2 EXP 64 + w + 1) * d /\
+    2 EXP (64 * k) * ztin + zorig < b * 2 EXP 64 /\
+    (2 EXP (64 * k) * ztin + zorig) = h * 2 EXP p + zr /\ zr < 2 EXP p /\ h < 2 EXP 64 /\
+    q = (w * h) DIV 2 EXP 64 + h /\
+    2 EXP 64 * q + t10 = ztin + hi + q * (2 EXP 64 - 1) /\
+    t10 < 8 /\
+    zpre + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
+      block + 2 EXP 61 * zorig + 2 EXP 61 * q * 2 EXP (64 * k)
+    ==> (zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8)
+           == a DIV 2 EXP (61 * ii)) (mod b) /\
+        zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) < b * 2 EXP 64`,
+  REPEAT GEN_TAC THEN
+  DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
+  (* the block-advance eqn: Zf' + 2^61*q*b = block + 2^61*Zf  (VALUE_BRIDGE_DDK, recip-free) *)
+  SUBGOAL_THEN
+   `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) + 2 EXP 61 * q * b =
+    block + 2 EXP 61 * (2 EXP (64 * k) * ztin + zorig)`
+   ASSUME_TAC THENL
+   [MP_TAC(ISPECL [`zpre:num`; `cwin:num`; `hi:num`; `q:num`; `b:num`; `zorig:num`;
+                   `block:num`; `ztin:num`; `t10:num`; `k:num`] VALUE_BRIDGE_DDK) THEN
+    ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN ASM_REWRITE_TAC[];
+    ALL_TAC] THEN
+  (* rewrite to the ((2^64+w)*h)DIV2^64 form BLOCK_VALUE_TIGHT_D wants *)
+  SUBGOAL_THEN
+   `(zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8)) +
+     2 EXP 61 * (((2 EXP 64 + w) * h) DIV 2 EXP 64) * b =
+    2 EXP 61 * (2 EXP (64 * k) * ztin + zorig) + block`
+   ASSUME_TAC THENL
+   [REWRITE_TAC[GSYM QHAT_ID] THEN
+    FIRST_X_ASSUM(fun th -> if lhs(concl th) =
+       `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) + 2 EXP 61 * q * b`
+     then MP_TAC th else NO_TAC) THEN
+    FIRST_X_ASSUM(fun th -> if concl th = `q = (w * h) DIV 2 EXP 64 + h`
+     then SUBST1_TAC th else NO_TAC) THEN ARITH_TAC;
+    ALL_TAC] THEN
+  MP_TAC(ISPECL
+   [`a:num`; `b:num`; `ii:num`; `p:num`; `d:num`;
+    `2 EXP (64 * k) * ztin + zorig`;
+    `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8)`;
+    `w:num`; `block:num`; `zr:num`; `h:num`] BLOCK_VALUE_TIGHT_D) THEN
+  ANTS_TAC THENL [REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]);;
+
+(* DDK_R_LT_D: the reduced-remainder bound Zf - q*b < 2^(p+2), d-form (RED_LEMMA_D upper half).
+   q = (w*h)DIV2^64+h = qhat; RED_LEMMA_D gives Zf < qhat*b + 2^(p+2) directly. *)
+let DDK_R_LT_D = prove
+ (`!b p d Zf h q w zr.
+     ~(b = 0) /\ b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
+     d < 2 EXP 64 /\
+     (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
+      ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
+     (2 EXP 64 + w) * d <= 2 EXP 128 /\ 2 EXP 128 <= (2 EXP 64 + w + 1) * d /\
+     Zf < b * 2 EXP 64 /\
+     Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\ h < 2 EXP 64 /\
+     q = (w * h) DIV 2 EXP 64 + h
+     ==> Zf - q * b < 2 EXP (p + 2)`,
+  REPEAT GEN_TAC THEN
+  DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
+  SUBGOAL_THEN `h = (Zf DIV 2 EXP p) MOD 2 EXP 64` ASSUME_TAC THENL
+   [MATCH_MP_TAC WINDOW_FROM_ZF THEN EXISTS_TAC `zr:num` THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  SUBGOAL_THEN `q * b <= Zf /\ Zf < q * b + 2 EXP (p + 2)` MP_TAC THENL
+   [FIRST_X_ASSUM(fun th -> if concl th = `q = (w * h) DIV 2 EXP 64 + h`
+       then REWRITE_TAC[th] THEN REWRITE_TAC[QHAT_ID] else NO_TAC) THEN
+    MP_TAC(ISPECL [`b:num`;`p:num`;`w:num`;`d:num`;`h:num`;`zr:num`;`Zf:num`] RED_LEMMA_D) THEN
+    ANTS_TAC THENL [REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
+    ARITH_TAC]);;
+
+(* ============================================================================
+   L1_VALUE_CLOSE_D (cont108) -- d-form of L1_VALUE_CLOSE (block_l1_304_win.ml).
+   Same conclusion (cong at ii + Zfp<b*2^64 + Zfp<2^(64*2)); recip interface swapped to
+   recip-of-d (d + roundup disjunction + both d-brackets) driving BLOCK_VALUE_TIGHT_D.  The
+   t0,s window/normalization params are dropped.  q*b<=zv stays as an Option-B hyp.
+   Deps: CONG_HALF (ki_core.ml), QHAT_ID (block_value.ml), BLOCK_VALUE_TIGHT_D
+         (block_value_tight_d.ml).  L1_RELQ defined locally here (self-contained) so this file
+         loads in the bridge bank BEFORE the blocks (block_l1 consumes L1_VALUE_CLOSE_D).
+   ============================================================================ *)
+
+(* L1_RELQ (local copy; identical to block_l1's): the reduced-value relation. *)
+let L1_RELQ_D = prove
+ (`!zv q b block Zfp.
+    q * b <= zv /\ Zfp = 2 EXP 61 * (zv - q * b) + block
+    ==> Zfp + 2 EXP 61 * q * b = 2 EXP 61 * zv + block`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  FIRST_X_ASSUM(fun th -> if concl th = `Zfp = 2 EXP 61 * (zv - q * b) + block`
+                          then SUBST1_TAC th else NO_TAC) THEN
+  SUBGOAL_THEN `2 EXP 61 * q * b = 2 EXP 61 * (q * b)` SUBST1_TAC THENL
+   [REWRITE_TAC[MULT_ASSOC]; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP 61 * (zv - q * b) = 2 EXP 61 * zv - 2 EXP 61 * (q * b)` SUBST1_TAC THENL
+   [REWRITE_TAC[LEFT_SUB_DISTRIB]; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP 61 * (q * b) <= 2 EXP 61 * zv` MP_TAC THENL
+   [ASM_REWRITE_TAC[LE_MULT_LCANCEL]; ALL_TAC] THEN
+  ARITH_TAC);;
+
+let L1_VALUE_CLOSE_D = prove
+ (`!a b ii p w d hwin zv q block Zfp zr k.
+    (zv == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
+    block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
+    ~(b = 0) /\ b < 2 EXP p /\ zv < 2 EXP 64 /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
+    d < 2 EXP 64 /\
+    (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
+     ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
+    hwin < 2 EXP 64 /\
+    zv = hwin * 2 EXP p + zr /\ zr < 2 EXP p /\
+    (2 EXP 64 + w) * d <= 2 EXP 128 /\ 2 EXP 128 <= (2 EXP 64 + w + 1) * d /\
+    q = (w * hwin) DIV 2 EXP 64 + hwin /\ q * b <= zv /\
+    Zfp = 2 EXP 61 * (zv - q * b) + block
+    ==> (2 EXP (64 * k) * 0 + Zfp == a DIV 2 EXP (61 * ii)) (mod b) /\
+        2 EXP (64 * k) * 0 + Zfp < b * 2 EXP 64 /\
+        2 EXP (64 * k) * 0 + Zfp < 2 EXP (64 * 2)`,
+  REPEAT GEN_TAC THEN DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
+  REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES] THEN
+  SUBGOAL_THEN `Zfp + 2 EXP 61 * q * b = 2 EXP 61 * zv + block` ASSUME_TAC THENL
+   [MATCH_MP_TAC L1_RELQ_D THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  SUBGOAL_THEN
+   `Zfp + 2 EXP 61 * ((2 EXP 64 + w) * hwin) DIV 2 EXP 64 * b = 2 EXP 61 * zv + block`
+   ASSUME_TAC THENL
+   [REWRITE_TAC[GSYM QHAT_ID] THEN
+    FIRST_X_ASSUM(fun th -> if concl th = `q = (w * hwin) DIV 2 EXP 64 + hwin`
+                            then SUBST1_TAC(SYM th) else NO_TAC) THEN
+    FIRST_X_ASSUM ACCEPT_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `(Zfp == a DIV 2 EXP (61 * ii)) (mod b)` ASSUME_TAC THENL
+   [MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `zv:num`; `Zfp:num`; `q:num`; `block:num`]
+                  CONG_HALF) THEN
+    ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_THEN ACCEPT_TAC]; ALL_TAC] THEN
+  SUBGOAL_THEN `zv < b * 2 EXP 64` ASSUME_TAC THENL
+   [TRANS_TAC LTE_TRANS `2 EXP 64` THEN ASM_REWRITE_TAC[] THEN
+    GEN_REWRITE_TAC LAND_CONV [ARITH_RULE `2 EXP 64 = 1 * 2 EXP 64`] THEN
+    REWRITE_TAC[LE_MULT_RCANCEL] THEN DISJ1_TAC THEN
+    UNDISCH_TAC `~(b = 0)` THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `Zfp < b * 2 EXP 64` ASSUME_TAC THENL
+   [MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `p:num`; `d:num`; `zv:num`; `Zfp:num`;
+                   `w:num`; `block:num`; `zr:num`; `hwin:num`]
+                  BLOCK_VALUE_TIGHT_D) THEN
+    ANTS_TAC THENL
+     [REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC; DISCH_THEN(ACCEPT_TAC o CONJUNCT2)];
+    ALL_TAC] THEN
+  REWRITE_TAC[ARITH_RULE `64 * 2 = 128`] THEN REPEAT CONJ_TAC THENL
+   [FIRST_ASSUM ACCEPT_TAC;
+    FIRST_ASSUM ACCEPT_TAC;
+    FIRST_X_ASSUM(fun th -> if concl th = `Zfp = 2 EXP 61 * (zv - q * b) + block`
+                            then SUBST1_TAC th else NO_TAC) THEN
+    TRANS_TAC LET_TRANS `2 EXP 61 * zv + block` THEN CONJ_TAC THENL
+     [MATCH_MP_TAC(ARITH_RULE `a <= b ==> 2 EXP 61 * a + c <= 2 EXP 61 * b + c`) THEN ARITH_TAC;
+      MAP_EVERY UNDISCH_TAC [`zv < 2 EXP 64`; `block < 2 EXP 61`] THEN ARITH_TAC]]);;
+
+(* Stage 3f: DDK_VALUE_CLOSE -- the ARITHMETIC value close for the saturated DDK regime.
+   Composes the two proven halves:
+     VALUE_BRIDGE_DDK : the DDK tail's block-advance eqn (from the X23'/z stores, with the
+       funnel top t10=ztin+hi-q<8) rewrites to  Zf' + 2^61*q*b = 2^61*Zf + block,
+       where Zf' = zpre + 2^(64k)*(2^61*t10 + cwin DIV 8) is the NEW full accumulator
+       (2^(64k)*X23' + bignum(z,k)), Zf = 2^(64k)*ztin + zorig the OLD one.
+     BLOCK_VALUE : from that block-advance eqn + recip bracket K + normalization + window
+       decomposition Zf=h*2^p+zr, delivers (cong at ii) + (bound Zf'<2^(p+64)).
+   Bridge between the two qhat forms: QHAT_ID (unconditional (w*h)DIV2^64+h = ((2^64+w)*h)DIV2^64).
+   The machine qhat q = (w*h)DIV2^64+h is the register X15 value (q<2^64 threaded elsewhere so
+   the register MOD is identity); BLOCK_VALUE internally uses the ((2^64+w)*h)DIV2^64 form.
+   HYP t10<8 is load-bearing (input to VALUE_BRIDGE_DDK; certifies the >>3 funnel lossless);
+   discharged at block-assembly time (KI derivation or oracle interim).
+   Deps: VALUE_BRIDGE_DDK (tail_ddk.ml), BLOCK_VALUE (ki_core.ml), QHAT_ID (block_value.ml). *)
+
+let DDK_VALUE_CLOSE = prove
+ (`!a b ii p t0 s0 w h zr q hi cwin ztin zorig zpre block t10 k.
+    (2 EXP (64 * k) * ztin + zorig == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
+    block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
+    b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\ t0 < 2 EXP 64 /\ 0 < t0 /\ h < 2 EXP 64 /\
+    b * 2 EXP 64 = t0 * 2 EXP p + s0 /\
+    (2 EXP (64 * k) * ztin + zorig) = h * 2 EXP p + zr /\ zr < 2 EXP p /\
+    &2 pow 128 <= (&2 pow 64 + &w + &1) * &t0 /\ (&2 pow 64 + &w) * &t0 <= &2 pow 128 /\
+    q = (w * h) DIV 2 EXP 64 + h /\
+    2 EXP 64 * q + t10 = ztin + hi + q * (2 EXP 64 - 1) /\
+    t10 < 8 /\
+    zpre + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
+      block + 2 EXP 61 * zorig + 2 EXP 61 * q * 2 EXP (64 * k)
+    ==> (zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8)
+           == a DIV 2 EXP (61 * ii)) (mod b) /\
+        zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) < b * 2 EXP 64`,
+  REPEAT STRIP_TAC THENL
+   [SUBGOAL_THEN
+     `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) + 2 EXP 61 * q * b =
+      block + 2 EXP 61 * (2 EXP (64 * k) * ztin + zorig)`
+     ASSUME_TAC THENL
+     [MP_TAC(ISPECL [`zpre:num`; `cwin:num`; `hi:num`; `q:num`; `b:num`; `zorig:num`;
+                     `block:num`; `ztin:num`; `t10:num`; `k:num`] VALUE_BRIDGE_DDK) THEN
+      ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN ASM_REWRITE_TAC[];
+      ALL_TAC] THEN
+    SUBGOAL_THEN
+     `(zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8)) +
+       2 EXP 61 * ((2 EXP 64 + w) * h) DIV 2 EXP 64 * b =
+      2 EXP 61 * (2 EXP (64 * k) * ztin + zorig) + block`
+     ASSUME_TAC THENL
+     [REWRITE_TAC[GSYM QHAT_ID] THEN
+      FIRST_X_ASSUM(fun th -> if lhs(concl th) =
+         `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) + 2 EXP 61 * q * b`
+       then MP_TAC th else NO_TAC) THEN
+      FIRST_X_ASSUM(fun th -> if concl th = `q = (w * h) DIV 2 EXP 64 + h`
+       then SUBST1_TAC th else NO_TAC) THEN ARITH_TAC;
+      ALL_TAC] THEN
+    MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `p:num`; `t0:num`;
+                   `2 EXP (64 * k) * ztin + zorig`;
+                   `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8)`;
+                   `w:num`; `block:num`; `s0:num`; `zr:num`; `h:num`; `0`] BLOCK_VALUE_TIGHT) THEN
+    ASM_REWRITE_TAC[ARITH_RULE `0 < 2 EXP 64`] THEN DISCH_THEN(fun th -> REWRITE_TAC[th]);
+    SUBGOAL_THEN
+     `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) + 2 EXP 61 * q * b =
+      block + 2 EXP 61 * (2 EXP (64 * k) * ztin + zorig)`
+     ASSUME_TAC THENL
+     [MP_TAC(ISPECL [`zpre:num`; `cwin:num`; `hi:num`; `q:num`; `b:num`; `zorig:num`;
+                     `block:num`; `ztin:num`; `t10:num`; `k:num`] VALUE_BRIDGE_DDK) THEN
+      ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN ASM_REWRITE_TAC[];
+      ALL_TAC] THEN
+    SUBGOAL_THEN
+     `(zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8)) +
+       2 EXP 61 * ((2 EXP 64 + w) * h) DIV 2 EXP 64 * b =
+      2 EXP 61 * (2 EXP (64 * k) * ztin + zorig) + block`
+     ASSUME_TAC THENL
+     [REWRITE_TAC[GSYM QHAT_ID] THEN
+      FIRST_X_ASSUM(fun th -> if lhs(concl th) =
+         `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) + 2 EXP 61 * q * b`
+       then MP_TAC th else NO_TAC) THEN
+      FIRST_X_ASSUM(fun th -> if concl th = `q = (w * h) DIV 2 EXP 64 + h`
+       then SUBST1_TAC th else NO_TAC) THEN ARITH_TAC;
+      ALL_TAC] THEN
+    MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `p:num`; `t0:num`;
+                   `2 EXP (64 * k) * ztin + zorig`;
+                   `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8)`;
+                   `w:num`; `block:num`; `s0:num`; `zr:num`; `h:num`; `0`] BLOCK_VALUE_TIGHT) THEN
+    ASM_REWRITE_TAC[ARITH_RULE `0 < 2 EXP 64`] THEN DISCH_THEN(fun th -> REWRITE_TAC[th])]);;
+
+(* DDK_TOP_FUNNEL: the seg-B->seg-C bridge for the saturated top word.  The DDK tail leaves
+   X23' = word_subword(word_join(word T)(word cwin))(3,64) with T = ztin+hi+q*(2^64-1); given
+   the funnel-top relation 2^64*q+t10 = T and t10<8 (lossless >>3), this equals
+   word(2^61*t10 + cwin DIV 8) -- i.e. Ztp := 2^61*t10 + cwin DIV8 is the register X23' value.
+   (word T = word t10 since T mod 2^64 = t10; then TAIL_EXTR_VAL.)  cwin<2^64 from val bound. *)
+let DDK_TOP_FUNNEL = prove
+ (`!q t10 cwin ztin hi.
+    2 EXP 64 * q + t10 = ztin + hi + q * (2 EXP 64 - 1) /\ t10 < 8 /\ cwin < 2 EXP 64
+    ==> word_subword (word_join (word (ztin + hi + q * (2 EXP 64 - 1)):int64)
+                                (word cwin :int64) :int128) (3,64)
+        = word (2 EXP 61 * t10 + cwin DIV 8):int64`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `word (ztin + hi + q * (2 EXP 64 - 1)):int64 = word t10` SUBST1_TAC THENL
+   [REWRITE_TAC[GSYM VAL_EQ] THEN REWRITE_TAC[VAL_WORD; DIMINDEX_64] THEN
+    FIRST_X_ASSUM(fun th -> if lhs(concl th) = `2 EXP 64 * q + t10` then MP_TAC th else NO_TAC) THEN
+    DISCH_THEN(SUBST1_TAC o SYM) THEN
+    REWRITE_TAC[MOD_MULT_ADD] THEN AP_THM_TAC THEN AP_TERM_TAC THEN
+    CONV_TAC MOD_DOWN_CONV THEN REFL_TAC;
+    ALL_TAC] THEN
+  MP_TAC(ISPECL [`t10:num`; `cwin:num`] TAIL_EXTR_VAL) THEN ASM_REWRITE_TAC[] THEN
+  DISCH_THEN(fun th -> GEN_REWRITE_TAC (RAND_CONV o RAND_CONV) [SYM th]) THEN
+  REWRITE_TAC[WORD_VAL]);;
+
+(* DDK_SEGB_VALUE: the seg-B value bridge -- from the k-word block-advance eqn (BA) + the top-word
+   NO-BORROW (q<=Ztin+hi, (Ztin+hi)-q<2^64) + t10<8 + K bracket + window decomp, deliver cong +
+   TIGHT bound for the new saturated full accumulator V = zpre + 2^(64k)*(2^61*t10 + cwin DIV8),
+   t10 = (Ztin+hi)-q.  Composes TAIL_CARRY_EQ_Q (t10_bound.ml: 2^64*q+t10 = ss) + DDK_VALUE_CLOSE.
+   The NO-BORROW hyps (q<=Ztin+hi, (Ztin+hi)-q<2^64) are threaded (discharge from RECIP lower bound
+   q*b<=Zf at block-assembly / wrap); t10<8 threaded (discharge via T10_LT_8_BRIDGE from KI).
+   *** PARSE: (Ztin+hi)-q with EXPLICIT parens ( - binds tighter than +). *** *)
+let DDK_SEGB_VALUE = prove
+ (`!a b ii p t0 s0 w h Ztin zpre q hi cwin k zr.
+    (2 EXP (64 * k) * Ztin + zpre == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
+    (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 < 2 EXP 61 /\
+    b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\ t0 < 2 EXP 64 /\ 0 < t0 /\ h < 2 EXP 64 /\
+    b * 2 EXP 64 = t0 * 2 EXP p + s0 /\
+    (2 EXP (64 * k) * Ztin + zpre) = h * 2 EXP p + zr /\ zr < 2 EXP p /\
+    &2 pow 128 <= (&2 pow 64 + &w + &1) * &t0 /\ (&2 pow 64 + &w) * &t0 <= &2 pow 128 /\
+    q = (w * h) DIV 2 EXP 64 + h /\
+    q <= Ztin + hi /\ (Ztin + hi) - q < 2 EXP 64 /\ (Ztin + hi) - q < 8 /\
+    zpre + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
+      (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 + 2 EXP 61 * zpre + 2 EXP 61 * q * 2 EXP (64 * k)
+    ==> (zpre + 2 EXP (64 * k) * (2 EXP 61 * ((Ztin + hi) - q) + cwin DIV 8)
+           == a DIV 2 EXP (61 * ii)) (mod b) /\
+        zpre + 2 EXP (64 * k) * (2 EXP 61 * ((Ztin + hi) - q) + cwin DIV 8) < b * 2 EXP 64`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(ISPECL [`Ztin:num`; `hi:num`; `q:num`] TAIL_CARRY_EQ_Q) THEN
+  ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
+  SUBGOAL_THEN `2 EXP 64 * q + ((Ztin + hi) - q) = Ztin + hi + q * (2 EXP 64 - 1)` ASSUME_TAC THENL
+   [MP_TAC(SPECL [`Ztin + hi + q * (2 EXP 64 - 1)`; `2 EXP 64`] DIVISION) THEN
+    REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ASM_REWRITE_TAC[] THEN ARITH_TAC;
+    ALL_TAC] THEN
+  MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `p:num`; `t0:num`; `s0:num`; `w:num`; `h:num`;
+                 `zr:num`; `q:num`; `hi:num`; `cwin:num`; `Ztin:num`; `zpre:num`; `zpre:num`;
+                 `(a DIV 2 EXP (61 * ii)) MOD 2 EXP 61`; `(Ztin + hi) - q`; `k:num`]
+                DDK_VALUE_CLOSE) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN ASM_REWRITE_TAC[]);;
+
+(* DDK_R_LT: the reduced-remainder upper bound R = Zf - q*b < 2^(p+2), packaged as a STANDALONE
+   lemma (clean context) so the DDK block's seg-B post-impl gets R<2^(p+2) via a single MP_TAC
+   without a REAL_ARITH blowup on the ~80-hyp block context.  Mirrors BLOCK_VALUE_TIGHT's KI
+   application (bound_tight.ml): KI_CORE fed the window-upper 2^64*h < q*t0+(2^64+2*t0) which comes
+   from RECIP_QBOUND (l:=0) + QHAT_ID.  q = (w*h)DIV2^64+h = the register qhat; needs q*b<=Zf (R>=0,
+   the loop-carried no-borrow value hyp) to turn the truncated Zf-q*b into genuine subtraction.
+   *** LESSON (cont23w): REAL_ARITH_TAC inside the full block goal (80 hyps) STACK-OVERFLOWS; prove
+   RECIP_QBOUND->KI steps in a SMALL standalone context and MP_TAC into the block. *** *)
+let DDK_R_LT = prove
+ (`!b p t0 Zf h q w s zr.
+     b < 2 EXP p /\ t0 < 2 EXP 64 /\ 0 < t0 /\ h < 2 EXP 64 /\
+     b * 2 EXP 64 = t0 * 2 EXP p + s /\
+     Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
+     &2 pow 128 <= (&2 pow 64 + &w + &1) * &t0 /\ (&2 pow 64 + &w) * &t0 <= &2 pow 128 /\
+     q = (w * h) DIV 2 EXP 64 + h /\ q * b <= Zf
+     ==> Zf - q * b < 2 EXP (p + 2)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MATCH_MP_TAC(ARITH_RULE `q * b <= Zf /\ Zf < q * b + 2 EXP (p+2) ==> Zf - q * b < 2 EXP (p+2)`) THEN
+  ASM_REWRITE_TAC[] THEN
+  MP_TAC(SPECL [`b:num`; `p:num`; `t0:num`; `Zf:num`; `h:num`; `q:num`; `s:num`; `zr:num`] KI_CORE) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN
+  FIRST_ASSUM(fun th -> if concl th = `q = (w * h) DIV 2 EXP 64 + h` then REWRITE_TAC[th] else NO_TAC) THEN
+  MP_TAC(SPECL [`w:num`; `t0:num`; `h:num`; `0`] RECIP_QBOUND) THEN
+  ASM_REWRITE_TAC[LT_0] THEN
+  REWRITE_TAC[GSYM QHAT_ID] THEN
+  REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN REAL_ARITH_TAC);;
+
+(* Stage 3f dd<k TAIL (growing regime), pc+0x23c -> pc+0x2e8 (jargh, 2026-07-26).
+   The tail in the GROWING regime processes TWO words: word dd (trivnegadd-like, into
+   z[dd]) AND the newly-live word dd+1.  Two sub-regimes by (dd+1 = k):
+     B: dd+1 < k  -> newly-live word stored to z[dd+1]      (this file, _B_)
+     C: dd+1 = k  -> newly-live word is the TOP -> X23 (zt)  (_C_, TODO)
+   Regime selected by the noel BNE @0x2bc (cmp x8,x0 with x8=dd+1).
+   The GROW itself (vs saturate) is the noel BEQ @0x2b0: x8=dd+1 vs X19=l'=MIN(k+1,
+   (jj+124)DIV64).  In the growing regime l'=dd+2, so dd+1 != dd+2 -> BEQ not taken.
+
+   The l-recurrence (jj+124)DIV64 = dd+2 is a CALLER-SUPPLIED hyp (from the PDOWN
+   invariant's X19=MIN(k+1,(jj+63)DIV64) clause + jj-grows-by-61; caplrec.py 27/27),
+   exactly as dd+1=(jj+63)DIV64 was in TAIL_DDK.  Here we take it directly as the hyp
+   `(jj + 124) DIV 64 = dd + 2` (already the resolved growing form).
+
+   SIM step structure (36 ARM_STEPS, 4 branch resolutions), VERIFIED end-to-end:
+     - up-front: dd<k; val(word{k,dd,dd+1,dd+2,k+1}); m[dd]/z[dd] reads; ~(word_sub dd k=0).
+     - steps 1--8 to 0x258; RULE_ASSUM ~(dd-k=0); steps 9--21 to 0x2a4.
+     - word_ushr(jj+124)6 = word((jj+124)DIV64) = word(dd+2); RULE_ASSUM; steps 22--23.
+     - X19 MIN resolves to word(dd+2) via ~(k+1<dd+2); ~(word_sub (dd+1)(dd+2)=0);
+       step 24 (BEQ@0x2b0 not taken, ZF false).
+     - ~(word_sub (dd+1) k=0); steps 25--27 to noel BNE@0x2bc (dd+1<>k -> z[dd+1]);
+       RULE_ASSUM; steps 28--36 to 0x2e8; final X8 = word(dd+1)+1 = word(dd+2) [WORD_RULE].
+   z[dd] gets word_subword(word_join(word X10)(word cwin))(3,64) (extr #3), X10 =
+   bigdigit zpre dd + hi + q*~m[dd]; z[dd+1] gets word_ushr(word X10)3 (the top shift).
+   These are the VALUE outputs (enrich next).  X23 (zt) UNCHANGED (top not reached). *)
+
+let WORD8_MOD_BLOCK = prove
+ (`!c block. c MOD 2 EXP 61 = block ==> (word(2 EXP 3 * c):int64) = word(2 EXP 3 * block)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `2 EXP 3 * c = 2 EXP 3 * block + 2 EXP 64 * (c DIV 2 EXP 61)` SUBST1_TAC THENL
+   [MP_TAC(SPECL [`c:num`; `2 EXP 61`] DIVISION) THEN REWRITE_TAC[ARITH_EQ; EXP_EQ_0] THEN
+    UNDISCH_TAC `c MOD 2 EXP 61 = block` THEN ARITH_TAC;
+    REWRITE_TAC[WORD_ADD] THEN
+    SUBGOAL_THEN `word(2 EXP 64 * c DIV 2 EXP 61):int64 = word 0` SUBST1_TAC THENL
+     [REWRITE_TAC[GSYM VAL_EQ_0; VAL_WORD; DIMINDEX_64] THEN
+      REWRITE_TAC[GSYM MULT_ASSOC; MOD_MULT]; ALL_TAC] THEN
+    CONV_TAC WORD_RULE]);;
+
+(* QSETUP_WIDE_BLOCK: block-parameterized QSETUP.  Takes val(X22)MOD2^61=block in the pre
+   (BLOCKLOAD's output form), gives X22=word(2^3*block) in the post (INNERLOOP's input form).
+   This makes the BLOCKLOAD->QSETUP->INNERLOOP seam a clean block-threaded ACCEPT chain.
+   Proof: GHOST_INTRO cw:=read X22 (int64), GLOBALIZE, consume narrow BIGNUM_MOD_QSETUP with
+   c:=val cw via ARM_BIGSTEP, then bridge word(2^3*val cw)=word(2^3*block) via WORD8_MOD_BLOCK
+   (the pre gives val cw MOD2^61=block).  Needs BIGNUM_MOD_QSETUP (qsetup.ml). *)
+let WORD_SUB_VAL_EQ_0 = prove
+ (`!a c. a < 2 EXP 64 /\ c < 2 EXP 64
+         ==> (val(word_sub (word a) (word c):int64) = 0 <=> a = c)`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[VAL_EQ_0; WORD_SUB_EQ_0] THEN
+  EQ_TAC THENL
+   [DISCH_THEN(MP_TAC o AP_TERM `val:int64->num`) THEN
+    ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64];
+    DISCH_THEN SUBST1_TAC THEN REFL_TAC]);;
+
+(* TAIL_DDLT_B_WIDE_LOG: regime B tail ENRICHED with the raw X13/X14 logged-field outputs
+   (needed by FIELDSEL_WIDE at 0x2e8).  Precond adds read X13=word lfin, X14=word hfin.
+   Postcond adds the exact s36 csel forms for X14 (lf... wait X14=hf) and X13 (lf), in num-
+   equality condition form (dd+1=pcode etc.), bridged from the sim's val(word_sub..)=0 forms
+   via WORD_SUB_VAL_EQ_0.  W = bigdigit zpre dd+hi+q*(2^64-1-bigdigit b dd) is the block word;
+   z[dd]=extr#3(W:cwin)=bigdigit Zf' dd, z[dd+1]=W>>3=bigdigit Zf'(dd+1).  TAIL_HF/LF_FINALIZE
+   reduce X14/X13 to word(bigdigit Zf' pcode)/(pcode-1) at assembly (once Zf' is assembled).
+   Same 36-step sim as TAIL_DDLT_B_WIDE + value bridge + 3 WORD_SUB_VAL_EQ_0 iffs +
+   word_add(word(dd+1))(word 1)=word(dd+2) + val(word pcode)=pcode, then ASM_REWRITE. *)
+let INV2_TOP_ZERO = prove
+ (`!k X23v Zk l.
+     2 EXP (64 * k) * X23v + Zk < 2 EXP (64 * l) /\ l <= k
+     ==> X23v = 0`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `2 EXP (64 * k) * X23v < 2 EXP (64 * k)` MP_TAC THENL
+   [TRANS_TAC LET_TRANS `2 EXP (64 * k) * X23v + Zk` THEN CONJ_TAC THENL
+     [ARITH_TAC;
+      TRANS_TAC LTE_TRANS `2 EXP (64 * l)` THEN ASM_REWRITE_TAC[] THEN
+      REWRITE_TAC[LE_EXP] THEN UNDISCH_TAC `l <= k` THEN ARITH_TAC];
+    ALL_TAC] THEN
+  REWRITE_TAC[ARITH_RULE `2 EXP (64 * k) * X23v < 2 EXP (64 * k) <=>
+                          2 EXP (64 * k) * X23v < 2 EXP (64 * k) * 1`] THEN
+  SIMP_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
+
+(* HIGHDIGITS_ZERO_EQ_LOW: highdigits X m = 0 ==> X = lowdigits X m (X fits in m words). *)
+let HIGHDIGITS_ZERO_EQ_LOW = prove
+ (`!X m. highdigits X m = 0 ==> X = lowdigits X m`,
+  REPEAT STRIP_TAC THEN CONV_TAC SYM_CONV THEN
+  MP_TAC(SPECL [`X:num`; `m:num`] (CONJUNCT1 HIGH_LOW_DIGITS)) THEN
+  ASM_REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES]);;
+
+(* VALUE_ASSEMBLE_B_QZERO: the qhat=0 assembly.  When qhat=0 (which HOLDS in the growing
+   regime -- see note below), the tail value relation reduces EXACTLY to BLOCK_VALUE_B's
+   premise Zout = 2^61*Zin + block (the q*2^(64*l) term vanishes with q=0).  So regime-B/FLAT
+   value close = prove qhat=0, then this + BLOCK_VALUE_B => cong + bound. *)
+let VALUE_ASSEMBLE_B_QZERO = prove
+ (`!dd Zin Zout b block.
+     Zout + 2 EXP 61 * (0 * lowdigits b (dd + 1)) =
+       block + 2 EXP 61 * lowdigits Zin (dd + 1) + 2 EXP 61 * (0 * 2 EXP (64 * (dd + 1))) /\
+     highdigits Zout (dd + 1) = 0 /\ highdigits Zin (dd + 1) = 0
+     ==> Zout = 2 EXP 61 * Zin + block`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `Zin = lowdigits Zin (dd+1)` ASSUME_TAC THENL
+   [MATCH_MP_TAC HIGHDIGITS_ZERO_EQ_LOW THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  ONCE_ASM_REWRITE_TAC[] THEN
+  POP_ASSUM(K ALL_TAC) THEN POP_ASSUM(K ALL_TAC) THEN POP_ASSUM(K ALL_TAC) THEN
+  POP_ASSUM MP_TAC THEN ARITH_TAC);;
+
+(* TAIL_REL_FORCES_QZERO: consistency check confirming the regime split.  IF both the tail
+   value relation AND the block-advance equation (Zout + 2^61*q*b = 2^61*Zin + block) hold
+   with highdigits b(dd+1)=0, THEN q=0.  (The two eqs share LHS Zout+2^61*q*lowdigits b(dd+1);
+   equating RHS gives 2^61*q*2^(64(dd+1))=0 => q=0.)  This proves the block-advance equation
+   canNOT hold with q<>0 in the growing regime -- so the growing close MUST go via qhat=0
+   (VALUE_ASSEMBLE_B_QZERO), never the general BLOCK_ADVANCE with q<>0.  Confirms the regime
+   split is forced, not a choice. *)
+let TAIL_REL_FORCES_QZERO = prove
+ (`!Zin Zout q b block dd.
+     highdigits b (dd + 1) = 0 /\
+     Zout + 2 EXP 61 * (q * lowdigits b (dd + 1)) =
+       block + 2 EXP 61 * lowdigits Zin (dd + 1) + 2 EXP 61 * (q * 2 EXP (64 * (dd + 1))) /\
+     Zout + 2 EXP 61 * q * b = 2 EXP 61 * lowdigits Zin (dd + 1) + block
+     ==> q = 0`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `q * 2 EXP (64 * (dd + 1)) = 0` MP_TAC THENL
+   [FIRST_X_ASSUM(MP_TAC o SYM o MATCH_MP HIGHDIGITS_ZERO_EQ_LOW) THEN
+    DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
+    REPEAT (FIRST_X_ASSUM (MP_TAC o check (is_eq o concl))) THEN ARITH_TAC;
+    REWRITE_TAC[MULT_EQ_0; EXP_EQ_0] THEN ARITH_TAC]);;
+
+(* GROWING_VALUE_CLOSE: the COMPLETE value close for the growing regime (dd<k <=> Zf<2^p <=>
+   h=qhat=0, oracle-confirmed 6/6 & 14/14 prior sessions).  From incoming cong + block def +
+   Zf<2^p (growing) + the PURE shift-add Zf'=2^61*Zf+block, derive outgoing cong + bound
+   Zf'<2^(p+64).  NO recip bracket, NO q*b term (qhat=0).  This is the entire dd<k value close.
+   cong via CONG_HALF(qhat:=0); bound via 2^61*Zf+block < 2^61*2^p+2^61 <= 2^(p+64). *)
+let GROWING_VALUE_CLOSE = prove
+ (`!a b i p Zf Zf' block.
+     (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
+     block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\
+     Zf < 2 EXP p /\
+     Zf' = 2 EXP 61 * Zf + block
+     ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b) /\ Zf' < 2 EXP (p + 64)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN CONJ_TAC THENL
+   [MATCH_MP_TAC CONG_HALF THEN
+    MAP_EVERY EXISTS_TAC [`Zf:num`; `0`; `block:num`] THEN
+    ASM_REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES];
+    ASM_REWRITE_TAC[] THEN
+    SUBGOAL_THEN `block < 2 EXP 61` ASSUME_TAC THENL
+     [ASM_REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
+    TRANS_TAC LTE_TRANS `2 EXP 61 * 2 EXP p + 2 EXP 61` THEN CONJ_TAC THENL
+     [MATCH_MP_TAC(ARITH_RULE `a < c /\ d < e ==> a + d < c + e`) THEN
+      ASM_SIMP_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ] THEN
+      REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ];
+      REWRITE_TAC[GSYM EXP_ADD] THEN
+      TRANS_TAC LE_TRANS `2 EXP (61 + p) + 2 EXP (61 + p)` THEN CONJ_TAC THENL
+       [MATCH_MP_TAC LE_ADD2 THEN CONJ_TAC THEN REWRITE_TAC[LE_EXP] THEN ARITH_TAC;
+        REWRITE_TAC[GSYM MULT_2; GSYM(CONJUNCT2 EXP); LE_EXP] THEN ARITH_TAC]]]);;
+
+(* LOWDIGITS_EQ_SELF: zv < 2^(64*dd) ==> lowdigits zv (dd+1) = zv (fits in dd < dd+1 words). *)
+let LOWDIGITS_EQ_SELF = prove
+ (`!zv dd. zv < 2 EXP (64 * dd) ==> lowdigits zv (dd + 1) = zv`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[lowdigits] THEN
+  MATCH_MP_TAC MOD_LT THEN
+  TRANS_TAC LTE_TRANS `2 EXP (64 * dd)` THEN ASM_REWRITE_TAC[LE_EXP] THEN ARITH_TAC);;
+
+(* SHIFTADD_ASSEMBLE: the growing value relation (with qhat=0) says the new z accumulator
+   Zout = block + 2^61*lowdigits Zin (dd+1); with Zin<2^(64*dd) (incoming fits in dd words),
+   this is exactly Zf' = 2^61*Zf + block (Zin=Zf since X23=0 by INV2_TOP_ZERO), the premise
+   GROWING_VALUE_CLOSE consumes.  So: VALUE_GROW_STEP(q=0) -> SHIFTADD_ASSEMBLE -> GROWING_VALUE
+   _CLOSE gives the full dd<k cong+bound. *)
+let SHIFTADD_ASSEMBLE = prove
+ (`!Zout Zin block dd.
+     Zout = block + 2 EXP 61 * lowdigits Zin (dd + 1) /\ Zin < 2 EXP (64 * dd)
+     ==> Zout = 2 EXP 61 * Zin + block`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `lowdigits Zin (dd + 1) = Zin` SUBST_ALL_TAC THENL
+   [MATCH_MP_TAC LOWDIGITS_EQ_SELF THEN ASM_REWRITE_TAC[]; ASM_ARITH_TAC]);;
+
+(* WINDOW_ZERO_IMP_LT: the bound+window pair gives the tight bound.  Zf<2^(p+64) (the general
+   invariant bound) AND window(Zf)=(Zf DIV2^p)MOD2^64 = 0  ==>  Zf<2^p.  This is how the growing
+   regime gets Zf<2^p (needed by GROWING_VALUE_CLOSE) FROM the invariant's window clause being 0.
+   So the growing-phase invariant refinement = carry `l<k+1 ==> X15 = word 0` (window zero),
+   which with the always-present bound Zf<2^(p+64) yields Zf<2^p via this lemma. *)
+let WINDOW_ZERO_IMP_LT = prove
+ (`!Zf p. Zf < 2 EXP (p + 64) /\ (Zf DIV 2 EXP p) MOD 2 EXP 64 = 0 ==> Zf < 2 EXP p`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `Zf DIV 2 EXP p < 2 EXP 64` ASSUME_TAC THENL
+   [SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
+    REWRITE_TAC[GSYM EXP_ADD] THEN ASM_REWRITE_TAC[ADD_SYM];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `Zf DIV 2 EXP p = 0` MP_TAC THENL
+   [ASM_MESON_TAC[MOD_LT]; ALL_TAC] THEN
+  SIMP_TAC[DIV_EQ_0; EXP_EQ_0; ARITH_EQ]);;
+
+(* X15_ZERO_IMP_LT: the body-usable form.  From the invariant's OWN clauses -- the bound
+   Zf<2^(p+64) AND X15 = word 0 (i.e. word(window Zf)=word 0, window<2^64 so window=0) -- get
+   Zf<2^p.  So in the body's growing branch, establishing X15=word 0 (from dd<k) yields Zf<2^p
+   for GROWING_VALUE_CLOSE with NO extra invariant clause: the invariant ALREADY has the bound
+   and X15=word(window).  (word(window)=word 0 <=> window=0 since window = (Zf DIV2^p)MOD2^64
+   < 2^64 and VAL_WORD_EQ.) *)
+let X15_ZERO_IMP_LT = prove
+ (`!Zf p.
+     Zf < 2 EXP (p + 64) /\ word ((Zf DIV 2 EXP p) MOD 2 EXP 64):int64 = word 0
+     ==> Zf < 2 EXP p`,
+  REPEAT STRIP_TAC THEN MATCH_MP_TAC WINDOW_ZERO_IMP_LT THEN
+  ASM_REWRITE_TAC[] THEN
+  FIRST_X_ASSUM(MP_TAC o AP_TERM `val:int64->num`) THEN
+  REWRITE_TAC[VAL_WORD_0] THEN
+  SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]);;
+
+(* QHAT_ZERO_OF_H_ZERO: h=0 => qhat = (w*h DIV 2^64 + h) MOD 2^64 = 0.  The window-zero branch:
+   invariant X15 = word(window Zf) = word h; X15 = word 0 => (window<2^64) h=0 => qhat=0 =>
+   shift-add block (GROWING_VALUE_CLOSE).  This is the SOUND basis for the growing branch --
+   it keys on X15=word 0 (window=0), NOT on dd<k (which only coincides with window=0 at p=64k).
+   The h<>0 branch (X15<>word 0) needs full BLOCK_VALUE + recip bracket. *)
+let QHAT_ZERO_OF_H_ZERO = prove
+ (`!w h. h = 0 ==> ((w * h) DIV 2 EXP 64 + h) MOD 2 EXP 64 = 0`,
+  REPEAT STRIP_TAC THEN ASM_REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES; DIV_0; MOD_0]);;
+
+(* QHAT_UNRED_FORM: bridges BLOCK_VALUE's quotient (2^64+w)*h DIV 2^64 to QSETUP's w*h DIV 2^64
+   + h.  ((2^64+w)*h) DIV 2^64 = w*h DIV 2^64 + h (since 2^64*h DIV 2^64 = h exactly).  NB
+   BLOCK_VALUE uses the UNREDUCED quotient; QSETUP/INNERLOOP store it reduced mod 2^64.  The
+   saturated value close must reconcile reduced-vs-unreduced qhat (they agree iff the sum
+   <2^64, OR the mod-b congruence absorbs the 2^64 multiple of b -- CONG since 2^64*b==0). *)
+let QHAT_UNRED_FORM = prove
+ (`!w h. ((2 EXP 64 + w) * h) DIV 2 EXP 64 = (w * h) DIV 2 EXP 64 + h`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[RIGHT_ADD_DISTRIB] THEN
+  SUBGOAL_THEN `2 EXP 64 * h = h * 2 EXP 64` SUBST1_TAC THENL
+   [ARITH_TAC; ALL_TAC] THEN
+  SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
+
+(* QHAT_NO_WRAP: if h<2^61 then the quotient q=w*h DIV2^64+h does NOT wrap (< 2^64), so the
+   hardware `add q,t0,h` (64-bit, discards carry) gives q_reduced = q_unreduced.  This resolves
+   the reduced-vs-unreduced qhat question: they are EQUAL (no congruence gymnastics) WHEN h<2^61.
+   OPEN: is h<2^61?  h = X15 = window = (Zf DIV2^p)MOD2^64 which is <2^64 (Zf<2^(p+64)), NOT
+   obviously <2^61.  NEED: the true bound on the window h used as quotient input.  Likely from
+   the RECIP setup / block structure (the window feeding multop is <2^61 because... TBD).  If
+   h can be >=2^61, need the congruence route (q_reduced == q_unreduced absorbing 2^64*b mod b).
+   *** VERIFY h's bound before relying on this. *** *)
+let QHAT_NO_WRAP = prove
+ (`!w h. w < 2 EXP 64 /\ h < 2 EXP 61
+         ==> (w * h) DIV 2 EXP 64 + h < 2 EXP 64 /\
+             ((w * h) DIV 2 EXP 64 + h) MOD 2 EXP 64 = (w * h) DIV 2 EXP 64 + h`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `(w * h) DIV 2 EXP 64 <= h` ASSUME_TAC THENL
+   [TRANS_TAC LE_TRANS `(2 EXP 64 * h) DIV 2 EXP 64` THEN CONJ_TAC THENL
+     [MATCH_MP_TAC DIV_MONO THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
+      MATCH_MP_TAC LE_MULT2 THEN UNDISCH_TAC `w < 2 EXP 64` THEN ARITH_TAC;
+      SIMP_TAC[DIV_MULT; EXP_EQ_0; ARITH_EQ; LE_REFL]];
+    SUBGOAL_THEN `(w * h) DIV 2 EXP 64 + h < 2 EXP 64` ASSUME_TAC THENL
+     [MAP_EVERY UNDISCH_TAC [`(w * h) DIV 2 EXP 64 <= h`; `h < 2 EXP 61`] THEN ARITH_TAC;
+      ASM_SIMP_TAC[MOD_LT]]]);;
+
+(* ============================================================================
+   KEY INSIGHT (2026-07-27h): GROWING REGIME (B/FLAT) => qhat = 0.
+   ----------------------------------------------------------------------------
+   The tail value relation at l=dd+1 words is
+     Zout + 2^61*q*lowdigits b l = block + 2^61*Zin + 2^61*q*2^(64*l).
+   In the growing regime, highdigits Zout l = 0 (Zout fits in l words, by INV2 Zf'<2^(64*l)).
+   If qhat<>0: with highdigits b l = 0 (the OTHER disjunct of INV2 fact A), b<2^(64*l), so
+   q*lowdigits b l = q*b < q*2^(64*l); then Zout = 2^61*Zin + block + 2^61*q*(2^(64*l) - b) >=
+   2^61*q*2^(64*l)/... which is >= 2^(64*l), CONTRADICTING highdigits Zout l = 0.  Hence in
+   the growing regime qhat = 0 NECESSARILY.  => use VALUE_ASSEMBLE_B_QZERO + BLOCK_VALUE_B.
+   (The qhat<>0 blocks are exactly the SATURATED regimes DDK/C where l=k+1, X23 absorbs q,
+   handled by VALUE_BRIDGE_DDK.)  NEXT: prove `growing (highdigits Zout l=0, l<=k) /\ INV2-A
+   => qhat=0` as a lemma (GROWING_QZERO), then regime-B close = GROWING_QZERO + VALUE_ASSEMBLE
+   _B_QZERO + BLOCK_VALUE_B.  This RESOLVES the q*2^(64*l) discrepancy cleanly.
+   ============================================================================
+
+   OPEN (next session): the block-advance equation assembly for regime B.
+   ----------------------------------------------------------------------------
+   The tail value relation at ii=dd+1=l (VALUE_GROW_STEP, hh'=0 growing) is:
+     Zout + 2^61*q*lowdigits b l = block + 2^61*Zin + 2^61*q*2^(64*l)
+   (using highdigits Zout l = highdigits Zin l = 0 => Zout=lowdigits Zout l etc, and
+    X23=0 by INV2_TOP_ZERO so Zf=Zin, Zf'=Zout).
+   BLOCK_ADVANCE / BLOCK_VALUE want:  Zout + 2^61*q*b = 2^61*Zin + block.
+   DISCREPANCY: the tail relation has an EXTRA `+ 2^61*q*2^(64*l)` on the RHS and uses
+   `lowdigits b l` not `b`.  Naive algebra (assuming highdigits b l=0 => lowdigits b l=b via
+   TAIL_MUL_FULL) leaves `Zout + 2^61*q*b = 2^61*Zin + block + 2^61*q*2^(64*l)` -- the
+   q*2^(64*l) term does NOT obviously cancel.  RESOLVE by studying VALUE_BRIDGE_DDK (which
+   DOES close): there the `2^61*q*2^(64k)` is absorbed into 2^61*(2^(64k)*ztin+zorig) via the
+   TOP-WORD equation `2^64*q + t10 = ztin+hi+q*(2^64-1)`.  For regime B the analog must route
+   the q*2^(64*l) into z[dd+1] / the carry -- i.e. the value relation's `2^61*q*2^(64*l)` is
+   NOT spurious; it pairs with a term hidden in how Zout's top word (z[dd+1]=ss DIV 8) was
+   computed from ss = zi+hi+q*(2^64-1-bi).  LIKELY the correct move: do NOT set hh'=0 first;
+   instead keep the FULL VALUE_GROW_STEP/INNER_ADVANCE_ADD relation and feed it (with the
+   q*2^(64*l) term intact) to a BLOCK_VALUE-style consumer that expects exactly that shape --
+   OR the block-advance b is the FULL b and 2^(64*l) relates to highdigits b l (=0 in growing
+   => the term must come from elsewhere).  Re-derive carefully against INNER_ADVANCE_ADD's
+   invariant shape `... = block + 2^61*LDz + 2^61*q*2^(64*ii)` -- the RHS q-term is the loop
+   INVARIANT's running term, and the block-advance equation is obtained at the POINT where
+   b is fully consumed (lowdigits b l = b) AND the q*2^(64*l) is matched by q*b's high part.
+   KEY QUESTION to answer first: in regime B is `2^(64*l) = b`?  NO.  So re-examine whether
+   Zf' in the invariant is `bignum(z,k)` or includes a shift.  Suspect the block-advance
+   equation for the GROWING regime is actually the qhat=0 case (BLOCK_VALUE_B: Zf'=2^61*Zf+
+   block, no q*b term) because growing <=> the quotient digit qhat contributes 0 to THIS
+   block (h=0 when the window hasn't reached the top).  CHECK INV2 fact (A): qhat=0 \/
+   highdigits b(dd+1)=0.  If in the growing regime qhat=0, then BLOCK_VALUE_B closes directly
+   (Zout = 2^61*Zin+block, and the value relation with q=0 becomes exactly that -- the
+   q*2^(64*l) term vanishes!).  => REGIME B likely = qhat=0 case: verify h=0 => qhat=0 in
+   growing, use BLOCK_VALUE_B.  That resolves the discrepancy cleanly.
+   ============================================================================ *)
+
+(* BIGNUM_ASSEMBLE_2: read bignum(z,dd+2) off the low dd words + the two top words (z[dd],
+   z[dd+1]).  Two applications of BIGNUM_FROM_MEMORY_STEP.  Bridges the tail's memory-store
+   post to the full bignum(z,k)' = bignum(z,dd+2) (rest 0 by X23=0 + highdigits vanish).
+   Combined with EXTR_FUNNEL_VAL (z[dd] = word_subword(word_join(word W)(word cwin))(3,64) has
+   val 2^61*(W MOD8)+cwin DIV8) + VAL_WORD_USHR (z[dd+1]=word_ushr(word W)3 has val W DIV8) +
+   VALUE_GROW_STEP, this gives the full (dd+2)-word value relation for the close. *)
+let GROWING_ZK_ASSEMBLE = prove
+ (`!zlo W cwin block zv dd b.
+     zlo + 2 EXP (64 * dd) * (cwin DIV 8 + 2 EXP 61 * 0) +
+       2 EXP 61 * (0 * lowdigits b dd) =
+       block + 2 EXP 61 * lowdigits zv dd + 2 EXP 61 * (0 * 2 EXP (64 * dd)) /\
+     2 EXP 64 * 0 + W = bigdigit zv dd + 0 + 0 * (2 EXP 64 - 1 - bigdigit b dd) /\
+     bigdigit b dd < 2 EXP 64
+     ==> (zlo + 2 EXP (64 * dd) * (2 EXP 61 * W MOD 2 EXP 3 + cwin DIV 8)) +
+         2 EXP (64 * (dd + 1)) * (W DIV 2 EXP 3 + 2 EXP 61 * 0) +
+         2 EXP 61 * (0 * lowdigits b (dd + 1)) =
+         block + 2 EXP 61 * lowdigits zv (dd + 1) + 2 EXP 61 * (0 * 2 EXP (64 * (dd + 1)))`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(ISPECL [`dd + 1`; `dd:num`; `0`; `block:num`; `zv:num`; `b:num`; `cwin:num`;
+                 `0`; `W:num`; `0`; `zlo:num`] VALUE_GROW_STEP) THEN
+  ASM_REWRITE_TAC[ARITH_RULE `dd < dd + 1`]);;
+
+(* HIGHZ_VANISH: the high part of z after the tail is 0.  From the prefix's high-z preservation
+   (highdigits zpre (l-1) = highdigits zv (l-1)) + INV2 (zv < 2^(64*l)): highdigits zpre (l+1) =
+   highdigits zpre ((l-1)+2) = highdigits (highdigits zv (l-1)) 2 = highdigits zv (l+1) = 0.
+   So bignum(z,k)_after = bignum(z,l+1)_after (the top words vanish), enabling the shift-add. *)
+let HIGHZ_VANISH = prove
+ (`!zpre zv l.
+     2 <= l /\ highdigits zpre (l - 1) = highdigits zv (l - 1) /\ zv < 2 EXP (64 * l)
+     ==> highdigits zpre (l + 1) = 0`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `l + 1 = (l - 1) + 2` SUBST1_TAC THENL
+   [UNDISCH_TAC `2 <= l` THEN ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[GSYM HIGHDIGITS_HIGHDIGITS] THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[HIGHDIGITS_HIGHDIGITS] THEN
+  MATCH_MP_TAC HIGHDIGITS_ZERO THEN
+  TRANS_TAC LTE_TRANS `2 EXP (64 * l)` THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[LE_EXP] THEN UNDISCH_TAC `2 <= l` THEN ARITH_TAC);;
+
+(* GROWING_CONG_BOUND: the complete growing-regime value close.  From the seg-B post
+   ingredients -- the prefix value relation (q=0 form), the tail carry-out eqn (W = zv[l-1]),
+   HIGHZ_VANISH (highdigits zpre (l+1)=0), incoming cong(zv) + zv<2^p + zv<2^(64l) -- derives
+   cong + bound on the assembled zk = bignum(z,k)_after (the (l-1)+2-word BIGNUM_ASSEMBLE_2
+   result with the two tail stores).  = GROWING_ZK_ASSEMBLE (zk=2^61*zv+block, using
+   lowdigits zv l = zv from zv<2^(64l)) + GROWING_VALUE_CLOSE.  This is the whole dd<k value
+   close in one lemma; the body's seg C: BIGNUM_ASSEMBLE_2 + store-values (EXTR_FUNNEL_VAL/
+   VAL_WORD_USHR) express zk in this form, then apply this.  (Note the `2^(64*((l-1)+1))` in the
+   zk hyp = the tail's z[l] weight; matches BIGNUM_ASSEMBLE_2 at dd=l-1.) *)
+let GROWING_CONG_BOUND = prove
+ (`!a b p ii zpre zv W cwin block l zk.
+     2 <= l /\ zv < 2 EXP p /\ zv < 2 EXP (64 * l) /\
+     (zv == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
+     block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\
+     highdigits zpre (l + 1) = 0 /\
+     lowdigits zpre (l - 1) +
+       2 EXP (64 * (l-1)) * (cwin DIV 8 + 2 EXP 61 * 0) + 2 EXP 61 * (0 * lowdigits b (l-1)) =
+       block + 2 EXP 61 * lowdigits zv (l-1) + 2 EXP 61 * (0 * 2 EXP (64 * (l-1))) /\
+     2 EXP 64 * 0 + W = bigdigit zv (l-1) + 0 + 0 * (2 EXP 64 - 1 - bigdigit b (l-1)) /\
+     bigdigit b (l-1) < 2 EXP 64 /\
+     zk = (lowdigits zpre (l-1) + 2 EXP (64 * (l-1)) * (2 EXP 61 * W MOD 2 EXP 3 + cwin DIV 8)) +
+          2 EXP (64 * ((l-1)+1)) * (W DIV 2 EXP 3 + 2 EXP 61 * 0)
+     ==> (zk == a DIV 2 EXP (61 * ii)) (mod b) /\ zk < 2 EXP (p + 64)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `zk = 2 EXP 61 * zv + block` ASSUME_TAC THENL
+   [MP_TAC(ISPECL [`lowdigits zpre (l - 1)`; `W:num`; `cwin:num`; `block:num`; `zv:num`;
+                   `l - 1`; `b:num`] GROWING_ZK_ASSEMBLE) THEN
+    ASM_REWRITE_TAC[] THEN
+    SUBGOAL_THEN `(l - 1) + 1 = l` SUBST1_TAC THENL
+     [UNDISCH_TAC `2 <= l` THEN ARITH_TAC; ALL_TAC] THEN
+    REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES] THEN DISCH_TAC THEN
+    SUBGOAL_THEN `lowdigits zv l = zv` SUBST_ALL_TAC THENL
+     [REWRITE_TAC[lowdigits] THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+    MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `p:num`; `zv:num`; `zk:num`; `block:num`]
+                  GROWING_VALUE_CLOSE) THEN
+    ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN
+    UNDISCH_TAC `zk = (lowdigits zpre (l-1) +
+          2 EXP (64 * (l-1)) * (2 EXP 61 * W MOD 2 EXP 3 + cwin DIV 8)) +
+          2 EXP (64 * ((l-1)+1)) * (W DIV 2 EXP 3 + 2 EXP 61 * 0)` THEN
+    UNDISCH_TAC `zk = 2 EXP 61 * zv + block` THEN
+    UNDISCH_TAC `block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61` THEN CONV_TAC NUM_RING]);;
+
+(* ---- WINDOW X15 close (shared by both regimes) ---- *)
+
+(* WINDOW_FROM_LOGGED_PCODE: FIELDSEL's output, with the logged digits at pcode-1,pcode
+   (pcode = p DIV64+1), equals the invariant's window (Zf' DIV2^p)MOD2^64.  hf=bigdigit Zf'
+   pcode, lf=bigdigit Zf'(pcode-1); FIELDSEL gives X15=((2^64*hf+lf)DIV2^(pMOD64))MOD2^64. *)
+let WINDOW_FROM_LOGGED_PCODE = prove
+ (`!Zf p pcode.
+     pcode = p DIV 64 + 1
+     ==> ((2 EXP 64 * bigdigit Zf pcode + bigdigit Zf (pcode - 1)) DIV 2 EXP (p MOD 64)) MOD
+         2 EXP 64 =
+         (Zf DIV 2 EXP p) MOD 2 EXP 64`,
+  REPEAT STRIP_TAC THEN ASM_REWRITE_TAC[ADD_SUB] THEN
+  MP_TAC(SPECL [`Zf:num`; `p:num`] WINDOW_FROM_LOGGED) THEN REWRITE_TAC[]);;
+
+(* HI_ZERO: the inner-loop high carry-out X5 (=hi) is 0 in the GROWING regime.  From the
+   prefix VALUE RELATION at q=0 -- bignum_lo + 2^(64dd)*(cwin DIV8 + 2^61*hi) = block +
+   2^61*LDzv (the q-terms vanish at q=0) -- with block<2^61 and LDzv<2^(64dd): if hi>=1 the
+   LHS >= 2^(64dd)*2^61*hi >= 2^(61+64dd) > 2^61*(LDzv+1) > RHS, contradiction.  So hi=0.
+   This DISCHARGES the `hi=0` baked into GROWING_ZK_ASSEMBLE/GROWING_CONG_BOUND without needing
+   to expose val(X5) from the inner loop -- it is FORCED by the value relation the prefix
+   already carries.  (Physically hi=0 because qhat=0 => the negate-add is carry-free.) *)
+let HI_ZERO = prove
+ (`!bignum_lo cwin hi block LDzv dd LDb.
+     bignum_lo + 2 EXP (64 * dd) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * (0 * LDb) =
+       block + 2 EXP 61 * LDzv + 2 EXP 61 * (0 * 2 EXP (64 * dd)) /\
+     block < 2 EXP 61 /\ LDzv < 2 EXP (64 * dd)
+     ==> hi = 0`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES] THEN STRIP_TAC THEN
+  ABBREV_TAC `P = 2 EXP (64 * dd)` THEN ABBREV_TAC `Q = 2 EXP 61` THEN
+  SUBGOAL_THEN `~(P = 0) /\ ~(Q = 0)` STRIP_ASSUME_TAC THENL
+   [MAP_EVERY EXPAND_TAC ["P"; "Q"] THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
+  SUBGOAL_THEN `(Q * P) * hi <= block + Q * LDzv` ASSUME_TAC THENL
+   [FIRST_X_ASSUM(fun th -> if is_eq(concl th) &&
+       lhs(concl th) = `bignum_lo + P * (cwin DIV 8 + Q * hi)`
+     then GEN_REWRITE_TAC RAND_CONV [SYM th] else NO_TAC) THEN
+    REWRITE_TAC[LEFT_ADD_DISTRIB; MULT_ASSOC] THEN ARITH_TAC;
+    ALL_TAC] THEN
+  SUBGOAL_THEN `(Q * P) * hi < (Q * P) * 1` MP_TAC THENL
+   [REWRITE_TAC[MULT_CLAUSES] THEN
+    TRANS_TAC LET_TRANS `block + Q * LDzv` THEN ASM_REWRITE_TAC[] THEN
+    MATCH_MP_TAC(ARITH_RULE `block < Q /\ Q * LDzv + Q <= Q * P ==> block + Q * LDzv < Q * P`) THEN
+    ASM_REWRITE_TAC[] THEN
+    REWRITE_TAC[ARITH_RULE `Q * LDzv + Q = Q * (LDzv + 1)`] THEN
+    MATCH_MP_TAC LE_MULT2 THEN ASM_ARITH_TAC;
+    SUBGOAL_THEN `~(Q * P = 0)` (fun th -> SIMP_TAC[th; LT_MULT_LCANCEL]) THENL
+     [ASM_REWRITE_TAC[MULT_EQ_0]; ARITH_TAC]]);;
+
+(* GROWING_ZK_EQ: the seg-C assembled value equals 2^61*zv+block directly.  = GROWING_ZK_ASSEMBLE
+   (q=0,hi=0 form) with lowdigits zv (dd+1) = zv (from zv<2^(64(dd+1))), collapsing the RHS to
+   block+2^61*zv.  This is what the body's seg B feeds after substituting the two tail stores
+   (z[dd]=EXTR_FUNNEL_VAL, z[dd+1]=VAL_WORD_USHR via BIGNUM_ASSEMBLE_2) to obtain
+   bignum(z,k)@0x2e8 = 2^61*zv+block, the FIELDSEL_CLOSE precondition. *)
+let GROWING_ZK_EQ = prove
+ (`!zlo W cwin block zv dd b.
+     zlo + 2 EXP (64 * dd) * (cwin DIV 8 + 2 EXP 61 * 0) +
+       2 EXP 61 * (0 * lowdigits b dd) =
+       block + 2 EXP 61 * lowdigits zv dd + 2 EXP 61 * (0 * 2 EXP (64 * dd)) /\
+     2 EXP 64 * 0 + W = bigdigit zv dd + 0 + 0 * (2 EXP 64 - 1 - bigdigit b dd) /\
+     bigdigit b dd < 2 EXP 64 /\
+     zv < 2 EXP (64 * (dd + 1))
+     ==> (zlo + 2 EXP (64 * dd) * (2 EXP 61 * (W MOD 2 EXP 3) + cwin DIV 8)) +
+         2 EXP (64 * (dd + 1)) * (W DIV 2 EXP 3) =
+         2 EXP 61 * zv + block`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(ISPECL [`zlo:num`; `W:num`; `cwin:num`; `block:num`; `zv:num`; `dd:num`; `b:num`]
+                GROWING_ZK_ASSEMBLE) THEN
+  ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN `lowdigits zv (dd + 1) = zv` SUBST1_TAC THENL
+   [REWRITE_TAC[lowdigits] THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES] THEN
+  DISCH_THEN(fun th -> MP_TAC th) THEN ARITH_TAC);;
+
+(* BIGDIGIT_VANISH_ABOVE: Zf < 2^(64*m) => bigdigit Zf j = 0 for all j>=m.  Supplies the
+   `(!j. dd+1 < j ==> bigdigit Zf' j = 0)` hypothesis of TAIL_HF/LF_FINALIZE, from the INV2
+   bound Zf' < 2^(64*(dd+2)) (growing l'=dd+2): dd+1<j => dd+2<=j => bigdigit Zf' j = 0. *)
+let BIGDIGIT_VANISH_ABOVE = prove
+ (`!Zf m. Zf < 2 EXP (64 * m) ==> (!j. m <= j ==> bigdigit Zf j = 0)`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[bigdigit] THEN
+  SUBGOAL_THEN `Zf DIV 2 EXP (64 * j) = 0` (fun th -> REWRITE_TAC[th; MOD_0]) THEN
+  SIMP_TAC[DIV_EQ_0; EXP_EQ_0; ARITH_EQ] THEN
+  TRANS_TAC LTE_TRANS `2 EXP (64 * m)` THEN ASM_REWRITE_TAC[LE_EXP] THEN
+  UNDISCH_TAC `m <= j` THEN ARITH_TAC);;
+
+(* BIGDIGIT_AGREE_BELOW: digits below dd agree if lowdigits agree.  Used to bridge the tail's
+   incoming logged digits (lfin/hfin, read from z[<dd] at 0x23c = bigdigit zpre) to bigdigit Zf'
+   (Zf'=bignum(z,k)@0x2e8), since the tail only writes z[dd],z[dd+1] so lowdigits Zf' dd =
+   lowdigits zpre dd.  For the window close (TAIL_LF/HF_FINALIZE need lfin=bigdigit Zf'(pcode-1)
+   when pcode<=dd, hfin=bigdigit Zf' pcode when pcode<dd). *)
+let BIGDIGIT_AGREE_BELOW = prove
+ (`!Zf zpre dd j.
+     lowdigits Zf dd = lowdigits zpre dd /\ j < dd
+     ==> bigdigit Zf j = bigdigit zpre j`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`Zf:num`; `dd:num`; `j:num`] BIGDIGIT_LOWDIGITS) THEN
+  MP_TAC(SPECL [`zpre:num`; `dd:num`; `j:num`] BIGDIGIT_LOWDIGITS) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN(SUBST1_TAC o SYM) THEN DISCH_THEN(SUBST1_TAC o SYM) THEN
+  ASM_REWRITE_TAC[]);;
+
+(* Stage 3f: DDK saturated logged-digit finalization.  Turns the DDK tail's conditional X13/X14
+   forms (keyed on k, k+1, pcode -- from TAIL_DDK_WIDE_LOG_X) into word(bigdigit V pcode),
+   word(bigdigit V (pcode-1)) for the FULL new accumulator V = 2^(64k)*Ztp + zpre, where Ztp = X23'
+   = 2^61*t10 + cwin DIV8 (< 2^64).  This is the saturated analog of LOGDIGIT_FINALIZE_BRIDGE.
+   Handles pcode <= k+1 (incl the full-width p=64k => pcode=k+1 edge, where bigdigit V (k+1)=0).
+   Deps: BIGDIGIT_TOP_SAT, VAL_LT_TOP, BIGDIGIT_AGREE_BELOW (value_close_lemmas.ml). *)
+
+(* bigdigit of the top word: bigdigit (2^(64k)*Ztp + zpre) k = Ztp when Ztp<2^64, zpre<2^(64k). *)
+let BIGDIGIT_TOP_SAT = prove
+ (`!Ztp zpre k. Ztp < 2 EXP 64 /\ zpre < 2 EXP (64 * k)
+    ==> bigdigit (2 EXP (64 * k) * Ztp + zpre) k = Ztp`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[bigdigit; DIV_ADD] THEN
+  SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ; DIV_LT; ADD_CLAUSES] THEN
+  ASM_SIMP_TAC[DIV_LT] THEN REWRITE_TAC[ADD_CLAUSES] THEN
+  MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]);;
+
+(* the top-vanish magnitude bound (nonlinear; proper lemmas not ARITH_RULE). *)
+let VAL_LT_TOP = prove
+ (`!Ztp zpre k. Ztp < 2 EXP 64 /\ zpre < 2 EXP (64 * k)
+    ==> 2 EXP (64 * k) * Ztp + zpre < 2 EXP (64 * k) * 2 EXP 64`,
+  REPEAT STRIP_TAC THEN
+  TRANS_TAC LTE_TRANS `2 EXP (64 * k) * Ztp + 2 EXP (64 * k)` THEN CONJ_TAC THENL
+   [ASM_REWRITE_TAC[LT_ADD_LCANCEL]; ALL_TAC] THEN
+  REWRITE_TAC[ARITH_RULE `a * Ztp + a = a * (Ztp + 1)`; LE_MULT_LCANCEL] THEN
+  DISJ2_TAC THEN ASM_ARITH_TAC);;
+
+let DDK_LOGDIGIT_FINALIZE = prove
+ (`!Ztp zpre k pcode lfin hfin.
+    Ztp < 2 EXP 64 /\ zpre < 2 EXP (64 * k) /\ 1 <= pcode /\ pcode <= k + 1 /\
+    (pcode <= k ==> lfin = bigdigit zpre (pcode - 1)) /\
+    (pcode < k ==> hfin = bigdigit zpre pcode) /\
+    (k = pcode ==> hfin = Ztp) /\
+    (k + 1 = pcode ==> hfin = 0)
+    ==> (if k = pcode then word Ztp:int64 else word hfin) =
+        word (bigdigit (2 EXP (64 * k) * Ztp + zpre) pcode) /\
+        (if k + 1 = pcode then word Ztp:int64
+         else if pcode <= k + 1 then (if k < pcode then word Ztp else word lfin)
+              else word 0) =
+        word (bigdigit (2 EXP (64 * k) * Ztp + zpre) (pcode - 1))`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `bigdigit (2 EXP (64 * k) * Ztp + zpre) k = Ztp` ASSUME_TAC THENL
+   [MATCH_MP_TAC BIGDIGIT_TOP_SAT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  SUBGOAL_THEN `!j. j < k ==> bigdigit (2 EXP (64 * k) * Ztp + zpre) j = bigdigit zpre j` ASSUME_TAC THENL
+   [REPEAT STRIP_TAC THEN MATCH_MP_TAC BIGDIGIT_AGREE_BELOW THEN EXISTS_TAC `k:num` THEN
+    ASM_REWRITE_TAC[] THEN REWRITE_TAC[lowdigits] THEN
+    SUBGOAL_THEN `(2 EXP (64 * k) * Ztp + zpre) MOD 2 EXP (64 * k) = zpre MOD 2 EXP (64 * k)`
+      SUBST1_TAC THENL [REWRITE_TAC[MOD_MULT_ADD]; ALL_TAC] THEN
+    ASM_SIMP_TAC[MOD_LT];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `bigdigit (2 EXP (64 * k) * Ztp + zpre) (k + 1) = 0` ASSUME_TAC THENL
+   [REWRITE_TAC[bigdigit] THEN
+    SUBGOAL_THEN `(2 EXP (64 * k) * Ztp + zpre) DIV 2 EXP (64 * (k + 1)) = 0`
+      (fun th -> REWRITE_TAC[th; MULT_CLAUSES; ADD_CLAUSES; DIV_0; MOD_0]) THEN
+    MATCH_MP_TAC DIV_LT THEN
+    REWRITE_TAC[ARITH_RULE `64 * (k + 1) = 64 * k + 64`; EXP_ADD] THEN
+    MATCH_MP_TAC VAL_LT_TOP THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  CONJ_TAC THENL
+   [COND_CASES_TAC THENL
+     [ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
+      FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN ASM_REWRITE_TAC[];
+      ASM_CASES_TAC `k + 1 = pcode` THENL
+       [SUBGOAL_THEN `hfin = 0` SUBST1_TAC THENL [ASM_MESON_TAC[]; ALL_TAC] THEN
+        ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
+        FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN ASM_REWRITE_TAC[];
+        SUBGOAL_THEN `pcode < k` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+        ASM_SIMP_TAC[] THEN AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
+        FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]];
+    ASM_CASES_TAC `k + 1 = pcode` THENL
+     [ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN
+      SUBGOAL_THEN `pcode - 1 = k` SUBST1_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+      CONV_TAC SYM_CONV THEN ASM_REWRITE_TAC[];
+      SUBGOAL_THEN `pcode <= k + 1 /\ ~(k < pcode)` STRIP_ASSUME_TAC THENL
+       [ASM_ARITH_TAC; ALL_TAC] THEN
+      ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN
+      SUBGOAL_THEN `lfin = bigdigit zpre (pcode - 1)` SUBST1_TAC THENL
+       [FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
+      CONV_TAC SYM_CONV THEN FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]]);;
+
+(* FUNNEL_VAL_EXACT: the UNCONDITIONAL value of the DDK tail's funnel top word -- no no-borrow / t10<8
+   hyp needed.  val(word_subword(word_join(word ss)(word cwin))(3,64)) = ((ss MOD2^64 * 2^64 +
+   cwin MOD2^64) DIV 8) MOD 2^64.  This SIDESTEPS the top-word no-borrow: work with t10 := ss MOD
+   2^64 directly (NOT requiring q = ss DIV 2^64).  With t10<8 (from T10_LT_8_BRIDGE, KI) the MOD 2^64
+   vanishes -> val(X23') = 2^61*t10 + (cwin MOD2^64) DIV 8, feeding VALUE_BRIDGE_DDK/DDK_VALUE_CLOSE
+   without a no-borrow premise. *)
+let FUNNEL_VAL_EXACT = prove
+ (`!ss cwin. val(word_subword (word_join (word ss:int64) (word cwin:int64):int128) (3,64):int64) =
+             ((ss MOD 2 EXP 64 * 2 EXP 64 + cwin MOD 2 EXP 64) DIV 8) MOD 2 EXP 64`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[VAL_WORD_SUBWORD; VAL_WORD_JOIN; DIMINDEX_64; DIMINDEX_128; VAL_WORD] THEN
+  REWRITE_TAC[ARITH_RULE `MIN 64 (128 - 3) = 64`; ARITH_RULE `2 EXP 3 = 8`;
+              ARITH_RULE `MIN 64 64 = 64`] THEN
+  SUBGOAL_THEN `(2 EXP 64 * ss MOD 2 EXP 64 + cwin MOD 2 EXP 64) MOD 2 EXP 128 =
+                2 EXP 64 * ss MOD 2 EXP 64 + cwin MOD 2 EXP 64` SUBST1_TAC THENL
+   [MATCH_MP_TAC MOD_LT THEN
+    MP_TAC(SPECL [`ss:num`; `2 EXP 64`] MOD_LT_EQ) THEN
+    MP_TAC(SPECL [`cwin:num`; `2 EXP 64`] MOD_LT_EQ) THEN
+    REWRITE_TAC[EXP_EQ_0; ARITH_EQ; ARITH_RULE `2 EXP 128 = 2 EXP 64 * 2 EXP 64`] THEN ARITH_TAC;
+    REWRITE_TAC[MULT_SYM]]);;
+
+(* Stage 3f X-INVARIANT GLUE (2026-07-27h).  The seam that lets the proven segment/tail
+   lemmas -- which do NOT restate bignum_from_memory(x,n)=a in their pre/post -- compose
+   under an ENSURES_SEQUENCE that threads the loop-constant fact bignum(x,n)=a (needed at
+   FIELDSEL / the backedge).  x is disjoint from z (top-level nonoverlapping (z,8k)(x,8n)),
+   so the block-body MAYCHANGE frame preserves bignum(x,n); we simply conjoin it back.
+
+   Two pieces:
+     ENSURES_CONJ_MEM_INVARIANT : if the frame C preserves bignum(x,n) and `ensures P Q C`
+       holds, then `ensures (P /\ bignum(x,n)=a) (Q /\ bignum(x,n)=a) C`.  Generic.
+     MAINLOOP_FRAME_PRESERVES_X : the block-body frame [regs],,SOME_FLAGS,,events,,
+       [mem:>bignum(z,k)] preserves bignum(x,n) given nonoverlapping (z,8k)(x,8n).
+
+   Usage to lift a segment lemma SEG (already ISPEC'd to a bare `ensures P Q C`, C = block
+   frame) to carry bignum(x,n)=a:
+     let seg_x =
+       let presv = ISPECL [`x`;`n`;`z`;`k`] MAINLOOP_FRAME_PRESERVES_X in
+       SPEC `a:num` (MATCH_MP ENSURES_CONJ_MEM_INVARIANT (CONJ (UNDISCH presv) SEG)) in
+     ... then BETA_RULE / CONV to flatten the nested (\s....) s and ACCEPT into the
+     ENSURES_SEQUENCE conjunct (whose crafted assertion carries `... /\ bignum(x,n)=a`). *)
+
+let ZF_BOUND_GROW = prove
+ (`!zv block l. zv < 2 EXP (64 * l) /\ block < 2 EXP 61
+    ==> 2 EXP 61 * zv + block < 2 EXP (64 * (l + 1))`,
+  REPEAT STRIP_TAC THEN
+  TRANS_TAC LTE_TRANS `2 EXP 61 * 2 EXP (64 * l) + 2 EXP 61` THEN CONJ_TAC THENL
+   [MATCH_MP_TAC(ARITH_RULE `a < c /\ d < e ==> a + d < c + e`) THEN
+    ASM_SIMP_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ] THEN ASM_REWRITE_TAC[];
+    REWRITE_TAC[GSYM EXP_ADD] THEN
+    TRANS_TAC LE_TRANS `2 EXP (61 + 64 * l) + 2 EXP (61 + 64 * l)` THEN CONJ_TAC THENL
+     [MATCH_MP_TAC LE_ADD2 THEN CONJ_TAC THEN REWRITE_TAC[LE_EXP] THEN ARITH_TAC;
+      REWRITE_TAC[GSYM MULT_2; GSYM(CONJUNCT2 EXP); LE_EXP] THEN ARITH_TAC]]);;
+
+let ZF_BOUND_FLAT = prove
+ (`!zv block p dd. zv < 2 EXP p /\ p <= 64 * dd + 2 /\ block < 2 EXP 61
+    ==> 2 EXP 61 * zv + block < 2 EXP (64 * (dd + 1))`,
+  REPEAT STRIP_TAC THEN
+  TRANS_TAC LTE_TRANS `2 EXP 61 * 2 EXP p + 2 EXP 61` THEN CONJ_TAC THENL
+   [MATCH_MP_TAC(ARITH_RULE `a < c /\ d < e ==> a + d < c + e`) THEN
+    ASM_SIMP_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ];
+    REWRITE_TAC[GSYM EXP_ADD] THEN
+    TRANS_TAC LE_TRANS `2 EXP (61 + (64 * dd + 2)) + 2 EXP (61 + (64 * dd + 2))` THEN CONJ_TAC THENL
+     [MATCH_MP_TAC LE_ADD2 THEN CONJ_TAC THEN REWRITE_TAC[LE_EXP] THEN ASM_ARITH_TAC;
+      REWRITE_TAC[GSYM MULT_2; GSYM(CONJUNCT2 EXP); LE_EXP] THEN ARITH_TAC]]);;
+
+(* TAIL_LOGIN_TO_ZPRE_SAT (cont23cc): the dd=k (SATURATED/DDK) variant of TAIL_LOGIN_TO_ZPRE.  The
+   original requires dd<k (growing/DDLT, dd=l-1<k); the DDK block has dd=l-1=k, so it needs dd=k.
+   Entry logging keyed on k (MIN k pcode, pcode<k, ~(pcode<k)); z has k words = zc = bignum(z,k).
+   Yields lfw=bigdigit zc(pcode-1) for pcode<=k, hfw=bigdigit zc pcode for pcode<k, hfw=0 else.
+   Proof identical to TAIL_LOGIN_TO_ZPRE with dd:=k (drops the 1<=dd derivation; bignum(z,k) covers
+   all k words directly).  Feeds DDK_LOGDIGIT_FINALIZE in the DDK block seg-B post-impl. *)
+let GROWING_VALUE_CLOSE_TIGHT = prove
+ (`!a b i p Zf Zf' block.
+     (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
+     block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\
+     Zf < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
+     Zf' = 2 EXP 61 * Zf + block
+     ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b) /\ Zf' < b * 2 EXP 64`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN CONJ_TAC THENL
+   [MATCH_MP_TAC CONG_HALF THEN
+    MAP_EVERY EXISTS_TAC [`Zf:num`; `0`; `block:num`] THEN
+    ASM_REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES];
+    MP_TAC(SPECL [`Zf:num`; `Zf':num`; `b:num`; `block:num`; `p:num`] GROWING_BOUND_TIGHT) THEN
+    ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN
+    ASM_REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]]);;
+
+let INV2_FROM_BOUND_SAT_TIGHT = prove
+ (`!Zf b k. Zf < b * 2 EXP 64 /\ b < 2 EXP (64 * k) ==> Zf < 2 EXP (64 * (k + 1))`,
+  REPEAT STRIP_TAC THEN
+  TRANS_TAC LTE_TRANS `b * 2 EXP 64` THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[ARITH_RULE `64 * (k + 1) = 64 * k + 64`; EXP_ADD] THEN
+  MATCH_MP_TAC LE_MULT2 THEN ASM_SIMP_TAC[LT_IMP_LE; LE_REFL]);;
+
+(* The _INV2 seg-C close (B block uses this): tight (B) via GROWING_VALUE_CLOSE_TIGHT + the
+   separate INV2 clause via ZF_BOUND_GROW (INDEPENDENT of the bound tightening). *)
+let JJ_STEP = prove
+ (`!zv qh b block X17v.
+     zv < 2 EXP X17v /\ block < 2 EXP 61
+     ==> 2 EXP 61 * (zv - qh * b) + block < 2 EXP (X17v + 61)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `zv - qh * b <= zv` ASSUME_TAC THENL [ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP 61 * (zv - qh * b) <= 2 EXP 61 * zv` ASSUME_TAC THENL
+   [ASM_REWRITE_TAC[LE_MULT_LCANCEL]; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP 61 * zv <= 2 EXP 61 * (2 EXP X17v - 1)` ASSUME_TAC THENL
+   [REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN UNDISCH_TAC `zv < 2 EXP X17v` THEN ARITH_TAC;
+    ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP (X17v + 61) = 2 EXP 61 * 2 EXP X17v` SUBST1_TAC THENL
+   [REWRITE_TAC[EXP_ADD] THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `1 <= 2 EXP X17v` MP_TAC THENL
+   [REWRITE_TAC[ARITH_RULE `1 <= n <=> 0 < n`; EXP_LT_0; ARITH_EQ]; ALL_TAC] THEN
+  UNDISCH_TAC `2 EXP 61 * (zv - qh * b) <= 2 EXP 61 * zv` THEN
+  UNDISCH_TAC `2 EXP 61 * zv <= 2 EXP 61 * (2 EXP X17v - 1)` THEN
+  UNDISCH_TAC `block < 2 EXP 61` THEN ARITH_TAC);;
+
+(* FLAT_JJ_FIT: at a flat iteration (raw2 = raw), X17v+61 <= 64*l where l=(X17v+124)DIV64.
+   Because raw2=raw forces (X17v+63)MOD64 <= 2, so 64*l = (X17v+63) - r >= X17v+61. *)
+let FLAT_JJ_FIT = prove
+ (`!X17v. (X17v + 124) DIV 64 = (X17v + 63) DIV 64
+          ==> X17v + 61 <= 64 * ((X17v + 124) DIV 64)`,
+  GEN_TAC THEN DISCH_TAC THEN ASM_REWRITE_TAC[] THEN
+  MP_TAC(SPECL [`X17v + 63`; `64`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
+  ABBREV_TAC `q = (X17v + 63) DIV 64` THEN ABBREV_TAC `r = (X17v + 63) MOD 64` THEN
+  STRIP_TAC THEN
+  SUBGOAL_THEN `r < 3` ASSUME_TAC THENL
+   [REWRITE_TAC[ARITH_RULE `r < 3 <=> ~(3 <= r)`] THEN DISCH_TAC THEN
+    UNDISCH_TAC `(X17v + 124) DIV 64 = q` THEN
+    SUBGOAL_THEN `X17v + 124 = 64 * (q + 1) + (r - 3)` SUBST1_TAC THENL
+     [UNDISCH_TAC `X17v + 63 = q * 64 + r` THEN UNDISCH_TAC `3 <= r` THEN ARITH_TAC; ALL_TAC] THEN
+    SIMP_TAC[DIV_MULT_ADD; ARITH_EQ] THEN
+    SUBGOAL_THEN `(r - 3) DIV 64 = 0` SUBST1_TAC THENL
+     [MATCH_MP_TAC DIV_LT THEN UNDISCH_TAC `r < 64` THEN ARITH_TAC; ALL_TAC] THEN
+    ARITH_TAC; ALL_TAC] THEN
+  UNDISCH_TAC `X17v + 63 = q * 64 + r` THEN UNDISCH_TAC `r < 3` THEN ARITH_TAC);;
+
+(* GROW_JJ_FIT: at a grow iteration (raw2=raw+1), X17v+61 <= 64*(l+1) where l=(X17v+63)DIV64.
+   64*(l+1) = 64*l+64 >= (X17v+63-63)+64 = X17v+64 >= X17v+61.  (l=(X17v+63)DIV64 => 64*l>=X17v+63-63=X17v.) *)
+let GROW_JJ_FIT = prove
+ (`!X17v. X17v + 61 <= 64 * ((X17v + 63) DIV 64 + 1)`,
+  GEN_TAC THEN
+  MP_TAC(SPECL [`X17v + 63`; `64`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
+  ARITH_TAC);;
+
+(* ENTRY_JJ: the base case.  At the first body (X17=61, V = a DIV 2^(61*NB)), the jj-bound
+   V < 2^61 holds, because 61*NB in [64n-61, 64n-1] (NB=(64n+60)DIV61-1) so a<2^(64n) gives
+   a DIV 2^(61*NB) < 2^(64n-61*NB) <= 2^61.  Reduces to 64n <= 61*((64n+60)DIV61). *)
+let ENTRY_JJ = prove
+ (`!a n NB. 1 <= n /\ a < 2 EXP (64 * n) /\ NB = (64 * n + 60) DIV 61 - 1
+            ==> a DIV 2 EXP (61 * NB) < 2 EXP 61`,
+  REPEAT STRIP_TAC THEN
+  SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
+  TRANS_TAC LTE_TRANS `2 EXP (64 * n)` THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN
+  SUBGOAL_THEN `1 <= (64 * n + 60) DIV 61` ASSUME_TAC THENL
+   [MP_TAC(SPECL [`64 * n + 60`; `61`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
+    UNDISCH_TAC `1 <= n` THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `64 * n <= 61 * ((64 * n + 60) DIV 61)` MP_TAC THENL
+   [MP_TAC(SPECL [`64 * n + 60`; `61`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN ARITH_TAC;
+    ALL_TAC] THEN
+  UNDISCH_TAC `1 <= (64 * n + 60) DIV 61` THEN ARITH_TAC);;
+
+(* DDK_VALUE_JJ: the jj-bound for the SATURATED (DDK) block, whose value-close (DDK_VALUE_CLOSE)
+   exposes only the additive relation (R1) + carry (R2), NOT the 2^61*(V-q*b)+block form.  This bridges:
+   from R1 + R2 + the residual bound q*b<=V + incoming V<2^X17v, the DDK output value
+   Vclose = zpre + 2^(64k)*(2^61*t10 + cwin DIV 8) satisfies Vclose < 2^(X17v+61).  Internally shows
+   Vclose = 2^61*(V - q*b) + block (via t10 = (ztin+hi)-q from R2, and R1) then applies JJ_STEP.
+   The two subtraction-safety products (E*TT*q<=..., TT*b*q<=...) are provided so ASM_ARITH closes
+   the truncated-nat identity over the abstracted exponentials E=2^(64k), TT=2^61. *)
+let DDK_VALUE_JJ = prove
+ (`!ztin zorig zpre block q hi cwin t10 b k X17v.
+     block < 2 EXP 61 /\ q * b <= 2 EXP (64 * k) * ztin + zorig /\
+     2 EXP (64 * k) * ztin + zorig < 2 EXP X17v /\
+     2 EXP 64 * q + t10 = ztin + hi + q * (2 EXP 64 - 1) /\
+     zpre + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
+     block + 2 EXP 61 * zorig + 2 EXP 61 * q * 2 EXP (64 * k)
+     ==> zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) < 2 EXP (X17v + 61)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `t10 = (ztin + hi) - q /\ q <= ztin + hi` STRIP_ASSUME_TAC THENL
+   [UNDISCH_TAC `2 EXP 64 * q + t10 = ztin + hi + q * (2 EXP 64 - 1)` THEN
+    REWRITE_TAC[LEFT_SUB_DISTRIB; MULT_CLAUSES] THEN
+    MP_TAC(ARITH_RULE `1 <= 2 EXP 64`) THEN ARITH_TAC; ALL_TAC] THEN
+  MATCH_MP_TAC LET_TRANS THEN
+  EXISTS_TAC `2 EXP 61 * ((2 EXP (64 * k) * ztin + zorig) - q * b) + block` THEN CONJ_TAC THENL
+   [FIRST_X_ASSUM(fun th -> if concl th = `t10 = (ztin + hi) - q` then SUBST1_TAC th else NO_TAC) THEN
+    ABBREV_TAC `E = 2 EXP (64 * k)` THEN ABBREV_TAC `TT = 2 EXP 61` THEN
+    ABBREV_TAC `C8 = cwin DIV 8` THEN
+    SUBGOAL_THEN `E * TT * q <= E * TT * ztin + E * TT * hi` ASSUME_TAC THENL
+     [REWRITE_TAC[GSYM LEFT_ADD_DISTRIB] THEN
+      GEN_REWRITE_TAC I [LE_MULT_LCANCEL] THEN DISJ2_TAC THEN
+      GEN_REWRITE_TAC I [LE_MULT_LCANCEL] THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    SUBGOAL_THEN `TT * b * q <= E * TT * ztin + TT * zorig` ASSUME_TAC THENL
+     [SUBGOAL_THEN `TT * b * q = TT * (q * b) /\ E * TT * ztin + TT * zorig = TT * (E * ztin + zorig)`
+        (fun th -> REWRITE_TAC[th]) THENL
+       [REWRITE_TAC[LEFT_ADD_DISTRIB; MULT_AC]; ALL_TAC] THEN
+      GEN_REWRITE_TAC I [LE_MULT_LCANCEL] THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    UNDISCH_TAC `zpre + E * (C8 + TT * hi) + TT * q * b = block + TT * zorig + TT * q * E` THEN
+    REWRITE_TAC[LEFT_ADD_DISTRIB; RIGHT_ADD_DISTRIB; LEFT_SUB_DISTRIB; RIGHT_SUB_DISTRIB; MULT_AC] THEN
+    ASM_ARITH_TAC;
+    MP_TAC(ISPECL [`2 EXP (64 * k) * ztin + zorig`; `q:num`; `b:num`; `block:num`; `X17v:num`] JJ_STEP) THEN
+    ASM_REWRITE_TAC[]]);;
+
+(* ============================================================================
+   Stage 3f: FLAT-generalization helpers (cont80-81).
+   ----------------------------------------------------------------------------
+   The dispatch needs the FLAT regime (l->l, index stays) for iterations where
+   raw2 = (X17v+124)DIV64 = raw = (X17v+63)DIV64 (the "true-flat" iterations, first at raw=21, so k>=21).
+   The EXISTING block_flat_304_win.ml FLAT block requires p <= 64*(l-1)+2, which the qemu oracle
+   (capflatp/capregime, cont80f-g) shows is FALSE at reachable flats (p ~ 64k > 64*(l-1)+2).  So the
+   FLAT block as-built covers an (unreachable) p-small regime; the reachable flat (p-large) is uncovered.
+
+   FIX: generalize the FLAT seg-C to take the VALUE-FIT witness `2^61*zv+block < 2^(64*l)` directly
+   (instead of deriving it from p<=64(l-1)+2 via ZF_BOUND_FLAT).  window=0 still gives zv<2^p (for the
+   cong+bound via GROWING_VALUE_CLOSE_TIGHT), but the output-bound comes from the witness, ANY p.
+
+   Contains:
+     RAW2_STEP : (X17v+124)DIV64 in {(X17v+63)DIV64, (X17v+63)DIV64+1}  [grow/flat dichotomy, arith]
+     FIELDSEL_CLOSE_WIN_INV2_FLAT_GEN : generalized FLAT seg-C (0x2e8->0x304), arbitrary p, value-fit hyp.
+   Deps: BIGNUM_MOD_FIELDSEL_WIDE_X12, GROWING_VALUE_CLOSE_TIGHT, WINDOW_FROM_LOGGED_PCODE.
+   (WINDOW_NZ_IMP_B_LT lives in cgen_helpers.ml.)
+   NEXT (not yet done): build the general-FLAT BLOCK (block_flat_gen_304_win.ml) by mirroring
+   block_flat_304_win.ml but (a) drop p<=64(l-1)+2, (b) take 2^61*zv+block<2^(64*l) as hyp, (c) use
+   FIELDSEL_CLOSE_WIN_INV2_FLAT_GEN for seg-C and take the value-fit for the 0x2e8-midpoint bound
+   (skip ZF_BOUND_FLAT).  Then REBUILD block_dispatch.ml with the RAW2_STEP grow/flat case-split +
+   value-fit ASM_CASES (see DDK_BUILD_PLAN cont80g).
+   ============================================================================ *)
+
+let RAW2_STEP = prove
+ (`!X17v. (X17v + 124) DIV 64 = (X17v + 63) DIV 64 \/
+          (X17v + 124) DIV 64 = (X17v + 63) DIV 64 + 1`,
+  GEN_TAC THEN
+  MP_TAC(SPECL [`X17v + 63`; `64`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
+  SPEC_TAC(`(X17v + 63) DIV 64`,`q:num`) THEN SPEC_TAC(`(X17v + 63) MOD 64`,`r:num`) THEN
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `X17v + 124 = 64 * q + (r + 61)` SUBST1_TAC THENL
+   [ASM_ARITH_TAC; ALL_TAC] THEN
+  ASM_CASES_TAC `r + 61 < 64` THENL
+   [DISJ1_TAC THEN ASM_SIMP_TAC[DIV_MULT_ADD; ARITH_EQ; DIV_LT] THEN ARITH_TAC;
+    DISJ2_TAC THEN
+    SUBGOAL_THEN `64 * q + (r + 61) = 64 * (q + 1) + (r - 3)` SUBST1_TAC THENL
+     [ASM_ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `r - 3 < 64` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    ASM_SIMP_TAC[DIV_MULT_ADD; ARITH_EQ; DIV_LT] THEN ARITH_TAC]);;
+
+let LOGDIGIT_FINALIZE_BRIDGE = prove
+ (`!Zf zpre dd pcode lfw hfw.
+    1 <= pcode /\
+    lowdigits Zf dd = lowdigits zpre dd /\
+    Zf < 2 EXP (64 * (dd + 2)) /\
+    (pcode <= dd ==> lfw = word (bigdigit zpre (pcode - 1)):int64) /\
+    (pcode < dd ==> hfw = word (bigdigit zpre pcode):int64) /\
+    (~(pcode < dd) ==> hfw = word 0)
+    ==> (if dd + 1 = pcode then word (bigdigit Zf (dd + 1)):int64
+         else if dd = pcode then word (bigdigit Zf dd) else hfw) = word (bigdigit Zf pcode) /\
+        (if dd + 2 = pcode then word (bigdigit Zf (dd + 1)):int64
+         else if pcode <= dd + 2
+              then (if dd + 1 < pcode then word (bigdigit Zf (dd + 1))
+                    else if dd < pcode then word (bigdigit Zf dd) else lfw)
+              else word 0) = word (bigdigit Zf (pcode - 1))`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `!j. dd + 1 < j ==> bigdigit Zf j = 0` ASSUME_TAC THENL
+   [REPEAT STRIP_TAC THEN MP_TAC(ISPECL [`Zf:num`; `dd + 2`] BIGDIGIT_VANISH_ABOVE) THEN
+    ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  SUBGOAL_THEN `!j. j < dd ==> bigdigit Zf j = bigdigit zpre j` ASSUME_TAC THENL
+   [REPEAT STRIP_TAC THEN MATCH_MP_TAC BIGDIGIT_AGREE_BELOW THEN
+    EXISTS_TAC `dd:num` THEN ASM_REWRITE_TAC[];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `pcode < dd ==> hfw = word (bigdigit Zf pcode):int64` ASSUME_TAC THENL
+   [DISCH_TAC THEN ASM_SIMP_TAC[] THEN AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
+    FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_REWRITE_TAC[];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `pcode <= dd ==> lfw = word (bigdigit Zf (pcode - 1)):int64` ASSUME_TAC THENL
+   [DISCH_TAC THEN ASM_SIMP_TAC[] THEN AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
+    FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  CONJ_TAC THEN REPEAT COND_CASES_TAC THEN ASM_SIMP_TAC[] THEN
+  TRY(AP_TERM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC) THEN
+  TRY(ASM_SIMP_TAC[ARITH_RULE `~(dd < pcode) ==> pcode <= dd`]) THEN
+  TRY(CONV_TAC SYM_CONV THEN AP_TERM_TAC THEN FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC) THEN
+  (* remaining: the X14 `else hfw` case (~(dd+1=pcode)/\~(dd=pcode)) *)
+  ASM_CASES_TAC `pcode:num < dd` THENL
+   [ASM_SIMP_TAC[];
+    SUBGOAL_THEN `hfw:int64 = word 0` SUBST1_TAC THENL
+     [FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_REWRITE_TAC[];
+      AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]]);;
+
+(* ============================================================================
+   Stage 3f: jj-aware seg-C variants (cont94-96).  Each = the base seg-C lemma (0x2e8->0x304)
+   + one extra INPUT hyp  V < 2^(X17v+61)  and one extra POST conjunct  V_out < 2^(X17v+61).
+   Sound because FIELDSEL (BIGNUM_MOD_FIELDSEL_WIDE_X12) PRESERVES the combined value V and X23
+   EXACTLY (only recomputes X15); so V_out = V and the added conjunct closes by the SAME final
+   ASM_REWRITE/ASM_SIMP as the base proof.  These let each regime block thread the jj-bound
+   V'<2^(X17v+61) (=the invariant clause V<2^X17_out) through its 0x2e8->0x304 close.
+   Deps: BIGNUM_MOD_FIELDSEL_WIDE_X12, WINDOW_FROM_LOGGED_PCODE, GROWING_VALUE_CLOSE, ZF_BOUND_GROW,
+   GROWING_VALUE_CLOSE_TIGHT, INV2_FROM_BOUND_SAT_TIGHT (as in the base seg-C sources).  Load AFTER
+   cgen_helpers.ml, fieldsel_close_sat.ml, fieldsel_close_win.ml, block_ddk_segc.ml, and jj_bound.ml.
+   ============================================================================ *)
+
+(* --- (1) SAT_JJ : for C, CGEN, L1K1 (saturated, value 2^(64k)*Ztp+zpre, X23'=Ztp preserved) --- *)
+let DDK_LOGDIGIT_FINALIZE_NC = prove
+ (`!Ztp zpre k pcode lfin hfin.
+    Ztp < 2 EXP 64 /\ zpre < 2 EXP (64 * k) /\ 1 <= pcode /\ pcode <= k + 1 /\
+    (pcode <= k ==> lfin = bigdigit zpre (pcode - 1)) /\
+    (pcode < k ==> hfin = bigdigit zpre pcode) /\
+    (k + 1 = pcode ==> hfin = 0)
+    ==> (if k = pcode then word Ztp:int64 else word hfin) =
+        word (bigdigit (2 EXP (64 * k) * Ztp + zpre) pcode) /\
+        (if k + 1 = pcode then word Ztp:int64
+         else if pcode <= k + 1 then (if k < pcode then word Ztp else word lfin)
+              else word 0) =
+        word (bigdigit (2 EXP (64 * k) * Ztp + zpre) (pcode - 1))`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `bigdigit (2 EXP (64 * k) * Ztp + zpre) k = Ztp` ASSUME_TAC THENL
+   [MATCH_MP_TAC BIGDIGIT_TOP_SAT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  SUBGOAL_THEN `!j. j < k ==> bigdigit (2 EXP (64 * k) * Ztp + zpre) j = bigdigit zpre j` ASSUME_TAC THENL
+   [REPEAT STRIP_TAC THEN MATCH_MP_TAC BIGDIGIT_AGREE_BELOW THEN EXISTS_TAC `k:num` THEN
+    ASM_REWRITE_TAC[] THEN REWRITE_TAC[lowdigits] THEN
+    SUBGOAL_THEN `(2 EXP (64 * k) * Ztp + zpre) MOD 2 EXP (64 * k) = zpre MOD 2 EXP (64 * k)`
+      SUBST1_TAC THENL [REWRITE_TAC[MOD_MULT_ADD]; ALL_TAC] THEN
+    ASM_SIMP_TAC[MOD_LT];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `bigdigit (2 EXP (64 * k) * Ztp + zpre) (k + 1) = 0` ASSUME_TAC THENL
+   [REWRITE_TAC[bigdigit] THEN
+    SUBGOAL_THEN `(2 EXP (64 * k) * Ztp + zpre) DIV 2 EXP (64 * (k + 1)) = 0`
+      (fun th -> REWRITE_TAC[th; MULT_CLAUSES; ADD_CLAUSES; DIV_0; MOD_0]) THEN
+    MATCH_MP_TAC DIV_LT THEN
+    REWRITE_TAC[ARITH_RULE `64 * (k + 1) = 64 * k + 64`; EXP_ADD] THEN
+    MATCH_MP_TAC VAL_LT_TOP THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  CONJ_TAC THENL
+   [COND_CASES_TAC THENL
+     [ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
+      FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN ASM_REWRITE_TAC[];
+      ASM_CASES_TAC `k + 1 = pcode` THENL
+       [SUBGOAL_THEN `hfin = 0` SUBST1_TAC THENL [ASM_MESON_TAC[]; ALL_TAC] THEN
+        ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
+        FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN ASM_REWRITE_TAC[];
+        SUBGOAL_THEN `pcode < k` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+        ASM_SIMP_TAC[] THEN AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
+        FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]];
+    ASM_CASES_TAC `k + 1 = pcode` THENL
+     [ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN
+      SUBGOAL_THEN `pcode - 1 = k` SUBST1_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+      CONV_TAC SYM_CONV THEN ASM_REWRITE_TAC[];
+      SUBGOAL_THEN `pcode <= k + 1 /\ ~(k < pcode)` STRIP_ASSUME_TAC THENL
+       [ASM_ARITH_TAC; ALL_TAC] THEN
+      ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN
+      SUBGOAL_THEN `lfin = bigdigit zpre (pcode - 1)` SUBST1_TAC THENL
+       [FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
+      CONV_TAC SYM_CONV THEN FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]]);;
+
+(* --- midpoint predicates (0x23c = segAB_mid, 0x2e8 = ddk_mid), built by FILTERING the
+   aligned_bytes_loaded/read-PC conjuncts out of the reference lemmas' pre/post so
+   ENSURES_SEQUENCE_TAC (which re-prepends them) sees a clean state assertion. *)
+let h_raw = `((2 EXP (64 * k) * Ztin + zpre) DIV 2 EXP p) MOD 2 EXP 64`;;
+
+let CBLK_SPLIT = prove
+ (`!Zf k. Zf < 2 EXP (64 * (k + 1))
+    ==> 2 EXP (64 * k) * bigdigit Zf k + lowdigits Zf k = Zf`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `highdigits Zf k < 2 EXP 64` ASSUME_TAC THENL
+   [REWRITE_TAC[highdigits] THEN SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
+    UNDISCH_TAC `Zf < 2 EXP (64 * (k + 1))` THEN
+    REWRITE_TAC[GSYM EXP_ADD; ARITH_RULE `64 * (k + 1) = 64 * k + 64`] THEN ARITH_TAC;
+    ALL_TAC] THEN
+  SUBGOAL_THEN `bigdigit Zf k = highdigits Zf k` SUBST1_TAC THENL
+   [REWRITE_TAC[bigdigit; GSYM highdigits] THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[];
+    MP_TAC(SPECL [`Zf:num`; `k:num`] (CONJUNCT1 HIGH_LOW_DIGITS)) THEN ARITH_TAC]);;
+
+(* CBLK_UNIQ: digit-uniqueness for splitting the full value into (X23', bignum(z,k)). *)
+let CBLK_UNIQ = prove
+ (`!M A B C D. 0 < M /\ M * A + B = M * C + D /\ B < M /\ D < M ==> A = C /\ B = D`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `(M * A + B) DIV M = A /\ (M * A + B) MOD M = B` STRIP_ASSUME_TAC THENL
+   [MATCH_MP_TAC DIVMOD_UNIQ THEN CONJ_TAC THENL
+     [REWRITE_TAC[MULT_AC]; FIRST_ASSUM ACCEPT_TAC]; ALL_TAC] THEN
+  SUBGOAL_THEN `(M * C + D) DIV M = C /\ (M * C + D) MOD M = D` STRIP_ASSUME_TAC THENL
+   [MATCH_MP_TAC DIVMOD_UNIQ THEN CONJ_TAC THENL
+     [REWRITE_TAC[MULT_AC]; FIRST_ASSUM ACCEPT_TAC]; ALL_TAC] THEN
+  CONJ_TAC THEN ASM_MESON_TAC[]);;
+
+(* C_ZK_FROM_STORES: the C-regime value assembly -- top word spills into Xtop (=val X23'). *)
+let C_TOP_FUNNEL_GEN = prove
+ (`!W q LOW. 2 EXP 64 * q + LOW = W /\ LOW < 2 EXP 64 ==> word W:int64 = word LOW`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[GSYM VAL_EQ] THEN
+  REWRITE_TAC[VAL_WORD; DIMINDEX_64] THEN
+  FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN
+  REWRITE_TAC[MOD_MULT_ADD] THEN CONV_TAC MOD_DOWN_CONV THEN
+  ASM_SIMP_TAC[MOD_LT]);;
+
+(* GROWING_VALUE_CLOSE_GEN: general-q reduced-value cong+bound (the DDK_VALUE_CLOSE conclusion,
+   packaged for direct use on Zf' = 2^61*(Zin - qh*b) + blk).  Zin - qh*b < 2^(p+2) is the reduced
+   remainder bound R (from DDK_R_LT / KI_CORE); qh*b <= Zin is the no-underflow threaded hyp.
+   Serves BOTH the seg-B split (Zf'<b*2^64 => Zf'<2^(64(k+1))) and seg-C's cong+bound ANTES.
+   The general-q analog of GROWING_VALUE_CLOSE_TIGHT (which assumed qh=0, Zf'=2^61*Zin+blk). *)
+let GROWING_VALUE_CLOSE_GEN = prove
+ (`!a b ii p Zin blk qh Zf'.
+    (Zin == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
+    blk = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\
+    2 EXP (p - 1) <= b /\ 1 <= p /\
+    qh * b <= Zin /\
+    Zin - qh * b < 2 EXP (p + 2) /\
+    Zf' = 2 EXP 61 * (Zin - qh * b) + blk
+    ==> (Zf' == a DIV 2 EXP (61 * ii)) (mod b) /\ Zf' < b * 2 EXP 64`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `Zf' + 2 EXP 61 * (qh * b) = 2 EXP 61 * Zin + blk` ASSUME_TAC THENL
+   [ASM_REWRITE_TAC[] THEN UNDISCH_TAC `qh * b <= Zin` THEN ARITH_TAC; ALL_TAC] THEN
+  CONJ_TAC THENL
+   [MATCH_MP_TAC CONG_HALF THEN MAP_EVERY EXISTS_TAC [`Zin:num`; `qh:num`] THEN ASM_REWRITE_TAC[] THEN
+    EXISTS_TAC `blk:num` THEN ASM_REWRITE_TAC[];
+    MATCH_MP_TAC BOUND_HALF_TIGHT THEN
+    MAP_EVERY EXISTS_TAC [`Zin:num`; `qh:num`; `blk:num`; `p:num`] THEN ASM_REWRITE_TAC[] THEN
+    CONJ_TAC THENL
+     [UNDISCH_TAC `Zin - qh * b < 2 EXP (p + 2)` THEN UNDISCH_TAC `qh * b <= Zin` THEN ARITH_TAC;
+      ASM_REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]]]);;
+
+(* LOWDIGITS_TOPSPLIT: peel the top digit.  lowdigits X k = lowdigits X (k-1) + 2^(64(k-1))*bigdigit X (k-1). *)
+let LOWDIGITS_TOPSPLIT = prove
+ (`!X k. 1 <= k ==> lowdigits X k = lowdigits X (k-1) + 2 EXP (64*(k-1)) * bigdigit X (k-1)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `k = (k-1)+1` (fun th -> GEN_REWRITE_TAC (LAND_CONV o RAND_CONV) [th]) THENL
+   [UNDISCH_TAC `1 <= k` THEN ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[LOWDIGITS_CLAUSES] THEN ARITH_TAC);;
+
+(* C_VALUE_BRIDGE_GEN: the general-q C-position block-advance value, DERIVED from INNER_ADVANCE_ADD
+   at ii:=k-1 (NOT raw NUM_RING, which hits the certificate-translation "find" bug on the assembled
+   identity -- same issue VALUE_BRIDGE_DDK flagged).  Inputs: the inner-loop invariant INV_add(k-1)
+   [zlo=bignum(z,k-1)] + the tail word-(k-1) negate-add with carry t10p (2^64*t10p+ss = the funnel W).
+   Output: the block-advance eqn with the stored word (2^61*(ss MOD8)+cwin/8) at digit k-1 and the
+   spill (ss DIV8 + 2^61*t10p) at digit k.  NB the ACTUAL C tail stores X23' = ss DIV8 only (the
+   2^61*t10p is the dropped high carry, absorbed by the mod-b congruence downstream via DDK_VALUE_CLOSE). *)
+let C_VALUE_BRIDGE_GEN = prove
+ (`!zlo cwin hi q b zorig block ss t10p k.
+     2 <= k /\
+     zlo + 2 EXP (64 * (k-1)) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * (q * lowdigits b (k-1)) =
+       block + 2 EXP 61 * lowdigits zorig (k-1) + 2 EXP 61 * (q * 2 EXP (64 * (k-1))) /\
+     2 EXP 64 * t10p + ss = bigdigit zorig (k-1) + hi + q * (2 EXP 64 - 1 - bigdigit b (k-1)) /\
+     bigdigit b (k-1) < 2 EXP 64
+     ==> (zlo + 2 EXP (64 * (k-1)) * (2 EXP 61 * (ss MOD 2 EXP 3) + cwin DIV 8))
+           + 2 EXP (64 * k) * (ss DIV 2 EXP 3 + 2 EXP 61 * t10p)
+           + 2 EXP 61 * (q * lowdigits b k) =
+         block + 2 EXP 61 * lowdigits zorig k + 2 EXP 61 * (q * 2 EXP (64 * k))`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(ISPECL [`block:num`; `q:num`; `zlo:num`; `cwin:num`; `hi:num`; `ss:num`; `t10p:num`;
+                 `lowdigits zorig (k-1)`; `lowdigits b (k-1)`; `bigdigit zorig (k-1)`;
+                 `bigdigit b (k-1)`; `k-1`] INNER_ADVANCE_ADD) THEN
+  ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN `(k-1) + 1 = k` SUBST1_TAC THENL
+   [UNDISCH_TAC `2 <= k` THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP (64 * (k-1)) * bigdigit b (k-1) + lowdigits b (k-1) = lowdigits b k /\
+                2 EXP (64 * (k-1)) * bigdigit zorig (k-1) + lowdigits zorig (k-1) = lowdigits zorig k`
+   STRIP_ASSUME_TAC THENL
+   [CONJ_TAC THEN (MP_TAC(ISPECL [`b:num`; `k:num`] LOWDIGITS_TOPSPLIT) THEN
+                   MP_TAC(ISPECL [`zorig:num`; `k:num`] LOWDIGITS_TOPSPLIT) THEN
+                   (ANTS_TAC THENL [UNDISCH_TAC `2 <= k` THEN ARITH_TAC; ALL_TAC]) THEN DISCH_TAC THEN
+                   (ANTS_TAC THENL [UNDISCH_TAC `2 <= k` THEN ARITH_TAC; ALL_TAC]) THEN
+                   ASM_REWRITE_TAC[] THEN ARITH_TAC);
+    ALL_TAC] THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN ARITH_TAC);;
+
+(* C_CARRY_EQ: the C-position tail carry structure (analog of DDK's TAIL_CARRY_EQ_Q, real b-digit).
+   The funnel word W = zd+hi+q*(2^64-1-bd) = 2^64*q + LOW where LOW = (zd+hi) - q*(1+bd).
+   Requires no-borrow q*(1+bd) <= zd+hi.  (LOW<2^64 is a SEPARATE threaded smallness hyp used elsewhere;
+   here we just certify W = 2^64*q + LOW.)  Oracle ckt10.py: W DIV 2^64 = q at ALL C heads (33/33). *)
+let C_CARRY_EQ = prove
+ (`!zd hi q bd.
+     q * (1 + bd) <= zd + hi /\ bd < 2 EXP 64
+     ==> 2 EXP 64 * q + ((zd + hi) - q * (1 + bd)) = zd + hi + q * (2 EXP 64 - 1 - bd)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `(2 EXP 64 - 1 - bd) + (1 + bd) = 2 EXP 64` ASSUME_TAC THENL
+   [UNDISCH_TAC `bd < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `q * (2 EXP 64 - 1 - bd) + q * (1 + bd) = 2 EXP 64 * q` ASSUME_TAC THENL
+   [REWRITE_TAC[GSYM LEFT_ADD_DISTRIB] THEN ASM_REWRITE_TAC[] THEN ARITH_TAC; ALL_TAC] THEN
+  UNDISCH_TAC `q * (1 + bd) <= zd + hi` THEN
+  UNDISCH_TAC `q * (2 EXP 64 - 1 - bd) + q * (1 + bd) = 2 EXP 64 * q` THEN ARITH_TAC);;
+
+(* C_ASSEMBLE_GEN: the EXACT assembled value for the general-q C tail (the crux).
+   At a C head Zt=0 (oracle 0/136) so Zin=zv.  The tail's funnel word W = 2^64*q + LOW (C_CARRY_EQ,
+   with LOW = (bigdigit zv(k-1)+hi) - q*(1+bigdigit b(k-1)) < 2^64), so word W = word LOW, giving
+   X23' = LOW DIV 8 and z[k-1] = 2^61*(LOW MOD 8) + cwin/8.  Feeding C_VALUE_BRIDGE_GEN (t10p:=q, ss:=LOW)
+   the +2^61*q spill term EXACTLY cancels the 2^61*q*2^(64k) growth term, leaving the EXACT reduced value.
+   => general-C closes EXACTLY (like DDK), NOT just mod-b.  q*b<=zv is the no-underflow threaded hyp. *)
+let C_ASSEMBLE_GEN = prove
+ (`!zlo cwin hi q b zv block LOW k.
+     2 <= k /\ b < 2 EXP (64 * k) /\ zv < 2 EXP (64 * k) /\ q * b <= zv /\
+     zlo + 2 EXP (64 * (k-1)) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * (q * lowdigits b (k-1)) =
+       block + 2 EXP 61 * lowdigits zv (k-1) + 2 EXP 61 * (q * 2 EXP (64 * (k-1))) /\
+     2 EXP 64 * q + LOW = bigdigit zv (k-1) + hi + q * (2 EXP 64 - 1 - bigdigit b (k-1)) /\
+     bigdigit b (k-1) < 2 EXP 64
+     ==> 2 EXP (64 * k) * (LOW DIV 2 EXP 3) +
+         (zlo + 2 EXP (64 * (k-1)) * (2 EXP 61 * (LOW MOD 2 EXP 3) + cwin DIV 8)) =
+         2 EXP 61 * (zv - q * b) + block`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(ISPECL [`zlo:num`;`cwin:num`;`hi:num`;`q:num`;`b:num`;`zv:num`;`block:num`;`LOW:num`;`q:num`;`k:num`]
+        C_VALUE_BRIDGE_GEN) THEN
+  ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN `lowdigits b k = b /\ lowdigits zv k = zv` (fun th -> REWRITE_TAC[th]) THENL
+   [CONJ_TAC THEN MATCH_MP_TAC LOWDIGITS_SELF THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  DISCH_TAC THEN
+  UNDISCH_TAC `(zlo + 2 EXP (64 * (k-1)) * (2 EXP 61 * LOW MOD 2 EXP 3 + cwin DIV 8)) +
+       2 EXP (64 * k) * (LOW DIV 2 EXP 3 + 2 EXP 61 * q) + 2 EXP 61 * (q * b) =
+       block + 2 EXP 61 * zv + 2 EXP 61 * (q * 2 EXP (64 * k))` THEN
+  UNDISCH_TAC `q * b <= zv` THEN
+  SPEC_TAC(`2 EXP (64 * k)`,`K2:num`) THEN SPEC_TAC(`2 EXP (64*(k-1))`,`E:num`) THEN
+  ARITH_TAC);;
+
+(* C_VALUE_CLOSE_GEN: the COMPOSITE seg-B value close for the general-q C block (the one the ARM
+   assembly calls).  Chains C_CARRY_EQ (W = 2^64*q + LOW) -> C_ASSEMBLE_GEN (exact reduced value
+   2^61*(zv-q*b)+block) -> GROWING_VALUE_CLOSE_GEN (cong + tight bound).  The THREADED CARRY=q obligation
+   enters as the two bounds  q*(1+bigdigit b(k-1)) <= bigdigit zv(k-1)+hi  and  LOW < 2^64  (hyps here;
+   in the block they come from a cnb_hyp applied to the ghost hi=val X5, discharged at the MAINLOOP wrap).
+   Inputs: reduction (zv==a DIV2^(61(ii+1)) mod b), q*b<=zv, zv-q*b<2^(p+2) (=R bound, from DDK_R_LT),
+   the inner-loop INV(k-1), and the two no-borrow bounds.  Output: cong + <b*2^64 for the assembled value. *)
+let C_VALUE_CLOSE_GEN = prove
+ (`!a b ii p q zv hi zd bd zlo cwin block LOW k.
+    2 <= k /\ b < 2 EXP (64 * k) /\ zv < 2 EXP (64 * k) /\
+    2 EXP (p - 1) <= b /\ 1 <= p /\
+    (zv == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
+    block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\
+    q * b <= zv /\  zv - q * b < 2 EXP (p + 2) /\
+    zd = bigdigit zv (k-1) /\ bd = bigdigit b (k-1) /\
+    q * (1 + bd) <= zd + hi /\  LOW = (zd + hi) - q * (1 + bd) /\ LOW < 2 EXP 64 /\
+    zlo + 2 EXP (64 * (k-1)) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * (q * lowdigits b (k-1)) =
+      block + 2 EXP 61 * lowdigits zv (k-1) + 2 EXP 61 * (q * 2 EXP (64 * (k-1)))
+    ==> (2 EXP (64 * k) * (LOW DIV 2 EXP 3) +
+         (zlo + 2 EXP (64 * (k-1)) * (2 EXP 61 * (LOW MOD 2 EXP 3) + cwin DIV 8))
+           == a DIV 2 EXP (61 * ii)) (mod b) /\
+        2 EXP (64 * k) * (LOW DIV 2 EXP 3) +
+         (zlo + 2 EXP (64 * (k-1)) * (2 EXP 61 * (LOW MOD 2 EXP 3) + cwin DIV 8)) < b * 2 EXP 64`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `bd < 2 EXP 64` ASSUME_TAC THENL
+   [ASM_REWRITE_TAC[BIGDIGIT_BOUND]; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP 64 * q + LOW = bigdigit zv (k-1) + hi + q * (2 EXP 64 - 1 - bigdigit b (k-1))`
+   ASSUME_TAC THENL
+   [MP_TAC(ISPECL [`zd:num`; `hi:num`; `q:num`; `bd:num`] C_CARRY_EQ) THEN
+    ASM_REWRITE_TAC[] THEN
+    FIRST_X_ASSUM(fun th -> if concl th = `LOW = (zd + hi) - q * (1 + bd)` then REWRITE_TAC[SYM th] else NO_TAC) THEN
+    FIRST_X_ASSUM(fun th -> if concl th = `zd = bigdigit zv (k-1)` then REWRITE_TAC[th] else NO_TAC) THEN
+    FIRST_X_ASSUM(fun th -> if concl th = `bd = bigdigit b (k-1)` then REWRITE_TAC[th] else NO_TAC) THEN
+    DISCH_THEN ACCEPT_TAC;
+    ALL_TAC] THEN
+  SUBGOAL_THEN
+   `2 EXP (64 * k) * (LOW DIV 2 EXP 3) +
+    (zlo + 2 EXP (64 * (k-1)) * (2 EXP 61 * (LOW MOD 2 EXP 3) + cwin DIV 8)) =
+    2 EXP 61 * (zv - q * b) + block`
+   SUBST1_TAC THENL
+   [MP_TAC(ISPECL [`zlo:num`;`cwin:num`;`hi:num`;`q:num`;`b:num`;`zv:num`;`block:num`;`LOW:num`;`k:num`]
+          C_ASSEMBLE_GEN) THEN
+    ANTS_TAC THENL
+     [ASM_REWRITE_TAC[BIGDIGIT_BOUND]; DISCH_THEN ACCEPT_TAC];
+    ALL_TAC] THEN
+  MP_TAC(ISPECL [`a:num`;`b:num`;`ii:num`;`p:num`;`zv:num`;`block:num`;`q:num`;
+                 `2 EXP 61 * (zv - q * b) + block`] GROWING_VALUE_CLOSE_GEN) THEN
+  ASM_REWRITE_TAC[]);;
+
+(* --- CARRY=q is DERIVABLE (no threading needed!) --- arithmetic helpers + the derivation.
+   Oracle ckp.py: at all general-C heads, p <= 64k - 64 (b's top word zero), so R < 2^(p+2) is far
+   below 2^(64k); combined with V_mach = 2^(64k)*(LOW DIV8)+zmem < 2^(64k+61) STRICT and C0 < 2^(64k+61),
+   the base-2^(64k+61) digit-uniqueness forces the funnel carry W DIV 2^64 = q. *)
+let PROD_BOUND = prove   (* zmem < K2, L8 < 2^61 => zmem + K2*L8 < K2*2^61 *)
+ (`!zmem K2 L8. zmem < K2 /\ L8 < 2 EXP 61 ==> zmem + K2 * L8 < K2 * 2 EXP 61`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `K2 * L8 + K2 <= K2 * 2 EXP 61` MP_TAC THENL
+   [REWRITE_TAC[ARITH_RULE `K2 * L8 + K2 = K2 * (L8 + 1)`] THEN
+    REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN UNDISCH_TAC `L8 < 2 EXP 61` THEN ARITH_TAC;
+    UNDISCH_TAC `zmem < K2` THEN ARITH_TAC]);;
+let PROD_BOUND64 = prove  (* zmem < K2, t < 2^64 => zmem + K2*t < K2*2^64 *)
+ (`!zmem K2 t. zmem < K2 /\ t < 2 EXP 64 ==> zmem + K2 * t < K2 * 2 EXP 64`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `K2 * t + K2 <= K2 * 2 EXP 64` MP_TAC THENL
+   [REWRITE_TAC[ARITH_RULE `K2 * t + K2 = K2 * (t + 1)`] THEN
+    REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN UNDISCH_TAC `t < 2 EXP 64` THEN ARITH_TAC;
+    UNDISCH_TAC `zmem < K2` THEN ARITH_TAC]);;
+let C0_BOUND = prove  (* block < 2^61, R < K2 => block + 2^61*R < K2*2^61 *)
+ (`!block R K2. block < 2 EXP 61 /\ R < K2 ==> block + 2 EXP 61 * R < K2 * 2 EXP 61`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `2 EXP 61 * R + 2 EXP 61 <= 2 EXP 61 * K2` MP_TAC THENL
+   [REWRITE_TAC[ARITH_RULE `2 EXP 61 * R + 2 EXP 61 = 2 EXP 61 * (R + 1)`] THEN
+    REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN UNDISCH_TAC `R < K2` THEN ARITH_TAC;
+    UNDISCH_TAC `block < 2 EXP 61` THEN ARITH_TAC]);;
+let BASE_DIGIT_UNIQ = prove  (* base-M digit uniqueness *)
+ (`!M a x c y. 0 < M /\ a + M * x = c + M * y /\ a < M /\ c < M ==> x = y`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(ISPECL [`M:num`; `x:num`; `a:num`; `y:num`; `c:num`] CBLK_UNIQ) THEN
+  ASM_REWRITE_TAC[] THEN
+  ANTS_TAC THENL [UNDISCH_TAC `a + M * x = c + M * y` THEN ARITH_TAC; SIMP_TAC[]]);;
+
+(* C_CARRY_IS_Q: the funnel carry W DIV 2^64 = q, DERIVED (NOT threaded).  W = the C tail funnel body
+   bigdigit zv(k-1)+hi+q*(2^64-1-bigdigit b(k-1)).  From the inner INV(k-1) + reduction zv=q*b+R
+   (R<2^(64k), q*b<=zv) via C_VALUE_BRIDGE_GEN (CARRY:=W DIV2^64, LOW:=W MOD2^64) rearranged to
+   A + MM*CARRY = C0 + MM*q, MM=2^(64k)*2^61, with A<MM (PROD_BOUND) and C0<MM (C0_BOUND), then
+   BASE_DIGIT_UNIQ.  This removes the CARRY=q threading obligation entirely. *)
+let C_CARRY_IS_Q = prove
+ (`!zv hi q b zlo cwin block R p k.
+     2 <= k /\
+     b < 2 EXP (64 * k) /\ zv < 2 EXP (64 * k) /\ block < 2 EXP 61 /\
+     zlo < 2 EXP (64 * (k-1)) /\ cwin DIV 8 < 2 EXP 61 /\
+     zv = q * b + R /\ R < 2 EXP (64 * k) /\ q * b <= zv /\
+     zlo + 2 EXP (64 * (k-1)) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * (q * lowdigits b (k-1)) =
+       block + 2 EXP 61 * lowdigits zv (k-1) + 2 EXP 61 * (q * 2 EXP (64 * (k-1)))
+     ==> (bigdigit zv (k-1) + hi + q * (2 EXP 64 - 1 - bigdigit b (k-1))) DIV 2 EXP 64 = q`,
+  REPEAT STRIP_TAC THEN
+  ABBREV_TAC `W = bigdigit zv (k-1) + hi + q * (2 EXP 64 - 1 - bigdigit b (k-1))` THEN
+  MP_TAC(SPECL [`W:num`; `2 EXP 64`] DIVISION) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
+  ABBREV_TAC `CARRY = W DIV 2 EXP 64` THEN ABBREV_TAC `LOW = W MOD 2 EXP 64` THEN STRIP_TAC THEN
+  SUBGOAL_THEN `lowdigits b k = b /\ lowdigits zv k = zv` STRIP_ASSUME_TAC THENL
+   [CONJ_TAC THEN MATCH_MP_TAC LOWDIGITS_SELF THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP (64 * (k-1)) * 2 EXP 64 = 2 EXP (64 * k)` ASSUME_TAC THENL
+   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN UNDISCH_TAC `2 <= k` THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `LOW DIV 2 EXP 3 < 2 EXP 61` ASSUME_TAC THENL
+   [MP_TAC(SPECL [`LOW:num`; `2 EXP 3`] DIVISION) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
+    UNDISCH_TAC `LOW < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP 61 * (LOW MOD 2 EXP 3) + cwin DIV 8 < 2 EXP 64` ASSUME_TAC THENL
+   [MP_TAC(SPECL [`LOW:num`; `2 EXP 3`] MOD_LT_EQ) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
+    UNDISCH_TAC `cwin DIV 8 < 2 EXP 61` THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `zlo + 2 EXP (64 * (k-1)) * (2 EXP 61 * (LOW MOD 2 EXP 3) + cwin DIV 8) < 2 EXP (64 * k)`
+   ASSUME_TAC THENL
+   [FIRST_X_ASSUM(fun th -> if concl th = `2 EXP (64 * (k-1)) * 2 EXP 64 = 2 EXP (64 * k)` then MP_TAC th else NO_TAC) THEN
+    DISCH_THEN(SUBST1_TAC o SYM) THEN MATCH_MP_TAC PROD_BOUND64 THEN ASM_REWRITE_TAC[] THEN
+    UNDISCH_TAC `2 EXP 61 * (LOW MOD 2 EXP 3) + cwin DIV 8 < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
+  MP_TAC(ISPECL [`zlo:num`;`cwin:num`;`hi:num`;`q:num`;`b:num`;`zv:num`;`block:num`;`LOW:num`;`CARRY:num`;`k:num`]
+      C_VALUE_BRIDGE_GEN) THEN
+  ANTS_TAC THENL
+   [ASM_REWRITE_TAC[BIGDIGIT_BOUND] THEN
+    MAP_EVERY (fun t -> FIRST_X_ASSUM(fun th -> if concl th = t then MP_TAC th else NO_TAC))
+      [`W = CARRY * 2 EXP 64 + LOW`; `bigdigit zv (k-1) + hi + q * (2 EXP 64 - 1 - bigdigit b (k-1)) = W`] THEN
+    ARITH_TAC;
+    ALL_TAC] THEN
+  ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
+  MP_TAC(ISPECL [`2 EXP (64 * k) * 2 EXP 61`;
+                 `zlo + 2 EXP (64 * (k-1)) * (2 EXP 61 * (LOW MOD 2 EXP 3) + cwin DIV 8) +
+                  2 EXP (64 * k) * (LOW DIV 2 EXP 3)`; `CARRY:num`;
+                 `block + 2 EXP 61 * R`; `q:num`] BASE_DIGIT_UNIQ) THEN
+  ANTS_TAC THENL
+   [REPEAT CONJ_TAC THENL
+     [REWRITE_TAC[LT_NZ; MULT_EQ_0; EXP_EQ_0; ARITH_EQ];
+      FIRST_X_ASSUM(fun th -> if is_eq(concl th) &&
+        can (find_term (fun t -> t = `2 EXP 61 * (q * 2 EXP (64 * k))`)) (concl th)
+        then MP_TAC th else NO_TAC) THEN ARITH_TAC;
+      GEN_REWRITE_TAC LAND_CONV [ADD_ASSOC] THEN MATCH_MP_TAC PROD_BOUND THEN ASM_REWRITE_TAC[];
+      MATCH_MP_TAC C0_BOUND THEN ASM_REWRITE_TAC[]];
+    DISCH_THEN ACCEPT_TAC]);;
+
+(* ---- general-B (growing regime, 2<=l<k, window!=0) helpers (cont75e) ----
+   At GROWING heads the partial value zv is multi-word (up to 2^(64*l)), NOT near the modulus scale;
+   `zv<b*2^64` is FALSE and DDK_R_LT/tight-bound do NOT apply.  But the CGEN assembly math
+   (C_CARRY_IS_Q, C_ASSEMBLE_GEN, C_TOP_FUNNEL_GEN) reuses at k:=l (needs only b<2^(64l), zv<2^(64l),
+   R=zv-qh*b<2^(64l), q*b<=zv -- all hold).  Only the VALUE CLOSE differs: growing bound, not tight. *)
+
+(* GROWING_VALUE_CLOSE_B: general-q value close for B (cong + GROWING bound Zf'<2^(64(l+1))).
+   cong via CONG_HALF (qh*b==0 mod b); bound from Zin-qh*b<=Zin<2^(64*l), blk<2^61 =>
+   Zf'=2^61*(Zin-qh*b)+blk < 2^(64*l+61)+2^61 < 2^(64(l+1)).  NO R<2^(p+2), NO tight bound. *)
+let GROWING_VALUE_CLOSE_B = prove
+ (`!a b ii l Zin blk qh Zf'.
+    (Zin == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
+    blk = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\
+    qh * b <= Zin /\ Zin < 2 EXP (64 * l) /\ 1 <= l /\
+    Zf' = 2 EXP 61 * (Zin - qh * b) + blk
+    ==> (Zf' == a DIV 2 EXP (61 * ii)) (mod b) /\ Zf' < 2 EXP (64 * (l + 1))`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN CONJ_TAC THENL
+   [MATCH_MP_TAC CONG_HALF THEN MAP_EVERY EXISTS_TAC [`Zin:num`; `qh:num`] THEN
+    ASM_REWRITE_TAC[] THEN EXISTS_TAC `blk:num` THEN ASM_REWRITE_TAC[] THEN
+    UNDISCH_TAC `qh * b <= Zin` THEN ARITH_TAC;
+    SUBGOAL_THEN `Zin - qh * b < 2 EXP (64 * l)` ASSUME_TAC THENL
+     [UNDISCH_TAC `Zin < 2 EXP (64 * l)` THEN ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `blk < 2 EXP 61` ASSUME_TAC THENL
+     [ASM_REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
+    SUBGOAL_THEN `2 EXP 61 * (Zin - qh * b) < 2 EXP 61 * 2 EXP (64 * l)` ASSUME_TAC THENL
+     [REWRITE_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ] THEN FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `2 EXP 61 * 2 EXP (64 * l) + 2 EXP 61 <= 2 EXP (64 * (l + 1))` ASSUME_TAC THENL
+     [REWRITE_TAC[GSYM EXP_ADD] THEN
+      TRANS_TAC LE_TRANS `2 EXP (61 + 64 * l) + 2 EXP (61 + 64 * l)` THEN CONJ_TAC THENL
+       [MATCH_MP_TAC LE_ADD2 THEN REWRITE_TAC[LE_REFL; LE_EXP; ARITH_EQ] THEN
+        UNDISCH_TAC `1 <= l` THEN ARITH_TAC;
+        REWRITE_TAC[ARITH_RULE `x + x = 2 EXP 1 * x`; GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN
+        UNDISCH_TAC `1 <= l` THEN ARITH_TAC]; ALL_TAC] THEN
+    ASM_REWRITE_TAC[] THEN
+    MAP_EVERY UNDISCH_TAC
+     [`2 EXP 61 * (Zin - qh * b) < 2 EXP 61 * 2 EXP (64 * l)`;
+      `2 EXP 61 * 2 EXP (64 * l) + 2 EXP 61 <= 2 EXP (64 * (l + 1))`;
+      `blk < 2 EXP 61`] THEN ARITH_TAC]);;
+
+(* GROWING_ZK_FROM_STORES_GEN: general-q B value assembly.  From the general-q tail stores (funnel W
+   with CARRY=qh, LOW=W MOD2^64) + inner-INV + reduction, derive bignum(z,k) s = 2^61*(zv-qh*b)+block.
+   High part highdigits zpre(l+1) vanishes (value<2^(64(l+1))); the two MEMORY stores z[l-1]=subword,
+   z[l]=ushr assemble via C_ASSEMBLE_GEN(k:=l).  (Analog of GROWING_ZK_FROM_STORES but qh!=0, mem z[l].) *)
+let WINDOW_NZ_IMP_B_LT = prove
+ (`!V p b l. ~(((V DIV 2 EXP p) MOD 2 EXP 64) = 0) /\ V < 2 EXP (64 * l) /\ b < 2 EXP p
+             ==> b < 2 EXP (64 * l)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `~(V DIV 2 EXP p = 0)` ASSUME_TAC THENL
+   [DISCH_TAC THEN
+    UNDISCH_TAC `~(((V DIV 2 EXP p) MOD 2 EXP 64) = 0)` THEN
+    ASM_REWRITE_TAC[MOD_0]; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP p <= V` ASSUME_TAC THENL
+   [MP_TAC(SPECL [`V:num`; `2 EXP p`] DIV_EQ_0) THEN
+    REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
+    ASM_REWRITE_TAC[NOT_LT] THEN DISCH_THEN(SUBST1_TAC o SYM) THEN
+    ASM_REWRITE_TAC[GSYM NOT_LT]; ALL_TAC] THEN
+  TRANS_TAC LT_TRANS `2 EXP p` THEN ASM_REWRITE_TAC[] THEN
+  TRANS_TAC LET_TRANS `V:num` THEN ASM_REWRITE_TAC[]);;
+
+(* FLAT_ZK_FROM_STORES_GEN moved here from flat_gen_helpers.ml (cont105): it uses C_ASSEMBLE_GEN
+   (defined above), so it must load AFTER cgen_helpers, not in flat_gen_helpers (which loads earlier). *)
+(* FLAT_ZK_FROM_STORES_GEN (cont86): the GENERAL-qhat SINGLE-store FLAT value assembler.  Value
+   Zf' = 2^61*(zv-qh*b)+block fits l words (< 2^(64*l)), so the ARM FLAT tail stores ONLY z[l-1] (the funnel
+   W's subword) and leaves z[l..k-1] = highdigits zpre l = 0.  Concludes bignum(z,k) = Zf'.  Via
+   C_ASSEMBLE_GEN(k:=l) [the l-word assembly identity], deriving W DIV 2^3 = 0 (the ushr high-spill vanishes
+   since Zf' fits l words) + high-word vanish (highdigits zpre l = 0) + BIGNUM_FROM_MEMORY_STEP peel of z[l-1].
+   The general-qhat analog of FLAT_ZK_FROM_STORES (block_flat_304_win.ml, q=0); mirrors GROWING_ZK_FROM_STORES_GEN
+   but SINGLE store (no z[l]) since the value fits l words.  For the UNIFIED general-FLAT block. *)
+let L1_TAILMUL_DISJ = prove
+ (`!p b zv w. 2 EXP (p - 1) <= b /\ b < 2 EXP p /\ zv < 2 EXP 64
+   ==> (w * ((zv DIV 2 EXP p) MOD 2 EXP 64)) DIV 2 EXP 64 + (zv DIV 2 EXP p) MOD 2 EXP 64 = 0 \/
+       highdigits b 1 = 0`,
+  REPEAT STRIP_TAC THEN ASM_CASES_TAC `p <= 64` THENL
+   [DISJ2_TAC THEN REWRITE_TAC[highdigits; EXP; MULT_CLAUSES] THEN
+    MATCH_MP_TAC DIV_LT THEN
+    TRANS_TAC LTE_TRANS `2 EXP p` THEN ASM_REWRITE_TAC[LE_EXP] THEN ASM_ARITH_TAC;
+    DISJ1_TAC THEN
+    SUBGOAL_THEN `(zv DIV 2 EXP p) MOD 2 EXP 64 = 0` (fun th -> REWRITE_TAC[th; MULT_CLAUSES; DIV_0; ADD_CLAUSES]) THEN
+    SUBGOAL_THEN `zv DIV 2 EXP p = 0` (fun th -> REWRITE_TAC[th]) THENL
+     [MATCH_MP_TAC DIV_LT THEN TRANS_TAC LTE_TRANS `2 EXP 64` THEN ASM_REWRITE_TAC[LE_EXP] THEN ASM_ARITH_TAC;
+      REWRITE_TAC[MOD_0]]]);;
+
+(* L1_B0_MUL_BRIDGE (PROVEN 2026-07-30): the funnel-argument b0->b bridge.  The tail's store word uses
+   bigdigit b 0 (the low modulus digit) but L1_VALUE_BRIDGE's accumulator A = zv+q+q*(2^64-1-b) uses the
+   full b.  Taking the TAIL_MUL disjunction (q=0 \/ highdigits b 1=0) directly: if q=0 both sides vanish;
+   if highdigits b 1=0 then b<2^64 so bigdigit b 0 = b.  Bridges the tail's W-accumulator to A. *)
+let L1_B0_MUL_BRIDGE = prove
+ (`!q b. (q = 0 \/ highdigits b 1 = 0)
+         ==> q * (2 EXP 64 - 1 - bigdigit b 0) = q * (2 EXP 64 - 1 - b)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THENL
+   [ASM_REWRITE_TAC[MULT_CLAUSES];
+    SUBGOAL_THEN `bigdigit b 0 = b` (fun th -> REWRITE_TAC[th]) THEN
+    SUBGOAL_THEN `b < 2 EXP 64` ASSUME_TAC THENL
+     [UNDISCH_TAC `highdigits b 1 = 0` THEN
+      REWRITE_TAC[highdigits; EXP_1] THEN SIMP_TAC[DIV_EQ_0; EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
+    REWRITE_TAC[bigdigit; MULT_CLAUSES; EXP; DIV_1] THEN MATCH_MP_TAC MOD_LT THEN
+    ASM_REWRITE_TAC[]]);;
+
+(* L1_VALUE_REL (PROVEN 2026-07-30): the l=1 (dd=0) general-q value relation.  From the tail's funnel
+   accumulator W (2^64*hh'+W = bigdigit zv 0 + q + q*(2^64-1-bigdigit b 0)), the seam (cwin DIV8=block),
+   zv<2^64, and the TAIL_MUL disjunction (q=0 \/ highdigits b 1=0), derive the assembled-2-word value
+   relation:  (funnel_low) + 2^64*(z1_val) + 2^61*q*b = block + 2^61*zv + 2^61*q*2^64.
+   The LHS's (2^61*W MOD2^3 + cwin DIV8) + 2^64*(W DIV2^3 + 2^61*hh') is exactly val(z0)+2^64*val(z1)
+   (z0=funnel(W,cwin), z1=ushr(W,3)) via EXTR_FUNNEL_VAL/VAL_WORD_USHR.  Combined with L1_ZK_ASSEMBLE
+   (bignum(z,k)=val z0+2^64*val z1) this gives bignum(z,k)+2^61*q*b = 2^61*zv+block+2^61*q*2^64, the
+   BLOCK_VALUE input (the +2^61*q*2^64 top-carry is absorbed by hh' being 0 / the length bound).
+   Proof: VALUE_GROW_STEP(dd=0) + TAIL_MUL disjunction discharge (lowdigits b 1 -> b) + lowdigits zv 1 = zv.
+   *** FILE-ROBUST script: REPEAT GEN_TAC THEN DISCH_TAC (NOT STRIP -- keeps the /\ intact as one hyp so
+   the disjunction survives); extract the disjunct via `last o CONJUNCTS` for DISJ_CASES. *** *)
+let L1_VALUE_REL = prove
+ (`!k q block zv b W cwin hh'.
+    0 < k /\ block < 2 EXP 61 /\ zv < 2 EXP 64 /\ cwin DIV 8 = block /\
+    2 EXP 64 * hh' + W = bigdigit zv 0 + q + q * (2 EXP 64 - 1 - bigdigit b 0) /\
+    (q = 0 \/ highdigits b 1 = 0)
+    ==> (2 EXP 61 * W MOD 2 EXP 3 + cwin DIV 8) +
+        2 EXP 64 * (W DIV 2 EXP 3 + 2 EXP 61 * hh') + 2 EXP 61 * q * b =
+        block + 2 EXP 61 * zv + 2 EXP 61 * q * 2 EXP 64`,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  SUBGOAL_THEN `2 EXP 61 * q * lowdigits b 1 = 2 EXP 61 * q * b` ASSUME_TAC THENL
+   [FIRST_ASSUM(DISJ_CASES_TAC o last o CONJUNCTS) THEN
+    ASM_REWRITE_TAC[MULT_CLAUSES] THEN
+    AP_TERM_TAC THEN AP_TERM_TAC THEN POP_ASSUM MP_TAC THEN
+    REWRITE_TAC[highdigits; lowdigits; EXP; MULT_CLAUSES] THEN
+    SIMP_TAC[DIV_EQ_0; EXP_EQ_0; ARITH_EQ] THEN DISCH_TAC THEN MATCH_MP_TAC MOD_LT THEN
+    UNDISCH_TAC `0 < k /\ block < 2 EXP 61 /\ zv < 2 EXP 64 /\ cwin DIV 8 = block /\
+       2 EXP 64 * hh' + W = bigdigit zv 0 + q + q * (2 EXP 64 - 1 - bigdigit b 0) /\
+       (q = 0 \/ highdigits b 1 = 0)` THEN
+    REWRITE_TAC[] THEN STRIP_TAC THEN ASM_REWRITE_TAC[];
+    ALL_TAC] THEN
+  FIRST_ASSUM(STRIP_ASSUME_TAC) THEN
+  SUBGOAL_THEN `lowdigits zv 1 = zv` ASSUME_TAC THENL
+   [REWRITE_TAC[lowdigits; EXP; MULT_CLAUSES] THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  MP_TAC(ISPECL [`k:num`;`0`;`q:num`;`block:num`;`zv:num`;`b:num`;`cwin:num`;`q:num`;`W:num`;`hh':num`;`0`] VALUE_GROW_STEP) THEN
+  ASM_REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES; ARITH_RULE `64 * 0 = 0`; EXP; LOWDIGITS_0; BIGDIGIT_BOUND] THEN
+  DISCH_THEN(fun th -> MP_TAC th THEN ARITH_TAC));;
+
+(* L1_BLOCKLOAD_X13 (PROVEN 2026-07-30): BIGNUM_MOD_BLOCKLOAD_WIDE STRENGTHENED to carry read X13 s =
+   word lfv (X13 preserved through the single-BIGSTEP block-load region; the base lemma just did not
+   state it).  Local copy so the l=1 prefix can thread X13 to the seg-B tail.  Same proof as base. *)
+let L1_MODSUB = prove
+ (`!zv qhat b. qhat * b <= zv /\ zv < 2 EXP 64 /\ b < 2 EXP 64
+   ==> (zv + qhat * (2 EXP 64 - b)) MOD 2 EXP 64 = zv - qhat * b`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `qhat * (2 EXP 64 - b) = qhat * 2 EXP 64 - qhat * b` SUBST1_TAC THENL
+   [REWRITE_TAC[LEFT_SUB_DISTRIB]; ALL_TAC] THEN
+  SUBGOAL_THEN `zv + (qhat * 2 EXP 64 - qhat * b) = (zv - qhat * b) + qhat * 2 EXP 64` SUBST1_TAC THENL
+   [SUBGOAL_THEN `qhat * b <= qhat * 2 EXP 64` MP_TAC THENL
+     [MATCH_MP_TAC LE_MULT2 THEN ASM_SIMP_TAC[LE_REFL; LT_IMP_LE]; ALL_TAC] THEN
+    UNDISCH_TAC `qhat * b <= zv` THEN ARITH_TAC;
+    REWRITE_TAC[MOD_MULT_ADD] THEN MATCH_MP_TAC MOD_LT THEN
+    UNDISCH_TAC `qhat * b <= zv` THEN UNDISCH_TAC `zv < 2 EXP 64` THEN ARITH_TAC]);;
+
+(* L1_FUNNEL_TELESCOPE (PROVEN 2026-07-30): the funnel word-telescope.  The assembled 2-word value
+   val z0 + 2^64*val z1 where z0=2^61*(A MOD8)+cwin DIV8, z1=(A mod 2^64)DIV8, telescopes:
+   2^61*(A MOD8) + 2^64*((A mod 2^64)DIV8) = 2^61*(A mod 2^64).  So bignum(z,k)s' = 2^61*(A mod 2^64) + block
+   (with cwin DIV8 = block).  Feeds the value relation via L1_MODSUB (A mod 2^64 = zv - qhat*b). *)
+let L1_FUNNEL_TELESCOPE = prove
+ (`!A. 2 EXP 61 * (A MOD 8) + 2 EXP 64 * ((A MOD 2 EXP 64) DIV 8) = 2 EXP 61 * (A MOD 2 EXP 64)`,
+  GEN_TAC THEN REWRITE_TAC[ARITH_RULE `8 = 2 EXP 3`] THEN
+  SUBGOAL_THEN `A MOD 2 EXP 3 = (A MOD 2 EXP 64) MOD 2 EXP 3` SUBST1_TAC THENL
+   [REWRITE_TAC[MOD_MOD_EXP_MIN] THEN AP_TERM_TAC THEN AP_TERM_TAC THEN CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
+  MP_TAC(SPECL [`A MOD 2 EXP 64`; `2 EXP 3`] DIVISION) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
+  ARITH_TAC);;
+
+(* L1_QHAT_ID (PROVEN 2026-07-30): ((2^64+w)*h)DIV2^64 = (w*h)DIV2^64 + h.  Bridges the QSETUP qhat form
+   (w*hwin)DIV2^64+hwin to the KI/BLOCK_VALUE form ((2^64+w)*hwin)DIV2^64 used by KI_LOWER_FROM_RECIPB. *)
+let L1_QHAT_ID = prove
+ (`!w h. ((2 EXP 64 + w) * h) DIV 2 EXP 64 = (w * h) DIV 2 EXP 64 + h`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[RIGHT_ADD_DISTRIB] THEN
+  SUBGOAL_THEN `2 EXP 64 * h + w * h = w * h + h * 2 EXP 64` SUBST1_TAC THENL
+   [ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `w * h + h * 2 EXP 64 = h * 2 EXP 64 + w * h` SUBST1_TAC THENL
+   [ARITH_TAC; ALL_TAC] THEN
+  SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
+
+(* L1_FUNNEL_DECODE (PROVEN 2026-07-30): decodes the two tail stores z0=funnel(A,cwin), z1=ushr(word A)3
+   into the 2-word value:  val z0 + 2^64*val z1 = 2^61*(val(word A) MOD8) + val(word cwin)DIV8 +
+   2^64*(val(word A)DIV8).  Combined with L1_FUNNEL_TELESCOPE => = 2^61*(A mod 2^64) + (cwin DIV8).
+   NB: `extr c,ss,c,#(64-BLOCKSIZE=3)` is the 61-bit SHIFT funnel (bignum_shl_small), NOT a truncation --
+   the value spans z0,z1 correctly; VALUE_GROW_STEP (proven) encodes the full funnel algebra. *)
+let L1_FUNNEL_DECODE = prove
+ (`!A cwin. val(word A:int64) < 2 EXP 64 /\ val(word cwin:int64) < 2 EXP 64
+   ==> val(word_subword (word_join (word A:int64) (word cwin:int64):int128) (3,64):int64) +
+       2 EXP 64 * val(word_ushr (word A:int64) 3) =
+       2 EXP 61 * (val(word A:int64) MOD 8) + val(word cwin:int64) DIV 8 + 2 EXP 64 * (val(word A:int64) DIV 8)`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[EXTR_FUNNEL_VAL; VAL_WORD_USHR] THEN ARITH_TAC);;
+
+(* L1_HWIN_BOUND (PROVEN 2026-07-30): hwin*2^p <= zv (hwin=(zv DIV2^p)MOD2^64, zv<2^64).  Feeds KI_LOWER. *)
+let L1_HWIN_BOUND = prove
+ (`!zv p. zv < 2 EXP 64 ==> ((zv DIV 2 EXP p) MOD 2 EXP 64) * 2 EXP p <= zv`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `(zv DIV 2 EXP p) MOD 2 EXP 64 = zv DIV 2 EXP p` SUBST1_TAC THENL
+   [MATCH_MP_TAC MOD_LT THEN TRANS_TAC LET_TRANS `zv:num` THEN ASM_REWRITE_TAC[DIV_LE]; ALL_TAC] THEN
+  MP_TAC(SPECL [`zv:num`; `2 EXP p`] DIVISION) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
+
+(* L1_NOUNDERFLOW (PROVEN 2026-07-30): qhat*b<=zv from (RECIP_B) (2^64+w)*b<=2^(p+64) + hwin*2^p<=zv, via
+   KI_LOWER_FROM_RECIPB + L1_QHAT_ID.  NB: (RECIP_B) is itself unproven-but-tested (ki_lower.ml) -- so in
+   the l=1 BLOCK, the no-underflow qhat*b<=zv is taken as a HYPOTHESIS (threaded from MAINLOOP, Option B),
+   EXACTLY as the DDK block takes its no-borrow hyp [21].  This lemma is kept for when RECIP_B is discharged. *)
+let L1_NOUNDERFLOW = prove
+ (`!w hwin zv b p. (2 EXP 64 + w) * b <= 2 EXP (p + 64) /\ hwin * 2 EXP p <= zv
+   ==> ((w * hwin) DIV 2 EXP 64 + hwin) * b <= zv`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(ISPECL [`b:num`; `p:num`; `zv:num`; `hwin:num`; `w:num`] KI_LOWER_FROM_RECIPB) THEN
+  ASM_REWRITE_TAC[] THEN REWRITE_TAC[GSYM L1_QHAT_ID] THEN
+  DISCH_THEN MATCH_MP_TAC THEN ASM_REWRITE_TAC[]);;
+
+(* L1_SUBID (PROVEN 2026-07-30): q + q*(2^64-1-b) = q*(2^64-b) given b+1<=2^64.  Nat-subtraction helper
+   for the funnel accumulator A = zv + q + q*(2^64-1-b0) = zv + q*(2^64-b0). *)
+let L1_SUBID = prove
+ (`!q b. b + 1 <= 2 EXP 64 ==> q + q * (2 EXP 64 - 1 - b) = q * (2 EXP 64 - b)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `2 EXP 64 - 1 - b = (2 EXP 64 - b) - 1` SUBST1_TAC THENL
+   [ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `1 <= 2 EXP 64 - b` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `q <= q * (2 EXP 64 - b)` MP_TAC THENL
+   [GEN_REWRITE_TAC LAND_CONV [ARITH_RULE `q = q * 1`] THEN
+    REWRITE_TAC[LE_MULT_LCANCEL] THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[LEFT_SUB_DISTRIB; MULT_CLAUSES] THEN ARITH_TAC);;
+
+(* L1_VALUE_BRIDGE (PROVEN 2026-07-30): the COMPLETE l=1 tail value assembly.  From the two tail stores
+   z0 = funnel(word A, word cwin), z1 = ushr(word A)3 where A = zv + q + q*(2^64-1-b) (the word-0 funnel
+   accumulator with hi=q), GIVEN no-underflow q*b<=zv, zv<2^64, b<2^64 (p<61 corner; b0=b), val cwin DIV8=block:
+     val z0 + 2^64*val z1 = 2^61*(zv - q*b) + block   [= the reduced value Zf'].
+   Chain: L1_FUNNEL_DECODE (2-word decode) + L1_FUNNEL_TELESCOPE (regroup to 2^61*(A mod 2^64)) + L1_SUBID
+   (A = zv+q*(2^64-b)) + L1_MODSUB (A mod 2^64 = zv - q*b, needs no-underflow).
+   Combined with L1_ZK_ASSEMBLE gives bignum(z,k)s' = 2^61*(zv-q*b)+block = Zf'; then Zf'+2^61*q*b=2^61*zv+block
+   (nat eqn, q*b<=zv) feeds BLOCK_VALUE_TIGHT for cong + Zf'<b*2^64. *)
+let L1_VALUE_BRIDGE = prove
+ (`!zv q b block cwin.
+    q * b <= zv /\ zv < 2 EXP 64 /\ b < 2 EXP 64 /\ val(word cwin:int64) DIV 8 = block
+    ==> val(word_subword (word_join (word (zv + q + q * (2 EXP 64 - 1 - b)):int64) (word cwin:int64):int128) (3,64):int64) +
+        2 EXP 64 * val(word_ushr (word (zv + q + q * (2 EXP 64 - 1 - b)):int64) 3) =
+        2 EXP 61 * (zv - q * b) + block`,
+  REPEAT STRIP_TAC THEN
+  ABBREV_TAC `A = zv + q + q * (2 EXP 64 - 1 - b)` THEN
+  MP_TAC(ISPECL [`A:num`; `cwin:num`] L1_FUNNEL_DECODE) THEN
+  REWRITE_TAC[VAL_BOUND_64] THEN DISCH_THEN SUBST1_TAC THEN
+  SUBGOAL_THEN `val(word A:int64) = A MOD 2 EXP 64` SUBST1_TAC THENL
+   [REWRITE_TAC[VAL_WORD; DIMINDEX_64]; ALL_TAC] THEN
+  SUBGOAL_THEN
+   `2 EXP 61 * ((A MOD 2 EXP 64) MOD 8) + val(word cwin:int64) DIV 8 + 2 EXP 64 * ((A MOD 2 EXP 64) DIV 8) =
+    2 EXP 61 * (A MOD 2 EXP 64) + val(word cwin:int64) DIV 8`
+   SUBST1_TAC THENL
+   [MP_TAC(ISPEC `A MOD 2 EXP 64` L1_FUNNEL_TELESCOPE) THEN
+    REWRITE_TAC[MOD_MOD_REFL] THEN ARITH_TAC; ALL_TAC] THEN
+  ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN `A MOD 2 EXP 64 = zv - q * b` SUBST1_TAC THENL
+   [EXPAND_TAC "A" THEN
+    SUBGOAL_THEN `zv + q + q * (2 EXP 64 - 1 - b) = zv + q * (2 EXP 64 - b)` SUBST1_TAC THENL
+     [MP_TAC(ISPECL [`q:num`; `b:num`] L1_SUBID) THEN ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+      DISCH_THEN(fun th -> REWRITE_TAC[GSYM th]) THEN ARITH_TAC;
+      MATCH_MP_TAC L1_MODSUB THEN ASM_REWRITE_TAC[]]; ALL_TAC] THEN
+  REFL_TAC);;
+
+(* L1_VALUE_BRIDGE_GEN (PROVEN 2026-07-30): the tail's ACTUAL store-word form value bridge, valid for
+   ALL b (incl b>=2^64).  The tail-B store word is word(bigdigit zv 0 + q + q*(2^64-1-bigdigit b 0));
+   this bridges it to 2^61*(zv-q*b)+block, taking the disjunction (q=0 \/ highdigits b 1=0) [from
+   L1_TAILMUL_DISJ] instead of b<2^64.
+     - q=0 branch: funnel arg = word(bigdigit zv 0)=word zv; L1_FUNNEL_DECODE + telescope give 2^61*zv+block
+       = 2^61*(zv-0)+block.  (This is the LARGE-b case: b>=2^64 => highdigits b 1!=0 => q=0.)
+     - highdigits b 1=0 branch: b<2^64, bigdigit b 0=b, reduce to L1_VALUE_BRIDGE.
+   *** GOTCHA: open with DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC), NOT REPEAT STRIP_TAC --
+   STRIP_TAC CASE-SPLITS the disjunctive antecedent conjunct (q=0 \/ ...) into 2 goals, desyncing every
+   downstream THENL.  CONJUNCTS_THEN keeps the disjunction as ONE whole hypothesis; then ASM_CASES `q=0`
+   splits it deliberately where wanted.  (Same STRIP-splits-a-connective class as L1_VALUE_CLOSE cont50.) *)
+let L1_VALUE_BRIDGE_GEN = prove
+ (`!zv q b block cwin.
+    q * b <= zv /\ zv < 2 EXP 64 /\ (q = 0 \/ highdigits b 1 = 0) /\ val(word cwin:int64) DIV 8 = block
+    ==> val(word_subword (word_join (word (bigdigit zv 0 + q + q * (2 EXP 64 - 1 - bigdigit b 0)):int64) (word cwin:int64):int128) (3,64):int64) +
+        2 EXP 64 * val(word_ushr (word (bigdigit zv 0 + q + q * (2 EXP 64 - 1 - bigdigit b 0)):int64) 3) =
+        2 EXP 61 * (zv - q * b) + block`,
+  REPEAT GEN_TAC THEN
+  DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
+  SUBGOAL_THEN `bigdigit zv 0 = zv` SUBST1_TAC THENL
+   [REWRITE_TAC[bigdigit; MULT_CLAUSES; EXP; DIV_1] THEN MATCH_MP_TAC MOD_LT THEN FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
+  ASM_CASES_TAC `q = 0` THENL
+   [ASM_REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES; SUB_0] THEN
+    MP_TAC(ISPECL [`zv:num`; `cwin:num`] L1_FUNNEL_DECODE) THEN
+    REWRITE_TAC[VAL_BOUND_64] THEN DISCH_THEN SUBST1_TAC THEN
+    SUBGOAL_THEN `val(word zv:int64) = zv` SUBST1_TAC THENL
+     [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
+    ASM_REWRITE_TAC[] THEN
+    MP_TAC(ISPEC `zv:num` L1_FUNNEL_TELESCOPE) THEN
+    SUBGOAL_THEN `zv MOD 2 EXP 64 = zv` SUBST1_TAC THENL
+     [MATCH_MP_TAC MOD_LT THEN FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
+    REWRITE_TAC[ARITH_RULE `8 = 2 EXP 3`] THEN DISCH_THEN(fun th -> MP_TAC th) THEN ARITH_TAC;
+    SUBGOAL_THEN `highdigits b 1 = 0` ASSUME_TAC THENL
+     [FIRST_X_ASSUM(fun th -> if concl th = `q = 0 \/ highdigits b 1 = 0`
+                              then MP_TAC th else NO_TAC) THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    SUBGOAL_THEN `b < 2 EXP 64` ASSUME_TAC THENL
+     [UNDISCH_TAC `highdigits b 1 = 0` THEN
+      REWRITE_TAC[highdigits; ARITH_RULE `64 * 1 = 64`; EXP_1] THEN
+      SIMP_TAC[DIV_EQ_0; EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
+    SUBGOAL_THEN `bigdigit b 0 = b` SUBST1_TAC THENL
+     [REWRITE_TAC[bigdigit; MULT_CLAUSES; EXP; DIV_1] THEN MATCH_MP_TAC MOD_LT THEN FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
+    MP_TAC(ISPECL [`zv:num`; `q:num`; `b:num`; `block:num`; `cwin:num`] L1_VALUE_BRIDGE) THEN
+    ASM_REWRITE_TAC[]]);;
+
+(* L1_RELQ (PROVEN 2026-07-30): the reduced-value relation.  From no-underflow q*b<=zv and the reduced
+   value Zfp = 2^61*(zv-q*b)+block, recover Zfp + 2^61*q*b = 2^61*zv+block (feeds CONG_HALF).  Nat
+   subtraction is distributed via LEFT_SUB_DISTRIB after SUBST'ing 2^61*(q*b), then closed by ARITH_TAC
+   under the 2^61*(q*b) <= 2^61*zv guard. *)
+let L1_RELQ = prove
+ (`!zv q b block Zfp.
+    q * b <= zv /\ Zfp = 2 EXP 61 * (zv - q * b) + block
+    ==> Zfp + 2 EXP 61 * q * b = 2 EXP 61 * zv + block`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  FIRST_X_ASSUM(fun th -> if concl th = `Zfp = 2 EXP 61 * (zv - q * b) + block`
+                          then SUBST1_TAC th else NO_TAC) THEN
+  SUBGOAL_THEN `2 EXP 61 * q * b = 2 EXP 61 * (q * b)` SUBST1_TAC THENL
+   [REWRITE_TAC[MULT_ASSOC]; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP 61 * (zv - q * b) = 2 EXP 61 * zv - 2 EXP 61 * (q * b)` SUBST1_TAC THENL
+   [REWRITE_TAC[LEFT_SUB_DISTRIB]; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP 61 * (q * b) <= 2 EXP 61 * zv` MP_TAC THENL
+   [ASM_REWRITE_TAC[LE_MULT_LCANCEL]; ALL_TAC] THEN
+  ARITH_TAC);;
+
+(* L1_VALUE_CLOSE (PROVEN 2026-07-30): the COMPLETE l=1 value close.  From the DDK-style recip-bracket
+   cluster + no-underflow (q*b<=zv) + Zfp = 2^61*(zv-q*b)+block (the reduced value), derives
+   cong (CONG_HALF via the relation Zfp+2^61*q*b=2^61*zv+block) + tight bound Zfp<b*2^64 (BLOCK_VALUE_TIGHT,
+   its relation ANTS = Zfp+2^61*((2^64+w)*hwin)DIV2^64*b=2^61*zv+block via L1_QHAT_ID) + INV2 Zfp<2^128
+   (from Zfp<b*2^64 & b<2^64).  The 2^(64k)*0 terms are the X23'=0 (growing) framing.
+   *** no-underflow q*b<=zv is a HYPOTHESIS (threaded from MAINLOOP, like DDK block's [21]; (RECIP_B) open). *)
+let L1_VALUE_CLOSE = prove
+ (`!a b ii p w hwin zv q block Zfp t0 s zr k.
+    (zv == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
+    block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
+    b < 2 EXP p /\ zv < 2 EXP 64 /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
+    t0 < 2 EXP 64 /\ 0 < t0 /\ hwin < 2 EXP 64 /\
+    b * 2 EXP 64 = t0 * 2 EXP p + s /\ zv = hwin * 2 EXP p + zr /\ zr < 2 EXP p /\
+    &2 pow 128 <= (&2 pow 64 + &w + &1) * &t0 /\ (&2 pow 64 + &w) * &t0 <= &2 pow 128 /\
+    q = (w * hwin) DIV 2 EXP 64 + hwin /\ q * b <= zv /\
+    Zfp = 2 EXP 61 * (zv - q * b) + block
+    ==> (2 EXP (64 * k) * 0 + Zfp == a DIV 2 EXP (61 * ii)) (mod b) /\
+        2 EXP (64 * k) * 0 + Zfp < b * 2 EXP 64 /\
+        2 EXP (64 * k) * 0 + Zfp < 2 EXP (64 * 2)`,
+  (* *** single STRIP_TAC (REPEAT GEN_TAC THEN STRIP_TAC): do NOT let REPEAT STRIP_TAC split the
+     conclusion A/\B/\C into 3 goals -- that desyncs the closing REPEAT CONJ_TAC THENL count.
+     Establish RELq (L1_RELQ), the QH-form relation (L1_QHAT_ID), cong (CONG_HALF) and Zfp<b*2^64
+     (BLOCK_VALUE_TIGHT) as separate ASSUME_TAC subgoals, THEN split the intact conclusion 3-way.
+     *** INV2 (Zfp<2^128) derived from zv<2^64 (ALWAYS true at l=1: zv is a 61-bit block), NOT from
+     b<2^64 -- so this close is valid for LARGE b>=2^64 too (then p>=65 => hwin=0 => q=0). *)
+  REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES] THEN
+  SUBGOAL_THEN `Zfp + 2 EXP 61 * q * b = 2 EXP 61 * zv + block` ASSUME_TAC THENL
+   [MATCH_MP_TAC L1_RELQ THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  SUBGOAL_THEN
+   `Zfp + 2 EXP 61 * ((2 EXP 64 + w) * hwin) DIV 2 EXP 64 * b = 2 EXP 61 * zv + block`
+   ASSUME_TAC THENL
+   [REWRITE_TAC[L1_QHAT_ID] THEN
+    FIRST_X_ASSUM(fun th -> if concl th = `q = (w * hwin) DIV 2 EXP 64 + hwin`
+                            then SUBST1_TAC(SYM th) else NO_TAC) THEN
+    FIRST_X_ASSUM ACCEPT_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `(Zfp == a DIV 2 EXP (61 * ii)) (mod b)` ASSUME_TAC THENL
+   [MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `zv:num`; `Zfp:num`; `q:num`; `block:num`]
+                  CONG_HALF) THEN
+    ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_THEN ACCEPT_TAC]; ALL_TAC] THEN
+  SUBGOAL_THEN `Zfp < b * 2 EXP 64` ASSUME_TAC THENL
+   [MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `p:num`; `t0:num`; `zv:num`; `Zfp:num`;
+                   `w:num`; `block:num`; `s:num`; `zr:num`; `hwin:num`; `0`]
+                  BLOCK_VALUE_TIGHT) THEN
+    ANTS_TAC THENL
+     [ASM_REWRITE_TAC[ARITH_RULE `0 < 2 EXP 64`]; DISCH_THEN(ACCEPT_TAC o CONJUNCT2)];
+    ALL_TAC] THEN
+  REWRITE_TAC[ARITH_RULE `64 * 2 = 128`] THEN REPEAT CONJ_TAC THENL
+   [FIRST_ASSUM ACCEPT_TAC;
+    FIRST_ASSUM ACCEPT_TAC;
+    FIRST_X_ASSUM(fun th -> if concl th = `Zfp = 2 EXP 61 * (zv - q * b) + block`
+                            then SUBST1_TAC th else NO_TAC) THEN
+    TRANS_TAC LET_TRANS `2 EXP 61 * zv + block` THEN CONJ_TAC THENL
+     [MATCH_MP_TAC(ARITH_RULE `a <= b ==> 2 EXP 61 * a + c <= 2 EXP 61 * b + c`) THEN ARITH_TAC;
+      MAP_EVERY UNDISCH_TAC [`zv < 2 EXP 64`; `block < 2 EXP 61`] THEN ARITH_TAC]]);;
+
+(* BIGNUM_MOD_L1_SEGC (PROVEN 2026-07-30): the l=1 seg-C 0x2e8->0x304, value abstract.  Mirrors
+   BIGNUM_MOD_DDK_SEGC's role: takes the recip-bracket cluster + no-underflow qhat*b<=zv, produces the
+   full close (cong + tight bound + INV2<2^(64*2) + window X15) via FIELDSEL_CLOSE_L1 + L1_VALUE_CLOSE.
+   The reduced value Zfp = 2^61*(zv - qhat*b) + block is fixed to the qhat/block concrete forms so the
+   FIELDSEL pre X13/X14/zk lines match the seg-B tail's finalized-digit output verbatim.
+   *** GOTCHA: L1_VALUE_CLOSE's `zv = hwin*2^p + zr` antecedent (hwin=(zv DIV2^p)MOD2^64) needs the
+   zv-decomposition ESTABLISHED FIRST as a hyp (via MOD_LT [zv DIV2^p < zv < 2^64] + DIVISION), then
+   FIRST_ASSUM ACCEPT_TAC closes it inside the ANTS -- ASM_REWRITE alone does NOT (it is not a rewrite). *)
+let NEGADD1_ADVANCE = prove
+ (`!q Zi LZi LBi hh hh' ss zdig bdig i.
+      Zi + 2 EXP (64 * i) * hh + q * LBi = LZi + q * 2 EXP (64 * i) /\
+      2 EXP 64 * hh' + ss = zdig + hh + q * (2 EXP 64 - 1 - bdig) /\
+      bdig < 2 EXP 64
+      ==> (Zi + 2 EXP (64 * i) * ss) + 2 EXP (64 * (i + 1)) * hh' +
+          q * (LBi + 2 EXP (64 * i) * bdig) =
+          (LZi + 2 EXP (64 * i) * zdig) + q * 2 EXP (64 * (i + 1))`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `q * (2 EXP 64 - 1 - bdig) = q * (2 EXP 64 - 1) - q * bdig` SUBST_ALL_TAC THENL
+   [REWRITE_TAC[GSYM LEFT_SUB_DISTRIB] THEN AP_TERM_TAC THEN
+    UNDISCH_TAC `bdig < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `q * bdig <= q * (2 EXP 64 - 1)` ASSUME_TAC THENL
+   [MATCH_MP_TAC LE_MULT2 THEN UNDISCH_TAC `bdig < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP 64 * hh' + ss + q * bdig = zdig + hh + q * (2 EXP 64 - 1)` ASSUME_TAC THENL
+   [UNDISCH_TAC `2 EXP 64 * hh' + ss = zdig + hh + (q * (2 EXP 64 - 1) - q * bdig)` THEN
+    UNDISCH_TAC `q * bdig <= q * (2 EXP 64 - 1)` THEN ARITH_TAC; ALL_TAC] THEN
+  FIRST_X_ASSUM(fun th -> if concl th = `2 EXP 64 * hh' + ss + q * bdig = zdig + hh + q * (2 EXP 64 - 1)`
+    then MP_TAC(AP_TERM `( * ) (2 EXP (64 * i))` th) else NO_TAC) THEN
+  REWRITE_TAC[LEFT_ADD_DISTRIB; MULT_ASSOC] THEN
+  REWRITE_TAC[GSYM EXP_ADD; ARITH_RULE `64 * i + 64 = 64 * (i + 1)`] THEN
+  UNDISCH_TAC `Zi + 2 EXP (64 * i) * hh + q * LBi = LZi + q * 2 EXP (64 * i)` THEN
+  REWRITE_TAC[ARITH_RULE `64 * (i+1) = 64*i + 64`; EXP_ADD] THEN ARITH_TAC);;
+
+(* FIELDSEL_GEN -- generalized field-select closer.  Reduces the machine csel funnel
+     if val(word_sub (word s)(word 0))=0 then word_jushr lo (word s)
+     else word_or (word_jshl hi (word_sub(word 0)(word s))) (word_jushr lo (word s))
+   (for ANY int64 hi,lo and s<64) to  word((2^64*val hi + val lo) DIV 2^s MOD 2^64).
+   More general than BIGNUM_MOD_FIELDSEL (arbitrary hi/lo words, not just plain lf/hf); used to
+   close the negaddtail1 field-select (0x36c->0x3a4) where hi/lo are the ii=k csel conditionals.
+   Deps: CSEL_BLOCK_VAL' (stage3_workspace). *)
+let FIELDSEL_GEN = prove
+ (`!hi lo s. s < 64
+      ==> (if val(word_sub (word s:int64) (word 0)) = 0
+           then word_jushr (lo:int64) (word s:int64)
+           else word_or (word_jshl (hi:int64) (word_sub (word 0) (word s:int64)))
+                (word_jushr lo (word s:int64))) =
+          word ((2 EXP 64 * val hi + val lo) DIV 2 EXP s MOD 2 EXP 64)`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[WORD_SUB_0] THEN
+  SUBGOAL_THEN `hi:int64 = word(val hi) /\ lo:int64 = word(val lo)` MP_TAC THENL
+   [REWRITE_TAC[WORD_VAL]; ALL_TAC] THEN
+  DISCH_THEN(CONJUNCTS_THEN(fun th -> GEN_REWRITE_TAC
+     (LAND_CONV o ONCE_DEPTH_CONV) [th])) THEN
+  MP_TAC(SPECL [`val(hi:int64)`; `val(lo:int64)`; `s:num`] CSEL_BLOCK_VAL') THEN
+  ASM_REWRITE_TAC[VAL_BOUND_64] THEN
+  DISCH_THEN(fun th -> GEN_REWRITE_TAC I [GSYM VAL_EQ] THEN REWRITE_TAC[th]) THEN
+  REWRITE_TAC[VAL_WORD; DIMINDEX_64; MOD_MOD_REFL]);;
+
+(* NEGADD1_TOPFOLD -- the negaddtail1 top-word value fold, as an additive congruence mod 2^(64(k+1)).
+   From the negaddloop1 exit value eqn (Zk + 2^(64k)*val hh + q*b = zorig + q*2^(64k)) and the tail's
+   top word X23' = word_add Ztv (word_sub hh (word q)):
+     2^(64k)*val(X23') + Zk + q*b  ==  2^(64k)*val Ztv + zorig  (mod 2^(64(k+1))).
+   I.e. V1 + q*b == V (mod 2^(64(k+1))) where V1 = 2^(64k)*val(X23')+Zk, V = 2^(64k)*val Ztv + zorig.
+   With the bounds V1 < 2^(64(k+1)) and 0 <= V - q*b (from qh*b<=V), this pins V1 = V - q*b EXACTLY
+   at the composition step.  Key: val(X23')+q == val Ztv + val hh (mod 2^64) [the +2^64-q from
+   word_sub cancels mod 2^64]; scale by 2^(64k); NUMBER_RULE with the loop eqn.  Deps: none. *)
+let NEGADD1_TOPFOLD = prove
+ (`!Ztv hh q Zk zorig b k.
+    Zk + 2 EXP (64 * k) * val(hh:int64) + q * b = zorig + q * 2 EXP (64 * k) /\
+    q < 2 EXP 64
+    ==> ((2 EXP (64 * k) * val(word_add Ztv (word_sub hh (word q)):int64) + Zk) + q * b ==
+         2 EXP (64 * k) * val(Ztv:int64) + zorig) (mod (2 EXP (64 * (k + 1))))`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN
+   `(val(word_add Ztv (word_sub hh (word q)):int64) + q ==
+     val(Ztv:int64) + val(hh:int64)) (mod (2 EXP 64))` ASSUME_TAC THENL
+   [REWRITE_TAC[VAL_WORD_ADD; VAL_WORD_SUB; VAL_WORD; DIMINDEX_64] THEN
+    SUBGOAL_THEN `q MOD 2 EXP 64 = q` ASSUME_TAC THENL
+     [MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    ASM_REWRITE_TAC[CONG] THEN CONV_TAC MOD_DOWN_CONV THEN
+    SUBGOAL_THEN `(val(Ztv:int64) + val(hh:int64) + 2 EXP 64 - q) + q =
+                  (val Ztv + val hh) + 1 * 2 EXP 64` SUBST1_TAC THENL
+     [MP_TAC(SPEC `hh:int64` VAL_BOUND_64) THEN UNDISCH_TAC `q < 2 EXP 64` THEN ARITH_TAC;
+      REWRITE_TAC[MOD_MULT_ADD]];
+    ALL_TAC] THEN
+  FIRST_X_ASSUM(MP_TAC o SPEC `2 EXP (64 * k)` o MATCH_MP (NUMBER_RULE
+    `!c:num. (a == d) (mod n) ==> (c * a == c * d) (mod (c * n))`)) THEN
+  REWRITE_TAC[GSYM EXP_ADD; ARITH_RULE `64 * k + 64 = 64 * (k + 1)`] THEN
+  REWRITE_TAC[LEFT_ADD_DISTRIB] THEN
+  UNDISCH_TAC `Zk + 2 EXP (64 * k) * val(hh:int64) + q * b = zorig + q * 2 EXP (64 * k)` THEN
+  CONV_TAC NUMBER_RULE);;
+
+(* Window-index bridges for the negaddtail1 field-select (p_new=p+3, but window is bit p-61):
+   the field-select shift is (p+3)MOD64 and the logged word indices are around (p+3)DIV64, but
+   these coincide with the bit-(p-61) window since (p+3) = (p-61) + 64.  Used to invoke
+   WINDOW_FROM_LOGGED with r := p-61, giving h = (V1 DIV 2^(p-61)) MOD 2^64 (matches .S comment
+   bignum_bitfield(...,p-BLOCKSIZE,64), BLOCKSIZE=61, p=ORIGINAL bitsize). Need p>=61. *)
+let NEGADD1_PCODE_BRIDGE = prove
+ (`!p. 61 <= p ==> (p + 3) DIV 64 = (p - 61) DIV 64 + 1`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `p + 3 = (p - 61) + 64` SUBST1_TAC THENL
+   [UNDISCH_TAC `61 <= p` THEN ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[ARITH_RULE `((p - 61) + 64) DIV 64 = (p - 61) DIV 64 + 1`]);;
+
+let NEGADD1_SHIFT_BRIDGE = prove
+ (`!p. 61 <= p ==> (p + 3) MOD 64 = (p - 61) MOD 64`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `p + 3 = (p - 61) + 1 * 64` SUBST1_TAC THENL
+   [UNDISCH_TAC `61 <= p` THEN ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[MOD_MULT_ADD]);;
+
+(* BIGDIGIT_TOP -- the top digit of a (k+1)-word value a + 2^(64k)*b (a<2^(64k), b<2^64) is b.
+   For V1 = bignum(z,k) + 2^(64k)*val(zt'): bigdigit V1 k = val(zt'), and (via BIGDIGIT_ADD_LEFT)
+   bigdigit V1 j = bigdigit(bignum(z,k)) j for j<k.  Used in the LOGGED_FIELD reconciliation
+   (LO=z[pcode-1], HI=z[pcode] or zt' when pcode=k). *)
+let BIGDIGIT_TOP = prove
+ (`!a b k. a < 2 EXP (64 * k) /\ b < 2 EXP 64
+           ==> bigdigit (a + 2 EXP (64 * k) * b) k = b`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[bigdigit] THEN
+  SUBGOAL_THEN `(a + 2 EXP (64 * k) * b) DIV 2 EXP (64 * k) = b` SUBST1_TAC THENL
+   [ONCE_REWRITE_TAC[ADD_SYM] THEN
+    ASM_SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ] THEN
+    ASM_SIMP_TAC[DIV_LT; ADD_CLAUSES];
+    ASM_SIMP_TAC[MOD_LT]]);;
+
+(* CONG_BOUND_PIN -- pin a congruence to an equality using bounds.  From V1+qb == V (mod K),
+   V1 < K, qb <= V, V-qb < K  conclude  V1 = V - qb.  Used at the NEGADD1 compose to turn
+   NEGADD1_TOPFOLD's congruence (V1+q*b == V mod 2^(64(k+1))) into the exact V1 = V - q*b,
+   given V1 < 2^(64(k+1)) (BIGNUM bound on k+1 words) and q*b <= V (RED_LEMMA_D). *)
+let CONG_BOUND_PIN = prove
+ (`!V1 V qb K. (V1 + qb == V) (mod K) /\ V1 < K /\ qb <= V /\ V - qb < K
+               ==> V1 = V - qb`,
+  REPEAT STRIP_TAC THEN
+  MATCH_MP_TAC CONG_IMP_EQ THEN EXISTS_TAC `K:num` THEN
+  ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN `(V1 == V - qb) (mod K)` (fun th -> ACCEPT_TAC th) THEN
+  UNDISCH_TAC `(V1 + qb == V) (mod K)` THEN
+  REWRITE_TAC[num_congruent] THEN
+  ASM_SIMP_TAC[GSYM INT_OF_NUM_SUB] THEN
+  REWRITE_TAC[GSYM INT_OF_NUM_CLAUSES] THEN
+  CONV_TAC INTEGER_RULE);;
+
+(* TWOPART_BOUND -- a (k+1)-word value 2^(64k)*t + c (t<2^64, c<2^(64k)) is < 2^(64(k+1)).
+   The V1<2^(64(k+1)) bound for the CONG_BOUND_PIN value pin. *)
+let TWOPART_BOUND = prove
+ (`!t c k. t < 2 EXP 64 /\ c < 2 EXP (64 * k)
+           ==> 2 EXP (64 * k) * t + c < 2 EXP (64 * (k + 1))`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[ARITH_RULE `64 * (k + 1) = 64 * k + 64`; EXP_ADD] THEN
+  TRANS_TAC LTE_TRANS `2 EXP (64 * k) * t + 2 EXP (64 * k)` THEN CONJ_TAC THENL
+   [ASM_REWRITE_TAC[LT_ADD_LCANCEL];
+    REWRITE_TAC[ARITH_RULE `2 EXP (64*k) * t + 2 EXP (64*k) = 2 EXP (64*k) * (t + 1)`] THEN
+    REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN
+    UNDISCH_TAC `t < 2 EXP 64` THEN ARITH_TAC]);;
+
+(* LOGGED_FIELD_WINDOW -- the field-select output = the bit-(p-61) window of V1, given the logged
+   LO/HI are bigdigit V1 (pcode-1) / bigdigit V1 pcode (pcode=(p+3)DIV64), 61<=p.  Combines the
+   PCODE/SHIFT bridges with WINDOW_FROM_LOGGED(r:=p-61).  Used to give NEGADD1's field-select POST
+   X15 = word((V1 DIV 2^(p-61)) MOD 2^64) for Stage 4b.  Deps: NEGADD1_PCODE_BRIDGE,
+   NEGADD1_SHIFT_BRIDGE, WINDOW_FROM_LOGGED. *)
+let LOGGED_FIELD_WINDOW = prove
+ (`!V1 p. 61 <= p
+   ==> (2 EXP 64 * bigdigit V1 ((p + 3) DIV 64) + bigdigit V1 ((p + 3) DIV 64 - 1))
+       DIV 2 EXP ((p + 3) MOD 64) MOD 2 EXP 64
+       = (V1 DIV 2 EXP (p - 61)) MOD 2 EXP 64`,
+  REPEAT STRIP_TAC THEN
+  ASM_SIMP_TAC[NEGADD1_PCODE_BRIDGE; NEGADD1_SHIFT_BRIDGE] THEN
+  REWRITE_TAC[ARITH_RULE `((p - 61) DIV 64 + 1) - 1 = (p - 61) DIV 64`] THEN
+  REWRITE_TAC[WINDOW_FROM_LOGGED]);;
+
+(* LOGGED_FIELD_RECONCILE -- reconcile the negaddtail1 machine field-select (whose top/low words are
+   the ii=k csel conditionals over the LOOP_LOG-logged lf/hf and the new top word zt') to the
+   bit-(p-61) window of V1 = zc + 2^(64k)*val zt'.  Given (from LOOP_LOG's post + bigdigit facts):
+     val hf = bigdigit zc pcode   (only needed when pcode<k),  val lf = bigdigit zc (pcode-1),
+   with pcode=(p+3)DIV64, and p<=64k (so pcode<=k, the low term is always lf, k<pcode is false).
+   Case k=pcode: top word is zt'=bigdigit V1 k (BIGDIGIT_TOP).  Case pcode<k: top word is
+   hf=bigdigit zc pcode=bigdigit V1 pcode (BIGDIGIT_ADD_LEFT).  Then LOGGED_FIELD_WINDOW closes.
+   This is the field-h enrichment for NEGADD1_LOG (X15 = word((V1 DIV 2^(p-61)) MOD 2^64)), for
+   Stage 4b.  Deps: LOGGED_FIELD_WINDOW, BIGDIGIT_ADD_LEFT, BIGDIGIT_TOP, LE_LDIV_EQ. *)
+let LOGGED_FIELD_RECONCILE = prove
+ (`!zt' hf lf zc p k.
+    zc < 2 EXP (64 * k) /\ val(zt':int64) < 2 EXP 64 /\
+    61 <= p /\ p <= 64 * k /\ 1 <= k /\
+    ((p + 3) DIV 64 < k ==> val(hf:int64) = bigdigit zc ((p + 3) DIV 64)) /\
+    val(lf:int64) = bigdigit zc ((p + 3) DIV 64 - 1)
+    ==> (2 EXP 64 * val(if k = (p + 3) DIV 64 then zt' else hf) +
+         val(if k < (p + 3) DIV 64 then zt' else lf))
+        DIV 2 EXP ((p + 3) MOD 64) MOD 2 EXP 64 =
+        ((zc + 2 EXP (64 * k) * val(zt':int64)) DIV 2 EXP (p - 61)) MOD 2 EXP 64`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `(p + 3) DIV 64 <= k` ASSUME_TAC THENL
+   [SIMP_TAC[LE_LDIV_EQ; ARITH_EQ] THEN UNDISCH_TAC `p <= 64 * k` THEN ARITH_TAC; ALL_TAC] THEN
+  ABBREV_TAC `V1 = zc + 2 EXP (64 * k) * val(zt':int64)` THEN
+  SUBGOAL_THEN `~(k < (p + 3) DIV 64)` (fun th -> REWRITE_TAC[th]) THENL
+   [ASM_REWRITE_TAC[NOT_LT]; ALL_TAC] THEN
+  MP_TAC(SPECL [`V1:num`; `p:num`] LOGGED_FIELD_WINDOW) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN(SUBST1_TAC o SYM) THEN
+  SUBGOAL_THEN `(p + 3) DIV 64 - 1 < k` ASSUME_TAC THENL
+   [UNDISCH_TAC `(p + 3) DIV 64 <= k` THEN UNDISCH_TAC `1 <= k` THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `bigdigit V1 ((p + 3) DIV 64 - 1) = bigdigit zc ((p + 3) DIV 64 - 1)`
+    SUBST1_TAC THENL
+   [EXPAND_TAC "V1" THEN MATCH_MP_TAC BIGDIGIT_ADD_LEFT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  ASM_CASES_TAC `k = (p + 3) DIV 64` THEN ASM_REWRITE_TAC[] THENL
+   [SUBGOAL_THEN `bigdigit V1 ((p + 3) DIV 64) = val(zt':int64)` (fun th -> REWRITE_TAC[th]) THEN
+    FIRST_ASSUM(SUBST1_TAC o SYM o check (fun th -> concl th = `k = (p + 3) DIV 64`)) THEN
+    EXPAND_TAC "V1" THEN MATCH_MP_TAC BIGDIGIT_TOP THEN ASM_REWRITE_TAC[];
+    SUBGOAL_THEN `(p + 3) DIV 64 < k` ASSUME_TAC THENL
+     [UNDISCH_TAC `(p + 3) DIV 64 <= k` THEN UNDISCH_TAC `~(k = (p + 3) DIV 64)` THEN ARITH_TAC;
+      ALL_TAC] THEN
+    SUBGOAL_THEN `bigdigit V1 ((p + 3) DIV 64) = bigdigit zc ((p + 3) DIV 64)` SUBST1_TAC THENL
+     [EXPAND_TAC "V1" THEN MATCH_MP_TAC BIGDIGIT_ADD_LEFT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    ASM_SIMP_TAC[]]);;
+
+(* ============================================================================
+   negadd1_loop.ml (cont108) -- BIGNUM_MOD_NEGADD1_LOOP.
+   The negaddloop1 loop core (pc 0x32c -> 0x36c), the FIRST correction pass over all
+   k words: plain (non-shl) cmnegadd  z := z - q*m  done as  z + q*~m + q, carry in X5.
+   Value equation at exit: bignum(z,k) + 2^(64k)*val(X5) + q*b = zorig + q*2^(64k).
+   (=> with the negaddtail1 top-word fold, V1 = V - q*b; see STAGE456_ONPAPER.md.)
+
+   Loop invariant (additive): bignum(z,i) + 2^(64i)*val(X5) + q*lowdigits b i
+                              = lowdigits zorig i + q*2^(64i);  entry X5=hh=q.
+   Per-word: NEGADD_STEP; advance: NEGADD1_ADVANCE (negadd1_helpers.ml).
+   lf/hf (X13/X14) logging is in the MAYCHANGE frame but NOT tracked in the value eqn
+   (the field-select that consumes lf/hf is the straight-line negaddtail1 tail, proven
+   separately).  Deps: NEGADD_STEP (stage3_workspace), NEGADD1_ADVANCE (negadd1_helpers).
+   ============================================================================ *)
+
+let LOGGED_FIELD_WINDOW_SMALL = prove
+ (`!V1 p. V1 < 2 EXP (p + 2) /\ p < 61
+   ==> (2 EXP 64 * bigdigit V1 0 + 0) DIV 2 EXP (p + 3) MOD 2 EXP 64
+       = (V1 * 2 EXP (61 - p)) MOD 2 EXP 64`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[ADD_CLAUSES] THEN
+  SUBGOAL_THEN `bigdigit V1 0 = V1` SUBST1_TAC THENL
+   [REWRITE_TAC[bigdigit; MULT_CLAUSES; EXP; DIV_1] THEN MATCH_MP_TAC MOD_LT THEN
+    TRANS_TAC LT_TRANS `2 EXP (p + 2)` THEN ASM_REWRITE_TAC[LT_EXP] THEN
+    UNDISCH_TAC `p < 61` THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `(2 EXP 64 * V1) DIV 2 EXP (p + 3) = V1 * 2 EXP (61 - p)` SUBST1_TAC THENL
+   [MATCH_MP_TAC FUNNEL_SMALL THEN UNDISCH_TAC `p < 61` THEN ARITH_TAC; ALL_TAC] THEN
+  REFL_TAC);;
+
+let NEGADD2_STEP = prove
+ (`!zi hh cfin q nm sa sb hh' c1 c2 cfout mullo mulhi.
+      2 EXP 64 * c1 + sa = zi + hh + cfin /\
+      2 EXP 64 * c2 + hh' = mulhi + c1 /\
+      2 EXP 64 * cfout + sb = sa + mullo /\
+      2 EXP 64 * mulhi + mullo = q * nm /\
+      mulhi + c1 < 2 EXP 64
+      ==> 2 EXP 64 * (hh' + cfout) + sb = zi + (hh + cfin) + q * nm`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `c2 = 0` SUBST_ALL_TAC THENL
+   [FIRST_X_ASSUM(MP_TAC o check (fun th -> concl th = `2 EXP 64 * c2 + hh' = mulhi + c1`)) THEN
+    UNDISCH_TAC `mulhi + c1 < 2 EXP 64` THEN ARITH_TAC;
+    ALL_TAC] THEN
+  REPEAT(FIRST_X_ASSUM(MP_TAC)) THEN ARITH_TAC);;
+
+(* NEGADD2_MASK -- the csetm sign-mask normalisation.  csetm mm,cc produces
+   (if CF then word 0 else word 18446744073709551615) with CF = (q2 <= ss); rewrite to the
+   value form word(if ss < q2 then 2^64-1 else 0).  Used to close negaddtail2's X9 output. *)
+let NEGADD2_MASK = prove
+ (`!x q2:num.
+      (if q2 <= x then (word 0:int64) else word 18446744073709551615) =
+      word (if x < q2 then 2 EXP 64 - 1 else 0)`,
+  REPEAT GEN_TAC THEN ASM_CASES_TAC `x < q2` THENL
+   [ASM_SIMP_TAC[ARITH_RULE `x < q2 ==> ~(q2 <= x)`] THEN CONV_TAC NUM_REDUCE_CONV;
+    ASM_SIMP_TAC[GSYM NOT_LT]]);;
+
+(* ============================================================================
+   negadd2_loop.ml (cont108) -- BIGNUM_MOD_NEGADD2_LOOP (negaddloop2 core, pc 0x3bc->0x3f0).
+   The SECOND-correction cmnegadd loop (adcs/adc/adds two-carry-chain variant), z := z - q2*m.
+   Invariant uses the COMBINED carry accumulator (val X5 + bitval CF), entry q2 (X5=q2, CF=0):
+     INV(i): bignum(z,i) + 2^(64i)*(val X5 + bitval CF) + q2*lowdigits(b,i)
+             = lowdigits(zorig,i) + q2*2^(64i).
+   Per-word: NEGADD2_STEP (2-chain accumulator identity) => NEGADD1_ADVANCE (combined carry).
+   Span 0x3bc (cbz) -> 0x3f0 (fall-through after cbnz).  Spectators r15/r20/r21/r23 threaded.
+   Deps: NEGADD2_STEP (negadd2_helpers), NEGADD1_ADVANCE (negadd1_helpers), BIGNUM_MOD_EXEC.
+   ============================================================================ *)
+
+let WINDOW2_SMALL = prove
+ (`!V1 p. V1 < 2 EXP (p + 2) /\ 61 <= p
+          ==> V1 DIV 2 EXP (p - 61) < 2 EXP 63 /\
+              (V1 DIV 2 EXP (p - 61)) MOD 2 EXP 64 = V1 DIV 2 EXP (p - 61)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `V1 DIV 2 EXP (p - 61) < 2 EXP 63` ASSUME_TAC THENL
+   [SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
+    REWRITE_TAC[GSYM EXP_ADD] THEN
+    TRANS_TAC LTE_TRANS `2 EXP (p + 2)` THEN ASM_REWRITE_TAC[LE_EXP; ARITH_EQ] THEN
+    UNDISCH_TAC `61 <= p` THEN ARITH_TAC;
+    ASM_REWRITE_TAC[] THEN MATCH_MP_TAC MOD_LT THEN
+    TRANS_TAC LT_TRANS `2 EXP 63` THEN ASM_REWRITE_TAC[LT_EXP] THEN ARITH_TAC]);;
+
+(* the multop-plus-window fits a word: h2 < 2^63 (val w < 2^64 automatic) => q2 setup < 2^64. *)
+let MULTOP_FITS = prove
+ (`!w:int64. !h2. h2 < 2 EXP 63 ==> (val w * h2) DIV 2 EXP 64 + h2 < 2 EXP 64`,
+  REPEAT STRIP_TAC THEN
+  MATCH_MP_TAC(ARITH_RULE `a < 2 EXP 63 /\ h2 < 2 EXP 63 ==> a + h2 < 2 EXP 64`) THEN
+  ASM_REWRITE_TAC[] THEN
+  SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
+  REWRITE_TAC[GSYM EXP_ADD] THEN
+  TRANS_TAC LTE_TRANS `2 EXP 64 * 2 EXP 63` THEN CONJ_TAC THENL
+   [MATCH_MP_TAC LT_MULT2 THEN ASM_REWRITE_TAC[VAL_BOUND_64];
+    REWRITE_TAC[GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN ARITH_TAC]);;
+
+(* pass-1 reduction accuracy in machine multop form: q1*b <= V (exact) and V1 = V-q1*b < 2^(p+2).
+   RED_LEMMA_D on V (window h1), q phrased as (val w * h1) DIV 2^64 + h1 via QHAT_ID. *)
+let PASS1_RED = prove
+ (`!b p w d h1 V.
+      ~(b = 0) /\ b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 61 <= p /\
+      d < 2 EXP 64 /\
+      (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
+       ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
+      (2 EXP 64 + val(w:int64)) * d <= 2 EXP 128 /\
+      2 EXP 128 <= (2 EXP 64 + val(w:int64) + 1) * d /\
+      V < b * 2 EXP 64 /\
+      h1 = (V DIV 2 EXP p) MOD 2 EXP 64
+      ==> ((val(w:int64) * h1) DIV 2 EXP 64 + h1) * b <= V /\
+          V - ((val(w:int64) * h1) DIV 2 EXP 64 + h1) * b < 2 EXP (p + 2)`,
+  REPEAT GEN_TAC THEN
+  INTRO_TAC "hb0 hblt hpb hp hd hdisj hup hlo hv hh1" THEN
+  MP_TAC(SPECL [`b:num`; `p:num`; `val(w:int64)`; `d:num`; `h1:num`; `V MOD 2 EXP p`; `V:num`]
+    RED_LEMMA_D) THEN
+  ANTS_TAC THENL
+   [SUBGOAL_THEN `V DIV 2 EXP p < 2 EXP 64` ASSUME_TAC THENL
+     [SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
+      TRANS_TAC LTE_TRANS `b * 2 EXP 64` THEN ASM_REWRITE_TAC[] THEN
+      ONCE_REWRITE_TAC[MULT_SYM] THEN REWRITE_TAC[LE_MULT_LCANCEL] THEN
+      DISJ2_TAC THEN MATCH_MP_TAC LT_IMP_LE THEN ASM_REWRITE_TAC[];
+      ALL_TAC] THEN
+    SUBGOAL_THEN `h1 = V DIV 2 EXP p` ASSUME_TAC THENL
+     [ASM_REWRITE_TAC[] THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    ASM_REWRITE_TAC[] THEN
+    SUBGOAL_THEN `1 <= p` (fun th -> REWRITE_TAC[th]) THENL
+     [UNDISCH_TAC `61 <= p` THEN ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `(V DIV 2 EXP p) MOD 2 EXP 64 = V DIV 2 EXP p` SUBST1_TAC THENL
+     [MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    MP_TAC(SPECL [`V:num`; `2 EXP p`] DIVISION) THEN
+    REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
+    DISCH_THEN(fun th -> REWRITE_TAC[CONJUNCT2 th] THEN
+      GEN_REWRITE_TAC (LAND_CONV o LAND_CONV) [CONJUNCT1 th]);
+    ALL_TAC] THEN
+  REWRITE_TAC[GSYM QHAT_ID] THEN STRIP_TAC THEN
+  CONJ_TAC THENL
+   [ASM_REWRITE_TAC[];
+    MATCH_MP_TAC(ARITH_RULE `q <= V /\ V < q + e ==> V - q < e`) THEN ASM_REWRITE_TAC[]]);;
+
+(* a quotient q with q*b <= V < b*2^64 fits a word (b=0 case vacuous since V<0 impossible).
+   Used for q1 < 2^64 (NEGADD1_LOG loop bound) and q2 < 2^64 (OPTADD/NEGADD2). *)
+let QLE_FIT = prove
+ (`!q b V. q * b <= V /\ V < b * 2 EXP 64 ==> q < 2 EXP 64`,
+  REPEAT STRIP_TAC THEN ASM_CASES_TAC `b = 0` THENL
+   [UNDISCH_TAC `V < b * 2 EXP 64` THEN ASM_REWRITE_TAC[MULT_CLAUSES; LT]; ALL_TAC] THEN
+  SUBGOAL_THEN `q * b < b * 2 EXP 64` MP_TAC THENL
+   [TRANS_TAC LET_TRANS `V:num` THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  ONCE_REWRITE_TAC[MULT_SYM] THEN
+  GEN_REWRITE_TAC (LAND_CONV o RAND_CONV) [MULT_SYM] THEN
+  ASM_SIMP_TAC[LT_MULT_LCANCEL]);;
+
+(* ============================================================================
+   modclose_helpers.ml (cont108) -- Stage 4d MOD-close arithmetic helpers.
+   After MAINLOOP (V in [0,b*2^64), V==a mod b) + NEGADD1 (V1=V-q1*b) + NEGADD2 (signed V1-q2*b
+   + sign mask) + OPTADD (conditional +b), the final k-word result z = a MOD b.
+   ============================================================================ *)
+
+(* MOD_CLOSE_CORE -- z = a MOD b from: z==V (mod b), z<b, V==a (mod b), ~(b=0). *)
+let MOD_CLOSE_CORE = prove
+ (`!z V a b:num.
+      (z == V) (mod b) /\ z < b /\ (V == a) (mod b) /\ ~(b = 0)
+      ==> z = a MOD b`,
+  REPEAT STRIP_TAC THEN
+  MATCH_MP_TAC CONG_IMP_EQ THEN EXISTS_TAC `b:num` THEN
+  REPEAT CONJ_TAC THENL
+   [ASM_REWRITE_TAC[];
+    ASM_SIMP_TAC[MOD_LT_EQ];
+    MP_TAC(SPECL [`a:num`; `b:num`]
+      (prove(`!a b:num. (a == a MOD b)(mod b)`,
+             REPEAT GEN_TAC THEN ONCE_REWRITE_TAC[CONG_SYM] THEN
+             REWRITE_TAC[CONG_LMOD; CONG_REFL]))) THEN
+    MATCH_MP_TAC(NUMBER_RULE
+      `(z == V)(mod b) /\ (V == a)(mod b)
+       ==> (a == a MOD b)(mod b) ==> (z == a MOD b)(mod b)`) THEN
+    ASM_REWRITE_TAC[]]);;
+
+(* ---- congruence micro-lemmas (top-level so NUMBER_RULE runs cleanly) ---- *)
+let CONG_ADD_MULB = prove
+ (`!zk2 q2 V b:num. zk2 + q2 * b = V ==> (zk2 == V)(mod b)`,
+  CONV_TAC NUMBER_RULE);;
+
+let CONG_SPLIT_CLOSE = prove
+ (`!r qbV b V q2:num. r + qbV = b /\ qbV + V = q2 * b ==> (r == V)(mod b)`,
+  CONV_TAC NUMBER_RULE);;
+
+(* NEGADD2_OPTADD_VALUE -- value-chain reconstruction for pass2 + optadd (TWO-SIDED).
+   V = 2^(64k)*zt1v + zk1 (pre-pass2); NEGADD2 eqn (zk2 = new z-mem, hh/cf loop-final acc/carry);
+   sign mask msk = (Tv MOD 2^64 < q2), Tv = zt1v+hh+bitval cf; OPTADD result
+   zfin = (zk2 + bitval msk * b) MOD 2^(64k).  ACCURACY BRACKET (two-sided):
+     q2*b <= V+b  /\  V < q2*b+b     (i.e. V2 = V - q2*b in [-b, b)); mask fires iff V < q2*b.
+   Both branches (q2=Tv: V2 in [0,b), mask F; q2=Tv+1: V2 in [-b,0), mask T) give zfin in [0,b),
+   zfin == V (mod b).  NB the "<=" on q2*b (not "<") admits V2=-b exactly (q2 = floor(V/b)+1 with
+   V a multiple of b): OPTADD's add-back then yields 0.
+   Deep 2nd-pass accuracy (RED2) must deliver this bracket; carried as hyp here.  Type-annotate
+   the ABBREV vars (e,Tv,r):num in all quotations (monolithic prove parses them eagerly with fresh
+   type vars -> "inventing type variables" + tryfind otherwise).  Deps: CONG_ADD_MULB, CONG_SPLIT_CLOSE. *)
+let NEGADD2_OPTADD_VALUE = prove
+ (`!k zt1v zk1 zk2 hh cf q2 b V.
+      ~(b = 0) /\ q2 < 2 EXP 64 /\
+      zt1v < 2 EXP 64 /\ zk1 < 2 EXP (64 * k) /\ zk2 < 2 EXP (64 * k) /\
+      hh < 2 EXP 64 /\ b < 2 EXP (64 * k) /\
+      zk2 + 2 EXP (64 * k) * (hh + bitval cf) + q2 * b = zk1 + q2 * 2 EXP (64 * k) /\
+      2 EXP (64 * k) * zt1v + zk1 = V /\
+      q2 * b <= V + b /\ V < q2 * b + b
+      ==> (zk2 + bitval((zt1v + hh + bitval cf) MOD 2 EXP 64 < q2) * b) MOD 2 EXP (64 * k) < b /\
+          ((zk2 + bitval((zt1v + hh + bitval cf) MOD 2 EXP 64 < q2) * b) MOD 2 EXP (64 * k) == V)
+            (mod b)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  ABBREV_TAC `e:num = 2 EXP (64 * k)` THEN
+  ABBREV_TAC `Tv:num = zt1v + hh + bitval cf` THEN
+  SUBGOAL_THEN `V + (e:num) * q2 = (zk2 + q2 * b) + (e:num) * (Tv:num)` ASSUME_TAC THENL
+   [MAP_EVERY (fun t -> UNDISCH_TAC t)
+     [`zk2 + (e:num) * (hh + bitval cf) + q2 * b = zk1 + q2 * (e:num)`;
+      `(e:num) * zt1v + zk1 = V`; `zt1v + hh + bitval cf = (Tv:num)`] THEN
+    CONV_TAC NUM_RING;
+    ALL_TAC] THEN
+  SUBGOAL_THEN `1 <= (e:num)` ASSUME_TAC THENL
+   [EXPAND_TAC "e" THEN REWRITE_TAC[ARITH_RULE `1 <= n <=> ~(n = 0)`; EXP_EQ_0; ARITH_EQ];
+    ALL_TAC] THEN
+  (* Tv <= q2 : STRICT side, uses V < q2*b+b (strict) *)
+  SUBGOAL_THEN `(e:num) * (Tv:num) < (e:num) * (q2 + 1)` MP_TAC THENL
+   [MP_TAC(ASSUME `V + (e:num) * q2 = (zk2 + q2 * b) + (e:num) * (Tv:num)`) THEN
+    UNDISCH_TAC `V < q2 * b + b` THEN UNDISCH_TAC `b < (e:num)` THEN ARITH_TAC;
+    REWRITE_TAC[LT_MULT_LCANCEL] THEN
+    ASM_SIMP_TAC[ARITH_RULE `1 <= e ==> ~(e = 0)`] THEN DISCH_TAC] THEN
+  SUBGOAL_THEN `(Tv:num) <= q2` ASSUME_TAC THENL
+   [UNDISCH_TAC `(Tv:num) < q2 + 1` THEN ARITH_TAC; ALL_TAC] THEN
+  (* q2 <= Tv+1 : uses the <= bracket q2*b <= V+b *)
+  SUBGOAL_THEN `(e:num) * q2 < (e:num) * ((Tv:num) + 2)` MP_TAC THENL
+   [MP_TAC(ASSUME `V + (e:num) * q2 = (zk2 + q2 * b) + (e:num) * (Tv:num)`) THEN
+    UNDISCH_TAC `q2 * b <= V + b` THEN UNDISCH_TAC `b < (e:num)` THEN
+    UNDISCH_TAC `zk2 < (e:num)` THEN ARITH_TAC;
+    REWRITE_TAC[LT_MULT_LCANCEL] THEN
+    ASM_SIMP_TAC[ARITH_RULE `1 <= e ==> ~(e = 0)`] THEN DISCH_TAC] THEN
+  SUBGOAL_THEN `q2 = (Tv:num) \/ q2 = (Tv:num) + 1` MP_TAC THENL
+   [UNDISCH_TAC `q2 < (Tv:num) + 2` THEN UNDISCH_TAC `(Tv:num) <= q2` THEN ARITH_TAC; ALL_TAC] THEN
+  SUBGOAL_THEN `(Tv:num) MOD 2 EXP 64 = (Tv:num)` SUBST1_TAC THENL
+   [MATCH_MP_TAC MOD_LT THEN
+    UNDISCH_TAC `(Tv:num) <= q2` THEN UNDISCH_TAC `q2 < 2 EXP 64` THEN ARITH_TAC;
+    ALL_TAC] THEN
+  DISCH_THEN DISJ_CASES_TAC THENL
+   [(* q2 = Tv: mask F; zk2 = V - q2*b in [0,b) *)
+    SUBGOAL_THEN `~((Tv:num) < q2)` (fun th -> REWRITE_TAC[th]) THENL
+     [ASM_REWRITE_TAC[LT_REFL]; ALL_TAC] THEN
+    REWRITE_TAC[BITVAL_CLAUSES; MULT_CLAUSES; ADD_CLAUSES] THEN
+    SUBGOAL_THEN `zk2 + q2 * b = V` ASSUME_TAC THENL
+     [FIRST_X_ASSUM(fun th -> if concl th = `q2 = (Tv:num)` then SUBST_ALL_TAC th else NO_TAC) THEN
+      UNDISCH_TAC `V + (e:num) * (Tv:num) = (zk2 + (Tv:num) * b) + (e:num) * (Tv:num)` THEN
+      CONV_TAC NUM_RING; ALL_TAC] THEN
+    SUBGOAL_THEN `zk2 < b` ASSUME_TAC THENL
+     [ASM_MESON_TAC[ARITH_RULE `zk2 + q2 * b = V /\ V < q2 * b + b ==> zk2 < b`]; ALL_TAC] THEN
+    SUBGOAL_THEN `zk2 MOD (e:num) = zk2` SUBST1_TAC THENL
+     [MATCH_MP_TAC MOD_LT THEN TRANS_TAC LTE_TRANS `b:num` THEN
+      ASM_REWRITE_TAC[] THEN ASM_MESON_TAC[LT_IMP_LE]; ALL_TAC] THEN
+    ASM_REWRITE_TAC[] THEN
+    MATCH_MP_TAC CONG_ADD_MULB THEN EXISTS_TAC `q2:num` THEN ASM_REWRITE_TAC[];
+    (* q2 = Tv + 1: mask T; kill e*Tv (SUBST q2=Tv+1 + NUM_RING) => zk2 + q2*b = V + e;
+       then pure nat arith via ASM_MESON (UNDISCH_TAC flaky here -- ASM_MESON+ARITH_RULE robust). *)
+    SUBGOAL_THEN `zk2 + q2 * b = V + (e:num)` ASSUME_TAC THENL
+     [FIRST_X_ASSUM(fun th -> if concl th = `q2 = (Tv:num) + 1` then SUBST_ALL_TAC th else NO_TAC) THEN
+      UNDISCH_TAC `V + (e:num) * ((Tv:num) + 1) = (zk2 + ((Tv:num) + 1) * b) + (e:num) * (Tv:num)` THEN
+      CONV_TAC NUM_RING; ALL_TAC] THEN
+    SUBGOAL_THEN `(Tv:num) < q2` (fun th -> REWRITE_TAC[th]) THENL
+     [ASM_MESON_TAC[ARITH_RULE `q2 = (Tv:num) + 1 ==> (Tv:num) < q2`]; ALL_TAC] THEN
+    REWRITE_TAC[BITVAL_CLAUSES; MULT_CLAUSES] THEN
+    SUBGOAL_THEN `q2 * b - V <= b /\ 0 < q2 * b - V` STRIP_ASSUME_TAC THENL
+     [ASM_MESON_TAC[ARITH_RULE
+        `zk2 + q2 * b = V + (e:num) /\ zk2 < (e:num) /\ q2 * b <= V + b /\ V < q2 * b + b
+         ==> q2 * b - V <= b /\ 0 < q2 * b - V`];
+      ALL_TAC] THEN
+    SUBGOAL_THEN `zk2 + b = (e:num) + (b - (q2 * b - V))` ASSUME_TAC THENL
+     [ASM_MESON_TAC[ARITH_RULE
+        `zk2 + q2 * b = V + (e:num) /\ q2 * b - V <= b /\ 0 < q2 * b - V /\ b < (e:num)
+         ==> zk2 + b = (e:num) + (b - (q2 * b - V))`];
+      ALL_TAC] THEN
+    ABBREV_TAC `r:num = b - (q2 * b - V)` THEN
+    SUBGOAL_THEN `(r:num) < b` ASSUME_TAC THENL
+     [ASM_MESON_TAC[ARITH_RULE
+        `(r:num) = b - (q2 * b - V) /\ 0 < q2 * b - V /\ q2 * b - V <= b ==> (r:num) < b`];
+      ALL_TAC] THEN
+    ASM_REWRITE_TAC[] THEN
+    SUBGOAL_THEN `((e:num) + (r:num)) MOD (e:num) = (r:num)` SUBST1_TAC THENL
+     [SUBGOAL_THEN `(e:num) + (r:num) = (r:num) + 1 * (e:num)` SUBST1_TAC THENL [ARITH_TAC; ALL_TAC] THEN
+      REWRITE_TAC[MOD_MULT_ADD] THEN MATCH_MP_TAC MOD_LT THEN
+      TRANS_TAC LTE_TRANS `b:num` THEN ASM_REWRITE_TAC[] THEN ASM_MESON_TAC[LT_IMP_LE];
+      ALL_TAC] THEN
+    ASM_REWRITE_TAC[] THEN
+    MATCH_MP_TAC CONG_SPLIT_CLOSE THEN
+    MAP_EVERY EXISTS_TAC [`q2 * b - V`; `q2:num`] THEN
+    CONJ_TAC THENL
+     [ASM_MESON_TAC[ARITH_RULE `(r:num) = b - (q2 * b - V) /\ q2 * b - V <= b ==> (r:num) + (q2 * b - V) = b`];
+      ASM_MESON_TAC[ARITH_RULE `0 < q2 * b - V /\ q2 * b <= V + b ==> (q2 * b - V) + V = q2 * b`]]]);;
+
+(* NEGADD_PASSES_CLOSE -- the FULL MOD-close: NEGADD2_OPTADD_VALUE (zfin<b /\ zfin==V1) chained with
+   MOD_CLOSE_CORE (V1==a mod b, ~(b=0)) gives the final k-word OPTADD result = a MOD b.
+   V1 = value entering pass2 = V - q1*b (post-NEGADD1); V1 == a (mod b) since V == a and each pass
+   subtracts a multiple of b.  Applied by the machine splice at 0x428 to close CORRECT.
+   Deps: NEGADD2_OPTADD_VALUE, MOD_CLOSE_CORE. *)
+let NEGADD_PASSES_CLOSE = prove
+ (`!k zt1v zk1 zk2 hh cf q2 b V1 a.
+      ~(b = 0) /\ q2 < 2 EXP 64 /\
+      zt1v < 2 EXP 64 /\ zk1 < 2 EXP (64 * k) /\ zk2 < 2 EXP (64 * k) /\
+      hh < 2 EXP 64 /\ b < 2 EXP (64 * k) /\
+      zk2 + 2 EXP (64 * k) * (hh + bitval cf) + q2 * b = zk1 + q2 * 2 EXP (64 * k) /\
+      2 EXP (64 * k) * zt1v + zk1 = V1 /\
+      q2 * b <= V1 + b /\ V1 < q2 * b + b /\
+      (V1 == a) (mod b)
+      ==> (zk2 + bitval((zt1v + hh + bitval cf) MOD 2 EXP 64 < q2) * b) MOD 2 EXP (64 * k) =
+          a MOD b`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(ISPECL [`k:num`;`zt1v:num`;`zk1:num`;`zk2:num`;`hh:num`;`cf:bool`;`q2:num`;`b:num`;`V1:num`]
+    NEGADD2_OPTADD_VALUE) THEN
+  ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
+  MATCH_MP_TAC MOD_CLOSE_CORE THEN
+  EXISTS_TAC `V1:num` THEN ASM_REWRITE_TAC[]);;
+
+(* ============================================================================
+   splice_308_428_dev.ml (cont108) -- Stage 4 splice building blocks (0x308 -> 0x428).
+   NOT loaded into CI.  Segment lemmas + accuracy setup for BIGNUM_MOD_308_TO_428.
+
+     0x308 -> 0x3a4  NEGADD1_SEG  (from BIGNUM_MOD_NEGADD1_LOG: V1 = V - q1*b; X15 = word h2)
+     0x3a4 -> 0x400  NEGADD2_SEG  (from BIGNUM_MOD_NEGADD2:     signed V1 - q2*b + sign mask)
+     0x400 -> 0x428  BIGNUM_MOD_OPTADD                          (conditional add-back)
+   + accuracy (PASS1_RED/WINDOW2_SMALL/MULTOP_FITS/QLE_FIT/RED2) + NEGADD_PASSES_CLOSE.
+
+   Composition idiom (validated): each segment's POST is written to EXACTLY match the block
+   POST (ENSURES_SEQUENCE_TAC adds aligned+PC), then discharged by
+     MATCH_MP_TAC(REWRITE_RULE[TAUT `(a==>b==>c) <=> (a/\b==>c)`]
+       (DISCH_ALL(DISCH_ALL(UNDISCH(SPEC_ALL ENSURES_POSTCONDITION_THM)))))
+   which weakens the block-POST onto the (identical) sequenced intermediate.
+
+   Deps: BIGNUM_MOD_NEGADD1_LOG, _NEGADD2, _OPTADD, NEGADD_PASSES_CLOSE,
+   accuracy_close.ml (WINDOW2_SMALL/MULTOP_FITS/PASS1_RED/QLE_FIT), red2.ml (RED2), QHAT_ID.
+   ============================================================================ *)
+
+(* NEGADD1 as a segment lemma: entry X15=word h1 / value V=2^(64k)Ztv+zk, exit X15=word h2 /
+   value V1=V-q1*b (q1 = multop(w,h1)+h1).  Just BIGNUM_MOD_NEGADD1_LOG re-abstracted with
+   h2 and V1 as named outputs, discharged by the POST-match idiom. *)
+let WINDOW2_SMALL_P = prove
+ (`!V1 p. V1 < 2 EXP (p + 2) /\ p <= 61
+          ==> (V1 * 2 EXP (61 - p)) MOD 2 EXP 64 = V1 * 2 EXP (61 - p) /\
+              V1 * 2 EXP (61 - p) < 2 EXP 63`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `V1 * 2 EXP (61 - p) < 2 EXP 63` ASSUME_TAC THENL
+   [TRANS_TAC LTE_TRANS `2 EXP (p + 2) * 2 EXP (61 - p)` THEN CONJ_TAC THENL
+     [ASM_REWRITE_TAC[LT_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ];
+      REWRITE_TAC[GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN UNDISCH_TAC `p <= 61` THEN ARITH_TAC];
+    ASM_REWRITE_TAC[] THEN MATCH_MP_TAC MOD_LT THEN
+    TRANS_TAC LT_TRANS `2 EXP 63` THEN ASM_REWRITE_TAC[LT_EXP] THEN ARITH_TAC]);;
+
+(* PASS1_RED_GEN: PASS1_RED with 1<=p (the `61<=p` in PASS1_RED is spurious -- its proof only
+   uses it to get 1<=p; the pass-1 accuracy is RED_LEMMA_D on V, window h1=V DIV 2^p, p-general). *)
+let PASS1_RED_GEN = prove
+ (`!b p w d h1 V.
+      ~(b = 0) /\ b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
+      d < 2 EXP 64 /\
+      (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
+       ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
+      (2 EXP 64 + val(w:int64)) * d <= 2 EXP 128 /\
+      2 EXP 128 <= (2 EXP 64 + val(w:int64) + 1) * d /\
+      V < b * 2 EXP 64 /\
+      h1 = (V DIV 2 EXP p) MOD 2 EXP 64
+      ==> ((val(w:int64) * h1) DIV 2 EXP 64 + h1) * b <= V /\
+          V - ((val(w:int64) * h1) DIV 2 EXP 64 + h1) * b < 2 EXP (p + 2)`,
+  REPEAT GEN_TAC THEN
+  INTRO_TAC "hb0 hblt hpb hp hd hdisj hup hlo hv hh1" THEN
+  MP_TAC(SPECL [`b:num`; `p:num`; `val(w:int64)`; `d:num`; `h1:num`; `V MOD 2 EXP p`; `V:num`] RED_LEMMA_D) THEN
+  ANTS_TAC THENL
+   [SUBGOAL_THEN `V DIV 2 EXP p < 2 EXP 64` ASSUME_TAC THENL
+     [SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
+      TRANS_TAC LTE_TRANS `b * 2 EXP 64` THEN ASM_REWRITE_TAC[] THEN
+      ONCE_REWRITE_TAC[MULT_SYM] THEN REWRITE_TAC[LE_MULT_LCANCEL] THEN
+      DISJ2_TAC THEN MATCH_MP_TAC LT_IMP_LE THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    SUBGOAL_THEN `h1 = V DIV 2 EXP p` ASSUME_TAC THENL
+     [ASM_REWRITE_TAC[] THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    ASM_REWRITE_TAC[] THEN
+    SUBGOAL_THEN `(V DIV 2 EXP p) MOD 2 EXP 64 = V DIV 2 EXP p` SUBST1_TAC THENL
+     [MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    MP_TAC(SPECL [`V:num`; `2 EXP p`] DIVISION) THEN
+    REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
+    DISCH_THEN(fun th -> REWRITE_TAC[CONJUNCT2 th] THEN GEN_REWRITE_TAC (LAND_CONV o LAND_CONV) [CONJUNCT1 th]);
+    ALL_TAC] THEN
+  REWRITE_TAC[GSYM QHAT_ID] THEN STRIP_TAC THEN
+  CONJ_TAC THENL
+   [ASM_REWRITE_TAC[];
+    MATCH_MP_TAC(ARITH_RULE `q <= V /\ V < q + e ==> V - q < e`) THEN ASM_REWRITE_TAC[]]);;
+
+(* NEGADD1_SEG_SMALL: wrapper over BIGNUM_MOD_NEGADD1_LOG_SMALL, POST X15 = word h2
+   (h2 = (V1 * 2^(61-p)) MOD 2^64), value 2^(64k)*X23 + z = V1.  Extra precond V1 < 2^(p+2). *)
+
+(* ========================================================================
+   SECTION C: ARM-specific Hoare-triple simulations + register/memory bridges,
+   then the composition into BIGNUM_MOD_CORRECT / _SUBROUTINE_CORRECT.
+   ===================================================================== *)
+
+let BIGNUM_MOD_INIT = prove
+ (`!k z n x m a b pc.
+        nonoverlapping (word pc,0x438) (z,8 * val k) /\
+        ALLPAIRS nonoverlapping
+          [(z,8 * val k)] [(word pc,0x438); (x,8 * val n); (m,8 * val k)] /\
+        ~(val k = 0)
+        ==> ensures arm
+             (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
+                  read PC s = word (pc + 0xc) /\
+                  C_ARGUMENTS [k;z;n;x;m] s /\
+                  bignum_from_memory (x,val n) s = a /\
+                  bignum_from_memory (m,val k) s = b)
+             (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
+                  read PC s = word(pc + 0x24) /\
+                  read X0 s = word (val k) /\ read X1 s = z /\
+                  read X2 s = word (val n) /\ read X3 s = x /\ read X4 s = m /\
+                  read X23 s = word 0 /\
+                  bignum_from_memory (x,val n) s = a /\
+                  bignum_from_memory (m,val k) s = b /\
+                  bignum_from_memory (z,val k) s = 0)
+             (MAYCHANGE [PC; X0; X5; X6; X7; X8; X9; X10; X11; X12;
+                         X13; X14; X15; X16; X17; X19; X20; X21; X22; X23; X24] ,,
+              MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events] ,,
+              MAYCHANGE [memory :> bignum(z,val k)])`,
+  W64_GEN_TAC `k:num` THEN X_GEN_TAC `z:int64` THEN W64_GEN_TAC `n:num` THEN
+  MAP_EVERY X_GEN_TAC [`x:int64`; `m:int64`; `a:num`; `b:num`; `pc:num`] THEN
+  REWRITE_TAC[NONOVERLAPPING_CLAUSES; ALLPAIRS; ALL; C_ARGUMENTS; SOME_FLAGS] THEN
+  DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
+  BIGNUM_TERMRANGE_TAC `n:num` `a:num` THEN
+  BIGNUM_TERMRANGE_TAC `k:num` `b:num` THEN
+  SUBGOAL_THEN `8 * k <= 2 EXP 64` ASSUME_TAC THENL
+   [MP_TAC(ISPECL [`2 EXP 64`; `pc:num`; `1080`; `val(z:int64)`; `8 * k`]
+      NONOVERLAPPING_IMP_SMALL_RIGHT_ALT) THEN
+    ASM_REWRITE_TAC[] THEN CONV_TAC NUM_REDUCE_CONV THEN ARITH_TAC;
+    ALL_TAC] THEN
+  ENSURES_WHILE_UP_TAC `k:num` `pc + 0x14` `pc + 0x1c`
+   `\i s. read X0 s = word k /\ read X1 s = z /\ read X2 s = word n /\
+          read X3 s = x /\ read X4 s = m /\ read X23 s = word 0 /\
+          read X8 s = word i /\
+          bignum_from_memory (x,n) s = a /\ bignum_from_memory (m,k) s = b /\
+          bignum_from_memory (z,i) s = 0` THEN
+  ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
+   [ARM_SIM_TAC BIGNUM_MOD_EXEC (1--2) THEN
+    REWRITE_TAC[MULT_CLAUSES; READ_MEMORY_BYTES_TRIVIAL] THEN
+    MONOTONE_MAYCHANGE_TAC;
+    X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
+    REWRITE_TAC[BIGNUM_FROM_MEMORY_STEP; BIGNUM_FROM_MEMORY_BYTES] THEN
+    ENSURES_INIT_TAC "s0" THEN ARM_STEPS_TAC BIGNUM_MOD_EXEC (1--2) THEN
+    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    REWRITE_TAC[VAL_WORD_0; MULT_CLAUSES; ADD_CLAUSES; WORD_ADD] THEN
+    CONV_TAC WORD_RULE;
+    X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
+    SUBGOAL_THEN `i:num <= k` ASSUME_TAC THENL
+     [UNDISCH_TAC `i < k` THEN ARITH_TAC; ALL_TAC] THEN
+    ARM_SIM_TAC BIGNUM_MOD_EXEC (1--2) THEN ASM_REWRITE_TAC[];
+    ARM_SIM_TAC BIGNUM_MOD_EXEC (1--2)]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Helper lemmas for the bitsize/window finder loop: per-iteration invariant  *)
+(* preservation for the two cases m[i]=0 (top-nonzero index unchanged) and     *)
+(* m[i]<>0 (index becomes i).  Pure logic + arithmetic, used by the finder.    *)
+(* ------------------------------------------------------------------------- *)
+
+(* --- helper lemmas: invariant preservation for the two finder-body cases --- *)
 
 let BIGNUM_MOD_FINDER = prove
  (`!k z n x m a b pc.
@@ -1309,7 +6650,6 @@ let BIGNUM_MOD_RECIP_BLOCK = prove
   ASM_REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN
   COND_CASES_TAC THEN ASM_REWRITE_TAC[] THEN ASM_REAL_ARITH_TAC);;
 
-
 (* Reciprocal quotient-approximation bound (lemma R).  Given the WORD_RECIP     *)
 (* bracket 2^128 <= (2^64+w+1)*n and (2^64+w)*n <= 2^128, the estimated         *)
 (* quotient q = ((2^64+w)*h) DIV 2^64 of the 2-word value [l;h] by n satisfies  *)
@@ -1317,670 +6657,6 @@ let BIGNUM_MOD_RECIP_BLOCK = prove
 (* remainder.  Real-arithmetic core transplanted from bignum_cmod.ml:947-1108,  *)
 (* generalized to a standalone lemma (h,l,n abstract, both bracket halves       *)
 (* consumed -- the lower bound needs the upper half of the bracket).            *)
-
-let RECIP_QBOUND = prove
- (`!w n h l.
-      n < 2 EXP 64 /\ h < 2 EXP 64 /\ l < 2 EXP 64 /\ 0 < n /\
-      &2 pow 128 <= (&2 pow 64 + &w + &1) * &n /\
-      (&2 pow 64 + &w) * &n <= &2 pow 128
-      ==> &(2 EXP 64 * h + l) - &(((2 EXP 64 + w) * h) DIV 2 EXP 64) * &n
-          < &2 pow 64 + &2 * &n /\
-          &0 <= &(2 EXP 64 * h + l) - &(((2 EXP 64 + w) * h) DIV 2 EXP 64) * &n`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  MP_TAC(SPECL [`(2 EXP 64 + w) * h`; `2 EXP 64`] DIVISION) THEN
-  REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
-  ABBREV_TAC `q = ((2 EXP 64 + w) * h) DIV 2 EXP 64` THEN
-  ABBREV_TAC `r = ((2 EXP 64 + w) * h) MOD 2 EXP 64` THEN
-  STRIP_TAC THEN
-  (* real forms of the numeric hypotheses *)
-  SUBGOAL_THEN `&h:real < &2 pow 64 /\ &l:real < &2 pow 64 /\
-                &0:real < &n /\ &n:real < &2 pow 64 /\ &r:real < &2 pow 64`
-   STRIP_ASSUME_TAC THENL
-   [ASM_REWRITE_TAC[REAL_OF_NUM_CLAUSES]; ALL_TAC] THEN
-  SUBGOAL_THEN `&0:real < &2 pow 64` ASSUME_TAC THENL
-   [REWRITE_TAC[REAL_LT_POW2]; ALL_TAC] THEN
-  (* q*2^64 = (2^64+w)*h - r  (from the division identity) *)
-  SUBGOAL_THEN `&q * &2 pow 64 = (&2 pow 64 + &w) * &h - &r` ASSUME_TAC THENL
-   [UNDISCH_TAC `(2 EXP 64 + w) * h = q * 2 EXP 64 + r` THEN
-    REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN REAL_ARITH_TAC; ALL_TAC] THEN
-  (* q*n*2^64 = ((2^64+w)*n)*h - r*n *)
-  SUBGOAL_THEN `&q * &n * &2 pow 64 = ((&2 pow 64 + &w) * &n) * &h - &r * &n`
-   ASSUME_TAC THENL
-   [UNDISCH_TAC `&q * &2 pow 64 = (&2 pow 64 + &w) * &h - &r` THEN
-    CONV_TAC REAL_RING; ALL_TAC] THEN
-  (* the two bracket facts, each scaled by h >= 0 *)
-  SUBGOAL_THEN `(&2 pow 128 - &n) * &h <= ((&2 pow 64 + &w) * &n) * &h`
-   ASSUME_TAC THENL
-   [MATCH_MP_TAC REAL_LE_RMUL THEN CONJ_TAC THENL
-     [UNDISCH_TAC `&2 pow 128 <= (&2 pow 64 + &w + &1) * &n` THEN REAL_ARITH_TAC;
-      REWRITE_TAC[REAL_POS]];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `((&2 pow 64 + &w) * &n) * &h <= &2 pow 128 * &h` ASSUME_TAC THENL
-   [MATCH_MP_TAC REAL_LE_RMUL THEN ASM_REWRITE_TAC[REAL_POS]; ALL_TAC] THEN
-  (* explicit product bounds so the final REAL_ARITH stays linear *)
-  SUBGOAL_THEN `&n * &h < &n * &2 pow 64` ASSUME_TAC THENL
-   [ASM_SIMP_TAC[REAL_LT_LMUL_EQ]; ALL_TAC] THEN
-  SUBGOAL_THEN `&r * &n < &2 pow 64 * &n` ASSUME_TAC THENL
-   [ASM_SIMP_TAC[REAL_LT_RMUL_EQ]; ALL_TAC] THEN
-  SUBGOAL_THEN `&2 pow 64 * &l < &2 pow 64 * &2 pow 64` ASSUME_TAC THENL
-   [ASM_SIMP_TAC[REAL_LT_LMUL_EQ]; ALL_TAC] THEN
-  SUBGOAL_THEN `&0:real <= &2 pow 64 * &l` ASSUME_TAC THENL
-   [MATCH_MP_TAC REAL_LE_MUL THEN CONJ_TAC THENL
-     [MP_TAC(SPEC `64` REAL_LE_POW2) THEN REAL_ARITH_TAC;
-      REWRITE_TAC[REAL_POS]];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `&0:real <= &r * &n` ASSUME_TAC THENL
-   [MATCH_MP_TAC REAL_LE_MUL THEN REWRITE_TAC[REAL_POS]; ALL_TAC] THEN
-  SUBGOAL_THEN `&2 pow 64 * &2 pow 64 = &2 pow 128` ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM REAL_POW_ADD] THEN CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
-  REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN CONJ_TAC THENL
-   [(* upper bound: (2^64*h+l) - q*n < 2^64 + 2*n *)
-    MATCH_MP_TAC REAL_LT_LCANCEL_IMP THEN EXISTS_TAC `&2 pow 64` THEN
-    CONJ_TAC THENL [REAL_ARITH_TAC; ALL_TAC] THEN
-    REWRITE_TAC[REAL_SUB_LDISTRIB; REAL_ADD_LDISTRIB] THEN
-    REWRITE_TAC[REAL_ARITH `&2 pow 64 * &q * &n = &q * &n * &2 pow 64`] THEN
-    ASM_REWRITE_TAC[] THEN
-    MP_TAC(ASSUME `(&2 pow 128 - &n) * &h <= ((&2 pow 64 + &w) * &n) * &h`) THEN
-    MP_TAC(ASSUME `&n * &h < &n * &2 pow 64`) THEN
-    MP_TAC(ASSUME `&r * &n < &2 pow 64 * &n`) THEN
-    MP_TAC(ASSUME `&2 pow 64 * &l < &2 pow 64 * &2 pow 64`) THEN
-    MP_TAC(ASSUME `&2 pow 64 * &2 pow 64 = &2 pow 128`) THEN
-    REWRITE_TAC[REAL_ARITH `(&2 pow 128 - &n) * &h = &2 pow 128 * &h - &n * &h`] THEN
-    REAL_ARITH_TAC;
-    (* lower bound: 0 <= (2^64*h+l) - q*n *)
-    MATCH_MP_TAC REAL_LE_LCANCEL_IMP THEN EXISTS_TAC `&2 pow 64` THEN
-    CONJ_TAC THENL [REAL_ARITH_TAC; ALL_TAC] THEN
-    REWRITE_TAC[REAL_SUB_LDISTRIB; REAL_MUL_RZERO] THEN
-    REWRITE_TAC[REAL_ARITH `&2 pow 64 * &q * &n = &q * &n * &2 pow 64`] THEN
-    ASM_REWRITE_TAC[] THEN
-    MP_TAC(ASSUME `((&2 pow 64 + &w) * &n) * &h <= &2 pow 128 * &h`) THEN
-    MP_TAC(ASSUME `&0:real <= &2 pow 64 * &l`) THEN
-    MP_TAC(ASSUME `&0:real <= &r * &n`) THEN
-    MP_TAC(ASSUME `&2 pow 64 * &2 pow 64 = &2 pow 128`) THEN
-    REAL_ARITH_TAC]);;
-
-(* ===== Window-block helper lemmas (Stage 2b, pc+0x68..0x98). ===== *)
-
-(* Shifting a nonzero word left by its count-leading-zeros sets bit 63.  This  *)
-(* is what makes the normalized top window t0 satisfy the recip precondition   *)
-(* `bit 63 t0` (needed to fire BIGNUM_MOD_RECIP_BLOCK's bracket).              *)
-
-let BIT63_WORD_SHL_CLZ = prove
- (`!a:int64. ~(a = word 0) ==> bit 63 (word_shl a (word_clz a))`,
-  GEN_TAC THEN DISCH_TAC THEN
-  REWRITE_TAC[BIT_WORD_SHL; DIMINDEX_64] THEN
-  SUBGOAL_THEN `word_clz (a:int64) < 64` ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM DIMINDEX_64; WORD_CLZ_LT_DIMINDEX] THEN
-    ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  REPEAT CONJ_TAC THENL
-   [ASM_ARITH_TAC;
-    ARITH_TAC;
-    MP_TAC(ISPECL [`a:int64`; `word_clz(a:int64)`] WORD_CLZ_UNIQUE_GEN) THEN
-    REWRITE_TAC[DIMINDEX_64] THEN STRIP_TAC THEN
-    FIRST_X_ASSUM(MP_TAC o C MATCH_MP (ASSUME `word_clz(a:int64) < 64`)) THEN
-    MATCH_MP_TAC EQ_IMP THEN AP_THM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC]);;
-
-(* The normalized top-64-bit window of a nonzero b lies in [2^63, 2^64):       *)
-(* t0 = (b * 2^64) DIV 2^(bitsize b) has bit 63 set.  This is the numeric      *)
-(* content behind the recip precondition and identifies the window value.      *)
-
-let WINDOW_RANGE = prove
- (`!b. ~(b = 0)
-       ==> 2 EXP 63 <= (b * 2 EXP 64) DIV 2 EXP (bitsize b) /\
-           (b * 2 EXP 64) DIV 2 EXP (bitsize b) < 2 EXP 64`,
-  GEN_TAC THEN DISCH_TAC THEN
-  MP_TAC(SPEC `b:num` LE_BITSIZE) THEN MP_TAC(SPEC `b:num` BITSIZE_LE) THEN
-  ABBREV_TAC `s = bitsize b` THEN
-  SUBGOAL_THEN `~(s = 0)` ASSUME_TAC THENL
-   [ASM_MESON_TAC[BITSIZE_EQ_0]; ALL_TAC] THEN
-  DISCH_THEN(MP_TAC o SPEC `s:num`) THEN REWRITE_TAC[LE_REFL] THEN
-  DISCH_TAC THEN
-  DISCH_THEN(MP_TAC o SPEC `s:num`) THEN REWRITE_TAC[LE_REFL] THEN
-  ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
-  ASM_SIMP_TAC[LE_RDIV_EQ; RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
-  REWRITE_TAC[GSYM EXP_ADD] THEN CONJ_TAC THENL
-   [TRANS_TAC LE_TRANS `2 EXP (s - 1) * 2 EXP 64` THEN CONJ_TAC THENL
-     [REWRITE_TAC[GSYM EXP_ADD; LE_EXP] THEN ASM_ARITH_TAC;
-      ASM_SIMP_TAC[LE_MULT_RCANCEL]];
-    TRANS_TAC LTE_TRANS `2 EXP s * 2 EXP 64` THEN CONJ_TAC THENL
-     [ASM_SIMP_TAC[LT_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ];
-      REWRITE_TAC[GSYM EXP_ADD; LE_REFL]]]);;
-
-(* Funnel/EXTR DIV-split: the ARM window is hh<<c OR ll>>(64-c) with the two   *)
-(* shifted parts occupying disjoint bit ranges, so it equals the top bits of   *)
-(* the two-word value 2^64*hh + ll.  This is the arithmetic core.              *)
-
-let WINDOW_DIV_SPLIT = prove
- (`!H L c. c <= 64 /\ H < 2 EXP 64
-           ==> (2 EXP 64 * H + L) DIV 2 EXP (64 - c) =
-               2 EXP c * H + L DIV 2 EXP (64 - c)`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `2 EXP 64 * H = 2 EXP (64 - c) * (2 EXP c * H)` SUBST1_TAC THENL
-   [REWRITE_TAC[MULT_ASSOC; GSYM EXP_ADD] THEN
-    AP_THM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC;
-    ALL_TAC] THEN
-  SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ]);;
-
-(* Window value identity (dd>=1 case): the clean top-64 window                 *)
-(* (b*2^64) DIV 2^(bitsize b) equals the two-word extraction the ARM performs, *)
-(* (2^64*hh + ll) DIV 2^(64 - clz hh) with hh=bigdigit b dd, ll=bigdigit b     *)
-(* (dd-1).  Reduces via BITSIZE_TOPWORD (bitsize b = 64*dd + bitsize hh),      *)
-(* WORD_CLZ_BITSIZE (clz = 64 - bitsize hh), DIV_DIV splitting, and            *)
-(* HIGHDIGITS_STEP (highdigits b (dd-1) = 2^64*bigdigit b dd + bigdigit b      *)
-(* (dd-1), using highdigits b dd = bigdigit b dd since higher digits vanish).  *)
-
-let WINDOW_VALUE_HI = prove
- (`!b k dd. b < 2 EXP (64 * k) /\ 1 <= dd /\ dd < k /\
-            ~(bigdigit b dd = 0) /\ (!j. dd < j /\ j < k ==> bigdigit b j = 0)
-            ==> (b * 2 EXP 64) DIV 2 EXP (bitsize b) =
-                (2 EXP 64 * bigdigit b dd + bigdigit b (dd - 1))
-                DIV 2 EXP (64 - word_clz (word(bigdigit b dd):int64))`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(ISPEC `word(bigdigit b dd):int64` WORD_CLZ_BITSIZE) THEN
-  REWRITE_TAC[DIMINDEX_64] THEN
-  SUBGOAL_THEN `val(word(bigdigit b dd):int64) = bigdigit b dd` SUBST1_TAC THENL
-   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64; BIGDIGIT_BOUND];
-    ALL_TAC] THEN
-  DISCH_TAC THEN
-  SUBGOAL_THEN `bitsize(bigdigit b dd) <= 64` ASSUME_TAC THENL
-   [REWRITE_TAC[BITSIZE_LE; BIGDIGIT_BOUND]; ALL_TAC] THEN
-  ASM_REWRITE_TAC[] THEN
-  SUBGOAL_THEN `64 - (64 - bitsize(bigdigit b dd)) = bitsize(bigdigit b dd)`
-   SUBST1_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
-  MP_TAC(ISPECL [`b:num`; `k:num`; `dd:num`] BITSIZE_TOPWORD) THEN
-  ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN
-  REWRITE_TAC[EXP_ADD; GSYM DIV_DIV] THEN
-  AP_THM_TAC THEN AP_TERM_TAC THEN
-  SUBGOAL_THEN `2 EXP (64 * dd) = 2 EXP (64 * (dd - 1)) * 2 EXP 64` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-  REWRITE_TAC[GSYM DIV_DIV] THEN
-  SUBGOAL_THEN `(b * 2 EXP 64) DIV 2 EXP 64 = b` SUBST1_TAC THENL
-   [ONCE_REWRITE_TAC[MULT_SYM] THEN SIMP_TAC[DIV_MULT; EXP_EQ_0; ARITH_EQ];
-    ALL_TAC] THEN
-  REWRITE_TAC[GSYM highdigits] THEN
-  SUBGOAL_THEN
-   `highdigits (b * 2 EXP 64) (dd - 1) DIV 2 EXP 64 = highdigits b (dd - 1)`
-   SUBST1_TAC THENL
-   [REWRITE_TAC[highdigits; DIV_DIV; GSYM EXP_ADD] THEN
-    ONCE_REWRITE_TAC[ARITH_RULE `64 * (dd - 1) + 64 = 64 + 64 * (dd - 1)`] THEN
-    REWRITE_TAC[EXP_ADD; GSYM DIV_DIV] THEN
-    ONCE_REWRITE_TAC[MULT_SYM] THEN
-    SIMP_TAC[DIV_MULT; EXP_EQ_0; ARITH_EQ];
-    ALL_TAC] THEN
-  GEN_REWRITE_TAC LAND_CONV [HIGHDIGITS_STEP] THEN
-  ASM_SIMP_TAC[ARITH_RULE `1 <= dd ==> dd - 1 + 1 = dd`] THEN
-  SUBGOAL_THEN `highdigits b (dd + 1) = 0` ASSUME_TAC THENL
-   [MP_TAC(ISPECL [`k - (dd + 1)`; `b:num`; `dd + 1`] HIGHDIGITS_ZERO_ABOVE) THEN
-    ASM_SIMP_TAC[ARITH_RULE `dd < k ==> (dd + 1) + (k - (dd + 1)) = k`] THEN
-    DISCH_THEN MATCH_MP_TAC THEN X_GEN_TAC `j:num` THEN STRIP_TAC THEN
-    FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC;
-    ALL_TAC] THEN
-  SUBGOAL_THEN `highdigits b dd = bigdigit b dd` SUBST1_TAC THENL
-   [GEN_REWRITE_TAC LAND_CONV [HIGHDIGITS_STEP] THEN ASM_REWRITE_TAC[] THEN
-    ARITH_TAC;
-    ARITH_TAC]);;
-
-(* Unified value of the ARM window csel (both branches): the funnel result     *)
-(* equals 2^c*H + L DIV 2^(64-c).  Needs H < 2^(64-c) (normalize doesn't        *)
-(* overflow -- true since H=bigdigit b dd has bitsize 64-c).  c=0 branch: csel  *)
-(* picks hh<<0=hh and L>>64=0.  c<>0 branch: word_or is DISJOINT (H<<c fills    *)
-(* bits [c,64), L>>(64-c) fills [0,c)), so val(or)=val+val via UPPER_BITS_ZERO. *)
-
-let CSEL_WINDOW_VAL = prove
- (`!H L c. c < 64 /\ H < 2 EXP (64 - c) /\ L < 2 EXP 64
-    ==> val((if val(word_sub (word_sub (word 0) (word c)) (word 0):int64) = 0
-             then word_jshl (word H:int64) (word c)
-             else word_or (word_jshl (word H:int64) (word c))
-                  (word_jushr (word L:int64) (word_sub (word 0) (word c):int64)))
-            :int64)
-        = 2 EXP c * H + L DIV 2 EXP (64 - c)`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `H < 2 EXP 64` ASSUME_TAC THENL
-   [TRANS_TAC LTE_TRANS `2 EXP (64 - c)` THEN ASM_REWRITE_TAC[LE_EXP] THEN
-    ARITH_TAC; ALL_TAC] THEN
-  REWRITE_TAC[word_jshl; word_jushr; DIMINDEX_64] THEN
-  SUBGOAL_THEN `val(word c:int64) MOD 64 = c` SUBST1_TAC THENL
-   [SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; ARITH_RULE `c < 64 ==> c < 2 EXP 64`;
-             ASSUME `c < 64`] THEN ASM_SIMP_TAC[MOD_LT]; ALL_TAC] THEN
-  ASM_CASES_TAC `c = 0` THENL
-   [ASM_REWRITE_TAC[WORD_SUB_0; VAL_WORD_0; SUB_0] THEN
-    CONV_TAC WORD_REDUCE_CONV THEN
-    REWRITE_TAC[WORD_SHL_WORD; VAL_WORD; DIMINDEX_64; EXP; MULT_CLAUSES] THEN
-    ASM_SIMP_TAC[MOD_LT; DIV_1] THEN
-    SUBGOAL_THEN `L DIV 2 EXP 64 = 0` SUBST1_TAC THENL
-     [MATCH_MP_TAC DIV_LT THEN ASM_REWRITE_TAC[]; ARITH_TAC];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `val(word_sub (word 0) (word c):int64) MOD 64 = 64 - c` ASSUME_TAC THENL
-   [REWRITE_TAC[VAL_WORD_SUB; VAL_WORD_0; VAL_WORD; DIMINDEX_64] THEN
-    ASM_SIMP_TAC[MOD_LT; ARITH_RULE `c < 64 ==> c < 2 EXP 64`] THEN
-    SUBGOAL_THEN `!x. x MOD 2 EXP 64 MOD 64 = x MOD 64` (fun th -> REWRITE_TAC[th]) THENL
-     [GEN_TAC THEN ONCE_REWRITE_TAC[ARITH_RULE `2 EXP 64 = 64 * 2 EXP 58`] THEN
-      REWRITE_TAC[MOD_MOD]; ALL_TAC] THEN
-    SUBGOAL_THEN `(0 + 2 EXP 64 - c) MOD 64 = (64 - c) MOD 64` SUBST1_TAC THENL
-     [REWRITE_TAC[ADD_CLAUSES] THEN
-      SUBGOAL_THEN `2 EXP 64 - c = (64 - c) + 64 * (2 EXP 58 - 1)` SUBST1_TAC THENL
-       [ASM_ARITH_TAC; ALL_TAC] THEN
-      ONCE_REWRITE_TAC[ADD_SYM] THEN REWRITE_TAC[MOD_MULT_ADD];
-      ASM_SIMP_TAC[MOD_LT; ARITH_RULE `~(c=0) /\ c < 64 ==> 64 - c < 64`]]; ALL_TAC] THEN
-  ASM_REWRITE_TAC[] THEN
-  SUBGOAL_THEN `~(val(word_sub (word_sub (word 0) (word c)) (word 0):int64) = 0)`
-   (fun th -> REWRITE_TAC[th]) THENL
-   [REWRITE_TAC[WORD_SUB_0] THEN
-    ASM_REWRITE_TAC[GSYM VAL_EQ_0] THEN
-    DISCH_THEN(MP_TAC o AP_TERM `\x. x MOD 64`) THEN
-    ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `val(word H:int64) = H /\ val(word L:int64) = L` STRIP_ASSUME_TAC THENL
-   [CONJ_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN
-    ASM_REWRITE_TAC[DIMINDEX_64]; ALL_TAC] THEN
-  MP_TAC(ISPECL [`word H:int64`; `64 - c`] UPPER_BITS_ZERO) THEN
-  ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
-  MP_TAC(ISPECL [`word L:int64`; `64`] UPPER_BITS_ZERO) THEN
-  ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
-  W(MP_TAC o PART_MATCH (lhand o rand) VAL_WORD_OR_DISJOINT o lhand o snd) THEN
-  ANTS_TAC THENL
-   [REWRITE_TAC[WORD_EQ_BITS_ALT; BIT_WORD_AND; BIT_WORD_0] THEN
-    REWRITE_TAC[BIT_WORD_SHL; BIT_WORD_USHR; DIMINDEX_64] THEN
-    X_GEN_TAC `i:num` THEN
-    REPEAT STRIP_TAC THEN
-    SUBGOAL_THEN `i < c` ASSUME_TAC THENL
-     [FIRST_X_ASSUM(MP_TAC o SPEC `i + 64 - c`) THEN ASM_REWRITE_TAC[] THEN
-      ASM_ARITH_TAC; ALL_TAC] THEN
-    ASM_ARITH_TAC; ALL_TAC] THEN
-  DISCH_THEN SUBST1_TAC THEN
-  REWRITE_TAC[VAL_WORD_SHL; VAL_WORD_USHR; DIMINDEX_64] THEN
-  ASM_REWRITE_TAC[] THEN
-  SUBGOAL_THEN `(2 EXP c * H) MOD 2 EXP 64 = 2 EXP c * H`
-   (fun th -> REWRITE_TAC[th]) THEN
-  MATCH_MP_TAC MOD_LT THEN
-  SUBGOAL_THEN `2 EXP 64 = 2 EXP c * 2 EXP (64 - c)` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-  ASM_SIMP_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ]);;
-
-(* p = bitsize b in the ARM's form: 64*dd + (64 - clz(top word)).  Used to      *)
-(* discharge the X20 = word(bitsize b) obligation in the window block.          *)
-
-let BITSIZE_P_LEMMA = prove
- (`!b k dd. b < 2 EXP (64 * k) /\ dd < k /\ ~(bigdigit b dd = 0) /\
-            (!j. dd < j /\ j < k ==> bigdigit b j = 0)
-            ==> bitsize b =
-                64 * dd + (64 - word_clz (word (bigdigit b dd):int64))`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(ISPECL [`b:num`; `k:num`; `dd:num`] BITSIZE_TOPWORD) THEN
-  ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN
-  MP_TAC(ISPEC `word (bigdigit b dd):int64` WORD_CLZ_BITSIZE) THEN
-  REWRITE_TAC[DIMINDEX_64] THEN
-  SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; BIGDIGIT_BOUND] THEN
-  DISCH_THEN SUBST1_TAC THEN
-  SUBGOAL_THEN `bitsize(bigdigit b dd) <= 64` MP_TAC THENL
-   [REWRITE_TAC[BITSIZE_LE; BIGDIGIT_BOUND]; ARITH_TAC]);;
-
-(* dd=0 (single-word modulus) window value: (b*2^64) DIV 2^(bitsize b) =        *)
-(* 2^clz(word b) * b.  Simpler than WINDOW_VALUE_HI (no digit machinery); the   *)
-(* ARM's ll-term vanishes since the finder sets X6=0 when dd=0.                 *)
-
-let WINDOW_VALUE_LO = prove
- (`!b. ~(b = 0) /\ b < 2 EXP 64
-       ==> (b * 2 EXP 64) DIV 2 EXP (bitsize b) =
-           2 EXP (word_clz (word b:int64)) * b`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(ISPEC `word b:int64` WORD_CLZ_BITSIZE) THEN
-  REWRITE_TAC[DIMINDEX_64] THEN
-  SUBGOAL_THEN `val(word b:int64) = b` SUBST1_TAC THENL
-   [MATCH_MP_TAC VAL_WORD_EQ THEN ASM_REWRITE_TAC[DIMINDEX_64]; ALL_TAC] THEN
-  DISCH_THEN SUBST1_TAC THEN
-  SUBGOAL_THEN `bitsize b <= 64` ASSUME_TAC THENL
-   [ASM_REWRITE_TAC[BITSIZE_LE]; ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP 64 = 2 EXP (bitsize b) * 2 EXP (64 - bitsize b)` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-  ONCE_REWRITE_TAC[ARITH_RULE `b * x * y = (x * y) * b`] THEN
-  SIMP_TAC[GSYM MULT_ASSOC; DIV_MULT; EXP_EQ_0; ARITH_EQ] THEN
-  ARITH_TAC);;
-
-(* All bigdigits below k vanishing (with b < 2^(64k)) forces b = 0.  Used for   *)
-(* the finder's not-found disjunct (which implies the modulus is zero).         *)
-
-let ALLDIGITS_ZERO_IMP = prove
- (`!b k. b < 2 EXP (64 * k) /\ (!j. j < k ==> bigdigit b j = 0) ==> b = 0`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `highdigits b 0 = 0` MP_TAC THENL
-   [MP_TAC(ISPECL [`k:num`; `b:num`; `0`] HIGHDIGITS_ZERO_ABOVE) THEN
-    REWRITE_TAC[ADD_CLAUSES] THEN DISCH_THEN MATCH_MP_TAC THEN
-    ASM_REWRITE_TAC[] THEN
-    X_GEN_TAC `j:num` THEN STRIP_TAC THEN FIRST_X_ASSUM MATCH_MP_TAC THEN
-    ASM_ARITH_TAC;
-    REWRITE_TAC[HIGHDIGITS_0]]);;
-
-(* Unified window value over both dd=0 and dd>=1 (the finder's found disjunct    *)
-(* uses X6 = word(if dd=0 then 0 else bigdigit b (dd-1))): the two-word          *)
-(* extraction equals the clean window (b*2^64) DIV 2^(bitsize b).  Lets the      *)
-(* window sim apply one lemma rather than an in-context dd case-split.           *)
-
-let WINDOW_VALUE_ANY = prove
- (`!b k dd. b < 2 EXP (64 * k) /\ ~(b = 0) /\ dd < k /\
-            ~(bigdigit b dd = 0) /\ (!j. dd < j /\ j < k ==> bigdigit b j = 0)
-            ==> (2 EXP 64 * bigdigit b dd +
-                 (if dd = 0 then 0 else bigdigit b (dd - 1)))
-                DIV 2 EXP (64 - word_clz (word(bigdigit b dd):int64)) =
-                (b * 2 EXP 64) DIV 2 EXP (bitsize b)`,
-  REPEAT STRIP_TAC THEN ASM_CASES_TAC `dd = 0` THEN
-  ASM_REWRITE_TAC[ADD_CLAUSES] THENL
-   [SUBGOAL_THEN `b < 2 EXP 64` ASSUME_TAC THENL
-     [REWRITE_TAC[GSYM BITSIZE_LE] THEN
-      SUBGOAL_THEN `bitsize b = 64 * dd + (64 - word_clz(word(bigdigit b dd):int64))`
-       SUBST1_TAC THENL
-       [MATCH_MP_TAC BITSIZE_P_LEMMA THEN EXISTS_TAC `k:num` THEN ASM_REWRITE_TAC[];
-        ASM_REWRITE_TAC[] THEN ARITH_TAC]; ALL_TAC] THEN
-    MP_TAC(ISPEC `b:num` WINDOW_VALUE_LO) THEN ASM_REWRITE_TAC[] THEN
-    SUBGOAL_THEN `bigdigit b 0 = b` SUBST1_TAC THENL
-     [REWRITE_TAC[bigdigit; MULT_CLAUSES; EXP; DIV_1] THEN ASM_SIMP_TAC[MOD_LT];
-      ALL_TAC] THEN
-    SUBGOAL_THEN `bitsize b = 64 - word_clz(word b:int64)` SUBST1_TAC THENL
-     [MP_TAC(ISPEC `word b:int64` WORD_CLZ_BITSIZE) THEN
-      REWRITE_TAC[DIMINDEX_64] THEN ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64] THEN
-      SUBGOAL_THEN `bitsize b <= 64` MP_TAC THENL
-       [ASM_REWRITE_TAC[BITSIZE_LE]; ARITH_TAC];
-      REWRITE_TAC[MULT_SYM]];
-    CONV_TAC SYM_CONV THEN
-    MATCH_MP_TAC WINDOW_VALUE_HI THEN EXISTS_TAC `k:num` THEN
-    ASM_SIMP_TAC[ARITH_RULE `~(dd = 0) ==> 1 <= dd`]]);;
-
-(* Stage 2b window block, pc+0x68 -> pc+0x90 (dd>=1 / b<>0 case).  From the     *)
-(* finder's found-disjunct output (X11=dd, X5=word(bigdigit b dd), X6=word      *)
-(* (bigdigit b (dd-1))), the funnel (clz;lsl;lsl;neg;lsr;orr;csel) computes     *)
-(*   X20 = word(bitsize b),  X5 = word((b*2^64) DIV 2^(bitsize b)),            *)
-(* the normalized top-64 window, which has bit 63 set (recip precond).  The     *)
-(* round-up (0x90/0x94) that follows is consumed by the recip block.  Assembles *)
-(* BITSIZE_P_LEMMA, WINDOW_VALUE_HI, WINDOW_RANGE, CSEL_WINDOW_VAL,             *)
-(* WINDOW_DIV_SPLIT.  b < 2^(64*k) is available in CORRECT (BIGNUM_TERMRANGE).  *)
-
-let BIGNUM_MOD_WINDOW_HI = prove
- (`!k z n x m a b dd pc.
-      ~(k = 0) /\ k < 2 EXP 64 /\ ~(b = 0) /\ b < 2 EXP (64 * k) /\
-      1 <= dd /\ dd < k /\ ~(bigdigit b dd = 0) /\
-      (!j. dd < j /\ j < k ==> bigdigit b j = 0) /\
-      nonoverlapping (word pc,0x438) (z,8 * k) /\
-      nonoverlapping (z,8 * k) (m,8 * k) /\
-      nonoverlapping (z,8 * k) (x,8 * n)
-      ==> ensures arm
-       (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-            read PC s = word (pc + 0x68) /\
-            read X0 s = word k /\ read X1 s = z /\ read X2 s = word n /\
-            read X3 s = x /\ read X4 s = m /\ read X23 s = word 0 /\
-            read X11 s = word dd /\
-            read X5 s = word(bigdigit b dd) /\
-            read X6 s = word(bigdigit b (dd - 1)) /\
-            bignum_from_memory (x,n) s = a /\ bignum_from_memory (m,k) s = b /\
-            bignum_from_memory (z,k) s = 0)
-       (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-            read PC s = word (pc + 0x90) /\
-            read X0 s = word k /\ read X1 s = z /\ read X2 s = word n /\
-            read X3 s = x /\ read X4 s = m /\ read X23 s = word 0 /\
-            read X20 s = word (bitsize b) /\
-            read X5 s = word((b * 2 EXP 64) DIV 2 EXP (bitsize b)) /\
-            bit 63 (read X5 s) /\
-            bignum_from_memory (x,n) s = a /\ bignum_from_memory (m,k) s = b /\
-            bignum_from_memory (z,k) s = 0)
-       (MAYCHANGE [PC; X0; X5; X6; X7; X8; X9; X10; X11; X12; X13; X14; X15;
-                   X16; X17; X19; X20; X21; X22; X23; X24] ,,
-        MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events] ,,
-        MAYCHANGE [memory :> bignum(z,k)])`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  (*** pure-arithmetic facts from the window helper lemmas ***)
-  SUBGOAL_THEN `word_clz (word (bigdigit b dd):int64) < 64` ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM DIMINDEX_64; WORD_CLZ_LT_DIMINDEX] THEN
-    REWRITE_TAC[GSYM VAL_EQ; VAL_WORD_0] THEN
-    SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; BIGDIGIT_BOUND] THEN ASM_REWRITE_TAC[];
-    ALL_TAC] THEN
-  MP_TAC(ISPECL [`b:num`; `k:num`; `dd:num`] BITSIZE_P_LEMMA) THEN
-  ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
-  MP_TAC(ISPECL [`b:num`; `k:num`; `dd:num`] WINDOW_VALUE_HI) THEN
-  ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
-  MP_TAC(ISPEC `b:num` WINDOW_RANGE) THEN ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
-  ABBREV_TAC `c = word_clz (word (bigdigit b dd):int64)` THEN
-  SUBGOAL_THEN `bigdigit b dd < 2 EXP (64 - c)` ASSUME_TAC THENL
-   [EXPAND_TAC "c" THEN
-    MP_TAC(ISPEC `word (bigdigit b dd):int64` WORD_CLZ_BITSIZE) THEN
-    REWRITE_TAC[DIMINDEX_64] THEN
-    SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; BIGDIGIT_BOUND] THEN
-    DISCH_THEN SUBST1_TAC THEN
-    SUBGOAL_THEN `bitsize(bigdigit b dd) <= 64` MP_TAC THENL
-     [REWRITE_TAC[BITSIZE_LE; BIGDIGIT_BOUND]; ALL_TAC] THEN
-    DISCH_TAC THEN
-    SUBGOAL_THEN `64 - (64 - bitsize(bigdigit b dd)) = bitsize(bigdigit b dd)`
-     SUBST1_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
-    REWRITE_TAC[GSYM BITSIZE_LE; LE_REFL];
-    ALL_TAC] THEN
-  (*** the X5 (window) value fact, unified over the csel ***)
-  SUBGOAL_THEN
-   `(if val (word_sub (word_sub (word 0) (word c)) (word 0):int64) = 0
-     then word_jshl (word (bigdigit b dd):int64) (word c)
-     else word_or (word_jshl (word (bigdigit b dd):int64) (word c))
-          (word_jushr (word (bigdigit b (dd - 1)):int64) (word_sub (word 0) (word c)))) =
-    word ((2 EXP 64 * bigdigit b dd + bigdigit b (dd - 1)) DIV 2 EXP (64 - c))`
-   ASSUME_TAC THENL
-   [MP_TAC(ISPECL [`bigdigit b dd`; `bigdigit b (dd - 1)`; `c:num`] CSEL_WINDOW_VAL) THEN
-    ASM_REWRITE_TAC[BIGDIGIT_BOUND] THEN DISCH_TAC THEN
-    MP_TAC(ISPECL [`bigdigit b dd`; `bigdigit b (dd - 1)`; `c:num`] WINDOW_DIV_SPLIT) THEN
-    ASM_SIMP_TAC[BIGDIGIT_BOUND; LT_IMP_LE] THEN DISCH_TAC THEN
-    GEN_REWRITE_TAC I [GSYM VAL_EQ] THEN
-    ASM_REWRITE_TAC[VAL_WORD; DIMINDEX_64] THEN
-    CONV_TAC SYM_CONV THEN MATCH_MP_TAC MOD_LT THEN
-    ASM_MESON_TAC[];
-    ALL_TAC] THEN
-  (*** ARM simulation of the funnel: steps 27..36 (0x68 .. 0x90) ***)
-  REWRITE_TAC[BIGNUM_FROM_MEMORY_BYTES] THEN
-  ENSURES_INIT_TAC "s0" THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (27--36) THEN
-  ENSURES_FINAL_STATE_TAC THEN
-  DISCARD_FLAGS_TAC THEN
-  ASM_REWRITE_TAC[] THEN
-  CONJ_TAC THENL
-   [(*** X20 = word(bitsize b) = word(64*dd + 64 - c), and bit 63 window ***)
-    CONJ_TAC THENL
-     [REWRITE_TAC[WORD_SHL_WORD; ARITH_RULE `2 EXP 6 * dd = 64 * dd`] THEN
-      REWRITE_TAC[GSYM WORD_ADD] THEN
-      ASM_SIMP_TAC[ARITH_RULE
-        `c < 64 ==> 64 * dd + 64 - c = (64 * dd + 64) - c`] THEN
-      ASM_SIMP_TAC[WORD_SUB; ARITH_RULE `c < 64 ==> c <= 64 * dd + 64`];
-      (*** bit 63 (word window) ***)
-      SUBGOAL_THEN
-       `bit 63 (word ((2 EXP 64 * bigdigit b dd + bigdigit b (dd - 1))
-                      DIV 2 EXP (64 - c)):int64) <=>
-        2 EXP 63 <= val(word ((2 EXP 64 * bigdigit b dd + bigdigit b (dd - 1))
-                              DIV 2 EXP (64 - c)):int64)`
-       SUBST1_TAC THENL
-       [MP_TAC(ISPEC `word ((2 EXP 64 * bigdigit b dd + bigdigit b (dd - 1))
-                            DIV 2 EXP (64 - c)):int64` MSB_VAL) THEN
-        REWRITE_TAC[DIMINDEX_64] THEN CONV_TAC NUM_REDUCE_CONV;
-        ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64]]];
-    REWRITE_TAC[SOME_FLAGS] THEN MONOTONE_MAYCHANGE_TAC]);;
-
-(* Stage 2b window block, dd=0 single-word case.  Finder found-disjunct with    *)
-(* dd=0 gives X11=word 0, X5=word(bigdigit b 0), X6=word 0.  Same postcondition *)
-(* as BIGNUM_MOD_WINDOW_HI, but the ll-term vanishes (L=0), so uses             *)
-(* WINDOW_VALUE_LO and CSEL_WINDOW_VAL with L=0.  Precond b<2^64 (single word).  *)
-
-let BIGNUM_MOD_WINDOW_LO = prove
- (`!k z n x m a b pc.
-      ~(k = 0) /\ k < 2 EXP 64 /\ ~(b = 0) /\ b < 2 EXP 64 /\
-      nonoverlapping (word pc,0x438) (z,8 * k) /\
-      nonoverlapping (z,8 * k) (m,8 * k) /\
-      nonoverlapping (z,8 * k) (x,8 * n)
-      ==> ensures arm
-       (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-            read PC s = word (pc + 0x68) /\
-            read X0 s = word k /\ read X1 s = z /\ read X2 s = word n /\
-            read X3 s = x /\ read X4 s = m /\ read X23 s = word 0 /\
-            read X11 s = word 0 /\
-            read X5 s = word(bigdigit b 0) /\
-            read X6 s = word 0 /\
-            bignum_from_memory (x,n) s = a /\ bignum_from_memory (m,k) s = b /\
-            bignum_from_memory (z,k) s = 0)
-       (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-            read PC s = word (pc + 0x90) /\
-            read X0 s = word k /\ read X1 s = z /\ read X2 s = word n /\
-            read X3 s = x /\ read X4 s = m /\ read X23 s = word 0 /\
-            read X20 s = word (bitsize b) /\
-            read X5 s = word((b * 2 EXP 64) DIV 2 EXP (bitsize b)) /\
-            bit 63 (read X5 s) /\
-            bignum_from_memory (x,n) s = a /\ bignum_from_memory (m,k) s = b /\
-            bignum_from_memory (z,k) s = 0)
-       (MAYCHANGE [PC; X0; X5; X6; X7; X8; X9; X10; X11; X12; X13; X14; X15;
-                   X16; X17; X19; X20; X21; X22; X23; X24] ,,
-        MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events] ,,
-        MAYCHANGE [memory :> bignum(z,k)])`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `bigdigit b 0 = b` ASSUME_TAC THENL
-   [REWRITE_TAC[bigdigit; MULT_CLAUSES; EXP; DIV_1] THEN
-    ASM_SIMP_TAC[MOD_LT]; ALL_TAC] THEN
-  ASM_REWRITE_TAC[] THEN
-  SUBGOAL_THEN `word_clz (word b:int64) < 64` ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM DIMINDEX_64; WORD_CLZ_LT_DIMINDEX] THEN
-    REWRITE_TAC[GSYM VAL_EQ; VAL_WORD_0] THEN
-    ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64]; ALL_TAC] THEN
-  MP_TAC(ISPEC `b:num` WINDOW_VALUE_LO) THEN ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
-  MP_TAC(ISPEC `b:num` WINDOW_RANGE) THEN ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
-  ABBREV_TAC `c = word_clz (word b:int64)` THEN
-  SUBGOAL_THEN `b < 2 EXP (64 - c)` ASSUME_TAC THENL
-   [EXPAND_TAC "c" THEN
-    MP_TAC(ISPEC `word b:int64` WORD_CLZ_BITSIZE) THEN
-    REWRITE_TAC[DIMINDEX_64] THEN
-    ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64] THEN
-    DISCH_THEN SUBST1_TAC THEN
-    SUBGOAL_THEN `bitsize b <= 64` MP_TAC THENL
-     [ASM_REWRITE_TAC[BITSIZE_LE]; ALL_TAC] THEN
-    DISCH_TAC THEN
-    SUBGOAL_THEN `64 - (64 - bitsize b) = bitsize b` SUBST1_TAC THENL
-     [ASM_ARITH_TAC; ALL_TAC] THEN
-    ASM_REWRITE_TAC[GSYM BITSIZE_LE; LE_REFL];
-    ALL_TAC] THEN
-  SUBGOAL_THEN
-   `(if val (word_sub (word_sub (word 0) (word c)) (word 0):int64) = 0
-     then word_jshl (word b:int64) (word c)
-     else word_or (word_jshl (word b:int64) (word c))
-          (word_jushr (word 0:int64) (word_sub (word 0) (word c)))) =
-    word (2 EXP c * b)`
-   ASSUME_TAC THENL
-   [MP_TAC(ISPECL [`b:num`; `0`; `c:num`] CSEL_WINDOW_VAL) THEN
-    ASM_REWRITE_TAC[CONJUNCT1 LT; ARITH_RULE `0 < 2 EXP 64`] THEN
-    REWRITE_TAC[DIV_0; ADD_CLAUSES] THEN DISCH_TAC THEN
-    GEN_REWRITE_TAC I [GSYM VAL_EQ] THEN
-    ASM_REWRITE_TAC[VAL_WORD; DIMINDEX_64] THEN
-    CONV_TAC SYM_CONV THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[];
-    ALL_TAC] THEN
-  REWRITE_TAC[BIGNUM_FROM_MEMORY_BYTES] THEN
-  ENSURES_INIT_TAC "s0" THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (27--36) THEN
-  ENSURES_FINAL_STATE_TAC THEN
-  DISCARD_FLAGS_TAC THEN
-  ASM_REWRITE_TAC[] THEN
-  SUBGOAL_THEN `bitsize b = 64 - c` ASSUME_TAC THENL
-   [EXPAND_TAC "c" THEN
-    MP_TAC(ISPEC `word b:int64` WORD_CLZ_BITSIZE) THEN
-    REWRITE_TAC[DIMINDEX_64] THEN
-    ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64] THEN
-    SUBGOAL_THEN `bitsize b <= 64` MP_TAC THENL
-     [ASM_REWRITE_TAC[BITSIZE_LE]; ARITH_TAC];
-    ALL_TAC] THEN
-  CONJ_TAC THENL
-   [CONJ_TAC THENL
-     [ASM_REWRITE_TAC[] THEN
-      SIMP_TAC[WORD_SUB; ARITH_RULE `c < 64 ==> c <= 64`; ASSUME `c < 64`];
-      SUBGOAL_THEN
-       `bit 63 (word (2 EXP c * b):int64) <=>
-        2 EXP 63 <= val(word (2 EXP c * b):int64)`
-       SUBST1_TAC THENL
-       [MP_TAC(ISPEC `word (2 EXP c * b):int64` MSB_VAL) THEN
-        REWRITE_TAC[DIMINDEX_64] THEN CONV_TAC NUM_REDUCE_CONV;
-        ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64]]];
-    REWRITE_TAC[SOME_FLAGS] THEN MONOTONE_MAYCHANGE_TAC]);;
-
-(* The saturating round-up (adds t0,#1; cinv on carry) preserves bit 63: if     *)
-(* the window t0 already has its top bit set (>= 2^63), so does t0+1 (or the     *)
-(* all-ones saturation when t0 = 2^64-1).  Feeds the recip precond bit 63.       *)
-
-let ROUNDUP_MSB = prove
- (`!t0:int64. bit 63 t0
-              ==> bit 63 (if val(word_add t0 (word 1)) = 0
-                          then word_not(word_add t0 (word 1))
-                          else word_add t0 (word 1))`,
-  GEN_TAC THEN
-  MP_TAC(ISPEC `t0:int64` MSB_VAL) THEN REWRITE_TAC[DIMINDEX_64] THEN
-  CONV_TAC NUM_REDUCE_CONV THEN DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
-  DISCH_TAC THEN
-  MP_TAC(ISPEC `t0:int64` VAL_BOUND_64) THEN REWRITE_TAC[DIMINDEX_64] THEN
-  DISCH_TAC THEN
-  SUBGOAL_THEN `val(word_add t0 (word 1):int64) =
-                (if val(t0:int64) + 1 = 2 EXP 64 then 0 else val t0 + 1)`
-   ASSUME_TAC THENL
-   [REWRITE_TAC[VAL_WORD_ADD; VAL_WORD_1; DIMINDEX_64] THEN
-    COND_CASES_TAC THENL
-     [ASM_REWRITE_TAC[MOD_REFL];
-      MATCH_MP_TAC MOD_LT THEN ASM_ARITH_TAC];
-    ALL_TAC] THEN
-  COND_CASES_TAC THENL
-   [MP_TAC(ISPEC `word_not(word_add t0 (word 1)):int64` MSB_VAL) THEN
-    REWRITE_TAC[DIMINDEX_64] THEN CONV_TAC NUM_REDUCE_CONV THEN
-    DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
-    REWRITE_TAC[VAL_WORD_NOT; DIMINDEX_64] THEN ASM_ARITH_TAC;
-    MP_TAC(ISPEC `word_add t0 (word 1):int64` MSB_VAL) THEN
-    REWRITE_TAC[DIMINDEX_64] THEN CONV_TAC NUM_REDUCE_CONV THEN
-    DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN ASM_ARITH_TAC]);;
-
-(* Round-up block pc+0x90 -> pc+0x98: adds X5,X5,#1; cinv X5,X5,eq.  Takes      *)
-(* X5=t0 (bit 63 set) to X5 = roundup(t0), which still has bit 63 set.  The     *)
-(* rounded value is exposed so the recip block (whose input is this X5) can be   *)
-(* composed and its bracket stated in val(roundup t0).                          *)
-
-let BIGNUM_MOD_ROUNDUP = prove
- (`!k z n x m a b t0 pc.
-      ~(k = 0) /\ k < 2 EXP 64 /\ bit 63 t0 /\
-      nonoverlapping (word pc,0x438) (z,8 * k) /\
-      nonoverlapping (z,8 * k) (m,8 * k) /\
-      nonoverlapping (z,8 * k) (x,8 * n)
-      ==> ensures arm
-       (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-            read PC s = word (pc + 0x90) /\
-            read X0 s = word k /\ read X1 s = z /\ read X2 s = word n /\
-            read X3 s = x /\ read X4 s = m /\ read X23 s = word 0 /\
-            read X20 s = word (bitsize b) /\ read X5 s = t0 /\
-            bignum_from_memory (x,n) s = a /\ bignum_from_memory (m,k) s = b /\
-            bignum_from_memory (z,k) s = 0)
-       (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-            read PC s = word (pc + 0x98) /\
-            read X0 s = word k /\ read X1 s = z /\ read X2 s = word n /\
-            read X3 s = x /\ read X4 s = m /\ read X23 s = word 0 /\
-            read X20 s = word (bitsize b) /\
-            read X5 s = (if ~(val(word_add t0 (word 1)) = 0)
-                         then word_add t0 (word 1)
-                         else word_not(word_add t0 (word 1))) /\
-            bit 63 (read X5 s) /\
-            bignum_from_memory (x,n) s = a /\ bignum_from_memory (m,k) s = b /\
-            bignum_from_memory (z,k) s = 0)
-       (MAYCHANGE [PC; X0; X5; X6; X7; X8; X9; X10; X11; X12; X13; X14; X15;
-                   X16; X17; X19; X20; X21; X22; X23; X24] ,,
-        MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events] ,,
-        MAYCHANGE [memory :> bignum(z,k)])`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  REWRITE_TAC[BIGNUM_FROM_MEMORY_BYTES] THEN
-  ENSURES_INIT_TAC "s0" THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (37--38) THEN
-  ENSURES_FINAL_STATE_TAC THEN
-  DISCARD_FLAGS_TAC THEN
-  ASM_REWRITE_TAC[] THEN
-  CONJ_TAC THENL
-   [MP_TAC(ISPEC `t0:int64` ROUNDUP_MSB) THEN ASM_REWRITE_TAC[] THEN
-    COND_CASES_TAC THEN ASM_REWRITE_TAC[];
-    REWRITE_TAC[SOME_FLAGS] THEN MONOTONE_MAYCHANGE_TAC]);;
-
-(* Window + round-up segment pc+0x68 -> pc+0x98 from the finder's 2-disjunct    *)
-(* output.  Composed via ENSURES_SEQUENCE at pc+0x90: seg1 (funnel, 0x68->0x90) *)
-(* by one re-sim with the finder disjunct split post-INIT [X20's value is only  *)
-(* tracked by ENSURES_FINAL when read X11 = word dd is pinned]; seg2 (round-up, *)
-(* 0x90->0x98).  Simulating the round-up in the SAME pass to 0x98 drops X20's   *)
-(* tracked value, so the split at 0x90 is essential.  The seg1 postcond carries *)
-(* X5 = word((b*2^64) DIV 2^(bitsize b)) UNCONDITIONALLY (holds for b=0 too:    *)
-(* 0 DIV 1 = 0), with bit 63 guarded by ~(b=0).                                 *)
 
 let BIGNUM_MOD_WINUP = prove
  (`!k z n x m a b pc.
@@ -2214,344 +6890,11 @@ let BIGNUM_MOD_RECIP_WIDE = prove
 
 (* 61-bit block recurrence for congruence maintenance:                        *)
 (*   a DIV 2^(61t) = 2^61*(a DIV 2^(61(t+1))) + (a DIV 2^(61t)) MOD 2^61.      *)
-let BLOCKSPLIT = prove
- (`!a t. a DIV 2 EXP (61 * t) =
-         2 EXP 61 * (a DIV 2 EXP (61 * (t + 1))) +
-         (a DIV 2 EXP (61 * t)) MOD 2 EXP 61`,
-  REPEAT GEN_TAC THEN
-  REWRITE_TAC[ARITH_RULE `61 * (t + 1) = 61 * t + 61`; GSYM DIV_DIV; EXP_ADD] THEN
-  SPEC_TAC(`a DIV 2 EXP (61 * t)`,`d:num`) THEN GEN_TAC THEN
-  MP_TAC(SPECL [`d:num`; `2 EXP 61`] DIVISION) THEN
-  REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
-
-(* low 128 bits as two adjacent 64-bit words *)
-let LO128 = prove
- (`!M. 2 EXP 64 * (M DIV 2 EXP 64) MOD 2 EXP 64 + M MOD 2 EXP 64 =
-       M MOD 2 EXP 128`,
-  GEN_TAC THEN
-  REWRITE_TAC[ARITH_RULE `128 = 64 + 64`; EXP_ADD; MOD_MULT_MOD] THEN ARITH_TAC);;
-
-let TWODIGIT_128 = prove
- (`!a q. 2 EXP 64 * bigdigit a (q + 1) + bigdigit a q =
-         (a DIV 2 EXP (64 * q)) MOD 2 EXP 128`,
-  REPEAT GEN_TAC THEN REWRITE_TAC[bigdigit] THEN
-  REWRITE_TAC[ARITH_RULE `64 * (q + 1) = 64 * q + 64`; EXP_ADD; GSYM DIV_DIV] THEN
-  REWRITE_TAC[LO128]);;
-
-(* the 61-bit block LOAD: two-word funnel of x at bit i = (a DIV 2^i) MOD 2^64 *)
-(* (ARM loads x[i/64],x[i/64+1], lsr by i mod 64, lsl hi, orr; 61-bit mask     *)
-(* is applied downstream via the <<3 / extr #3).                              *)
-let BLOCKLOAD_ARITH = prove
- (`!a i. (a DIV 2 EXP i) MOD 2 EXP 64 =
-         ((2 EXP 64 * bigdigit a (i DIV 64 + 1) + bigdigit a (i DIV 64))
-          DIV 2 EXP (i MOD 64)) MOD 2 EXP 64`,
-  REPEAT GEN_TAC THEN REWRITE_TAC[TWODIGIT_128] THEN
-  MP_TAC(SPECL [`i:num`; `64`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
-  ABBREV_TAC `q = i DIV 64` THEN ABBREV_TAC `r = i MOD 64` THEN STRIP_TAC THEN
-  ABBREV_TAC `M = a DIV 2 EXP (64 * q)` THEN
-  SUBGOAL_THEN `a DIV 2 EXP i = M DIV 2 EXP r` SUBST1_TAC THENL
-   [EXPAND_TAC "M" THEN REWRITE_TAC[DIV_DIV; GSYM EXP_ADD] THEN
-    AP_TERM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC;
-    ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP 128 = 2 EXP r * 2 EXP (128 - r)` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-  REWRITE_TAC[GSYM DIV_MOD] THEN ONCE_REWRITE_TAC[GSYM MOD_MOD_EXP_MIN] THEN
-  CONV_TAC SYM_CONV THEN REWRITE_TAC[MOD_MOD_EXP_MIN] THEN
-  AP_TERM_TAC THEN AP_TERM_TAC THEN
-  REWRITE_TAC[ARITH_RULE `MIN (128 - r) 64 = 64 <=> 64 <= 128 - r`] THEN
-  ASM_ARITH_TAC);;
-
-(* funnel shift right by r of a two-word value (r <= 64) *)
-let DIVSPLIT64 = prove
- (`!w0 w1 r. r <= 64
-     ==> (2 EXP 64 * w1 + w0) DIV 2 EXP r = 2 EXP (64 - r) * w1 + w0 DIV 2 EXP r`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `2 EXP 64 = 2 EXP (64 - r) * 2 EXP r` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-  REWRITE_TAC[GSYM MULT_ASSOC] THEN ONCE_REWRITE_TAC[MULT_SYM] THEN
-  ONCE_REWRITE_TAC[ARITH_RULE `(2 EXP r * w1) * 2 EXP (64 - r) + w0 =
-                               (w1 * 2 EXP (64 - r)) * 2 EXP r + w0`] THEN
-  SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ]);;
-
-(* 61-bit masked block load (handles the top-block one-past-the-end word: when  *)
-(* q+1 = n the loaded x[q+1] may be garbage but r = i MOD 64 <= 3 there, so it  *)
-(* lands above bit 61 and is discarded by the MOD 2^61).  q=i DIV 64,r=i MOD 64. *)
-let BLOCKLOAD_MASKED = prove
- (`!a q r w0 w1.
-     r < 64 /\ w0 = bigdigit a q /\ (r <= 3 \/ w1 = bigdigit a (q + 1))
-     ==> ((2 EXP 64 * w1 + w0) DIV 2 EXP r) MOD 2 EXP 61 =
-         (a DIV 2 EXP (64 * q + r)) MOD 2 EXP 61`,
-  REPEAT GEN_TAC THEN
-  DISCH_THEN(CONJUNCTS_THEN2 ASSUME_TAC
-    (CONJUNCTS_THEN2 ASSUME_TAC DISJ_CASES_TAC)) THEN
-  ASM_REWRITE_TAC[bigdigit] THENL
-   [ASM_SIMP_TAC[DIVSPLIT64; LT_IMP_LE] THEN
-    SUBGOAL_THEN `2 EXP (64 - r) = 2 EXP 61 * 2 EXP (3 - r)` SUBST1_TAC THENL
-     [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-    REWRITE_TAC[GSYM MULT_ASSOC] THEN ONCE_REWRITE_TAC[ADD_SYM] THEN
-    SIMP_TAC[MOD_MULT_ADD] THEN
-    ONCE_REWRITE_TAC[ADD_SYM] THEN
-    REWRITE_TAC[EXP_ADD; GSYM DIV_DIV] THEN
-    ABBREV_TAC `M = a DIV 2 EXP (64 * q)` THEN
-    SUBGOAL_THEN `2 EXP 64 = 2 EXP r * 2 EXP (64 - r)` SUBST1_TAC THENL
-     [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-    REWRITE_TAC[GSYM DIV_MOD] THEN ONCE_REWRITE_TAC[GSYM MOD_MOD_EXP_MIN] THEN
-    CONV_TAC SYM_CONV THEN REWRITE_TAC[MOD_MOD_EXP_MIN] THEN
-    AP_TERM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC;
-    REWRITE_TAC[GSYM bigdigit; TWODIGIT_128] THEN
-    SUBGOAL_THEN `a DIV 2 EXP (64 * q + r) = (a DIV 2 EXP (64 * q)) DIV 2 EXP r`
-     SUBST1_TAC THENL
-     [REWRITE_TAC[DIV_DIV; GSYM EXP_ADD]; ALL_TAC] THEN
-    ABBREV_TAC `M = a DIV 2 EXP (64 * q)` THEN
-    SUBGOAL_THEN `2 EXP 128 = 2 EXP r * 2 EXP (128 - r)` SUBST1_TAC THENL
-     [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-    REWRITE_TAC[GSYM DIV_MOD] THEN ONCE_REWRITE_TAC[GSYM MOD_MOD_EXP_MIN] THEN
-    CONV_TAC SYM_CONV THEN REWRITE_TAC[MOD_MOD_EXP_MIN] THEN
-    AP_TERM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC]);;
-
-(* congruence maintenance across one block: from (Z == at)(mod b) and the     *)
-(* additive recurrence Zp + q*b = 2^61*Z + c with ap = 2^61*at + c, get       *)
-(* (Zp == ap)(mod b).  Additive form avoids nat subtraction (RECIP_QBOUND's   *)
-(* lower bound guarantees q*b <= 2^61*Z + c so Zp is well-defined).            *)
-let CONG_MAINTAIN = NUMBER_RULE
- `!Z Zp c q b ap at.
-      (Z == at) (mod b) /\
-      ap = 2 EXP 61 * at + c /\
-      Zp + q * b = 2 EXP 61 * Z + c
-      ==> (Zp == ap) (mod b)`;;
-
-(* block position: for block at bit 61*i with 61*i+61 <= 64*n (holds for i<NB    *)
-(* since 61*NB=i0<64n), the low word x[q] is in range (q<n) and either x[q+1] is *)
-(* also in range OR r=(61*i) MOD 64 <= 3 (top block: garbage x[q+1] discarded    *)
-(* by the MOD 2^61 mask -- feeds BLOCKLOAD_MASKED's disjunction).                *)
-let BLOCKPOS = prove
- (`!n i. 61 * i + 61 <= 64 * n
-         ==> (61 * i) DIV 64 < n /\
-             ((61 * i) DIV 64 + 1 < n \/ (61 * i) MOD 64 <= 3)`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(SPECL [`61 * i`; `64`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
-  ASM_ARITH_TAC);;
-
-(* ========================================================================= *)
-(* Stage 2b-iv preheader (pc+0x13c -> pc+0x1a4): n/61 setup.  Computes the     *)
-(* loop-entry state for the main division loop: i0 = 61*NB (X16, NB =          *)
-(* (64n+60)DIV 61 - 1), j0 = 61 (X17), l0 = 1 (X19), pcode0 = (p>>6)+1 (X12),  *)
-(* top block c0 = a DIV 2^i0 loaded into z[0] and X22, window h0 = (c0>>p) if  *)
-(* p<64 else 0 (X15).  Straight-line (26 instrs).  Needs n < 2^60 for the      *)
-(* reciprocal-multiply udiv-by-61 identity (documented in the .S).  The full   *)
-(* set of arithmetic + word support lemmas precedes the main theorem.          *)
-(* ========================================================================= *)
-
-let MOD64_EQ0 = prove
- (`!q n r. 64 * n = q * 61 + r /\ r < 61 ==> ((61 * q) MOD 64 = 0 <=> r = 0)`,
-  REPEAT STRIP_TAC THEN EQ_TAC THENL
-   [DISCH_TAC THEN
-    SUBGOAL_THEN `(q * 61 + r) MOD 64 = 0` MP_TAC THENL
-     [ONCE_REWRITE_TAC[GSYM(ASSUME `64 * n = q * 61 + r`)] THEN
-      REWRITE_TAC[ARITH_RULE `64 * n = n * 64`; MOD_MULT]; ALL_TAC] THEN
-    GEN_REWRITE_TAC (LAND_CONV o LAND_CONV) [GSYM MOD_ADD_MOD] THEN
-    REWRITE_TAC[ARITH_RULE `q * 61 = 61 * q`] THEN
-    ASM_REWRITE_TAC[ADD_CLAUSES] THEN
-    ASM_SIMP_TAC[MOD_LT; ARITH_RULE `r < 61 ==> r < 64`];
-    DISCH_THEN SUBST_ALL_TAC THEN
-    SUBGOAL_THEN `61 * q = 64 * n` SUBST1_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
-    REWRITE_TAC[ARITH_RULE `64 * n = n * 64`; MOD_MULT]]);;
-
-let I0_EQ = prove
- (`!n. 1 <= n /\ n < 2 EXP 60
-       ==> (if ~((61 * ((64 * n) DIV 61)) MOD 64 = 0)
-            then 61 * ((64 * n) DIV 61)
-            else 61 * ((64 * n) DIV 61) - 61) =
-           61 * ((64 * n + 60) DIV 61 - 1)`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(SPECL [`64 * n`; `61`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
-  ABBREV_TAC `q = (64 * n) DIV 61` THEN
-  ABBREV_TAC `r = (64 * n) MOD 61` THEN STRIP_TAC THEN
-  SUBGOAL_THEN `(64 * n + 60) DIV 61 = (if r = 0 then q else q + 1)` ASSUME_TAC THENL
-   [COND_CASES_TAC THEN MATCH_MP_TAC DIV_UNIQ THENL
-     [EXISTS_TAC `60` THEN ASM_ARITH_TAC;
-      EXISTS_TAC `r - 1` THEN ASM_ARITH_TAC];
-    ALL_TAC] THEN
-  MP_TAC(SPECL [`q:num`; `n:num`; `r:num`] MOD64_EQ0) THEN ASM_REWRITE_TAC[] THEN
-  DISCH_THEN SUBST1_TAC THEN ASM_REWRITE_TAC[] THEN
-  COND_CASES_TAC THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC);;
-
-let C0_ID = prove
- (`!a n i0. a < 2 EXP (64 * n) /\ 1 <= n /\ i0 DIV 64 = n - 1
-            ==> a DIV 2 EXP i0 = bigdigit a (n - 1) DIV 2 EXP (i0 MOD 64)`,
-  REPEAT STRIP_TAC THEN
-  REWRITE_TAC[bigdigit; DIV_DIV; GSYM EXP_ADD] THEN
-  SUBGOAL_THEN `(a DIV 2 EXP (64 * (n - 1))) MOD 2 EXP 64 = a DIV 2 EXP (64 * (n - 1))`
-   SUBST1_TAC THENL
-   [MATCH_MP_TAC MOD_LT THEN
-    SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ; GSYM EXP_ADD] THEN
-    TRANS_TAC LTE_TRANS `2 EXP (64 * n)` THEN ASM_REWRITE_TAC[LE_EXP; ARITH_EQ] THEN
-    ASM_ARITH_TAC;
-    ALL_TAC] THEN
-  REWRITE_TAC[DIV_DIV; GSYM EXP_ADD] THEN
-  SUBGOAL_THEN `64 * (n - 1) + i0 MOD 64 = i0` SUBST1_TAC THENL
-   [MP_TAC(SPECL [`i0:num`; `64`] DIVISION) THEN
-    ASM_REWRITE_TAC[ARITH_EQ] THEN ASM_ARITH_TAC;
-    REFL_TAC]);;
-
-let MASKVAL = prove
- (`!q. val (word_and (word (61 * q):int64) (word 63)) = (61 * q) MOD 64`,
-  GEN_TAC THEN
-  SUBGOAL_THEN `word 63:int64 = word (2 EXP 6 - 1)` SUBST1_TAC THENL
-   [CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
-  REWRITE_TAC[VAL_WORD_AND_MASK_WORD; VAL_WORD; DIMINDEX_64] THEN
-  REWRITE_TAC[ARITH_RULE `2 EXP 6 = 64`] THEN
-  ONCE_REWRITE_TAC[ARITH_RULE `2 EXP 64 = 64 * 2 EXP 58`] THEN
-  SIMP_TAC[MOD_MOD; EXP_EQ_0; ARITH_EQ; MULT_EQ_0]);;
-
-let X16_EQ = prove
- (`!n. 1 <= n /\ n < 2 EXP 60
-       ==> (if ~(val (word_and (word (61 * ((64 * n) DIV 61)):int64) (word 63)) = 0)
-            then word (61 * ((64 * n) DIV 61)):int64
-            else word_sub (word (61 * ((64 * n) DIV 61))) (word 61)) =
-           word (61 * ((64 * n + 60) DIV 61 - 1))`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[MASKVAL] THEN
-  SUBGOAL_THEN `61 <= 61 * ((64 * n) DIV 61)` ASSUME_TAC THENL
-   [MATCH_MP_TAC(ARITH_RULE `1 <= q ==> 61 <= 61 * q`) THEN
-    SIMP_TAC[LE_RDIV_EQ; ARITH_EQ] THEN ASM_ARITH_TAC; ALL_TAC] THEN
-  MP_TAC(SPEC `n:num` I0_EQ) THEN ASM_REWRITE_TAC[] THEN
-  DISCH_THEN(SUBST1_TAC o SYM) THEN COND_CASES_TAC THEN ASM_SIMP_TAC[WORD_SUB]);;
-
-let I0_BOUNDS = prove
- (`!n. 1 <= n /\ n < 2 EXP 60
-       ==> 64 * (n - 1) <= 61 * ((64 * n + 60) DIV 61 - 1) /\
-           61 * ((64 * n + 60) DIV 61 - 1) < 64 * n`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  MP_TAC(SPECL [`64 * n`; `61`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
-  ABBREV_TAC `q = (64 * n) DIV 61` THEN ABBREV_TAC `r = (64 * n) MOD 61` THEN
-  STRIP_TAC THEN
-  SUBGOAL_THEN `(64 * n + 60) DIV 61 = (if r = 0 then q else q + 1)` ASSUME_TAC THENL
-   [COND_CASES_TAC THENL
-     [MATCH_MP_TAC DIV_UNIQ THEN EXISTS_TAC `60` THEN ASM_ARITH_TAC;
-      MATCH_MP_TAC DIV_UNIQ THEN EXISTS_TAC `r - 1` THEN ASM_ARITH_TAC];
-    ALL_TAC] THEN
-  ASM_REWRITE_TAC[] THEN COND_CASES_TAC THEN ASM_ARITH_TAC);;
-
-let I0_DIV64 = prove
- (`!n. 1 <= n /\ n < 2 EXP 60
-       ==> (61 * ((64 * n + 60) DIV 61 - 1)) DIV 64 = n - 1`,
-  REPEAT STRIP_TAC THEN MP_TAC(SPEC `n:num` I0_BOUNDS) THEN ASM_REWRITE_TAC[] THEN
-  STRIP_TAC THEN MATCH_MP_TAC DIV_UNIQ THEN
-  EXISTS_TAC `61 * ((64 * n + 60) DIV 61 - 1) - 64 * (n - 1)` THEN
-  ASM_ARITH_TAC);;
-
-let X7_ID = prove
- (`!n. 1 <= n /\ n < 2 EXP 64 ==>
-       word_sub (word n:int64) (word 1) = word (n - 1) /\
-       val (word_sub (word n:int64) (word 1)) = n - 1`,
-  REPEAT STRIP_TAC THEN
-  (SUBGOAL_THEN `word_sub (word n:int64) (word 1) = word (n - 1)` ASSUME_TAC THENL
-    [ASM_SIMP_TAC[WORD_SUB]; ALL_TAC]) THEN
-  ASM_REWRITE_TAC[] THEN
-  MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC);;
-
-let X12_ID = prove
- (`!p. p < 2 EXP 64
-       ==> word_add (word_ushr (word p:int64) 6) (word 1) = word (p DIV 64 + 1)`,
-  REPEAT STRIP_TAC THEN
-  REWRITE_TAC[word_ushr; DIMINDEX_64; GSYM WORD_ADD] THEN
-  ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64] THEN
-  AP_TERM_TAC THEN AP_THM_TAC THEN AP_TERM_TAC THEN
-  REWRITE_TAC[ARITH_RULE `2 EXP 6 = 64`]);;
-
-let H0_ID = prove
- (`!c0 p. c0 < 2 EXP 64
-          ==> (if p < 64 then word_ushr (word c0:int64) p else word 0) =
-              word ((c0 DIV 2 EXP p) MOD 2 EXP 64)`,
-  REPEAT STRIP_TAC THEN COND_CASES_TAC THENL
-   [REWRITE_TAC[word_ushr] THEN AP_TERM_TAC THEN
-    ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64] THEN
-    CONV_TAC SYM_CONV THEN MATCH_MP_TAC MOD_LT THEN
-    ASM_SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ; GSYM EXP_ADD] THEN
-    TRANS_TAC LTE_TRANS `2 EXP 64` THEN ASM_REWRITE_TAC[LE_EXP; ARITH_EQ] THEN
-    ARITH_TAC;
-    AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
-    SUBGOAL_THEN `c0 DIV 2 EXP p = 0` SUBST1_TAC THENL
-     [MATCH_MP_TAC DIV_LT THEN TRANS_TAC LTE_TRANS `2 EXP 64` THEN
-      ASM_REWRITE_TAC[LE_EXP; ARITH_EQ] THEN ASM_ARITH_TAC;
-      REWRITE_TAC[MOD_0]]]);;
-
-let UDIV61_WORD = prove
- (`!n. n < 2 EXP 60
-       ==> val(word_add (word ((0xc9714fbcda3ac11 * val (word n:int64)) DIV 2 EXP 64))
-                        (word n):int64) = (64 * n) DIV 61`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `val(word n:int64) = n` SUBST1_TAC THENL
-   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC;
-    ALL_TAC] THEN
-  REWRITE_TAC[GSYM WORD_ADD] THEN
-  SUBGOAL_THEN
-   `(0xc9714fbcda3ac11 * n) DIV 2 EXP 64 + n = (64 * n) DIV 61` SUBST1_TAC THENL
-   [CONV_TAC SYM_CONV THEN
-    ASM_MESON_TAC[ARITH_RULE
-     `n < 2 EXP 60 ==> (64 * n) DIV 61 = (0xc9714fbcda3ac11 * n) DIV 2 EXP 64 + n`];
-    ALL_TAC] THEN
-  REWRITE_TAC[VAL_WORD; DIMINDEX_64] THEN MATCH_MP_TAC MOD_LT THEN
-  SIMP_TAC[RDIV_LT_EQ; ARITH_EQ] THEN ASM_ARITH_TAC);;
-
-(* X7-concretization helper for the top-block load address (impl form). *)
 let PREHEADER_X7 = prove
  (`!n. 1 <= n /\ n < 2 EXP 60 ==> read X7 s = word_sub (word n:int64) (word 1)
        ==> read X7 (s:armstate) = word (n - 1)`,
   REPEAT STRIP_TAC THEN ASM_REWRITE_TAC[] THEN MP_TAC(SPEC `n:num` X7_ID) THEN
   ANTS_TAC THENL [ASM_ARITH_TAC; SIMP_TAC[]]);;
-
-let JUSHR_WORD = prove
- (`!bd i0. bd < 2 EXP 64
-           ==> word_jushr (word bd:int64) (word i0) = word (bd DIV 2 EXP (i0 MOD 64))`,
-  REPEAT STRIP_TAC THEN
-  REWRITE_TAC[word_jushr; word_ushr; DIMINDEX_64; VAL_WORD] THEN
-  ASM_SIMP_TAC[MOD_LT] THEN AP_TERM_TAC THEN
-  SUBGOAL_THEN `i0 MOD 2 EXP 64 MOD 64 = i0 MOD 64` SUBST1_TAC THENL
-   [ONCE_REWRITE_TAC[ARITH_RULE `2 EXP 64 = 64 * 2 EXP 58`] THEN
-    SIMP_TAC[MOD_MOD; EXP_EQ_0; ARITH_EQ; MULT_EQ_0];
-    ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64]]);;
-
-let X19_ID = prove
- (`!k:num. k + 1 < 2 EXP 64
-       ==> (if val (word_add (word k:int64) (word 1)) < 1
-            then word_add (word k) (word 1) else word 1):int64 = word 1`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `val (word_add (word k:int64) (word 1)) = k + 1` ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN MATCH_MP_TAC VAL_WORD_EQ THEN
-    REWRITE_TAC[DIMINDEX_64] THEN ASM_REWRITE_TAC[];
-    ASM_REWRITE_TAC[ARITH_RULE `~(k + 1 < 1)`]]);;
-
-let X15_ID = prove
- (`!c0 p. c0 < 2 EXP 64 /\ p < 2 EXP 64
-          ==> (if val (word p:int64) < 64
-               then word_jushr (word c0:int64) (word p) else word 0) =
-              word ((c0 DIV 2 EXP p) MOD 2 EXP 64)`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `val (word p:int64) = p` ASSUME_TAC THENL
-   [MATCH_MP_TAC VAL_WORD_EQ THEN ASM_REWRITE_TAC[DIMINDEX_64]; ALL_TAC] THEN
-  ASM_REWRITE_TAC[] THEN COND_CASES_TAC THENL
-   [MP_TAC(SPECL [`c0:num`; `p:num`] JUSHR_WORD) THEN ASM_REWRITE_TAC[] THEN
-    DISCH_THEN SUBST1_TAC THEN
-    SUBGOAL_THEN `p MOD 64 = p` SUBST1_TAC THENL
-     [MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN MATCH_MP_TAC MOD_LT THEN
-    TRANS_TAC LET_TRANS `c0:num` THEN ASM_REWRITE_TAC[DIV_LE];
-    AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
-    SUBGOAL_THEN `c0 DIV 2 EXP p = 0` SUBST1_TAC THENL
-     [MATCH_MP_TAC DIV_LT THEN TRANS_TAC LTE_TRANS `2 EXP 64` THEN
-      ASM_REWRITE_TAC[LE_EXP; ARITH_EQ] THEN ASM_ARITH_TAC;
-      REWRITE_TAC[MOD_0]]]);;
-
-let ZFULL_ID = prove
- (`!z c0 s k:num. c0 < 2 EXP 64 /\ ~(k = 0) /\
-              read (memory :> bytes64 z) s = word c0 /\
-              bignum_from_memory (word_add z (word 8), k - 1) s = 0
-              ==> bignum_from_memory (z, k) s = c0`,
-  REPEAT STRIP_TAC THEN
-  GEN_REWRITE_TAC LAND_CONV [BIGNUM_FROM_MEMORY_EXPAND] THEN
-  ASM_REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES] THEN
-  ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64]);;
 
 let BIGNUM_MOD_PREHEADER = prove
  (`!k z n x m a b w p pc.
@@ -2676,7 +7019,6 @@ let BIGNUM_MOD_PREHEADER = prove
 (* SUBROUTINE wrapper below; keeping CORRECT stack-free avoids simulating the   *)
 (* prologue stores.  Template: bignum_modinv (pc+0x8..pc+0x4e0).                *)
 
-
 (* ===== MAINLOOP ARITH LEMMAS ===== *)
 (* Stage 3 main-loop arithmetic support lemmas (bignum_mod ARM, 2026-07-24).
    All proven cheat-free in the live session.  Independent of the ARM sim;
@@ -2684,1240 +7026,6 @@ let BIGNUM_MOD_PREHEADER = prove
 
 (* 61-bit block recurrence for the congruence maintenance:
      a DIV 2^(61t) = 2^61 * (a DIV 2^(61(t+1))) + (a DIV 2^(61t)) MOD 2^61. *)
-let BLOCKSPLIT = prove
- (`!a t. a DIV 2 EXP (61 * t) =
-         2 EXP 61 * (a DIV 2 EXP (61 * (t + 1))) + (a DIV 2 EXP (61 * t)) MOD 2 EXP 61`,
-  REPEAT GEN_TAC THEN
-  REWRITE_TAC[ARITH_RULE `61 * (t + 1) = 61 * t + 61`; GSYM DIV_DIV; EXP_ADD] THEN
-  SPEC_TAC(`a DIV 2 EXP (61 * t)`,`d:num`) THEN GEN_TAC THEN
-  MP_TAC(SPECL [`d:num`; `2 EXP 61`] DIVISION) THEN
-  REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
-
-(* low 128 bits split into two adjacent words *)
-let LO128 = prove
- (`!M. 2 EXP 64 * (M DIV 2 EXP 64) MOD 2 EXP 64 + M MOD 2 EXP 64 = M MOD 2 EXP 128`,
-  GEN_TAC THEN REWRITE_TAC[ARITH_RULE `128 = 64 + 64`; EXP_ADD; MOD_MULT_MOD] THEN
-  ARITH_TAC);;
-
-let TWODIGIT_128 = prove
- (`!a q. 2 EXP 64 * bigdigit a (q + 1) + bigdigit a q =
-         (a DIV 2 EXP (64 * q)) MOD 2 EXP 128`,
-  REPEAT GEN_TAC THEN REWRITE_TAC[bigdigit] THEN
-  REWRITE_TAC[ARITH_RULE `64 * (q + 1) = 64 * q + 64`; EXP_ADD; GSYM DIV_DIV] THEN
-  REWRITE_TAC[LO128]);;
-
-(* the 61-bit block LOAD: the two-word funnel c = (x>>i) window equals the
-   bitfield of a at bit i.  ARM loads x[i/64],x[i/64+1], lsr by i mod 64, lsl
-   the hi word, orr; = (a DIV 2^i) MOD 2^64 (unmasked; 61-bit mask applied later). *)
-let BLOCKLOAD_ARITH = prove
- (`!a i. (a DIV 2 EXP i) MOD 2 EXP 64 =
-         ((2 EXP 64 * bigdigit a (i DIV 64 + 1) + bigdigit a (i DIV 64))
-          DIV 2 EXP (i MOD 64)) MOD 2 EXP 64`,
-  REPEAT GEN_TAC THEN REWRITE_TAC[TWODIGIT_128] THEN
-  MP_TAC(SPECL [`i:num`; `64`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
-  ABBREV_TAC `q = i DIV 64` THEN ABBREV_TAC `r = i MOD 64` THEN STRIP_TAC THEN
-  ABBREV_TAC `M = a DIV 2 EXP (64 * q)` THEN
-  SUBGOAL_THEN `a DIV 2 EXP i = M DIV 2 EXP r` SUBST1_TAC THENL
-   [EXPAND_TAC "M" THEN REWRITE_TAC[DIV_DIV; GSYM EXP_ADD] THEN
-    AP_TERM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC;
-    ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP 128 = 2 EXP r * 2 EXP (128 - r)` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-  REWRITE_TAC[GSYM DIV_MOD] THEN ONCE_REWRITE_TAC[GSYM MOD_MOD_EXP_MIN] THEN
-  CONV_TAC SYM_CONV THEN REWRITE_TAC[MOD_MOD_EXP_MIN] THEN
-  AP_TERM_TAC THEN AP_TERM_TAC THEN
-  REWRITE_TAC[ARITH_RULE `MIN (128 - r) 64 = 64 <=> 64 <= 128 - r`] THEN
-  ASM_ARITH_TAC);;
-
-(* congruence-maintenance NUMBER_RULE (verified in session):
-     (Z == at)(mod b) /\ ap = 2^61*at + c /\ Zp + q*b = 2^61*Z + c
-       ==> (Zp == ap)(mod b).
-   The additive form Zp + q*b = ... sidesteps nat subtraction (RECIP_QBOUND's
-   lower bound guarantees Zp >= 0 i.e. q*b <= 2^61*Z + c). *)
-let CONG_MAINTAIN = NUMBER_RULE
- `!Z Zp c q b ap at.
-       (Z == at)(mod b) /\
-       ap = 2 EXP 61 * at + c /\
-       Zp + q * b = 2 EXP 61 * Z + c
-       ==> (Zp == ap)(mod b)`;;
-
-(* funnel shift right by r of a two-word value (r <= 64) *)
-let DIVSPLIT64 = prove
- (`!w0 w1 r. r <= 64
-     ==> (2 EXP 64 * w1 + w0) DIV 2 EXP r = 2 EXP (64 - r) * w1 + w0 DIV 2 EXP r`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `2 EXP 64 = 2 EXP (64 - r) * 2 EXP r` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-  REWRITE_TAC[GSYM MULT_ASSOC] THEN ONCE_REWRITE_TAC[MULT_SYM] THEN
-  ONCE_REWRITE_TAC[ARITH_RULE `(2 EXP r * w1) * 2 EXP (64 - r) + w0 =
-                               (w1 * 2 EXP (64 - r)) * 2 EXP r + w0`] THEN
-  SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ]);;
-
-(* the 61-bit masked block: the ARM loads x[q],x[q+1] and funnel-shifts right by
-   r = i MOD 64; the low-61 masked result = (a DIV 2^(64q+r)) MOD 2^61 = block at
-   bit i.  Two cases: general (both words = bigdigit a), OR the top block where
-   x[q+1] may be one-past-the-end GARBAGE but r <= 3 so it lands above bit 61 and
-   is discarded.  q = i DIV 64, r = i MOD 64, 64q+r = i. *)
-let BLOCKLOAD_MASKED = prove
- (`!a q r w0 w1.
-     r < 64 /\ w0 = bigdigit a q /\ (r <= 3 \/ w1 = bigdigit a (q + 1))
-     ==> ((2 EXP 64 * w1 + w0) DIV 2 EXP r) MOD 2 EXP 61 =
-         (a DIV 2 EXP (64 * q + r)) MOD 2 EXP 61`,
-  REPEAT GEN_TAC THEN
-  DISCH_THEN(CONJUNCTS_THEN2 ASSUME_TAC
-    (CONJUNCTS_THEN2 ASSUME_TAC DISJ_CASES_TAC)) THEN
-  ASM_REWRITE_TAC[bigdigit] THENL
-   [ASM_SIMP_TAC[DIVSPLIT64; LT_IMP_LE] THEN
-    SUBGOAL_THEN `2 EXP (64 - r) = 2 EXP 61 * 2 EXP (3 - r)` SUBST1_TAC THENL
-     [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-    REWRITE_TAC[GSYM MULT_ASSOC] THEN ONCE_REWRITE_TAC[ADD_SYM] THEN
-    SIMP_TAC[MOD_MULT_ADD] THEN
-    ONCE_REWRITE_TAC[ADD_SYM] THEN
-    REWRITE_TAC[EXP_ADD; GSYM DIV_DIV] THEN
-    ABBREV_TAC `M = a DIV 2 EXP (64 * q)` THEN
-    SUBGOAL_THEN `2 EXP 64 = 2 EXP r * 2 EXP (64 - r)` SUBST1_TAC THENL
-     [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-    REWRITE_TAC[GSYM DIV_MOD] THEN ONCE_REWRITE_TAC[GSYM MOD_MOD_EXP_MIN] THEN
-    CONV_TAC SYM_CONV THEN REWRITE_TAC[MOD_MOD_EXP_MIN] THEN
-    AP_TERM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC;
-    REWRITE_TAC[GSYM bigdigit; TWODIGIT_128] THEN
-    SUBGOAL_THEN `a DIV 2 EXP (64 * q + r) = (a DIV 2 EXP (64 * q)) DIV 2 EXP r`
-     SUBST1_TAC THENL
-     [REWRITE_TAC[DIV_DIV; GSYM EXP_ADD]; ALL_TAC] THEN
-    ABBREV_TAC `M = a DIV 2 EXP (64 * q)` THEN
-    SUBGOAL_THEN `2 EXP 128 = 2 EXP r * 2 EXP (128 - r)` SUBST1_TAC THENL
-     [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-    REWRITE_TAC[GSYM DIV_MOD] THEN ONCE_REWRITE_TAC[GSYM MOD_MOD_EXP_MIN] THEN
-    CONV_TAC SYM_CONV THEN REWRITE_TAC[MOD_MOD_EXP_MIN] THEN
-    AP_TERM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC]);;
-
-(* mask to low 6 bits = MOD 64, for concretizing the funnel shift amount X9 =
-   word_and(word(61*i))(word 63) before the lsr/lsl in the block load. *)
-let MASKW = prove
- (`!i. 61 * i < 2 EXP 64
-       ==> word_and (word (61 * i):int64) (word 63) = word ((61 * i) MOD 64)`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `word 63:int64 = word (2 EXP 6 - 1)` SUBST1_TAC THENL
-   [CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
-  REWRITE_TAC[WORD_AND_MASK_WORD] THEN
-  ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64] THEN
-  REWRITE_TAC[ARITH_RULE `2 EXP 6 = 64`]);;
-
-(* block funnel csel value (mirror of CSEL_WINDOW_VAL; block does lo>>r|hi<<(64-r),
-   csel picks lo>>r if r=0).  Uses word_jushr/word_jshl (the ARM LSRV/LSLV forms,
-   which mod the shift amount by 64).  Feeds the block-load: with hi=x[q+1],
-   lo=x[q], r=(61*i)MOD 64, gives the two-word funnel = (2^64*hi+lo) DIV 2^r MOD
-   2^64, which BLOCKLOAD_ARITH/MASKED then relate to the block (a DIV 2^(61i)). *)
-let CSEL_BLOCK_VAL = prove
- (`!hi lo r. r < 64 /\ hi < 2 EXP 64 /\ lo < 2 EXP 64
-     ==> val((if val(word r:int64) = 0
-              then word_jushr (word lo:int64) (word r:int64)
-              else word_or (word_jushr (word lo:int64) (word r:int64))
-                   (word_jshl (word hi:int64) (word_sub (word 0) (word r):int64)))
-             :int64)
-         = (2 EXP 64 * hi + lo) DIV 2 EXP r MOD 2 EXP 64`,
-  REPEAT STRIP_TAC THEN
-  REWRITE_TAC[word_jushr; word_jshl; DIMINDEX_64] THEN
-  SUBGOAL_THEN `val(word r:int64) MOD 64 = r` SUBST1_TAC THENL
-   [SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; ARITH_RULE `r < 64 ==> r < 2 EXP 64`;
-             ASSUME `r < 64`] THEN ASM_SIMP_TAC[MOD_LT]; ALL_TAC] THEN
-  ASM_CASES_TAC `r = 0` THENL
-   [ASM_REWRITE_TAC[WORD_SUB_0; VAL_WORD_0; SUB_0] THEN
-    REWRITE_TAC[word_ushr; VAL_WORD; DIMINDEX_64; EXP; DIV_1; MULT_CLAUSES] THEN
-    ASM_SIMP_TAC[MOD_LT] THEN
-    SUBGOAL_THEN `lo DIV 2 EXP 64 = 0` SUBST1_TAC THENL
-     [MATCH_MP_TAC DIV_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    CONV_TAC SYM_CONV THEN
-    ONCE_REWRITE_TAC[GSYM MOD_ADD_MOD] THEN
-    SIMP_TAC[MOD_MULT; ADD_CLAUSES; MOD_MOD_REFL] THEN ASM_SIMP_TAC[MOD_LT];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `~(val(word r:int64) = 0)` (fun th -> REWRITE_TAC[th]) THENL
-   [ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; ARITH_RULE `r < 64 ==> r < 2 EXP 64`];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `val(word_sub (word 0) (word r):int64) MOD 64 = 64 - r` SUBST1_TAC THENL
-   [REWRITE_TAC[VAL_WORD_SUB; VAL_WORD_0; VAL_WORD; DIMINDEX_64] THEN
-    ASM_SIMP_TAC[MOD_LT; ARITH_RULE `r < 64 ==> r < 2 EXP 64`] THEN
-    SUBGOAL_THEN `!x. x MOD 2 EXP 64 MOD 64 = x MOD 64` (fun th -> REWRITE_TAC[th]) THENL
-     [GEN_TAC THEN ONCE_REWRITE_TAC[ARITH_RULE `2 EXP 64 = 64 * 2 EXP 58`] THEN
-      REWRITE_TAC[MOD_MOD]; ALL_TAC] THEN
-    SUBGOAL_THEN `(0 + 2 EXP 64 - r) MOD 64 = (64 - r) MOD 64` SUBST1_TAC THENL
-     [REWRITE_TAC[ADD_CLAUSES] THEN
-      SUBGOAL_THEN `2 EXP 64 - r = (64 - r) + 64 * (2 EXP 58 - 1)` SUBST1_TAC THENL
-       [ASM_ARITH_TAC; ALL_TAC] THEN
-      ONCE_REWRITE_TAC[ADD_SYM] THEN REWRITE_TAC[MOD_MULT_ADD];
-      ASM_SIMP_TAC[MOD_LT; ARITH_RULE `~(r=0) /\ r < 64 ==> 64 - r < 64`]];
-    ALL_TAC] THEN
-  W(MP_TAC o PART_MATCH (lhand o rand) VAL_WORD_OR_DISJOINT o lhand o snd) THEN
-  ANTS_TAC THENL
-   [REWRITE_TAC[WORD_EQ_BITS_ALT; BIT_WORD_AND; BIT_WORD_0] THEN
-    REWRITE_TAC[BIT_WORD_USHR; BIT_WORD_SHL; DIMINDEX_64] THEN
-    X_GEN_TAC `j:num` THEN DISCH_TAC THEN
-    DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
-    SUBGOAL_THEN `j + r < 64` MP_TAC THENL
-     [UNDISCH_TAC `bit (j + r) (word lo:int64)` THEN
-      GEN_REWRITE_TAC LAND_CONV [BIT_WORD] THEN REWRITE_TAC[DIMINDEX_64] THEN
-      STRIP_TAC THEN ASM_REWRITE_TAC[]; ASM_ARITH_TAC];
-    ALL_TAC] THEN
-  DISCH_THEN SUBST1_TAC THEN
-  REWRITE_TAC[VAL_WORD_USHR; VAL_WORD_SHL; DIMINDEX_64] THEN
-  ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64] THEN
-  ASM_SIMP_TAC[DIVSPLIT64; LT_IMP_LE] THEN
-  SUBGOAL_THEN `(2 EXP (64 - r) * hi) MOD 2 EXP 64 = 2 EXP (64 - r) * (hi MOD 2 EXP r)`
-   ASSUME_TAC THENL
-   [SUBGOAL_THEN `2 EXP 64 = 2 EXP (64 - r) * 2 EXP r`
-     (fun th -> GEN_REWRITE_TAC (LAND_CONV o RAND_CONV) [th]) THENL
-     [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-    REWRITE_TAC[MOD_MULT2] THEN REWRITE_TAC[MULT_AC];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `lo DIV 2 EXP r < 2 EXP (64 - r)` ASSUME_TAC THENL
-   [SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ; GSYM EXP_ADD] THEN
-    SUBGOAL_THEN `r + (64 - r) = 64` SUBST1_TAC THENL
-     [ASM_ARITH_TAC; ASM_REWRITE_TAC[]]; ALL_TAC] THEN
-  SUBGOAL_THEN `hi MOD 2 EXP r < 2 EXP r` ASSUME_TAC THENL
-   [SIMP_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP (64 - r) * (hi MOD 2 EXP r) + lo DIV 2 EXP r < 2 EXP 64`
-   ASSUME_TAC THENL
-   [SUBGOAL_THEN `2 EXP 64 = 2 EXP (64 - r) * 2 EXP r`
-     (fun th -> ONCE_REWRITE_TAC[th]) THENL
-     [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-    MATCH_MP_TAC LTE_TRANS THEN
-    EXISTS_TAC `2 EXP (64 - r) * (hi MOD 2 EXP r) + 2 EXP (64 - r)` THEN
-    ASM_REWRITE_TAC[LT_ADD_LCANCEL] THEN
-    REWRITE_TAC[ARITH_RULE `e * m + e = e * SUC m`; LE_MULT_LCANCEL] THEN
-    DISJ2_TAC THEN ASM_REWRITE_TAC[LE_SUC_LT];
-    ALL_TAC] THEN
-  GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [GSYM MOD_ADD_MOD] THEN
-  ASM_REWRITE_TAC[] THEN
-  SUBGOAL_THEN `(lo DIV 2 EXP r) MOD 2 EXP 64 = lo DIV 2 EXP r` SUBST1_TAC THENL
-   [MATCH_MP_TAC MOD_LT THEN TRANS_TAC LET_TRANS `lo:num` THEN
-    ASM_REWRITE_TAC[DIV_LE];
-    ALL_TAC] THEN
-  ASM_SIMP_TAC[MOD_LT] THEN ARITH_TAC);;
-
-(* Per-word fused negate-add value identity (the inner-loop accumulation core).
-   The ARM inner loop does: ll+2^64*mm = q*~m[ii] (mul/umulh); ss'=z[ii]+hh with
-   carry cf1 (adds/cset); ss=ss'+ll with carry cf2 (adds); hh'=cf1+mm+cf2 (adc).
-   This gives 2^64*hh'+ss = z[ii]+hh+q*~m[ii], i.e. one word of cmnegadd's
-   z:=z+q*(2^64-1-m) accumulation.  Q abbreviates q*(2^64-1-m_ii) to keep it
-   linear for REAL_ARITH (the product is opaque; the mul-step hyp supplies its
-   value).  Proven by MP_TAC all four hyps + REAL_ARITH (fully linear in Q). *)
-let INNERSTEP_VAL = prove
- (`!Q z_ii hh hh' ss' ss ll mm cf1 cf2:real.
-     ll + &2 pow 64 * mm = Q /\
-     z_ii + hh = ss' + &2 pow 64 * cf1 /\
-     ss' + ll = ss + &2 pow 64 * cf2 /\
-     hh' = cf1 + mm + cf2
-     ==> &2 pow 64 * hh' + ss = z_ii + hh + Q`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  REPEAT(FIRST_X_ASSUM MP_TAC) THEN REAL_ARITH_TAC);;
-
-(* extr funnel value: z'[ii] = extr(ss,c,#3) = word_subword(word_join ss c)(3,64).
-   This is the fused z<<61 (BLOCKSIZE=61=64-3): the store shifts each word left 61
-   at the bignum level by funnelling the top 61 bits of the carry word c with the
-   low 3 bits of the new accumulator ss.  val = 2^61*(ss MOD 8) + c DIV 8. *)
-let EXTR_FUNNEL_VAL = prove
- (`!ss c. val(word_subword ((word_join (word ss:int64) (word c:int64)):int128) (3,64):int64)
-          = 2 EXP 61 * (val(word ss:int64) MOD 2 EXP 3) + val(word c:int64) DIV 2 EXP 3`,
-  REPEAT GEN_TAC THEN
-  SIMP_TAC[VAL_WORD_SUBWORD_JOIN_64; ARITH_RULE `3 <= 64`] THEN
-  REWRITE_TAC[ARITH_RULE `64 - 3 = 61`]);;
-
-(* ===== INNER-LOOP invariant algebra (all proven 2026-07-25) ===== *)
-
-(* INNER_ADVANCE: the fused shift+negate-add invariant closes under one body step.
-   Invariant value clause INV(ii):
-     bignum(z',ii) + 2^(64ii)*(c_ii DIV 8 + 2^61*hh_ii)
-       = block + 2^61*(lowdigits z ii + q + q*lowdigits(~m) ii)
-   Given the extr store z'[ii] = 2^61*(ss MOD 8) + c DIV 8 and the negate-add
-   2^64*hh' + ss = z[ii] + hh + q*nm[ii], INV(ii) advances to INV(ii+1).  The
-   c_ii DIV 8 (carry word) cancels; proven by NUM_RING after splitting ss = 8*sd+sr
-   and 2^64 = 8*2^61. *)
-let INNER_ADVANCE = prove
- (`!block q Zii cii hhii ssii hhii1 LDz LDnm zi nmi ii.
-     Zii + 2 EXP (64 * ii) * (cii DIV 8 + 2 EXP 61 * hhii) =
-       block + 2 EXP 61 * (LDz + q + q * LDnm) /\
-     2 EXP 64 * hhii1 + ssii = zi + hhii + q * nmi
-     ==> (Zii + 2 EXP (64 * ii) * (2 EXP 61 * (ssii MOD 2 EXP 3) + cii DIV 8)) +
-         2 EXP (64 * (ii + 1)) * (ssii DIV 8 + 2 EXP 61 * hhii1) =
-         block + 2 EXP 61 * ((LDz + 2 EXP (64 * ii) * zi) + q +
-                             q * (LDnm + 2 EXP (64 * ii) * nmi))`,
-  REPEAT GEN_TAC THEN
-  MP_TAC(SPECL [`ssii:num`; `2 EXP 3`] DIVISION) THEN
-  REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
-  DISCH_THEN(MP_TAC o CONJUNCT1) THEN
-  REWRITE_TAC[ARITH_RULE `64 * (ii + 1) = 64 * ii + 64`; EXP_ADD] THEN
-  REWRITE_TAC[ARITH_RULE `2 EXP 3 = 8`; ARITH_RULE `2 EXP 64 = 8 * 2 EXP 61`] THEN
-  CONV_TAC NUM_RING);;
-
-(* INNER_ENTRY: invariant holds at ii=0 (Z0=0, c0=block<<3 so c0 DIV 8=block, hh0=q). *)
-let INNER_ENTRY = prove
- (`!block0 q.
-     (0 + 2 EXP (64 * 0) * ((2 EXP 3 * block0) DIV 8 + 2 EXP 61 * q)) =
-     block0 + 2 EXP 61 * (0 + q + q * 0)`,
-  REPEAT GEN_TAC THEN
-  REWRITE_TAC[MULT_CLAUSES; EXP; ADD_CLAUSES; ARITH_RULE `2 EXP 3 = 8`] THEN
-  SIMP_TAC[DIV_MULT; ARITH_EQ] THEN ARITH_TAC);;
-
-(* COMPLEMENT_STEP: the ~m complement running sum advances.
-   cn + lowdigits m ii + 1 = 2^(64ii)  ==>  (cn + 2^(64ii)*(2^64-1-m[ii])) +
-   (2^(64ii)*m[ii] + lowdigits m ii) + 1 = 2^(64(ii+1)).  Feeds the exit identity
-   lowdigits(~m) dd + lowdigits m dd + 1 = 2^(64dd). *)
-let COMPLEMENT_STEP = prove
- (`!cn Lm ii mi.
-      cn + Lm + 1 = 2 EXP (64 * ii) /\ mi < 2 EXP 64
-      ==> (cn + 2 EXP (64 * ii) * (2 EXP 64 - 1 - mi)) +
-          (2 EXP (64 * ii) * mi + Lm) + 1 = 2 EXP (64 * (ii + 1))`,
-  REPEAT STRIP_TAC THEN
-  REWRITE_TAC[ARITH_RULE `64 * (ii + 1) = 64 * ii + 64`; EXP_ADD] THEN
-  ABBREV_TAC `E = 2 EXP (64 * ii)` THEN
-  SUBGOAL_THEN `(2 EXP 64 - 1 - mi) + mi + 1 = 2 EXP 64` MP_TAC THENL
-   [UNDISCH_TAC `mi < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
-  UNDISCH_TAC `cn + Lm + 1 = E` THEN
-  SPEC_TAC(`2 EXP 64 - 1 - mi`,`nmi:num`) THEN
-  REPEAT STRIP_TAC THEN
-  REPEAT(FIRST_X_ASSUM MP_TAC) THEN CONV_TAC NUM_RING);;
-
-(* NEGADD_ADDITIVE: convert the negate-add exit value to the -q*m subtract form
-   (additive, no nat subtraction) feeding CONG_MAINTAIN.  Given lowdigits(~m) dd +
-   lowdigits m dd + 1 = 2^(64dd) and the invariant exit value Zfull. *)
-let NEGADD_ADDITIVE = prove
- (`!q LDz LDnm LDm dd block Zfull.
-     LDnm + LDm + 1 = 2 EXP (64 * dd) /\
-     Zfull = block + 2 EXP 61 * (LDz + q + q * LDnm)
-     ==> Zfull + 2 EXP 61 * (q * LDm) =
-         block + 2 EXP 61 * LDz + 2 EXP 61 * (q * 2 EXP (64 * dd))`,
-  REPEAT STRIP_TAC THEN
-  FIRST_X_ASSUM SUBST1_TAC THEN
-  FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN
-  CONV_TAC NUM_RING);;
-
-(* ===== ADDITIVE inner-loop invariant (the CLEAN single-clause form, 2026-07-25).
-   Folds shift + negate-add + ~m-complement into ONE NUM_RING advance, tracking
-   lowdigits b directly (no separate complement accumulator).  This is the form to
-   use as the ENSURES_WHILE_AUP value clause.
-   INV_add(ii):  bignum(z,ii) + 2^(64ii)*(cw DIV 8 + 2^61*hh) + 2^61*(q*lowdigits b ii)
-                   = block + 2^61*(lowdigits zorig ii) + 2^61*(q*2^(64ii))     ===== *)
-
-let INNER_ENTRY_ADD = prove
- (`!block q.
-     0 + 2 EXP (64 * 0) * ((2 EXP 3 * block) DIV 8 + 2 EXP 61 * q) +
-       2 EXP 61 * (q * 0) =
-     block + 2 EXP 61 * 0 + 2 EXP 61 * (q * 2 EXP (64 * 0))`,
-  REWRITE_TAC[MULT_CLAUSES; EXP; ADD_CLAUSES; ARITH_RULE `2 EXP 3 = 8`] THEN
-  SIMP_TAC[DIV_MULT; ARITH_EQ] THEN ARITH_TAC);;
-
-let INNER_ADVANCE_ADD = prove
- (`!block q Zii cw hh ss hh' LDz LDb zi bi ii.
-     Zii + 2 EXP (64 * ii) * (cw DIV 8 + 2 EXP 61 * hh) + 2 EXP 61 * (q * LDb) =
-       block + 2 EXP 61 * LDz + 2 EXP 61 * (q * 2 EXP (64 * ii)) /\
-     2 EXP 64 * hh' + ss = zi + hh + q * (2 EXP 64 - 1 - bi) /\
-     bi < 2 EXP 64
-     ==> (Zii + 2 EXP (64 * ii) * (2 EXP 61 * (ss MOD 2 EXP 3) + cw DIV 8)) +
-         2 EXP (64 * (ii + 1)) * (ss DIV 2 EXP 3 + 2 EXP 61 * hh') +
-         2 EXP 61 * (q * (2 EXP (64 * ii) * bi + LDb)) =
-         block + 2 EXP 61 * (2 EXP (64 * ii) * zi + LDz) +
-         2 EXP 61 * (q * 2 EXP (64 * (ii + 1)))`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  REWRITE_TAC[ARITH_RULE `64 * (ii + 1) = 64 * ii + 64`; EXP_ADD] THEN
-  MP_TAC(SPECL [`ss:num`; `8`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
-  REWRITE_TAC[ARITH_RULE `2 EXP 3 = 8`] THEN
-  ABBREV_TAC `sd = ss DIV 8` THEN ABBREV_TAC `sr = ss MOD 8` THEN
-  DISCH_THEN(CONJUNCTS_THEN2 SUBST_ALL_TAC ASSUME_TAC) THEN
-  ABBREV_TAC `nbi = 2 EXP 64 - 1 - bi` THEN
-  SUBGOAL_THEN `nbi + bi + 1 = 2 EXP 64` ASSUME_TAC THENL
-   [MAP_EVERY EXPAND_TAC ["nbi"] THEN UNDISCH_TAC `bi < 2 EXP 64` THEN ARITH_TAC;
-    ALL_TAC] THEN
-  UNDISCH_TAC `2 EXP 64 * hh' + sd * 8 + sr = zi + hh + q * nbi` THEN
-  UNDISCH_TAC `Zii + 2 EXP (64 * ii) * (cw DIV 8 + 2 EXP 61 * hh) + 2 EXP 61 * q * LDb =
-    block + 2 EXP 61 * LDz + 2 EXP 61 * q * 2 EXP (64 * ii)` THEN
-  UNDISCH_TAC `nbi + bi + 1 = 2 EXP 64` THEN
-  REWRITE_TAC[ARITH_RULE `2 EXP 64 = 8 * 2 EXP 61`] THEN
-  CONV_TAC NUM_RING);;
-
-(* NEGADD_STEP: the inner-loop negate-add relation, WITH carry_s9=0 automatic (NO
-   q-bound needed).  From the 4 ARM accumulate eqns (adds@6: 2^64*cb6+s6=zi+hh;
-   adds@8: 2^64*cb8+s8=s6+mullo; adc@9: 2^64*cb9+s9=cb6+mulhi+cb8; mul/umulh:
-   2^64*mulhi+mullo=q*nm) + word bounds, get 2^64*s9+s8 = zi+hh+q*nm.  Key: total
-   zi+hh+q*nm <= (2^64-1)+(2^64-1)+(2^64-1)^2 = 2^128-1 < 2^128, so the running high
-   word s9 < 2^64 (cb9=0) automatically -- the earlier "no-overflow needs the
-   q-bound" worry was WRONG (the boundary zi+hh=2^65-1 exceeds the true max 2^65-2).
-   This DECOUPLES the inner loop from RECIP_QBOUND. *)
-let NEGADD_STEP = prove
- (`!zi hh q nm s6 s8 s9 mullo mulhi cb6 cb8 cb9.
-     2 EXP 64 * cb6 + s6 = zi + hh /\
-     2 EXP 64 * cb8 + s8 = s6 + mullo /\
-     2 EXP 64 * cb9 + s9 = cb6 + mulhi + cb8 /\
-     2 EXP 64 * mulhi + mullo = q * nm /\
-     zi < 2 EXP 64 /\ hh < 2 EXP 64 /\ q < 2 EXP 64 /\ nm < 2 EXP 64 /\
-     cb6 <= 1 /\ cb8 <= 1 /\ cb9 <= 1
-     ==> 2 EXP 64 * s9 + s8 = zi + hh + q * nm`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `q * nm <= (2 EXP 64 - 1) * (2 EXP 64 - 1)` ASSUME_TAC THENL
-   [MATCH_MP_TAC LE_MULT2 THEN CONJ_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `cb6 + mulhi + cb8 < 2 EXP 64` ASSUME_TAC THENL
-   [MATCH_MP_TAC(ARITH_RULE `2 EXP 64 * x + s8 <= 2 EXP 128 - 1 ==> x < 2 EXP 64`) THEN
-    MP_TAC(ARITH_RULE `(2 EXP 64 - 1) * (2 EXP 64 - 1) + (2 EXP 64 - 1) + (2 EXP 64 - 1)
-       <= 2 EXP 128 - 1`) THEN
-    ASM_ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `cb9 = 0` SUBST_ALL_TAC THENL
-   [ASM_ARITH_TAC; ALL_TAC] THEN
-  ASM_ARITH_TAC);;
-
-(* ===== TAIL (trivnegadd/noel) branch-condition + arithmetic helpers (2026-07-25) *)
-
-(* Branch conditions for the tail's `cmp ii,k; b.eq/b.ne` steps.  With these in the
-   assumptions, ARM_STEPS resolves the beq/bne without stalling on the symbolic PC. *)
-let WORD_SUB_NE_0_LT = prove
- (`!ii k. ii < k /\ k < 2 EXP 64 ==> ~(val(word_sub (word ii) (word k):int64) = 0)`,
-  REPEAT STRIP_TAC THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[VAL_EQ_0; WORD_SUB_EQ_0]) THEN
-  SUBGOAL_THEN `word ii:int64 = word k <=> ii = k` MP_TAC THENL
-   [MATCH_MP_TAC WORD_EQ_IMP THEN REWRITE_TAC[DIMINDEX_64] THEN
-    CONJ_TAC THENL [UNDISCH_TAC `ii < k` THEN UNDISCH_TAC `k < 2 EXP 64` THEN ARITH_TAC;
-                    ASM_REWRITE_TAC[]];
-    ASM_REWRITE_TAC[] THEN UNDISCH_TAC `ii < k` THEN ARITH_TAC]);;
-
-let WORD_SUB_EQ_0_SAME = prove
- (`!ii:num. val(word_sub (word ii) (word ii):int64) = 0`,
-  REWRITE_TAC[VAL_EQ_0; WORD_SUB_REFL]);;
-
-(* Two-word split for the tail's extr + shl: the stored word extr(ss,c,3) plus the
-   next carry word ss DIV 8 together = a 2^61-shift of ss (times 2^64) + c DIV 8. *)
-let TAIL_TWOWORD = prove
- (`!ss c. 2 EXP 64 * (2 EXP 61 * (ss MOD 2 EXP 3) + c DIV 2 EXP 3) +
-          2 EXP 128 * (ss DIV 2 EXP 3) =
-          2 EXP 64 * (c DIV 2 EXP 3) + 2 EXP 125 * ss`,
-  REPEAT GEN_TAC THEN
-  MP_TAC(SPECL [`ss:num`; `2 EXP 3`] DIVISION) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
-  ABBREV_TAC `sd = ss DIV 2 EXP 3` THEN ABBREV_TAC `sr = ss MOD 2 EXP 3` THEN
-  DISCH_THEN(MP_TAC o CONJUNCT1) THEN
-  REWRITE_TAC[ARITH_RULE `2 EXP 128 = 2 EXP 64 * 2 EXP 64`;
-              ARITH_RULE `2 EXP 125 = 2 EXP 64 * 2 EXP 61`;
-              ARITH_RULE `2 EXP 64 = 2 EXP 61 * 2 EXP 3`] THEN
-  CONV_TAC NUM_RING);;
-
-(* ===== BODY-ASSEMBLY bridges (2026-07-25) ===== *)
-
-(* Q_RELATION: qsetup's q = (w*h) DIV 2^64 + h  =  RECIP_QBOUND's ((2^64+w)*h) DIV 2^64.
-   Bridges the umulh-based quotient estimate to the reciprocal-bound form. *)
-let Q_RELATION = prove
- (`!w h. (w * h) DIV 2 EXP 64 + h = ((2 EXP 64 + w) * h) DIV 2 EXP 64`,
-  REPEAT GEN_TAC THEN
-  REWRITE_TAC[RIGHT_ADD_DISTRIB] THEN
-  SUBGOAL_THEN `2 EXP 64 * h + w * h = h * 2 EXP 64 + w * h` SUBST1_TAC THENL
-   [ARITH_TAC; ALL_TAC] THEN
-  SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
-
-(* CONG_STEP: one 61-bit block step maintains the congruence.  Given the incoming
-   (Zfull == a DIV 2^(61(t+1)))(mod b) and the body's additive relation
-   Zfull' + q*b = 2^61*Zfull + block  (block = (a DIV 2^(61t)) MOD 2^61, the loaded
-   61-bit window), get (Zfull' == a DIV 2^(61t))(mod b).  = BLOCKSPLIT + CONG_MAINTAIN. *)
-let CONG_STEP = prove
- (`!a b t Zfull Zfull' q.
-     (Zfull == a DIV 2 EXP (61 * (t + 1))) (mod b) /\
-     Zfull' + q * b = 2 EXP 61 * Zfull + (a DIV 2 EXP (61 * t)) MOD 2 EXP 61
-     ==> (Zfull' == a DIV 2 EXP (61 * t)) (mod b)`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(ISPECL
-   [`Zfull:num`; `Zfull':num`; `(a DIV 2 EXP (61 * t)) MOD 2 EXP 61`;
-    `q:num`; `b:num`; `a DIV 2 EXP (61 * t)`; `a DIV 2 EXP (61 * (t + 1))`]
-   CONG_MAINTAIN) THEN
-  ANTS_TAC THENL
-   [ASM_REWRITE_TAC[] THEN MP_TAC(SPECL [`a:num`; `t:num`] BLOCKSPLIT) THEN ARITH_TAC;
-    REWRITE_TAC[]]);;
-
-(* BOUND_ADDITIVE: trivial reduction of bound-maintenance to the key inequality.
-   Given the body's additive relation Zfull'+q*b = 2^61*Zfull+block and the key
-   bound 2^61*Zfull+block < q*b + 2^(p+64), get Zfull' < 2^(p+64).  The REAL content
-   is the key inequality (2^61*Zfull + block - q*b < 2^(p+64)), which needs the
-   window-scaling + RECIP_QBOUND lower half (Stage 3e, the deep piece). *)
-let BOUND_ADDITIVE = prove
- (`!Zfull Zfull' q b block p.
-     Zfull' + q * b = 2 EXP 61 * Zfull + block /\
-     2 EXP 61 * Zfull + block < q * b + 2 EXP (p + 64)
-     ==> Zfull' < 2 EXP (p + 64)`,
-  REPEAT STRIP_TAC THEN
-  UNDISCH_TAC `Zfull' + q * b = 2 EXP 61 * Zfull + block` THEN
-  UNDISCH_TAC `2 EXP 61 * Zfull + block < q * b + 2 EXP (p + 64)` THEN
-  ARITH_TAC);;
-
-(* ===== KI / BLOCK_ADVANCE ===== *)
-(* Stage 3e KEY INEQUALITY (core), the deep bound-maintenance piece of the main
-   division loop.  PROVEN cheat-free (jargh, 2026-07-26).
-
-   Ground-truth (152/152 qemu-oracle hits) the per-block body is subtract-before-
-   shift:  Zf' = 2^61*(Zf - qhat*b) + block,  qhat = umulh(w,h)+h,  h = Zf DIV 2^p,
-   p = bitsize b, block < 2^61, and the reduced remainder 0 <= Zf - qhat*b < 2^(p+1).
-   To close the invariant bound Zf' < 2^(p+64) it suffices to bound Zf - qhat*b; we
-   prove the (slightly looser, still sufficient) Zf < qhat*b + 2^(p+2), i.e.
-   Zf - qhat*b < 2^(p+2).  Then Zf' = 2^61*(Zf-qhat*b)+block < 2^61*2^(p+2)+2^61
-   = 2^(p+63)+2^61 < 2^(p+64).
-
-   HYPOTHESES capture exactly what the reciprocal machinery already supplies:
-     b < 2^p                              (b has p = bitsize b bits)
-     t0 < 2^64                            (normalized top word; RECIP)
-     b*2^64 = t0*2^p + s                  (t0 = (b*2^64) DIV 2^p, remainder s<2^p)
-     Zf = h*2^p + zr, zr < 2^p            (h = Zf DIV 2^p, remainder zr)
-     2^64*h < qhat*t0 + (2^64 + 2*t0)     (RECIP_QBOUND upper half, l:=0, n:=t0)
-   Note s < 2^p is NOT needed (only s >= 0, automatic for nat).
-
-   PROOF: scale the RECIP upper bound by 2^p, substitute h*2^p=Zf-zr and
-   t0*2^p=b*2^64-s, drop the >=0 terms qhat*s and 2*s, and use b<2^p (=e), zr<2^p,
-   t0<2^64.  Powers abbreviated e=2^p,f=2^64 to keep products canonical; nonlinear
-   bridges supplied explicitly so the final step is a linear REAL_ARITH.  (Do NOT
-   ASM_REWRITE over the circular equalities H2/H_sub -- it stack-overflows.) *)
-
-let KI_CORE = prove
- (`!b p t0 Zf h qhat s zr.
-    b < 2 EXP p /\ t0 < 2 EXP 64 /\
-    b * 2 EXP 64 = t0 * 2 EXP p + s /\
-    Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
-    2 EXP 64 * h < qhat * t0 + (2 EXP 64 + 2 * t0)
-    ==> Zf < qhat * b + 2 EXP (p + 2)`,
-  REPEAT STRIP_TAC THEN RULE_ASSUM_TAC(REWRITE_RULE[GSYM REAL_OF_NUM_CLAUSES]) THEN
-  REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN
-  REWRITE_TAC[REAL_ARITH `p2:real = q + r <=> q + r = p2`] THEN
-  ABBREV_TAC `e = &2 pow p` THEN ABBREV_TAC `f = &2 pow 64` THEN
-  SUBGOAL_THEN `&2 pow (p + 2) = &4 * e` SUBST1_TAC THENL
-   [EXPAND_TAC "e" THEN REWRITE_TAC[REAL_POW_ADD] THEN REAL_ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `&0 < e /\ &0 < f` STRIP_ASSUME_TAC THENL
-   [CONJ_TAC THENL [EXPAND_TAC "e"; EXPAND_TAC "f"] THEN REWRITE_TAC[REAL_LT_POW2];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `(f * &h) * e < (&qhat * &t0 + f + &2 * &t0) * e` ASSUME_TAC THENL
-   [ASM_SIMP_TAC[REAL_LT_RMUL_EQ]; ALL_TAC] THEN
-  SUBGOAL_THEN `f * (&Zf - &zr) < &qhat * (&b * f - &s) + f * e + &2 * (&b * f - &s)`
-   ASSUME_TAC THENL
-   [MP_TAC(ASSUME `(f * &h) * e < (&qhat * &t0 + f + &2 * &t0) * e`) THEN
-    SUBGOAL_THEN `(f * &h) * e = f * (&h * e)` SUBST1_TAC THENL
-     [REAL_ARITH_TAC; ALL_TAC] THEN
-    SUBGOAL_THEN
-     `(&qhat * &t0 + f + &2 * &t0) * e = &qhat * (&t0 * e) + f * e + &2 * (&t0 * e)`
-     SUBST1_TAC THENL [REAL_ARITH_TAC; ALL_TAC] THEN
-    ASM_REWRITE_TAC[] THEN REAL_ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `&0 <= &qhat * &s /\ &0 <= &s /\ &b * f < e * f /\ f * &zr < f * e`
-   STRIP_ASSUME_TAC THENL
-   [REPEAT CONJ_TAC THENL
-     [MATCH_MP_TAC REAL_LE_MUL THEN REWRITE_TAC[REAL_POS];
-      REWRITE_TAC[REAL_POS];
-      ASM_SIMP_TAC[REAL_LT_RMUL_EQ];
-      ASM_SIMP_TAC[REAL_LT_LMUL_EQ]];
-    ALL_TAC] THEN
-  ONCE_REWRITE_TAC[GSYM(MATCH_MP REAL_LT_LMUL_EQ (ASSUME `&0 < f`))] THEN
-  SUBGOAL_THEN `f * (&qhat * &b) = &qhat * (&b * f) /\
-                &qhat * (&b * f - &s) = &qhat * (&b * f) - &qhat * &s`
-   STRIP_ASSUME_TAC THENL [CONJ_TAC THEN REAL_ARITH_TAC; ALL_TAC] THEN
-  MP_TAC(ASSUME `f * (&Zf - &zr) < &qhat * (&b * f - &s) + f * e + &2 * (&b * f - &s)`) THEN
-  MP_TAC(ASSUME `&qhat * (&b * f - &s) = &qhat * &b * f - &qhat * &s`) THEN
-  MP_TAC(ASSUME `f * &qhat * &b = &qhat * &b * f`) THEN
-  MP_TAC(ASSUME `&0 <= &qhat * &s`) THEN MP_TAC(ASSUME `&0 <= &s`) THEN
-  MP_TAC(ASSUME `&b * f < e * f`) THEN MP_TAC(ASSUME `f * &zr < f * e`) THEN
-  MP_TAC(SPECL [`e:real`;`f:real`] REAL_MUL_SYM) THEN
-  MP_TAC(REAL_ARITH `f * (&qhat * &b + &4 * e) = f * &qhat * &b + &4 * (f * e)`) THEN
-  REAL_ARITH_TAC);;
-
-(* ---- CONG_HALF: congruence maintenance for one block, in terms of the body's
-   ACTUAL output relation Zf' + 2^61*(qhat*b) = 2^61*Zf + block.  Instantiates the
-   banked CONG_MAINTAIN with q := 2^61*qhat (subtract-before-shift => the effective
-   quotient at the additive-form level is 2^61*qhat). ---- *)
-let CONG_HALF = prove
- (`!a b i Zf Zf' qhat block.
-     (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
-     block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\
-     Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block
-     ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b)`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(SPECL [`Zf:num`; `Zf':num`; `(a DIV 2 EXP (61 * i)) MOD 2 EXP 61`;
-               `2 EXP 61 * qhat`; `b:num`;
-               `a DIV 2 EXP (61 * i)`; `a DIV 2 EXP (61 * (i + 1))`] CONG_MAINTAIN) THEN
-  ANTS_TAC THENL
-   [ASM_REWRITE_TAC[GSYM MULT_ASSOC] THEN
-    MP_TAC(SPECL [`a:num`; `i:num`] BLOCKSPLIT) THEN ARITH_TAC;
-    DISCH_THEN ACCEPT_TAC]);;
-
-(* ---- BOUND_HALF: bound maintenance for one block from KI's reduced-remainder
-   bound Zf < qhat*b + 2^(p+2) and block < 2^61.  2^61*2^(p+2)+2^61 < 2^(p+64). ---- *)
-let BOUND_HALF = prove
- (`!Zf Zf' qhat b block p.
-     Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block /\
-     Zf < qhat * b + 2 EXP (p + 2) /\ block < 2 EXP 61
-     ==> Zf' < 2 EXP (p + 64)`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(SPEC `p:num` (prove(`!p. 2 EXP 61 * 2 EXP (p + 2) + 2 EXP 61 <= 2 EXP (p + 64)`,
-    GEN_TAC THEN REWRITE_TAC[GSYM EXP_ADD] THEN
-    REWRITE_TAC[ARITH_RULE `61 + (p + 2) = p + 63`] THEN
-    SUBGOAL_THEN `2 EXP (p + 64) = 2 EXP (p + 63) + 2 EXP (p + 63)` SUBST1_TAC THENL
-     [REWRITE_TAC[ARITH_RULE `p + 64 = (p + 63) + 1`; EXP_ADD] THEN ARITH_TAC;
-      MATCH_MP_TAC LE_ADD2 THEN REWRITE_TAC[LE_REFL; LE_EXP] THEN ARITH_TAC]))) THEN
-  UNDISCH_TAC `Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block` THEN
-  UNDISCH_TAC `Zf < qhat * b + 2 EXP (p + 2)` THEN
-  UNDISCH_TAC `block < 2 EXP 61` THEN ARITH_TAC);;
-
-(* ---- BLOCK_ADVANCE: the complete per-block invariant-maintenance lemma.  Given
-   the incoming (C)+bound-window facts + reciprocal facts (b<2^p, t0<2^64, the
-   normalization b*2^64=t0*2^p+s, and RECIP_QBOUND-upper on the window h,qhat) and
-   the body's exact output relation, delivers BOTH next-step clauses.  This is what
-   Stage 3f applies per loop iteration. ---- *)
-let BLOCK_ADVANCE = prove
- (`!a b i p t0 Zf Zf' qhat block s zr h.
-     (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
-     block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
-     b < 2 EXP p /\ t0 < 2 EXP 64 /\
-     b * 2 EXP 64 = t0 * 2 EXP p + s /\
-     Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
-     2 EXP 64 * h < qhat * t0 + (2 EXP 64 + 2 * t0) /\
-     Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block
-     ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b) /\
-         Zf' < 2 EXP (p + 64)`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN CONJ_TAC THENL
-   [MP_TAC(SPECL [`a:num`; `b:num`; `i:num`; `Zf:num`; `Zf':num`; `qhat:num`; `block:num`]
-      CONG_HALF) THEN ASM_REWRITE_TAC[];
-    MP_TAC(SPECL [`Zf:num`; `Zf':num`; `qhat:num`; `b:num`; `block:num`; `p:num`]
-      BOUND_HALF) THEN
-    ANTS_TAC THENL [ALL_TAC; REWRITE_TAC[]] THEN ASM_REWRITE_TAC[] THEN
-    MP_TAC(SPECL [`b:num`; `p:num`; `t0:num`; `Zf:num`; `h:num`; `qhat:num`; `s:num`; `zr:num`]
-      KI_CORE) THEN ASM_REWRITE_TAC[]]);;
-
-(* ===== SEGMENT: BLOCKLOAD ===== *)
-(* Stage 3 block-load segment (pc+0x1a4 -> pc+0x1d4): sub i; ldp x[q],x[q+1];
-   funnel >> (i MOD 64); csel -> X22 = the 61-bit block window (masked value).
-   Postcond: val(X22) MOD 2^61 = (a DIV 2^(61i)) MOD 2^61.
-
-   FULLY PROVEN cheat-free (jargh, 2026-07-25).  Needs banked:
-     BLOCKPOS, I0_BOUNDS, MASKW, CSEL_BLOCK_VAL (-> CSEL_BLOCK_VAL'),
-     BLOCKLOAD_MASKED.
-
-   KEY LESSON (pin placement): the ldp maps base E to E+8; ARM_STEPS reads word2
-   at word_add x (word(8*q + 8)) in that EXACT normal form (confirmed by VSTEP:
-     read X6 s5 = read (memory :> bytes64 (word_add x (word (8*q + 8)))) s4 ).
-   NO address-form tweak is needed -- word(8*q+8) is already the form the stepper
-   wants.  The ONLY requirement is that BOTH word pins (x[q] and x[q+1]) must be
-   installed at s0 BEFORE ARM_STEPS(1--4), so the stepper propagates them forward
-   to s4/s6 where the ldp consumes them.  A pin added as an s0-fact AFTER stepping
-   has already reached s4 is too late: ARM_STEPS reads memory from the state, and
-   only pins carried into that state resolve.  (Same class as the preheader X7 and
-   window shift lessons: ARM_STEPS reads from STATE, not from freshly-added hyps.)
-
-   The X9 shift address is concretized in TWO clean pieces to dodge ARITH_TAC
-   blowup when 61*i has been rewritten to q*64+r under the binders:
-     word_ushr (word(61*i)) 6 = word q      [VAL_WORD + DIV_MULT_ADD + DIV_LT]
-     word_shl  (word q) 3     = word(8*q)   [VAL_WORD + ARITH]
-   then RULE_ASSUM installs X9 = word_add x (word(8*q)).
-
-   CSEL_BLOCK_VAL' is the ARM-operand-order (jshl-first) form of CSEL_BLOCK_VAL,
-   obtained by ONCE_REWRITE[WORD_OR_SYM] THEN MATCH_MP_TAC CSEL_BLOCK_VAL. *)
-
-let CSEL_BLOCK_VAL' = prove
- (`!hi lo r. r < 64 /\ hi < 2 EXP 64 /\ lo < 2 EXP 64
-     ==> val((if val(word r:int64) = 0
-              then word_jushr (word lo:int64) (word r:int64)
-              else word_or (word_jshl (word hi:int64) (word_sub (word 0) (word r):int64))
-                   (word_jushr (word lo:int64) (word r:int64)))
-             :int64)
-         = (2 EXP 64 * hi + lo) DIV 2 EXP r MOD 2 EXP 64`,
-  REPEAT STRIP_TAC THEN
-  ONCE_REWRITE_TAC[WORD_OR_SYM] THEN
-  MATCH_MP_TAC CSEL_BLOCK_VAL THEN ASM_REWRITE_TAC[]);;
-
-let BIGNUM_MOD_BLOCKLOAD = prove
- (`!x a n i pc.
-      1 <= n /\ n < 2 EXP 58 /\ i < (64 * n + 60) DIV 61 - 1 /\
-      nonoverlapping (word pc,0x438) (x,8 * n)
-      ==> ensures arm
-       (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-            read PC s = word (pc + 0x1a4) /\
-            read X16 s = word (61 * (i + 1)) /\ read X3 s = x /\
-            bignum_from_memory (x,n) s = a)
-       (\s. read PC s = word (pc + 0x1d4) /\
-            val (read X22 s) MOD 2 EXP 61 = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61)
-       (MAYCHANGE [PC; X5; X6; X9; X11; X16; X22] ,, MAYCHANGE SOME_FLAGS ,,
-        MAYCHANGE [events])`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[SOME_FLAGS] THEN
-  (*** bounds: 61*i+61<=64n, 61*i<2^64, then BLOCKPOS q<n /\ (q+1<n \/ r<=3) ***)
-  SUBGOAL_THEN `61 * i + 61 <= 64 * n` ASSUME_TAC THENL
-   [MP_TAC(SPEC `n:num` I0_BOUNDS) THEN
-    ANTS_TAC THENL
-     [CONJ_TAC THENL [ASM_REWRITE_TAC[]; UNDISCH_TAC `n < 2 EXP 58` THEN ARITH_TAC];
-      ALL_TAC] THEN
-    UNDISCH_TAC `i < (64 * n + 60) DIV 61 - 1` THEN ARITH_TAC;
-    ALL_TAC] THEN
-  SUBGOAL_THEN `61 * i < 2 EXP 64` ASSUME_TAC THENL
-   [UNDISCH_TAC `61 * i + 61 <= 64 * n` THEN UNDISCH_TAC `n < 2 EXP 58` THEN ARITH_TAC;
-    ALL_TAC] THEN
-  MP_TAC(SPECL [`n:num`; `i:num`] BLOCKPOS) THEN ASM_REWRITE_TAC[] THEN
-  DISCH_THEN(CONJUNCTS_THEN2 ASSUME_TAC ASSUME_TAC) THEN
-  (*** local abbreviations q,r for the pervasive (61*i)DIV 64 / MOD 64 ***)
-  ABBREV_TAC `q = (61 * i) DIV 64` THEN
-  ABBREV_TAC `r = (61 * i) MOD 64` THEN
-  SUBGOAL_THEN `61 * i = q * 64 + r` ASSUME_TAC THENL
-   [MAP_EVERY EXPAND_TAC ["q"; "r"] THEN
-    MP_TAC(SPECL [`61 * i`; `64`] DIVISION) THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `r < 64` ASSUME_TAC THENL
-   [EXPAND_TAC "r" THEN MP_TAC(SPECL [`61 * i`; `64`] DIVISION) THEN ARITH_TAC;
-    ALL_TAC] THEN
-  SUBGOAL_THEN `q < 2 EXP 64` ASSUME_TAC THENL
-   [TRANS_TAC LET_TRANS `61 * i` THEN CONJ_TAC THENL
-     [EXPAND_TAC "q" THEN REWRITE_TAC[DIV_LE]; ASM_REWRITE_TAC[]]; ALL_TAC] THEN
-  ENSURES_INIT_TAC "s0" THEN
-  (*** pin the LOW word x[q] at s0 -- carried forward by the stepper ***)
-  SUBGOAL_THEN
-   `read (memory :> bytes64 (word_add x (word (8 * q)))) s0 = word (bigdigit a q)`
-   ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM(ASSUME `bignum_from_memory (x,n) s0 = a`)] THEN
-    REWRITE_TAC[GSYM BIGNUM_FROM_MEMORY_BYTES; BIGDIGIT_BIGNUM_FROM_MEMORY] THEN
-    ASM_SIMP_TAC[WORD_VAL];
-    ALL_TAC] THEN
-  FIRST_X_ASSUM(DISJ_CASES_TAC o check (fun th -> is_disj (concl th))) THENL
-   [(*** GENERAL case q+1 < n: ALSO pin word2 x[q+1] at s0 (word(8*q+8) form)
-        BEFORE stepping, so it reaches s6 where the ldp reads it ***)
-    SUBGOAL_THEN
-     `read (memory :> bytes64 (word_add x (word (8 * q + 8)))) s0 =
-      word (bigdigit a (q + 1))` ASSUME_TAC THENL
-     [SUBGOAL_THEN `word_add x (word (8 * q + 8)):int64 =
-                    word_add x (word (8 * (q + 1)))` SUBST1_TAC THENL
-       [CONV_TAC WORD_RULE; ALL_TAC] THEN
-      REWRITE_TAC[GSYM(ASSUME `bignum_from_memory (x,n) s0 = a`)] THEN
-      REWRITE_TAC[GSYM BIGNUM_FROM_MEMORY_BYTES; BIGDIGIT_BIGNUM_FROM_MEMORY] THEN
-      ASM_SIMP_TAC[WORD_VAL];
-      ALL_TAC] THEN
-    ARM_STEPS_TAC BIGNUM_MOD_EXEC (1--4) THEN
-    RULE_ASSUM_TAC(REWRITE_RULE[WORD_RULE
-      `word_sub (word (61 * (i + 1))) (word 61):int64 = word (61 * i)`]) THEN
-    (*** concretize X9 = word_add x (word(8*q)) via two clean shift pieces ***)
-    SUBGOAL_THEN `word_ushr (word (61 * i):int64) 6 = word q` ASSUME_TAC THENL
-     [REWRITE_TAC[word_ushr; VAL_WORD; DIMINDEX_64] THEN
-      ASM_SIMP_TAC[MOD_LT] THEN AP_TERM_TAC THEN
-      REWRITE_TAC[ARITH_RULE `2 EXP 6 = 64`] THEN ASM_REWRITE_TAC[] THEN
-      SIMP_TAC[DIV_MULT_ADD; ARITH_EQ] THEN ASM_SIMP_TAC[DIV_LT; ADD_CLAUSES];
-      ALL_TAC] THEN
-    SUBGOAL_THEN `word_shl (word q:int64) 3 = word (8 * q)` ASSUME_TAC THENL
-     [REWRITE_TAC[word_shl; VAL_WORD; DIMINDEX_64] THEN
-      ASM_SIMP_TAC[MOD_LT] THEN AP_TERM_TAC THEN
-      REWRITE_TAC[ARITH_RULE `2 EXP 3 = 8`] THEN ARITH_TAC;
-      ALL_TAC] THEN
-    RULE_ASSUM_TAC(REWRITE_RULE
-      [ASSUME `word_ushr (word (61 * i):int64) 6 = word q`;
-       ASSUME `word_shl (word q:int64) 3 = word (8 * q)`]) THEN
-    (*** ldp: BOTH x[q] and x[q+1] resolve (pins carried to s6) ***)
-    ARM_STEPS_TAC BIGNUM_MOD_EXEC (5--6) THEN
-    (*** concretize the funnel shift amount X9 = word r ***)
-    RULE_ASSUM_TAC(REWRITE_RULE[GSYM(ASSUME `61 * i = q * 64 + r`)]) THEN
-    MP_TAC(SPEC `i:num` MASKW) THEN ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
-    RULE_ASSUM_TAC(REWRITE_RULE[ASSUME
-      `word_and (word (61 * i):int64) (word 63) = word r`]) THEN
-    VAL_INT64_TAC `r:num` THEN
-    ARM_STEPS_TAC BIGNUM_MOD_EXEC (7--12) THEN
-    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-    REWRITE_TAC[WORD_SUB_0] THEN
-    MP_TAC(SPECL [`bigdigit a (q + 1)`; `bigdigit a q`; `r:num`] CSEL_BLOCK_VAL') THEN
-    ANTS_TAC THENL [ASM_REWRITE_TAC[BIGDIGIT_BOUND]; ALL_TAC] THEN
-    DISCH_THEN SUBST1_TAC THEN
-    REWRITE_TAC[MOD_MOD_EXP_MIN] THEN
-    CONV_TAC(LAND_CONV(RAND_CONV(RAND_CONV NUM_REDUCE_CONV))) THEN
-    MP_TAC(SPECL [`a:num`; `q:num`; `r:num`;
-                  `bigdigit a q`; `bigdigit a (q + 1)`] BLOCKLOAD_MASKED) THEN
-    ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    DISCH_THEN SUBST1_TAC THEN REWRITE_TAC[MULT_SYM];
-    (*** TOP-BLOCK case r <= 3: x[q+1] may be one-past-the-end GARBAGE, but r<=3
-        so it lands above bit 61 and is masked off.  ABBREV it as g. ***)
-    ARM_STEPS_TAC BIGNUM_MOD_EXEC (1--4) THEN
-    RULE_ASSUM_TAC(REWRITE_RULE[WORD_RULE
-      `word_sub (word (61 * (i + 1))) (word 61):int64 = word (61 * i)`]) THEN
-    SUBGOAL_THEN `word_ushr (word (61 * i):int64) 6 = word q` ASSUME_TAC THENL
-     [REWRITE_TAC[word_ushr; VAL_WORD; DIMINDEX_64] THEN
-      ASM_SIMP_TAC[MOD_LT] THEN AP_TERM_TAC THEN
-      REWRITE_TAC[ARITH_RULE `2 EXP 6 = 64`] THEN ASM_REWRITE_TAC[] THEN
-      SIMP_TAC[DIV_MULT_ADD; ARITH_EQ] THEN ASM_SIMP_TAC[DIV_LT; ADD_CLAUSES];
-      ALL_TAC] THEN
-    SUBGOAL_THEN `word_shl (word q:int64) 3 = word (8 * q)` ASSUME_TAC THENL
-     [REWRITE_TAC[word_shl; VAL_WORD; DIMINDEX_64] THEN
-      ASM_SIMP_TAC[MOD_LT] THEN AP_TERM_TAC THEN
-      REWRITE_TAC[ARITH_RULE `2 EXP 3 = 8`] THEN ARITH_TAC;
-      ALL_TAC] THEN
-    RULE_ASSUM_TAC(REWRITE_RULE
-      [ASSUME `word_ushr (word (61 * i):int64) 6 = word q`;
-       ASSUME `word_shl (word q:int64) 3 = word (8 * q)`]) THEN
-    ABBREV_TAC
-     `g:int64 = read (memory :> bytes64 (word_add x (word (8 * q + 8)))) s4` THEN
-    ARM_STEPS_TAC BIGNUM_MOD_EXEC (5--6) THEN
-    RULE_ASSUM_TAC(REWRITE_RULE[GSYM(ASSUME `61 * i = q * 64 + r`)]) THEN
-    MP_TAC(SPEC `i:num` MASKW) THEN ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
-    RULE_ASSUM_TAC(REWRITE_RULE[ASSUME
-      `word_and (word (61 * i):int64) (word 63) = word r`]) THEN
-    VAL_INT64_TAC `r:num` THEN
-    ARM_STEPS_TAC BIGNUM_MOD_EXEC (7--12) THEN
-    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-    REWRITE_TAC[WORD_SUB_0] THEN
-    SUBST1_TAC(GSYM(ISPEC `g:int64` WORD_VAL)) THEN
-    MP_TAC(SPECL [`val(g:int64)`; `bigdigit a q`; `r:num`] CSEL_BLOCK_VAL') THEN
-    ANTS_TAC THENL [ASM_REWRITE_TAC[BIGDIGIT_BOUND; VAL_BOUND_64]; ALL_TAC] THEN
-    DISCH_THEN SUBST1_TAC THEN
-    REWRITE_TAC[MOD_MOD_EXP_MIN] THEN
-    CONV_TAC(LAND_CONV(RAND_CONV(RAND_CONV NUM_REDUCE_CONV))) THEN
-    MP_TAC(SPECL [`a:num`; `q:num`; `r:num`;
-                  `bigdigit a q`; `val(g:int64)`] BLOCKLOAD_MASKED) THEN
-    ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    DISCH_THEN SUBST1_TAC THEN REWRITE_TAC[MULT_SYM]]);;
-
-(* ===== SEGMENT: QSETUP ===== *)
-(* Stage 3 q-setup segment (pc+0x1d4 -> pc+0x1f4): quotient-digit estimate +
-   inner-loop preamble.  8 instrs:
-     0x1d4 umulh x5,x21(w),x15(h)     ; x5 = (w*h) DIV 2^64
-     0x1d8 add   x15,x5,x15           ; q = X15 := umulh(w,h)+h  (also copied to X5)
-     0x1dc mov   x14(hf),xzr          ; hf = 0
-     0x1e0 lsl   x22(c),x22,#3        ; c <<= 3   (the 64-61 pre-shift for extr)
-     0x1e4 mov   x5,x15               ; x5 = q  (hh starts = q)
-     0x1e8 mov   x8(ii),xzr           ; ii = 0
-     0x1ec subs  x11(dd),x19(l),#1    ; dd = l-1
-     0x1f0 b.eq  trivnegadd           ; skip inner loop if l=1 (dd=0); here l<>1 so fall through
-   Postcond @0x1f4: X15=X5=(w*h)DIV 2^64 + h (=q), X14=0, X22=8*c, X8=0, X11=l-1.
-
-   PROVEN cheat-free (jargh, 2026-07-25).  Register-only (no memory); frame
-   [PC;X5;X8;X11;X14;X15;X22]+SOME_FLAGS+events.
-
-   NOTES:
-   - w,h < 2^64 needed so val(word w)=w, val(word h)=h (umulh reads val of the
-     register words); derive as a STRIP_ASSUME'd conjunction BEFORE ENSURES_INIT
-     so ASM_REWRITE at the end concretizes X5/X15 to word((w*h)DIV 2^64 + h).
-     (Do NOT RULE_ASSUM_TAC[VAL_WORD_EQ...] on the w<2^64 hyps -- VAL_WORD_EQ_EQ
-     rewrites `w<2^64` itself to `true` and you lose the bound.)
-   - 1<=l and l<2^64: the subs/b.eq.  `~(val(word_sub(word l)(word 1))=0)` (so
-     b.eq falls through) via VAL_EQ_0 + WORD_SUB_EQ_0 + WORD_EQ_IMP (l,1<2^64) +
-     ~(l=1).  X11=word(l-1) via WORD_SUB (guarded if 1<=l) + COND_CASES.
-   - MUST include ,, MAYCHANGE [events] in the frame (subs/flag ops log events);
-     with it, the final MAYCHANGE conjunct closes via MONOTONE and the word-eqs
-     auto-close under the GSYM WORD_ADD; WORD_SHL_WORD rewrite (leaving only the
-     word_sub goal). *)
-
-let BIGNUM_MOD_QSETUP = prove
- (`!w h c l pc.
-      w < 2 EXP 64 /\ h < 2 EXP 64 /\ 1 <= l /\ l < 2 EXP 64 /\ ~(l = 1)
-      ==> ensures arm
-       (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-            read PC s = word (pc + 0x1d4) /\
-            read X21 s = word w /\ read X15 s = word h /\
-            read X22 s = word c /\ read X19 s = word l)
-       (\s. read PC s = word (pc + 0x1f4) /\
-            read X15 s = word ((w * h) DIV 2 EXP 64 + h) /\
-            read X5 s = word ((w * h) DIV 2 EXP 64 + h) /\
-            read X14 s = word 0 /\
-            read X22 s = word (2 EXP 3 * c) /\
-            read X8 s = word 0 /\
-            read X11 s = word (l - 1))
-       (MAYCHANGE [PC; X5; X8; X11; X14; X15; X22] ,, MAYCHANGE SOME_FLAGS ,,
-        MAYCHANGE [events])`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[SOME_FLAGS] THEN
-  SUBGOAL_THEN `val(word w:int64) = w /\ val(word h:int64) = h /\ val(word l:int64) = l`
-    STRIP_ASSUME_TAC THENL
-   [REPEAT CONJ_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN
-    ASM_REWRITE_TAC[DIMINDEX_64]; ALL_TAC] THEN
-  ENSURES_INIT_TAC "s0" THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (1--6) THEN
-  SUBGOAL_THEN `~(val (word_sub (word l) (word 1):int64) = 0)` ASSUME_TAC THENL
-   [REWRITE_TAC[VAL_EQ_0; WORD_SUB_EQ_0] THEN
-    ASM_SIMP_TAC[WORD_EQ_IMP; DIMINDEX_64; ARITH_RULE `1 < 2 EXP 64`];
-    ALL_TAC] THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (7--8) THEN
-  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-  REWRITE_TAC[GSYM WORD_ADD; WORD_SHL_WORD] THEN
-  ONCE_REWRITE_TAC[WORD_SUB] THEN ASM_SIMP_TAC[] THEN
-  COND_CASES_TAC THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC);;
-
-(* ===== SEGMENT: INNERLOOP (+ INNERLOOP_LE) ===== *)
-(* Stage 3 INNER cmnegadd loop (pc+0x1f4 -> pc+0x238), ii=0..dd-1.
-   Fused z := (z<<61) - q*m + block  (the negate-add with the extr <<61 shift).
-   Additive invariant (INNER_ADVANCE_ADD / INNER_ENTRY_ADD, banked):
-     INV(i): bignum(z,i) s + 2^(64i)*(val(X22 s) DIV 8 + 2^61*val(X5 s))
-               + 2^61*(q * lowdigits b i)
-             = block + 2^61*(lowdigits zorig i) + 2^61*(q * 2^(64i))
-   m tracked as WHOLE-ARRAY bignum(m,k) s = b (untouched); only z uses highdigits.
-   lf/hf logging (X13/X14) DEFERRED -- added as separate clauses once core proven.
-   Body instr layout (18): 1 ldr m,2 mvn,3 mul,4 umulh,5 ldr z,6 adds,7 cset,
-   8 adds,9 adc,10 EXTR,11 str,12 cmp,13 csel lf,14 csel hf,15 mov c,16 add ii,
-   17 cmp,18 b.ne.  BODY = steps 1--16 (0x1f4->0x234); cmp+b.ne (17,18) = BACKEDGE.
-   Accum idxs [3;4;6;8;9]; MUST pin BOTH z[i] AND m[i] as concrete word-vars so
-   ARM_ACCSTEPS folds the adds/adc.  NEGADD_STEP proves carry_s9=0 automatically
-   (total < 2^128), so NO q-bound coupling.
-
-   STATUS (2026-07-25): ENTRY + BODY (sim + m/z preserve + value eqn) PROVEN.
-   BACKEDGE/EXIT standard ARM_SIM(1--2).  Requires banked: INNER_ENTRY_ADD,
-   INNER_ADVANCE_ADD, INNERSTEP_VAL/NEGADD_STEP, EXTR_FUNNEL_VAL. *)
-
-let BIGNUM_MOD_INNERLOOP = prove
- (`!k z m dd q block zorig b pc.
-      nonoverlapping (word pc,0x438) (z,8 * k) /\
-      nonoverlapping (word pc,0x438) (m,8 * k) /\
-      nonoverlapping (z,8 * k) (m,8 * k) /\
-      1 <= dd /\ dd < k /\ k < 2 EXP 58 /\ q < 2 EXP 64 /\ block < 2 EXP 61 /\
-      b < 2 EXP (64 * k)
-      ==> ensures arm
-       (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-            read PC s = word (pc + 0x1f4) /\
-            read X0 s = word k /\ read X1 s = z /\ read X4 s = m /\
-            read X8 s = word 0 /\ read X15 s = word q /\
-            read X5 s = word q /\ read X22 s = word (2 EXP 3 * block) /\
-            read X11 s = word dd /\
-            bignum_from_memory (z,k) s = zorig /\
-            bignum_from_memory (m,k) s = b)
-       (\s. read PC s = word (pc + 0x238) /\ read X8 s = word dd /\
-            bignum_from_memory (z,dd) s +
-            2 EXP (64 * dd) * (val(read X22 s) DIV 8 + 2 EXP 61 * val(read X5 s)) +
-            2 EXP 61 * (q * lowdigits b dd) =
-            block + 2 EXP 61 * lowdigits zorig dd + 2 EXP 61 * (q * 2 EXP (64 * dd)))
-       (MAYCHANGE [PC; X5; X6; X7; X8; X9; X10; X13; X14; X22] ,,
-        MAYCHANGE [memory :> bignum(z,k)] ,,
-        MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[SOME_FLAGS] THEN
-  ENSURES_WHILE_AUP_TAC `0` `dd:num` `pc + 0x1f4` `pc + 0x234`
-   `\i s. read X0 s = word k /\ read X1 s = z /\ read X4 s = m /\
-          read X15 s = word q /\ read X11 s = word dd /\
-          read X8 s = word i /\
-          bignum_from_memory (m,k) s = b /\
-          bignum_from_memory (word_add z (word (8 * i)), k - i) s = highdigits zorig i /\
-          bignum_from_memory (z,i) s +
-          2 EXP (64 * i) * (val(read X22 s) DIV 8 + 2 EXP 61 * val(read X5 s)) +
-          2 EXP 61 * (q * lowdigits b i) =
-          block + 2 EXP 61 * lowdigits zorig i + 2 EXP 61 * (q * 2 EXP (64 * i))` THEN
-  REPEAT CONJ_TAC THENL
-   [(* 0 < dd *)
-    UNDISCH_TAC `1 <= dd` THEN ARITH_TAC;
-    (* ENTRY (i=0) *)
-    REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES; SUB_0; WORD_ADD_0] THEN
-    ENSURES_INIT_TAC "s0" THEN ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-    REWRITE_TAC[BIGNUM_FROM_MEMORY_TRIVIAL; HIGHDIGITS_0; LOWDIGITS_0] THEN
-    REWRITE_TAC[MULT_CLAUSES; EXP; ADD_CLAUSES; DIV_1] THEN
-    SUBGOAL_THEN `val(word (2 EXP 3 * block):int64) = 2 EXP 3 * block /\ val(word q:int64) = q`
-      (fun th -> REWRITE_TAC[th]) THENL
-     [CONJ_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THENL
-       [UNDISCH_TAC `block < 2 EXP 61` THEN ARITH_TAC;
-        UNDISCH_TAC `q < 2 EXP 64` THEN ARITH_TAC];
-      REWRITE_TAC[ARITH_RULE `2 EXP 3 = 8`] THEN SIMP_TAC[DIV_MULT; ARITH_EQ] THEN
-      ARITH_TAC];
-    (* BODY (i -> i+1) -- FULLY PROVEN *)
-    X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
-    SUBGOAL_THEN `i:num < k` ASSUME_TAC THENL
-     [UNDISCH_TAC `i:num < dd` THEN UNDISCH_TAC `dd:num < k` THEN ARITH_TAC;
-      ALL_TAC] THEN
-    GHOST_INTRO_TAC `cwin:int64` `read X22` THEN
-    GHOST_INTRO_TAC `hhin:int64` `read X5` THEN
-    GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV)
-     [BIGNUM_FROM_MEMORY_OFFSET_EQ_HIGHDIGITS] THEN
-    ASM_REWRITE_TAC[ARITH_RULE `k - i = 0 <=> ~(i < k)`; GSYM NOT_LT] THEN
-    REWRITE_TAC[ARITH_RULE `k - i - 1 = k - (i + 1)`; BIGNUM_FROM_MEMORY_STEP] THEN
-    ENSURES_INIT_TAC "s0" THEN
-    SUBGOAL_THEN `read (memory :> bytes64 (word_add m (word (8 * i)))) s0 =
-                  word (bigdigit b i)` ASSUME_TAC THENL
-     [REWRITE_TAC[GSYM(ASSUME `bignum_from_memory (m,k) s0 = b`)] THEN
-      ASM_SIMP_TAC[BIGDIGIT_BIGNUM_FROM_MEMORY; WORD_VAL];
-      ALL_TAC] THEN
-    SUBGOAL_THEN `read (memory :> bytes64 (word_add z (word (8 * i)))) s0 =
-                  word (bigdigit zorig i)` ASSUME_TAC THENL
-     [UNDISCH_TAC `bignum_from_memory (word_add z (word (8 * i)),k - i) s0 =
-                   highdigits zorig i` THEN
-      GEN_REWRITE_TAC LAND_CONV [BIGNUM_FROM_MEMORY_OFFSET_EQ_HIGHDIGITS] THEN
-      ASM_REWRITE_TAC[ARITH_RULE `k - i = 0 <=> ~(i < k)`; GSYM NOT_LT] THEN
-      STRIP_TAC THEN ASM_REWRITE_TAC[];
-      ALL_TAC] THEN
-    ARM_ACCSTEPS_TAC BIGNUM_MOD_EXEC [3;4;6;8;9] (1--16) THEN
-    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-    REWRITE_TAC[LOWDIGITS_CLAUSES] THEN
-    REPEAT CONJ_TAC THENL
-     [(* word_add(word i)(word 1) = word(i+1) *)
-      CONV_TAC WORD_RULE;
-      (* m whole-array preserved *)
-      FIRST_X_ASSUM(fun th -> if concl th = `bignum_from_memory (m,k) s0 = b`
-        then GEN_REWRITE_TAC RAND_CONV [SYM th] else NO_TAC) THEN
-      REWRITE_TAC[BIGNUM_FROM_MEMORY_BYTES] THEN
-      FIRST_X_ASSUM(MP_TAC o check (can
-        (term_match [] `(f:armstate->armstate->bool) s0 s16`) o concl)) THEN
-      REWRITE_TAC[MAYCHANGE; SEQ_ID] THEN REWRITE_TAC[GSYM SEQ_ASSOC] THEN
-      REWRITE_TAC[ASSIGNS_SEQ] THEN REWRITE_TAC[ASSIGNS_THM] THEN
-      REWRITE_TAC[LEFT_IMP_EXISTS_THM] THEN REPEAT GEN_TAC THEN
-      DISCH_THEN(SUBST1_TAC o SYM) THEN READ_OVER_WRITE_ORTHOGONAL_TAC;
-      (* z suffix preserved: fold if-form, then DISCH + preserve s16=s0 (avoid the
-         fragile MATCH_MP_TAC EQ_IMP which fails on the P==>Q boolean shape here) *)
-      REWRITE_TAC[ARITH_RULE `k <= i + 1 <=> k - (i + 1) = 0`;
-                  ARITH_RULE `k - ((i + 1) + 1) = k - (i + 1) - 1`] THEN
-      GEN_REWRITE_TAC I [GSYM BIGNUM_FROM_MEMORY_OFFSET_EQ_HIGHDIGITS] THEN
-      SUBGOAL_THEN
-       `bignum_from_memory (word_add z (word (8 * (i+1))),k - (i+1)) s0 =
-        highdigits zorig (i+1)` MP_TAC THENL
-       [UNDISCH_TAC `bignum_from_memory (word_add z (word (8 * i)),k - i) s0 =
-                     highdigits zorig i` THEN
-        GEN_REWRITE_TAC LAND_CONV [BIGNUM_FROM_MEMORY_OFFSET_EQ_HIGHDIGITS] THEN
-        ASM_REWRITE_TAC[ARITH_RULE `k - i = 0 <=> ~(i < k)`; GSYM NOT_LT] THEN
-        REWRITE_TAC[ARITH_RULE `k - i - 1 = k - (i+1)`] THEN STRIP_TAC THEN
-        ASM_REWRITE_TAC[];
-        ALL_TAC] THEN
-      DISCH_TAC THEN
-      SUBGOAL_THEN
-       `bignum_from_memory (word_add z (word (8 * (i+1))),k - (i+1)) s16 =
-        bignum_from_memory (word_add z (word (8 * (i+1))),k - (i+1)) s0`
-       (fun th -> ASM_REWRITE_TAC[th]) THEN
-      REWRITE_TAC[BIGNUM_FROM_MEMORY_BYTES] THEN
-      FIRST_X_ASSUM(MP_TAC o check (can
-        (term_match [] `(f:armstate->armstate->bool) s0 s16`) o concl)) THEN
-      REWRITE_TAC[MAYCHANGE; SEQ_ID] THEN REWRITE_TAC[GSYM SEQ_ASSOC] THEN
-      REWRITE_TAC[ASSIGNS_SEQ] THEN REWRITE_TAC[ASSIGNS_THM] THEN
-      REWRITE_TAC[LEFT_IMP_EXISTS_THM] THEN REPEAT GEN_TAC THEN
-      DISCH_THEN(SUBST1_TAC o SYM) THEN READ_OVER_WRITE_ORTHOGONAL_TAC;
-      (* VALUE EQUATION *)
-      SUBGOAL_THEN `bignum_from_memory (z,i) s16 = bignum_from_memory (z,i) s0`
-       SUBST1_TAC THENL
-       [REWRITE_TAC[BIGNUM_FROM_MEMORY_BYTES] THEN
-        FIRST_X_ASSUM(MP_TAC o check (can
-          (term_match [] `(f:armstate->armstate->bool) s0 s16`) o concl)) THEN
-        REWRITE_TAC[MAYCHANGE; SEQ_ID] THEN REWRITE_TAC[GSYM SEQ_ASSOC] THEN
-        REWRITE_TAC[ASSIGNS_SEQ; ASSIGNS_THM; LEFT_IMP_EXISTS_THM] THEN
-        REPEAT GEN_TAC THEN DISCH_THEN(SUBST1_TAC o SYM) THEN
-        READ_OVER_WRITE_ORTHOGONAL_TAC;
-        ALL_TAC] THEN
-      SUBST1_TAC(GSYM(ISPEC `sum_s8:int64` WORD_VAL)) THEN
-      SUBST1_TAC(GSYM(ISPEC `cwin:int64` WORD_VAL)) THEN
-      REWRITE_TAC[EXTR_FUNNEL_VAL] THEN REWRITE_TAC[WORD_VAL] THEN
-      REWRITE_TAC[LOWDIGITS_CLAUSES] THEN
-      MP_TAC(ISPECL
-        [`block:num`; `q:num`; `bignum_from_memory (z,i) s0`; `val(cwin:int64)`;
-         `val(hhin:int64)`; `val(sum_s8:int64)`; `val(sum_s9:int64)`;
-         `lowdigits zorig i`; `lowdigits b i`; `bigdigit zorig i`; `bigdigit b i`; `i:num`]
-        INNER_ADVANCE_ADD) THEN
-      ANTS_TAC THENL
-       [REPEAT CONJ_TAC THENL
-         [FIRST_X_ASSUM ACCEPT_TAC;
-          (* negate-add via NEGADD_STEP *)
-          SUBGOAL_THEN
-            `val(hhin:int64) < 2 EXP 64 /\ q < 2 EXP 64 /\
-             (2 EXP 64 - 1 - bigdigit b i) < 2 EXP 64 /\ bigdigit zorig i < 2 EXP 64`
-            STRIP_ASSUME_TAC THENL
-           [REWRITE_TAC[VAL_BOUND_64; BIGDIGIT_BOUND] THEN ASM_REWRITE_TAC[] THEN
-            ARITH_TAC;
-            ALL_TAC] THEN
-          MP_TAC(ISPECL
-            [`bigdigit zorig i`; `val(hhin:int64)`; `q:num`;
-             `2 EXP 64 - 1 - bigdigit b i`; `val(sum_s6:int64)`; `val(sum_s8:int64)`;
-             `val(sum_s9:int64)`; `val(mullo_s3:int64)`; `val(mulhi_s3:int64)`;
-             `bitval carry_s6`; `bitval carry_s8`; `bitval carry_s9`] NEGADD_STEP) THEN
-          ANTS_TAC THENL
-           [REWRITE_TAC[BITVAL_BOUND; VAL_BOUND_64; BIGDIGIT_BOUND] THEN
-            ASM_REWRITE_TAC[ARITH_RULE `2 EXP 64 - 1 - x < 2 EXP 64`] THEN
-            SUBGOAL_THEN
-              `val(word(bigdigit zorig i):int64) = bigdigit zorig i /\
-               val(if ~carry_s6 then word 0 else word 1:int64) = bitval carry_s6 /\
-               val(word q:int64) = q /\
-               val(word_not(word(bigdigit b i)):int64) = 2 EXP 64 - 1 - bigdigit b i`
-              STRIP_ASSUME_TAC THENL
-             [REPEAT CONJ_TAC THENL
-               [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64; BIGDIGIT_BOUND];
-                COND_CASES_TAC THEN
-                ASM_REWRITE_TAC[VAL_WORD_0; VAL_WORD_1; BITVAL_CLAUSES];
-                MATCH_MP_TAC VAL_WORD_EQ THEN ASM_REWRITE_TAC[DIMINDEX_64];
-                REWRITE_TAC[VAL_WORD_NOT; DIMINDEX_64] THEN
-                SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; BIGDIGIT_BOUND]];
-              ALL_TAC] THEN
-            REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN ASM_REWRITE_TAC[] THEN
-            REWRITE_TAC[BIGDIGIT_BOUND];
-            DISCH_THEN ACCEPT_TAC];
-          REWRITE_TAC[BIGDIGIT_BOUND]];
-        REWRITE_TAC[ARITH_RULE `2 EXP 3 = 8`] THEN DISCH_THEN ACCEPT_TAC]];
-    (* BACKEDGE (pc2=0x234 -> pc1=0x1f4): X8=word i, cmp x8,x11; b.ne taken (i<dd
-       so i<>dd).  2 steps (cmp@0x234; b.ne@0x238 taken). *)
-    X_GEN_TAC `i:num` THEN STRIP_TAC THEN
-    SUBGOAL_THEN `val(word i:int64) = i /\ val(word dd:int64) = dd`
-      STRIP_ASSUME_TAC THENL
-     [CONJ_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
-      UNDISCH_TAC `i < dd` THEN UNDISCH_TAC `dd < k` THEN UNDISCH_TAC `k < 2 EXP 58` THEN
-      ARITH_TAC;
-      ALL_TAC] THEN
-    ARM_SIM_TAC BIGNUM_MOD_EXEC (1--2) THEN
-    ASM_SIMP_TAC[ARITH_RULE `i < dd ==> ~(i = dd)`];
-    (* EXIT (pc2=0x234 with inv dd -> postcond @0x238): cmp only, 1 step. *)
-    ARM_SIM_TAC BIGNUM_MOD_EXEC (1--1)]);;
-
-(* ---- INNERLOOP_LE: identical to BIGNUM_MOD_INNERLOOP but with the hypothesis
-   relaxed from dd < k to dd <= k (2026-07-26).  Needed for Stage 3f: the oracle
-   (cap11/capinner2.py) shows the loop-carried dd = l-1 grows 0,1,..,k and SATURATES
-   at k (steady state), so the inner loop must cover words 0..dd-1 for dd = k too.
-   The original dd<k was only used to derive i<k for i<dd; with dd<=k and i<dd we
-   still get i < dd <= k, so i<k.  The proof is the SAME modulo two
-   `UNDISCH_TAC dd<k` -> `dd<=k` edits (body i<k derivation, backedge val bound). ---- *)
-let BIGNUM_MOD_INNERLOOP_LE = prove
- (`!k z m dd q block zorig b pc.
-      nonoverlapping (word pc,0x438) (z,8 * k) /\
-      nonoverlapping (word pc,0x438) (m,8 * k) /\
-      nonoverlapping (z,8 * k) (m,8 * k) /\
-      1 <= dd /\ dd <= k /\ k < 2 EXP 58 /\ q < 2 EXP 64 /\ block < 2 EXP 61 /\
-      b < 2 EXP (64 * k)
-      ==> ensures arm
-       (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-            read PC s = word (pc + 0x1f4) /\
-            read X0 s = word k /\ read X1 s = z /\ read X4 s = m /\
-            read X8 s = word 0 /\ read X15 s = word q /\
-            read X5 s = word q /\ read X22 s = word (2 EXP 3 * block) /\
-            read X11 s = word dd /\
-            bignum_from_memory (z,k) s = zorig /\
-            bignum_from_memory (m,k) s = b)
-       (\s. read PC s = word (pc + 0x238) /\ read X8 s = word dd /\
-            bignum_from_memory (z,dd) s +
-            2 EXP (64 * dd) * (val(read X22 s) DIV 8 + 2 EXP 61 * val(read X5 s)) +
-            2 EXP 61 * (q * lowdigits b dd) =
-            block + 2 EXP 61 * lowdigits zorig dd + 2 EXP 61 * (q * 2 EXP (64 * dd)))
-       (MAYCHANGE [PC; X5; X6; X7; X8; X9; X10; X13; X14; X22] ,,
-        MAYCHANGE [memory :> bignum(z,k)] ,,
-        MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[SOME_FLAGS] THEN
-  ENSURES_WHILE_AUP_TAC `0` `dd:num` `pc + 0x1f4` `pc + 0x234`
-   `\i s. read X0 s = word k /\ read X1 s = z /\ read X4 s = m /\
-          read X15 s = word q /\ read X11 s = word dd /\
-          read X8 s = word i /\
-          bignum_from_memory (m,k) s = b /\
-          bignum_from_memory (word_add z (word (8 * i)), k - i) s = highdigits zorig i /\
-          bignum_from_memory (z,i) s +
-          2 EXP (64 * i) * (val(read X22 s) DIV 8 + 2 EXP 61 * val(read X5 s)) +
-          2 EXP 61 * (q * lowdigits b i) =
-          block + 2 EXP 61 * lowdigits zorig i + 2 EXP 61 * (q * 2 EXP (64 * i))` THEN
-  REPEAT CONJ_TAC THENL
-   [UNDISCH_TAC `1 <= dd` THEN ARITH_TAC;
-    REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES; SUB_0; WORD_ADD_0] THEN
-    ENSURES_INIT_TAC "s0" THEN ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-    REWRITE_TAC[BIGNUM_FROM_MEMORY_TRIVIAL; HIGHDIGITS_0; LOWDIGITS_0] THEN
-    REWRITE_TAC[MULT_CLAUSES; EXP; ADD_CLAUSES; DIV_1] THEN
-    SUBGOAL_THEN `val(word (2 EXP 3 * block):int64) = 2 EXP 3 * block /\ val(word q:int64) = q`
-      (fun th -> REWRITE_TAC[th]) THENL
-     [CONJ_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THENL
-       [UNDISCH_TAC `block < 2 EXP 61` THEN ARITH_TAC;
-        UNDISCH_TAC `q < 2 EXP 64` THEN ARITH_TAC];
-      REWRITE_TAC[ARITH_RULE `2 EXP 3 = 8`] THEN SIMP_TAC[DIV_MULT; ARITH_EQ] THEN
-      ARITH_TAC];
-    X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
-    SUBGOAL_THEN `i:num < k` ASSUME_TAC THENL
-     [UNDISCH_TAC `i:num < dd` THEN UNDISCH_TAC `dd:num <= k` THEN ARITH_TAC;
-      ALL_TAC] THEN
-    GHOST_INTRO_TAC `cwin:int64` `read X22` THEN
-    GHOST_INTRO_TAC `hhin:int64` `read X5` THEN
-    GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV)
-     [BIGNUM_FROM_MEMORY_OFFSET_EQ_HIGHDIGITS] THEN
-    ASM_REWRITE_TAC[ARITH_RULE `k - i = 0 <=> ~(i < k)`; GSYM NOT_LT] THEN
-    REWRITE_TAC[ARITH_RULE `k - i - 1 = k - (i + 1)`; BIGNUM_FROM_MEMORY_STEP] THEN
-    ENSURES_INIT_TAC "s0" THEN
-    SUBGOAL_THEN `read (memory :> bytes64 (word_add m (word (8 * i)))) s0 =
-                  word (bigdigit b i)` ASSUME_TAC THENL
-     [REWRITE_TAC[GSYM(ASSUME `bignum_from_memory (m,k) s0 = b`)] THEN
-      ASM_SIMP_TAC[BIGDIGIT_BIGNUM_FROM_MEMORY; WORD_VAL];
-      ALL_TAC] THEN
-    SUBGOAL_THEN `read (memory :> bytes64 (word_add z (word (8 * i)))) s0 =
-                  word (bigdigit zorig i)` ASSUME_TAC THENL
-     [UNDISCH_TAC `bignum_from_memory (word_add z (word (8 * i)),k - i) s0 =
-                   highdigits zorig i` THEN
-      GEN_REWRITE_TAC LAND_CONV [BIGNUM_FROM_MEMORY_OFFSET_EQ_HIGHDIGITS] THEN
-      ASM_REWRITE_TAC[ARITH_RULE `k - i = 0 <=> ~(i < k)`; GSYM NOT_LT] THEN
-      STRIP_TAC THEN ASM_REWRITE_TAC[];
-      ALL_TAC] THEN
-    ARM_ACCSTEPS_TAC BIGNUM_MOD_EXEC [3;4;6;8;9] (1--16) THEN
-    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-    REWRITE_TAC[LOWDIGITS_CLAUSES] THEN
-    REPEAT CONJ_TAC THENL
-     [CONV_TAC WORD_RULE;
-      FIRST_X_ASSUM(fun th -> if concl th = `bignum_from_memory (m,k) s0 = b`
-        then GEN_REWRITE_TAC RAND_CONV [SYM th] else NO_TAC) THEN
-      REWRITE_TAC[BIGNUM_FROM_MEMORY_BYTES] THEN
-      FIRST_X_ASSUM(MP_TAC o check (can
-        (term_match [] `(f:armstate->armstate->bool) s0 s16`) o concl)) THEN
-      REWRITE_TAC[MAYCHANGE; SEQ_ID] THEN REWRITE_TAC[GSYM SEQ_ASSOC] THEN
-      REWRITE_TAC[ASSIGNS_SEQ] THEN REWRITE_TAC[ASSIGNS_THM] THEN
-      REWRITE_TAC[LEFT_IMP_EXISTS_THM] THEN REPEAT GEN_TAC THEN
-      DISCH_THEN(SUBST1_TAC o SYM) THEN READ_OVER_WRITE_ORTHOGONAL_TAC;
-      REWRITE_TAC[ARITH_RULE `k <= i + 1 <=> k - (i + 1) = 0`;
-                  ARITH_RULE `k - ((i + 1) + 1) = k - (i + 1) - 1`] THEN
-      GEN_REWRITE_TAC I [GSYM BIGNUM_FROM_MEMORY_OFFSET_EQ_HIGHDIGITS] THEN
-      SUBGOAL_THEN
-       `bignum_from_memory (word_add z (word (8 * (i+1))),k - (i+1)) s0 =
-        highdigits zorig (i+1)` MP_TAC THENL
-       [UNDISCH_TAC `bignum_from_memory (word_add z (word (8 * i)),k - i) s0 =
-                     highdigits zorig i` THEN
-        GEN_REWRITE_TAC LAND_CONV [BIGNUM_FROM_MEMORY_OFFSET_EQ_HIGHDIGITS] THEN
-        ASM_REWRITE_TAC[ARITH_RULE `k - i = 0 <=> ~(i < k)`; GSYM NOT_LT] THEN
-        REWRITE_TAC[ARITH_RULE `k - i - 1 = k - (i+1)`] THEN STRIP_TAC THEN
-        ASM_REWRITE_TAC[];
-        ALL_TAC] THEN
-      DISCH_TAC THEN
-      SUBGOAL_THEN
-       `bignum_from_memory (word_add z (word (8 * (i+1))),k - (i+1)) s16 =
-        bignum_from_memory (word_add z (word (8 * (i+1))),k - (i+1)) s0`
-       (fun th -> ASM_REWRITE_TAC[th]) THEN
-      REWRITE_TAC[BIGNUM_FROM_MEMORY_BYTES] THEN
-      FIRST_X_ASSUM(MP_TAC o check (can
-        (term_match [] `(f:armstate->armstate->bool) s0 s16`) o concl)) THEN
-      REWRITE_TAC[MAYCHANGE; SEQ_ID] THEN REWRITE_TAC[GSYM SEQ_ASSOC] THEN
-      REWRITE_TAC[ASSIGNS_SEQ] THEN REWRITE_TAC[ASSIGNS_THM] THEN
-      REWRITE_TAC[LEFT_IMP_EXISTS_THM] THEN REPEAT GEN_TAC THEN
-      DISCH_THEN(SUBST1_TAC o SYM) THEN READ_OVER_WRITE_ORTHOGONAL_TAC;
-      SUBGOAL_THEN `bignum_from_memory (z,i) s16 = bignum_from_memory (z,i) s0`
-       SUBST1_TAC THENL
-       [REWRITE_TAC[BIGNUM_FROM_MEMORY_BYTES] THEN
-        FIRST_X_ASSUM(MP_TAC o check (can
-          (term_match [] `(f:armstate->armstate->bool) s0 s16`) o concl)) THEN
-        REWRITE_TAC[MAYCHANGE; SEQ_ID] THEN REWRITE_TAC[GSYM SEQ_ASSOC] THEN
-        REWRITE_TAC[ASSIGNS_SEQ; ASSIGNS_THM; LEFT_IMP_EXISTS_THM] THEN
-        REPEAT GEN_TAC THEN DISCH_THEN(SUBST1_TAC o SYM) THEN
-        READ_OVER_WRITE_ORTHOGONAL_TAC;
-        ALL_TAC] THEN
-      SUBST1_TAC(GSYM(ISPEC `sum_s8:int64` WORD_VAL)) THEN
-      SUBST1_TAC(GSYM(ISPEC `cwin:int64` WORD_VAL)) THEN
-      REWRITE_TAC[EXTR_FUNNEL_VAL] THEN REWRITE_TAC[WORD_VAL] THEN
-      REWRITE_TAC[LOWDIGITS_CLAUSES] THEN
-      MP_TAC(ISPECL
-        [`block:num`; `q:num`; `bignum_from_memory (z,i) s0`; `val(cwin:int64)`;
-         `val(hhin:int64)`; `val(sum_s8:int64)`; `val(sum_s9:int64)`;
-         `lowdigits zorig i`; `lowdigits b i`; `bigdigit zorig i`; `bigdigit b i`; `i:num`]
-        INNER_ADVANCE_ADD) THEN
-      ANTS_TAC THENL
-       [REPEAT CONJ_TAC THENL
-         [FIRST_X_ASSUM ACCEPT_TAC;
-          SUBGOAL_THEN
-            `val(hhin:int64) < 2 EXP 64 /\ q < 2 EXP 64 /\
-             (2 EXP 64 - 1 - bigdigit b i) < 2 EXP 64 /\ bigdigit zorig i < 2 EXP 64`
-            STRIP_ASSUME_TAC THENL
-           [REWRITE_TAC[VAL_BOUND_64; BIGDIGIT_BOUND] THEN ASM_REWRITE_TAC[] THEN
-            ARITH_TAC;
-            ALL_TAC] THEN
-          MP_TAC(ISPECL
-            [`bigdigit zorig i`; `val(hhin:int64)`; `q:num`;
-             `2 EXP 64 - 1 - bigdigit b i`; `val(sum_s6:int64)`; `val(sum_s8:int64)`;
-             `val(sum_s9:int64)`; `val(mullo_s3:int64)`; `val(mulhi_s3:int64)`;
-             `bitval carry_s6`; `bitval carry_s8`; `bitval carry_s9`] NEGADD_STEP) THEN
-          ANTS_TAC THENL
-           [REWRITE_TAC[BITVAL_BOUND; VAL_BOUND_64; BIGDIGIT_BOUND] THEN
-            ASM_REWRITE_TAC[ARITH_RULE `2 EXP 64 - 1 - x < 2 EXP 64`] THEN
-            SUBGOAL_THEN
-              `val(word(bigdigit zorig i):int64) = bigdigit zorig i /\
-               val(if ~carry_s6 then word 0 else word 1:int64) = bitval carry_s6 /\
-               val(word q:int64) = q /\
-               val(word_not(word(bigdigit b i)):int64) = 2 EXP 64 - 1 - bigdigit b i`
-              STRIP_ASSUME_TAC THENL
-             [REPEAT CONJ_TAC THENL
-               [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64; BIGDIGIT_BOUND];
-                COND_CASES_TAC THEN
-                ASM_REWRITE_TAC[VAL_WORD_0; VAL_WORD_1; BITVAL_CLAUSES];
-                MATCH_MP_TAC VAL_WORD_EQ THEN ASM_REWRITE_TAC[DIMINDEX_64];
-                REWRITE_TAC[VAL_WORD_NOT; DIMINDEX_64] THEN
-                SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; BIGDIGIT_BOUND]];
-              ALL_TAC] THEN
-            REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN ASM_REWRITE_TAC[] THEN
-            REWRITE_TAC[BIGDIGIT_BOUND];
-            DISCH_THEN ACCEPT_TAC];
-          REWRITE_TAC[BIGDIGIT_BOUND]];
-        REWRITE_TAC[ARITH_RULE `2 EXP 3 = 8`] THEN DISCH_THEN ACCEPT_TAC]];
-    X_GEN_TAC `i:num` THEN STRIP_TAC THEN
-    SUBGOAL_THEN `val(word i:int64) = i /\ val(word dd:int64) = dd`
-      STRIP_ASSUME_TAC THENL
-     [CONJ_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
-      UNDISCH_TAC `i < dd` THEN UNDISCH_TAC `dd <= k` THEN UNDISCH_TAC `k < 2 EXP 58` THEN
-      ARITH_TAC;
-      ALL_TAC] THEN
-    ARM_SIM_TAC BIGNUM_MOD_EXEC (1--2) THEN
-    ASM_SIMP_TAC[ARITH_RULE `i < dd ==> ~(i = dd)`];
-    ARM_SIM_TAC BIGNUM_MOD_EXEC (1--1)]);;
-
-(* ===== SEGMENT: FIELDSEL ===== *)
 let BIGNUM_MOD_FIELDSEL = prove
  (`!p lf hf pc.
       lf < 2 EXP 64 /\ hf < 2 EXP 64
@@ -3951,692 +7059,6 @@ let BIGNUM_MOD_FIELDSEL = prove
     DISCH_THEN(fun th -> REWRITE_TAC[GSYM VAL_EQ; th]) THEN
     REWRITE_TAC[VAL_WORD; DIMINDEX_64; MOD_MOD_REFL]]);;
 
-
-(* ======== inlined: RECIP_QBOUND.proven.ml ======== *)
-let RECIP_QBOUND = prove
- (`!w n h l.
-      n < 2 EXP 64 /\ h < 2 EXP 64 /\ l < 2 EXP 64 /\ 0 < n /\
-      &2 pow 128 <= (&2 pow 64 + &w + &1) * &n /\
-      (&2 pow 64 + &w) * &n <= &2 pow 128
-      ==> &(2 EXP 64 * h + l) - &(((2 EXP 64 + w) * h) DIV 2 EXP 64) * &n
-          < &2 pow 64 + &2 * &n /\
-          &0 <= &(2 EXP 64 * h + l) - &(((2 EXP 64 + w) * h) DIV 2 EXP 64) * &n`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  MP_TAC(SPECL [`(2 EXP 64 + w) * h`; `2 EXP 64`] DIVISION) THEN
-  REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
-  ABBREV_TAC `q = ((2 EXP 64 + w) * h) DIV 2 EXP 64` THEN
-  ABBREV_TAC `r = ((2 EXP 64 + w) * h) MOD 2 EXP 64` THEN
-  STRIP_TAC THEN
-  (* real forms of the numeric hypotheses *)
-  SUBGOAL_THEN `&h:real < &2 pow 64 /\ &l:real < &2 pow 64 /\
-                &0:real < &n /\ &n:real < &2 pow 64 /\ &r:real < &2 pow 64`
-   STRIP_ASSUME_TAC THENL
-   [ASM_REWRITE_TAC[REAL_OF_NUM_CLAUSES]; ALL_TAC] THEN
-  SUBGOAL_THEN `&0:real < &2 pow 64` ASSUME_TAC THENL
-   [REWRITE_TAC[REAL_LT_POW2]; ALL_TAC] THEN
-  (* q*2^64 = (2^64+w)*h - r  (from the division identity) *)
-  SUBGOAL_THEN `&q * &2 pow 64 = (&2 pow 64 + &w) * &h - &r` ASSUME_TAC THENL
-   [UNDISCH_TAC `(2 EXP 64 + w) * h = q * 2 EXP 64 + r` THEN
-    REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN REAL_ARITH_TAC; ALL_TAC] THEN
-  (* q*n*2^64 = ((2^64+w)*n)*h - r*n *)
-  SUBGOAL_THEN `&q * &n * &2 pow 64 = ((&2 pow 64 + &w) * &n) * &h - &r * &n`
-   ASSUME_TAC THENL
-   [UNDISCH_TAC `&q * &2 pow 64 = (&2 pow 64 + &w) * &h - &r` THEN
-    CONV_TAC REAL_RING; ALL_TAC] THEN
-  (* the two bracket facts, each scaled by h >= 0 *)
-  SUBGOAL_THEN `(&2 pow 128 - &n) * &h <= ((&2 pow 64 + &w) * &n) * &h`
-   ASSUME_TAC THENL
-   [MATCH_MP_TAC REAL_LE_RMUL THEN CONJ_TAC THENL
-     [UNDISCH_TAC `&2 pow 128 <= (&2 pow 64 + &w + &1) * &n` THEN REAL_ARITH_TAC;
-      REWRITE_TAC[REAL_POS]];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `((&2 pow 64 + &w) * &n) * &h <= &2 pow 128 * &h` ASSUME_TAC THENL
-   [MATCH_MP_TAC REAL_LE_RMUL THEN ASM_REWRITE_TAC[REAL_POS]; ALL_TAC] THEN
-  (* explicit product bounds so the final REAL_ARITH stays linear *)
-  SUBGOAL_THEN `&n * &h < &n * &2 pow 64` ASSUME_TAC THENL
-   [ASM_SIMP_TAC[REAL_LT_LMUL_EQ]; ALL_TAC] THEN
-  SUBGOAL_THEN `&r * &n < &2 pow 64 * &n` ASSUME_TAC THENL
-   [ASM_SIMP_TAC[REAL_LT_RMUL_EQ]; ALL_TAC] THEN
-  SUBGOAL_THEN `&2 pow 64 * &l < &2 pow 64 * &2 pow 64` ASSUME_TAC THENL
-   [ASM_SIMP_TAC[REAL_LT_LMUL_EQ]; ALL_TAC] THEN
-  SUBGOAL_THEN `&0:real <= &2 pow 64 * &l` ASSUME_TAC THENL
-   [MATCH_MP_TAC REAL_LE_MUL THEN CONJ_TAC THENL
-     [MP_TAC(SPEC `64` REAL_LE_POW2) THEN REAL_ARITH_TAC;
-      REWRITE_TAC[REAL_POS]];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `&0:real <= &r * &n` ASSUME_TAC THENL
-   [MATCH_MP_TAC REAL_LE_MUL THEN REWRITE_TAC[REAL_POS]; ALL_TAC] THEN
-  SUBGOAL_THEN `&2 pow 64 * &2 pow 64 = &2 pow 128` ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM REAL_POW_ADD] THEN CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
-  REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN CONJ_TAC THENL
-   [(* upper bound: (2^64*h+l) - q*n < 2^64 + 2*n *)
-    MATCH_MP_TAC REAL_LT_LCANCEL_IMP THEN EXISTS_TAC `&2 pow 64` THEN
-    CONJ_TAC THENL [REAL_ARITH_TAC; ALL_TAC] THEN
-    REWRITE_TAC[REAL_SUB_LDISTRIB; REAL_ADD_LDISTRIB] THEN
-    REWRITE_TAC[REAL_ARITH `&2 pow 64 * &q * &n = &q * &n * &2 pow 64`] THEN
-    ASM_REWRITE_TAC[] THEN
-    MP_TAC(ASSUME `(&2 pow 128 - &n) * &h <= ((&2 pow 64 + &w) * &n) * &h`) THEN
-    MP_TAC(ASSUME `&n * &h < &n * &2 pow 64`) THEN
-    MP_TAC(ASSUME `&r * &n < &2 pow 64 * &n`) THEN
-    MP_TAC(ASSUME `&2 pow 64 * &l < &2 pow 64 * &2 pow 64`) THEN
-    MP_TAC(ASSUME `&2 pow 64 * &2 pow 64 = &2 pow 128`) THEN
-    REWRITE_TAC[REAL_ARITH `(&2 pow 128 - &n) * &h = &2 pow 128 * &h - &n * &h`] THEN
-    REAL_ARITH_TAC;
-    (* lower bound: 0 <= (2^64*h+l) - q*n *)
-    MATCH_MP_TAC REAL_LE_LCANCEL_IMP THEN EXISTS_TAC `&2 pow 64` THEN
-    CONJ_TAC THENL [REAL_ARITH_TAC; ALL_TAC] THEN
-    REWRITE_TAC[REAL_SUB_LDISTRIB; REAL_MUL_RZERO] THEN
-    REWRITE_TAC[REAL_ARITH `&2 pow 64 * &q * &n = &q * &n * &2 pow 64`] THEN
-    ASM_REWRITE_TAC[] THEN
-    MP_TAC(ASSUME `((&2 pow 64 + &w) * &n) * &h <= &2 pow 128 * &h`) THEN
-    MP_TAC(ASSUME `&0:real <= &2 pow 64 * &l`) THEN
-    MP_TAC(ASSUME `&0:real <= &r * &n`) THEN
-    MP_TAC(ASSUME `&2 pow 64 * &2 pow 64 = &2 pow 128`) THEN
-    REAL_ARITH_TAC]);;
-"RECIP_QBOUND (products supplied) file attempt";;
-
-
-(* ======== inlined: ki_core.ml ======== *)
-(* Stage 3e KEY INEQUALITY (core), the deep bound-maintenance piece of the main
-   division loop.  PROVEN cheat-free (jargh, 2026-07-26).
-
-   Ground-truth (152/152 qemu-oracle hits) the per-block body is subtract-before-
-   shift:  Zf' = 2^61*(Zf - qhat*b) + block,  qhat = umulh(w,h)+h,  h = Zf DIV 2^p,
-   p = bitsize b, block < 2^61, and the reduced remainder 0 <= Zf - qhat*b < 2^(p+1).
-   To close the invariant bound Zf' < 2^(p+64) it suffices to bound Zf - qhat*b; we
-   prove the (slightly looser, still sufficient) Zf < qhat*b + 2^(p+2), i.e.
-   Zf - qhat*b < 2^(p+2).  Then Zf' = 2^61*(Zf-qhat*b)+block < 2^61*2^(p+2)+2^61
-   = 2^(p+63)+2^61 < 2^(p+64).
-
-   HYPOTHESES capture exactly what the reciprocal machinery already supplies:
-     b < 2^p                              (b has p = bitsize b bits)
-     t0 < 2^64                            (normalized top word; RECIP)
-     b*2^64 = t0*2^p + s                  (t0 = (b*2^64) DIV 2^p, remainder s<2^p)
-     Zf = h*2^p + zr, zr < 2^p            (h = Zf DIV 2^p, remainder zr)
-     2^64*h < qhat*t0 + (2^64 + 2*t0)     (RECIP_QBOUND upper half, l:=0, n:=t0)
-   Note s < 2^p is NOT needed (only s >= 0, automatic for nat).
-
-   PROOF: scale the RECIP upper bound by 2^p, substitute h*2^p=Zf-zr and
-   t0*2^p=b*2^64-s, drop the >=0 terms qhat*s and 2*s, and use b<2^p (=e), zr<2^p,
-   t0<2^64.  Powers abbreviated e=2^p,f=2^64 to keep products canonical; nonlinear
-   bridges supplied explicitly so the final step is a linear REAL_ARITH.  (Do NOT
-   ASM_REWRITE over the circular equalities H2/H_sub -- it stack-overflows.) *)
-
-let KI_CORE = prove
- (`!b p t0 Zf h qhat s zr.
-    b < 2 EXP p /\ t0 < 2 EXP 64 /\
-    b * 2 EXP 64 = t0 * 2 EXP p + s /\
-    Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
-    2 EXP 64 * h < qhat * t0 + (2 EXP 64 + 2 * t0)
-    ==> Zf < qhat * b + 2 EXP (p + 2)`,
-  REPEAT STRIP_TAC THEN RULE_ASSUM_TAC(REWRITE_RULE[GSYM REAL_OF_NUM_CLAUSES]) THEN
-  REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN
-  REWRITE_TAC[REAL_ARITH `p2:real = q + r <=> q + r = p2`] THEN
-  ABBREV_TAC `e = &2 pow p` THEN ABBREV_TAC `f = &2 pow 64` THEN
-  SUBGOAL_THEN `&2 pow (p + 2) = &4 * e` SUBST1_TAC THENL
-   [EXPAND_TAC "e" THEN REWRITE_TAC[REAL_POW_ADD] THEN REAL_ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `&0 < e /\ &0 < f` STRIP_ASSUME_TAC THENL
-   [CONJ_TAC THENL [EXPAND_TAC "e"; EXPAND_TAC "f"] THEN REWRITE_TAC[REAL_LT_POW2];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `(f * &h) * e < (&qhat * &t0 + f + &2 * &t0) * e` ASSUME_TAC THENL
-   [ASM_SIMP_TAC[REAL_LT_RMUL_EQ]; ALL_TAC] THEN
-  SUBGOAL_THEN `f * (&Zf - &zr) < &qhat * (&b * f - &s) + f * e + &2 * (&b * f - &s)`
-   ASSUME_TAC THENL
-   [MP_TAC(ASSUME `(f * &h) * e < (&qhat * &t0 + f + &2 * &t0) * e`) THEN
-    SUBGOAL_THEN `(f * &h) * e = f * (&h * e)` SUBST1_TAC THENL
-     [REAL_ARITH_TAC; ALL_TAC] THEN
-    SUBGOAL_THEN
-     `(&qhat * &t0 + f + &2 * &t0) * e = &qhat * (&t0 * e) + f * e + &2 * (&t0 * e)`
-     SUBST1_TAC THENL [REAL_ARITH_TAC; ALL_TAC] THEN
-    ASM_REWRITE_TAC[] THEN REAL_ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `&0 <= &qhat * &s /\ &0 <= &s /\ &b * f < e * f /\ f * &zr < f * e`
-   STRIP_ASSUME_TAC THENL
-   [REPEAT CONJ_TAC THENL
-     [MATCH_MP_TAC REAL_LE_MUL THEN REWRITE_TAC[REAL_POS];
-      REWRITE_TAC[REAL_POS];
-      ASM_SIMP_TAC[REAL_LT_RMUL_EQ];
-      ASM_SIMP_TAC[REAL_LT_LMUL_EQ]];
-    ALL_TAC] THEN
-  ONCE_REWRITE_TAC[GSYM(MATCH_MP REAL_LT_LMUL_EQ (ASSUME `&0 < f`))] THEN
-  SUBGOAL_THEN `f * (&qhat * &b) = &qhat * (&b * f) /\
-                &qhat * (&b * f - &s) = &qhat * (&b * f) - &qhat * &s`
-   STRIP_ASSUME_TAC THENL [CONJ_TAC THEN REAL_ARITH_TAC; ALL_TAC] THEN
-  MP_TAC(ASSUME `f * (&Zf - &zr) < &qhat * (&b * f - &s) + f * e + &2 * (&b * f - &s)`) THEN
-  MP_TAC(ASSUME `&qhat * (&b * f - &s) = &qhat * &b * f - &qhat * &s`) THEN
-  MP_TAC(ASSUME `f * &qhat * &b = &qhat * &b * f`) THEN
-  MP_TAC(ASSUME `&0 <= &qhat * &s`) THEN MP_TAC(ASSUME `&0 <= &s`) THEN
-  MP_TAC(ASSUME `&b * f < e * f`) THEN MP_TAC(ASSUME `f * &zr < f * e`) THEN
-  MP_TAC(SPECL [`e:real`;`f:real`] REAL_MUL_SYM) THEN
-  MP_TAC(REAL_ARITH `f * (&qhat * &b + &4 * e) = f * &qhat * &b + &4 * (f * e)`) THEN
-  REAL_ARITH_TAC);;
-
-(* ---- CONG_HALF: congruence maintenance for one block, in terms of the body's
-   ACTUAL output relation Zf' + 2^61*(qhat*b) = 2^61*Zf + block.  Instantiates the
-   banked CONG_MAINTAIN with q := 2^61*qhat (subtract-before-shift => the effective
-   quotient at the additive-form level is 2^61*qhat). ---- *)
-let CONG_HALF = prove
- (`!a b i Zf Zf' qhat block.
-     (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
-     block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\
-     Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block
-     ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b)`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(SPECL [`Zf:num`; `Zf':num`; `(a DIV 2 EXP (61 * i)) MOD 2 EXP 61`;
-               `2 EXP 61 * qhat`; `b:num`;
-               `a DIV 2 EXP (61 * i)`; `a DIV 2 EXP (61 * (i + 1))`] CONG_MAINTAIN) THEN
-  ANTS_TAC THENL
-   [ASM_REWRITE_TAC[GSYM MULT_ASSOC] THEN
-    MP_TAC(SPECL [`a:num`; `i:num`] BLOCKSPLIT) THEN ARITH_TAC;
-    DISCH_THEN ACCEPT_TAC]);;
-
-(* ---- BOUND_HALF: bound maintenance for one block from KI's reduced-remainder
-   bound Zf < qhat*b + 2^(p+2) and block < 2^61.  2^61*2^(p+2)+2^61 < 2^(p+64). ---- *)
-let BOUND_HALF = prove
- (`!Zf Zf' qhat b block p.
-     Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block /\
-     Zf < qhat * b + 2 EXP (p + 2) /\ block < 2 EXP 61
-     ==> Zf' < 2 EXP (p + 64)`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(SPEC `p:num` (prove(`!p. 2 EXP 61 * 2 EXP (p + 2) + 2 EXP 61 <= 2 EXP (p + 64)`,
-    GEN_TAC THEN REWRITE_TAC[GSYM EXP_ADD] THEN
-    REWRITE_TAC[ARITH_RULE `61 + (p + 2) = p + 63`] THEN
-    SUBGOAL_THEN `2 EXP (p + 64) = 2 EXP (p + 63) + 2 EXP (p + 63)` SUBST1_TAC THENL
-     [REWRITE_TAC[ARITH_RULE `p + 64 = (p + 63) + 1`; EXP_ADD] THEN ARITH_TAC;
-      MATCH_MP_TAC LE_ADD2 THEN REWRITE_TAC[LE_REFL; LE_EXP] THEN ARITH_TAC]))) THEN
-  UNDISCH_TAC `Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block` THEN
-  UNDISCH_TAC `Zf < qhat * b + 2 EXP (p + 2)` THEN
-  UNDISCH_TAC `block < 2 EXP 61` THEN ARITH_TAC);;
-
-(* ---- BLOCK_ADVANCE: the complete per-block invariant-maintenance lemma.  Given
-   the incoming (C)+bound-window facts + reciprocal facts (b<2^p, t0<2^64, the
-   normalization b*2^64=t0*2^p+s, and RECIP_QBOUND-upper on the window h,qhat) and
-   the body's exact output relation, delivers BOTH next-step clauses.  This is what
-   Stage 3f applies per loop iteration. ---- *)
-let BLOCK_ADVANCE = prove
- (`!a b i p t0 Zf Zf' qhat block s zr h.
-     (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
-     block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
-     b < 2 EXP p /\ t0 < 2 EXP 64 /\
-     b * 2 EXP 64 = t0 * 2 EXP p + s /\
-     Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
-     2 EXP 64 * h < qhat * t0 + (2 EXP 64 + 2 * t0) /\
-     Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block
-     ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b) /\
-         Zf' < 2 EXP (p + 64)`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN CONJ_TAC THENL
-   [MP_TAC(SPECL [`a:num`; `b:num`; `i:num`; `Zf:num`; `Zf':num`; `qhat:num`; `block:num`]
-      CONG_HALF) THEN ASM_REWRITE_TAC[];
-    MP_TAC(SPECL [`Zf:num`; `Zf':num`; `qhat:num`; `b:num`; `block:num`; `p:num`]
-      BOUND_HALF) THEN
-    ANTS_TAC THENL [ALL_TAC; REWRITE_TAC[]] THEN ASM_REWRITE_TAC[] THEN
-    MP_TAC(SPECL [`b:num`; `p:num`; `t0:num`; `Zf:num`; `h:num`; `qhat:num`; `s:num`; `zr:num`]
-      KI_CORE) THEN ASM_REWRITE_TAC[]]);;
-
-(* BLOCK_VALUE (jargh, 2026-07-26): bundles RECIP_QBOUND -> BLOCK_ADVANCE so the main-loop
-   body's value-close is a single application.  Given the reciprocal bracket on (w, t0)
-   [t0 = normalized top window of b, bit 63 set; w = word_recip output], the normalized-
-   window relation b*2^64 = t0*2^p+s, the Zf decomposition Zf = h*2^p+zr (h = window =
-   (Zf DIV 2^p)MOD 2^64), and the block's ACTUAL output relation
-     Zf' + 2^61*qhat*b = 2^61*Zf + block,  qhat = umulh(w,h)+h = ((2^64+w)*h)DIV 2^64,
-   derive the maintained congruence (Zf' == a DIV 2^(61i))(mod b) AND bound Zf'<2^(p+64).
-   Requires RECIP_QBOUND (RECIP_QBOUND.proven.ml / bignum_mod.ml).  This is the value
-   half of one main-loop block iteration; the memory/register realization of Zf' comes
-   from INNER_ADVANCE_ADD (inner words) + the tail (TAIL_DDK/DDLT_B/C). *)
-let BLOCK_VALUE = prove
- (`!a b i p t0 Zf Zf' w block s zr h l.
-    (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
-    block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
-    b < 2 EXP p /\ t0 < 2 EXP 64 /\ 0 < t0 /\ h < 2 EXP 64 /\ l < 2 EXP 64 /\
-    b * 2 EXP 64 = t0 * 2 EXP p + s /\
-    Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
-    &2 pow 128 <= (&2 pow 64 + &w + &1) * &t0 /\ (&2 pow 64 + &w) * &t0 <= &2 pow 128 /\
-    Zf' + 2 EXP 61 * (((2 EXP 64 + w) * h) DIV 2 EXP 64) * b = 2 EXP 61 * Zf + block
-    ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b) /\ Zf' < 2 EXP (p + 64)`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  MP_TAC(SPECL [`a:num`; `b:num`; `i:num`; `p:num`; `t0:num`; `Zf:num`; `Zf':num`;
-               `((2 EXP 64 + w) * h) DIV 2 EXP 64`; `block:num`; `s:num`; `zr:num`; `h:num`]
-        BLOCK_ADVANCE) THEN
-  ANTS_TAC THENL
-   [ASM_REWRITE_TAC[] THEN
-    MP_TAC(SPECL [`w:num`; `t0:num`; `h:num`; `l:num`] RECIP_QBOUND) THEN
-    ASM_REWRITE_TAC[] THEN REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN REAL_ARITH_TAC;
-    DISCH_THEN ACCEPT_TAC]);;
-
-
-(* ======== inlined: block_value.ml ======== *)
-(* Stage 3f value-close bundle (jargh, 2026-07-26).  Two lemmas that convert the recip
-   bracket (as RECIP_WIDE delivers it, division form) into the maintained congruence +
-   bound for one main-loop block.  BLOCK_VALUE itself is banked in ki_core.ml (needs
-   RECIP_QBOUND pre-loaded).  RECIP_BRACKET_CLEAR is the division->multiplied conversion.
-
-   Chain for the main-loop body value-close:
-     RECIP_WIDE @0x13c:  bit 63 t0 ==> 2^64+val w < 2^128/val t0 /\ 2^128/val t0 <= 2^64+val w+1
-       (threaded through the preheader to 0x1a4)
-     RECIP_BRACKET_CLEAR:  -> 2^128 <= (2^64+w+1)*t0 /\ (2^64+w)*t0 <= 2^128
-     BLOCK_VALUE (RECIP_QBOUND -> BLOCK_ADVANCE):  + b*2^64=t0*2^p+s + Zf=h*2^p+zr +
-       block defn + output relation  ->  (Zf'==a DIV 2^(61i))(mod b) /\ Zf'<2^(p+64).
-   t0 = window(b) = (b*2^64)DIV 2^(bitsize b); WINDOW_RANGE gives 2^63<=t0<2^64 (=> bit 63);
-   b*2^64 = t0*2^p + (b*2^64)MOD 2^p is the division identity (p=bitsize b; b<2^p). *)
-
-let RECIP_BRACKET_CLEAR = prove
- (`!w t0. 0 < t0 /\
-     &2 pow 64 + &w < &2 pow 128 / &t0 /\ &2 pow 128 / &t0 <= &2 pow 64 + &w + &1
-     ==> &2 pow 128 <= (&2 pow 64 + &w + &1) * &t0 /\ (&2 pow 64 + &w) * &t0 <= &2 pow 128`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `&0 < &t0` ASSUME_TAC THENL
-   [REWRITE_TAC[REAL_OF_NUM_LT] THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  UNDISCH_TAC `&2 pow 128 / &t0 <= &2 pow 64 + &w + &1` THEN
-  UNDISCH_TAC `&2 pow 64 + &w < &2 pow 128 / &t0` THEN
-  ASM_SIMP_TAC[REAL_LE_LDIV_EQ; REAL_LT_RDIV_EQ] THEN REAL_ARITH_TAC);;
-
-(* QHAT_ID: the segments' quotient X15 = q = umulh(w,h)+h = (w*h)DIV2^64+h equals
-   BLOCK_VALUE's qhat = ((2^64+w)*h)DIV2^64.  Bridges the QSETUP/segment q to the
-   value-close.  (The 2^64*h term is a clean multiple of 2^64.) *)
-let QHAT_ID = prove
- (`!w h. (w * h) DIV 2 EXP 64 + h = ((2 EXP 64 + w) * h) DIV 2 EXP 64`,
-  REPEAT GEN_TAC THEN REWRITE_TAC[RIGHT_ADD_DISTRIB] THEN
-  SIMP_TAC[DIV_ADD; DIVIDES_LMUL; DIVIDES_REFL; EXP_2] THEN
-  REWRITE_TAC[ARITH_RULE `2 EXP 64 * h = h * 2 EXP 64`] THEN
-  SIMP_TAC[DIV_MULT; EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
-
-(* WINDOW_ZERO: in the growing regime (regime B, dd+1<k) the accumulator Zf < b, so the
-   window h = (Zf DIV 2^p) MOD 2^64 = 0 (p=bitsize b => Zf<b<2^p => Zf DIV2^p=0), hence
-   qhat = umulh(w,0)+0 = 0.  This makes the regime-B block a PURE shift-add (no reduction).
-   [regime B => Zf<b => qhat=0 confirmed by faithful sim, 0 viol/16513 blocks, 2026-07-27] *)
-let WINDOW_ZERO = prove
- (`!Zf b. ~(b = 0) /\ Zf < b ==> (Zf DIV 2 EXP (bitsize b)) MOD 2 EXP 64 = 0`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `Zf DIV 2 EXP (bitsize b) = 0` (fun th -> REWRITE_TAC[th; MOD_0]) THEN
-  MATCH_MP_TAC DIV_LT THEN
-  TRANS_TAC LTE_TRANS `b:num` THEN ASM_REWRITE_TAC[] THEN
-  MP_TAC(SPEC `b:num` BITSIZE) THEN ARITH_TAC);;
-
-(* BLOCK_VALUE_B: the GROWING-regime (regime B, dd+1<k) value close.  In regime B the
-   accumulator Zf < b (=> h=0 => qhat=0, WINDOW_ZERO), so the block is a PURE shift-add
-   Zf' = 2^61*Zf + block (no reduction).  Derives cong (via CONG_HALF, qhat=0) + bound
-   (Zf' = 2^61*Zf+block < 2^61*2^p + 2^61 <= 2^(p+61)+2^(p+61) <= 2^(p+64)).  NO recip
-   bracket needed for regime B.  [regime B => Zf<b => qhat=0: faithful sim, 0 viol/16513.] *)
-let BLOCK_VALUE_B = prove
- (`!a b i p Zf Zf' block.
-    (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
-    block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
-    ~(b = 0) /\ Zf < b /\ b < 2 EXP p /\
-    Zf' = 2 EXP 61 * Zf + block
-    ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b) /\ Zf' < 2 EXP (p + 64)`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN CONJ_TAC THENL
-   [MP_TAC(SPECL [`a:num`; `b:num`; `i:num`; `Zf:num`; `Zf':num`; `0`; `block:num`]
-      CONG_HALF) THEN
-    REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES] THEN DISCH_THEN MATCH_MP_TAC THEN
-    ASM_REWRITE_TAC[];
-    SUBGOAL_THEN `Zf < 2 EXP p` ASSUME_TAC THENL
-     [TRANS_TAC LTE_TRANS `b:num` THEN ASM_SIMP_TAC[LT_IMP_LE]; ALL_TAC] THEN
-    SUBGOAL_THEN `2 EXP 61 * Zf < 2 EXP (p + 61)` ASSUME_TAC THENL
-     [SUBGOAL_THEN `2 EXP (p + 61) = 2 EXP 61 * 2 EXP p` SUBST1_TAC THENL
-       [REWRITE_TAC[EXP_ADD] THEN ARITH_TAC; ALL_TAC] THEN
-      ASM_REWRITE_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
-    SUBGOAL_THEN `block < 2 EXP (p + 61)` ASSUME_TAC THENL
-     [TRANS_TAC LTE_TRANS `2 EXP 61` THEN ASM_REWRITE_TAC[LE_EXP; ARITH_EQ] THEN ARITH_TAC;
-      ALL_TAC] THEN
-    SUBGOAL_THEN `2 EXP (p + 61) + 2 EXP (p + 61) <= 2 EXP (p + 64)` ASSUME_TAC THENL
-     [SUBGOAL_THEN `2 EXP (p + 64) = 2 EXP (p + 61) * 2 EXP 3` SUBST1_TAC THENL
-       [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN
-      ARITH_TAC; ALL_TAC] THEN
-    ASM_REWRITE_TAC[] THEN
-    MP_TAC(ISPECL [`2 EXP 61 * Zf`; `block:num`; `2 EXP (p + 61)`; `2 EXP (p + 64)`]
-      (ARITH_RULE `!X y Q P. X < Q /\ y < Q /\ Q + Q <= P ==> X + y < P`)) THEN
-    ASM_REWRITE_TAC[]]);;
-
-(* TAIL_MUL_FULL: the tail multiplies qhat by lowdigits b (dd+1) (words 0..dd of m), but
-   this EQUALS qhat*b for EVERY regime -- because in regime B (dd+1<k) either qhat=0
-   (normalized b, Zf<b) OR highdigits b (dd+1)=0 (b's nonzero words all <= dd, so
-   lowdigits b (dd+1)=b).  [faithful sim: qhat=0 \/ b<2^(64(dd+1)) in regime B, 0 viol/
-   23967; and qhat*(mult'd m)=qhat*b universally, 0 viol/72229.]  So the full-b block
-   relation Zf'+2^61*qhat*b=2^61*Zf+block holds UNIFORMLY, and BLOCK_VALUE (full-b) applies
-   to every regime -- NO partial-b problem ever, NO need for a separate shift-add close.
-   This is THE key identity that makes the uniform value-close correct. *)
-let TAIL_MUL_FULL = prove
- (`!b dd qhat. (qhat = 0 \/ highdigits b (dd + 1) = 0)
-     ==> qhat * lowdigits b (dd + 1) = qhat * b`,
-  REPEAT STRIP_TAC THENL
-   [ASM_REWRITE_TAC[MULT_CLAUSES];
-    SUBGOAL_THEN `lowdigits b (dd + 1) = b` (fun th -> REWRITE_TAC[th]) THEN
-    MP_TAC(SPECL [`b:num`; `dd + 1`] (CONJUNCT1 HIGH_LOW_DIGITS)) THEN
-    ASM_REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES]]);;
-
-
-(* ======== inlined: recip_bracket_inv.ml ======== *)
-(* Stage 3f: recip-bracket invariant adapter.  Converts RECIP_WIDE's division-form bracket
-   (delivered at the preheader, guarded by `bit 63 t0`) into BLOCK_VALUE's multiplied-form
-   bracket -- the loop-CONSTANT clause to thread through the PDOWN invariant for the saturated
-   (C/DDK) regime close.  t0 = normalized window of b (2^63 <= val t0 < 2^64 by WINDOW_RANGE,
-   so bit 63 t0 fires the guard).  w = X21 = word_recip output.  Uses RECIP_BRACKET_CLEAR
-   (block_value.ml) + BIT63_VAL. *)
-
-let BIT63_VAL = prove
- (`!x:int64. bit 63 x <=> 2 EXP 63 <= val x`,
-  GEN_TAC THEN REWRITE_TAC[BIT_VAL] THEN
-  MP_TAC(ISPEC `x:int64` VAL_BOUND) THEN REWRITE_TAC[DIMINDEX_64] THEN
-  SPEC_TAC(`val(x:int64)`,`v:num`) THEN GEN_TAC THEN DISCH_TAC THEN
-  SUBGOAL_THEN `2 EXP 63 <= v <=> ~(v DIV 2 EXP 63 = 0)` SUBST1_TAC THENL
-   [SIMP_TAC[DIV_EQ_0; EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `v DIV 2 EXP 63 = 0 \/ v DIV 2 EXP 63 = 1` MP_TAC THENL
-   [SUBGOAL_THEN `v DIV 2 EXP 63 < 2` MP_TAC THENL
-     [SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
-      REWRITE_TAC[GSYM EXP_ADD] THEN UNDISCH_TAC `v < 2 EXP 64` THEN ARITH_TAC;
-      ARITH_TAC];
-    STRIP_TAC THEN ASM_REWRITE_TAC[ARITH]]);;
-
-let RECIP_BRACKET_INV = prove
- (`!w t0:int64.
-    2 EXP 63 <= val t0 /\
-    (bit 63 t0
-     ==> &2 pow 64 + &(val w) < &2 pow 128 / &(val t0) /\
-         &2 pow 128 / &(val t0) <= &2 pow 64 + &(val w) + &1)
-    ==> &2 pow 128 <= (&2 pow 64 + &(val w) + &1) * &(val t0) /\
-        (&2 pow 64 + &(val w)) * &(val t0) <= &2 pow 128`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  MATCH_MP_TAC RECIP_BRACKET_CLEAR THEN
-  CONJ_TAC THENL
-   [UNDISCH_TAC `2 EXP 63 <= val(t0:int64)` THEN ARITH_TAC;
-    FIRST_X_ASSUM MATCH_MP_TAC THEN REWRITE_TAC[BIT63_VAL] THEN
-    FIRST_ASSUM ACCEPT_TAC]);;
-
-
-(* ======== inlined: logging_lemmas.ml ======== *)
-(* Stage 3f LOGGING step lemmas (jargh, 2026-07-26).  The lf/hf csel updates in the
-   inner body (and tail), abstracted over the memory-read function f = \j. read(mem
-   z[8j]) s.  Both PROVEN cheat-free.  The inner body (after ARM_ACCSTEPS+FINAL_STATE)
-   leaves:
-     X13 s16 = if i < pcode then newz else lfin        (lf csel, cc = i<pcode)
-     X14 s16 = if i = pcode then newz else hfin         (hf csel, eq = i=pcode; the
-                ARM form is `val(word_sub(word i)(word pcode))=0` -- reduce to i=pcode
-                via WORD_SUB_EQ_0/VAL_WORD_EQ when i,pcode<2^64)
-   where newz = read(mem z[8i]) s16 = f i (the just-str'd word).  LF_STEP/HF_STEP then
-   advance the invariant clauses to index i+1.  lf needs 1<=pcode (pcode=p DIV64+1>=1). *)
-
-let LF_STEP = prove
- (`!f newz lfin i pcode.
-     1 <= pcode /\ newz = f i /\
-     (~(i < 1) ==> lfin = f (MIN i pcode - 1))
-     ==> (1 <= i + 1
-          ==> (if i < pcode then newz else lfin) = f (MIN (i + 1) pcode - 1))`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN DISCH_TAC THEN
-  ASM_CASES_TAC `i < pcode` THEN ASM_REWRITE_TAC[] THENL
-   [AP_TERM_TAC THEN
-    SUBGOAL_THEN `MIN (i + 1) pcode = i + 1` SUBST1_TAC THENL
-     [ASM_ARITH_TAC; ARITH_TAC];
-    SUBGOAL_THEN `~(i < 1)` (fun th -> FIRST_X_ASSUM(MP_TAC o C MATCH_MP th)) THENL
-     [ASM_ARITH_TAC; ALL_TAC] THEN
-    DISCH_THEN SUBST1_TAC THEN AP_TERM_TAC THEN
-    SUBGOAL_THEN `MIN i pcode = pcode /\ MIN (i + 1) pcode = pcode`
-      (fun th -> REWRITE_TAC[th]) THEN ASM_ARITH_TAC]);;
-
-let HF_STEP = prove
- (`!(f:num->int64) newz hfin (i:num) (pcode:num).
-     newz = f i /\ hfin = (if pcode < i then f pcode else word 0)
-     ==> (if i = pcode then newz else hfin) =
-         (if pcode < i + 1 then f pcode else word 0)`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  ASM_CASES_TAC `i:num = pcode` THEN ASM_REWRITE_TAC[] THENL
-   [SUBGOAL_THEN `pcode < pcode + 1 /\ ~(pcode < pcode)` STRIP_ASSUME_TAC THENL
-     [ARITH_TAC; ASM_REWRITE_TAC[]];
-    SUBGOAL_THEN `(pcode < i + 1) <=> (pcode < i)` SUBST1_TAC THENL
-     [POP_ASSUM MP_TAC THEN ARITH_TAC; ALL_TAC] THEN
-    ASM_REWRITE_TAC[]]);;
-
-(* GUARDED-form hf step lemmas.  CRITICAL: the if-then-else hf invariant clause
-     read X14 s = if pcode < i then read(mem z[8*pcode]) s else word 0
-   is DROPPED by ARM_ACCSTEPS_TAC (it cannot bridge a memory read buried inside a
-   conditional from s0 to s16), so the incoming hf-invariant vanishes and the step
-   leaf dangles.  Splitting it into TWO guarded equations
-     pcode < i ==> read X14 s = read(mem z[8*pcode]) s      (POS)
-     ~(pcode < i) ==> read X14 s = word 0                    (NEG)
-   makes each survive ACCSTEPS exactly like the lf clause (guarded eqn, read bridged).
-   These advance the pair from index i to i+1 after the hf csel
-   X14' = if i = pcode then newz else hfin  (newz = f i = the just-str'd z[8*i]). *)
-let HF_STEP_G_POS = prove
- (`!(f:num->int64) newz hfin i pcode.
-     newz = f i /\ (pcode < i ==> hfin = f pcode) /\ (~(pcode < i) ==> hfin = word 0)
-     ==> (pcode < i + 1
-          ==> (if i = pcode then newz else hfin) = f pcode)`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN DISCH_TAC THEN
-  ASM_CASES_TAC `i:num = pcode` THENL
-   [ASM_REWRITE_TAC[] THEN FIRST_X_ASSUM(fun th -> SUBST1_TAC(SYM th)) THEN
-    ASM_REWRITE_TAC[];
-    ASM_REWRITE_TAC[] THEN FIRST_X_ASSUM MATCH_MP_TAC THEN
-    UNDISCH_TAC `pcode < i + 1` THEN UNDISCH_TAC `~(i:num = pcode)` THEN ARITH_TAC]);;
-
-(* NEG's outgoing guard is `i + 1 <= pcode` (NOT ~(pcode < i + 1)): the body's leading
-   ASM_REWRITE_TAC[] normalizes the postcond's ~(pcode < i+1) to i+1 <= pcode via NOT_LT
-   before the FIRST dispatcher runs, so DISCH_THEN ACCEPT_TAC needs this exact shape. *)
-let HF_STEP_G_NEG = prove
- (`!(f:num->int64) newz hfin i pcode.
-     newz = f i /\ (pcode < i ==> hfin = f pcode) /\ (~(pcode < i) ==> hfin = word 0)
-     ==> (i + 1 <= pcode
-          ==> (if i = pcode then newz else hfin) = word 0)`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN DISCH_TAC THEN
-  SUBGOAL_THEN `~(i:num = pcode)` (fun th -> REWRITE_TAC[th]) THENL
-   [UNDISCH_TAC `i + 1 <= pcode` THEN ARITH_TAC; ALL_TAC] THEN
-  FIRST_X_ASSUM MATCH_MP_TAC THEN UNDISCH_TAC `i + 1 <= pcode` THEN ARITH_TAC);;
-
-
-(* ======== inlined: innerloop.ml ======== *)
-(* Stage 3 INNER cmnegadd loop (pc+0x1f4 -> pc+0x238), ii=0..dd-1.
-   Fused z := (z<<61) - q*m + block  (the negate-add with the extr <<61 shift).
-   Additive invariant (INNER_ADVANCE_ADD / INNER_ENTRY_ADD, banked):
-     INV(i): bignum(z,i) s + 2^(64i)*(val(X22 s) DIV 8 + 2^61*val(X5 s))
-               + 2^61*(q * lowdigits b i)
-             = block + 2^61*(lowdigits zorig i) + 2^61*(q * 2^(64i))
-   m tracked as WHOLE-ARRAY bignum(m,k) s = b (untouched); only z uses highdigits.
-   lf/hf logging (X13/X14) DEFERRED -- added as separate clauses once core proven.
-   Body instr layout (18): 1 ldr m,2 mvn,3 mul,4 umulh,5 ldr z,6 adds,7 cset,
-   8 adds,9 adc,10 EXTR,11 str,12 cmp,13 csel lf,14 csel hf,15 mov c,16 add ii,
-   17 cmp,18 b.ne.  BODY = steps 1--16 (0x1f4->0x234); cmp+b.ne (17,18) = BACKEDGE.
-   Accum idxs [3;4;6;8;9]; MUST pin BOTH z[i] AND m[i] as concrete word-vars so
-   ARM_ACCSTEPS folds the adds/adc.  NEGADD_STEP proves carry_s9=0 automatically
-   (total < 2^128), so NO q-bound coupling.
-
-   STATUS (2026-07-25): ENTRY + BODY (sim + m/z preserve + value eqn) PROVEN.
-   BACKEDGE/EXIT standard ARM_SIM(1--2).  Requires banked: INNER_ENTRY_ADD,
-   INNER_ADVANCE_ADD, INNERSTEP_VAL/NEGADD_STEP, EXTR_FUNNEL_VAL. *)
-
-let BIGNUM_MOD_INNERLOOP = prove
- (`!k z m dd q block zorig b pc.
-      nonoverlapping (word pc,0x438) (z,8 * k) /\
-      nonoverlapping (word pc,0x438) (m,8 * k) /\
-      nonoverlapping (z,8 * k) (m,8 * k) /\
-      1 <= dd /\ dd < k /\ k < 2 EXP 58 /\ q < 2 EXP 64 /\ block < 2 EXP 61 /\
-      b < 2 EXP (64 * k)
-      ==> ensures arm
-       (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-            read PC s = word (pc + 0x1f4) /\
-            read X0 s = word k /\ read X1 s = z /\ read X4 s = m /\
-            read X8 s = word 0 /\ read X15 s = word q /\
-            read X5 s = word q /\ read X22 s = word (2 EXP 3 * block) /\
-            read X11 s = word dd /\
-            bignum_from_memory (z,k) s = zorig /\
-            bignum_from_memory (m,k) s = b)
-       (\s. read PC s = word (pc + 0x238) /\ read X8 s = word dd /\
-            bignum_from_memory (z,dd) s +
-            2 EXP (64 * dd) * (val(read X22 s) DIV 8 + 2 EXP 61 * val(read X5 s)) +
-            2 EXP 61 * (q * lowdigits b dd) =
-            block + 2 EXP 61 * lowdigits zorig dd + 2 EXP 61 * (q * 2 EXP (64 * dd)))
-       (MAYCHANGE [PC; X5; X6; X7; X8; X9; X10; X13; X14; X22] ,,
-        MAYCHANGE [memory :> bignum(z,k)] ,,
-        MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[SOME_FLAGS] THEN
-  ENSURES_WHILE_AUP_TAC `0` `dd:num` `pc + 0x1f4` `pc + 0x234`
-   `\i s. read X0 s = word k /\ read X1 s = z /\ read X4 s = m /\
-          read X15 s = word q /\ read X11 s = word dd /\
-          read X8 s = word i /\
-          bignum_from_memory (m,k) s = b /\
-          bignum_from_memory (word_add z (word (8 * i)), k - i) s = highdigits zorig i /\
-          bignum_from_memory (z,i) s +
-          2 EXP (64 * i) * (val(read X22 s) DIV 8 + 2 EXP 61 * val(read X5 s)) +
-          2 EXP 61 * (q * lowdigits b i) =
-          block + 2 EXP 61 * lowdigits zorig i + 2 EXP 61 * (q * 2 EXP (64 * i))` THEN
-  REPEAT CONJ_TAC THENL
-   [(* 0 < dd *)
-    UNDISCH_TAC `1 <= dd` THEN ARITH_TAC;
-    (* ENTRY (i=0) *)
-    REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES; SUB_0; WORD_ADD_0] THEN
-    ENSURES_INIT_TAC "s0" THEN ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-    REWRITE_TAC[BIGNUM_FROM_MEMORY_TRIVIAL; HIGHDIGITS_0; LOWDIGITS_0] THEN
-    REWRITE_TAC[MULT_CLAUSES; EXP; ADD_CLAUSES; DIV_1] THEN
-    SUBGOAL_THEN `val(word (2 EXP 3 * block):int64) = 2 EXP 3 * block /\ val(word q:int64) = q`
-      (fun th -> REWRITE_TAC[th]) THENL
-     [CONJ_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THENL
-       [UNDISCH_TAC `block < 2 EXP 61` THEN ARITH_TAC;
-        UNDISCH_TAC `q < 2 EXP 64` THEN ARITH_TAC];
-      REWRITE_TAC[ARITH_RULE `2 EXP 3 = 8`] THEN SIMP_TAC[DIV_MULT; ARITH_EQ] THEN
-      ARITH_TAC];
-    (* BODY (i -> i+1) -- FULLY PROVEN *)
-    X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
-    SUBGOAL_THEN `i:num < k` ASSUME_TAC THENL
-     [UNDISCH_TAC `i:num < dd` THEN UNDISCH_TAC `dd:num < k` THEN ARITH_TAC;
-      ALL_TAC] THEN
-    GHOST_INTRO_TAC `cwin:int64` `read X22` THEN
-    GHOST_INTRO_TAC `hhin:int64` `read X5` THEN
-    GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV)
-     [BIGNUM_FROM_MEMORY_OFFSET_EQ_HIGHDIGITS] THEN
-    ASM_REWRITE_TAC[ARITH_RULE `k - i = 0 <=> ~(i < k)`; GSYM NOT_LT] THEN
-    REWRITE_TAC[ARITH_RULE `k - i - 1 = k - (i + 1)`; BIGNUM_FROM_MEMORY_STEP] THEN
-    ENSURES_INIT_TAC "s0" THEN
-    SUBGOAL_THEN `read (memory :> bytes64 (word_add m (word (8 * i)))) s0 =
-                  word (bigdigit b i)` ASSUME_TAC THENL
-     [REWRITE_TAC[GSYM(ASSUME `bignum_from_memory (m,k) s0 = b`)] THEN
-      ASM_SIMP_TAC[BIGDIGIT_BIGNUM_FROM_MEMORY; WORD_VAL];
-      ALL_TAC] THEN
-    SUBGOAL_THEN `read (memory :> bytes64 (word_add z (word (8 * i)))) s0 =
-                  word (bigdigit zorig i)` ASSUME_TAC THENL
-     [UNDISCH_TAC `bignum_from_memory (word_add z (word (8 * i)),k - i) s0 =
-                   highdigits zorig i` THEN
-      GEN_REWRITE_TAC LAND_CONV [BIGNUM_FROM_MEMORY_OFFSET_EQ_HIGHDIGITS] THEN
-      ASM_REWRITE_TAC[ARITH_RULE `k - i = 0 <=> ~(i < k)`; GSYM NOT_LT] THEN
-      STRIP_TAC THEN ASM_REWRITE_TAC[];
-      ALL_TAC] THEN
-    ARM_ACCSTEPS_TAC BIGNUM_MOD_EXEC [3;4;6;8;9] (1--16) THEN
-    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-    REWRITE_TAC[LOWDIGITS_CLAUSES] THEN
-    REPEAT CONJ_TAC THENL
-     [(* word_add(word i)(word 1) = word(i+1) *)
-      CONV_TAC WORD_RULE;
-      (* m whole-array preserved *)
-      FIRST_X_ASSUM(fun th -> if concl th = `bignum_from_memory (m,k) s0 = b`
-        then GEN_REWRITE_TAC RAND_CONV [SYM th] else NO_TAC) THEN
-      REWRITE_TAC[BIGNUM_FROM_MEMORY_BYTES] THEN
-      FIRST_X_ASSUM(MP_TAC o check (can
-        (term_match [] `(f:armstate->armstate->bool) s0 s16`) o concl)) THEN
-      REWRITE_TAC[MAYCHANGE; SEQ_ID] THEN REWRITE_TAC[GSYM SEQ_ASSOC] THEN
-      REWRITE_TAC[ASSIGNS_SEQ] THEN REWRITE_TAC[ASSIGNS_THM] THEN
-      REWRITE_TAC[LEFT_IMP_EXISTS_THM] THEN REPEAT GEN_TAC THEN
-      DISCH_THEN(SUBST1_TAC o SYM) THEN READ_OVER_WRITE_ORTHOGONAL_TAC;
-      (* z suffix preserved: fold if-form, then DISCH + preserve s16=s0 (avoid the
-         fragile MATCH_MP_TAC EQ_IMP which fails on the P==>Q boolean shape here) *)
-      REWRITE_TAC[ARITH_RULE `k <= i + 1 <=> k - (i + 1) = 0`;
-                  ARITH_RULE `k - ((i + 1) + 1) = k - (i + 1) - 1`] THEN
-      GEN_REWRITE_TAC I [GSYM BIGNUM_FROM_MEMORY_OFFSET_EQ_HIGHDIGITS] THEN
-      SUBGOAL_THEN
-       `bignum_from_memory (word_add z (word (8 * (i+1))),k - (i+1)) s0 =
-        highdigits zorig (i+1)` MP_TAC THENL
-       [UNDISCH_TAC `bignum_from_memory (word_add z (word (8 * i)),k - i) s0 =
-                     highdigits zorig i` THEN
-        GEN_REWRITE_TAC LAND_CONV [BIGNUM_FROM_MEMORY_OFFSET_EQ_HIGHDIGITS] THEN
-        ASM_REWRITE_TAC[ARITH_RULE `k - i = 0 <=> ~(i < k)`; GSYM NOT_LT] THEN
-        REWRITE_TAC[ARITH_RULE `k - i - 1 = k - (i+1)`] THEN STRIP_TAC THEN
-        ASM_REWRITE_TAC[];
-        ALL_TAC] THEN
-      DISCH_TAC THEN
-      SUBGOAL_THEN
-       `bignum_from_memory (word_add z (word (8 * (i+1))),k - (i+1)) s16 =
-        bignum_from_memory (word_add z (word (8 * (i+1))),k - (i+1)) s0`
-       (fun th -> ASM_REWRITE_TAC[th]) THEN
-      REWRITE_TAC[BIGNUM_FROM_MEMORY_BYTES] THEN
-      FIRST_X_ASSUM(MP_TAC o check (can
-        (term_match [] `(f:armstate->armstate->bool) s0 s16`) o concl)) THEN
-      REWRITE_TAC[MAYCHANGE; SEQ_ID] THEN REWRITE_TAC[GSYM SEQ_ASSOC] THEN
-      REWRITE_TAC[ASSIGNS_SEQ] THEN REWRITE_TAC[ASSIGNS_THM] THEN
-      REWRITE_TAC[LEFT_IMP_EXISTS_THM] THEN REPEAT GEN_TAC THEN
-      DISCH_THEN(SUBST1_TAC o SYM) THEN READ_OVER_WRITE_ORTHOGONAL_TAC;
-      (* VALUE EQUATION *)
-      SUBGOAL_THEN `bignum_from_memory (z,i) s16 = bignum_from_memory (z,i) s0`
-       SUBST1_TAC THENL
-       [REWRITE_TAC[BIGNUM_FROM_MEMORY_BYTES] THEN
-        FIRST_X_ASSUM(MP_TAC o check (can
-          (term_match [] `(f:armstate->armstate->bool) s0 s16`) o concl)) THEN
-        REWRITE_TAC[MAYCHANGE; SEQ_ID] THEN REWRITE_TAC[GSYM SEQ_ASSOC] THEN
-        REWRITE_TAC[ASSIGNS_SEQ; ASSIGNS_THM; LEFT_IMP_EXISTS_THM] THEN
-        REPEAT GEN_TAC THEN DISCH_THEN(SUBST1_TAC o SYM) THEN
-        READ_OVER_WRITE_ORTHOGONAL_TAC;
-        ALL_TAC] THEN
-      SUBST1_TAC(GSYM(ISPEC `sum_s8:int64` WORD_VAL)) THEN
-      SUBST1_TAC(GSYM(ISPEC `cwin:int64` WORD_VAL)) THEN
-      REWRITE_TAC[EXTR_FUNNEL_VAL] THEN REWRITE_TAC[WORD_VAL] THEN
-      REWRITE_TAC[LOWDIGITS_CLAUSES] THEN
-      MP_TAC(ISPECL
-        [`block:num`; `q:num`; `bignum_from_memory (z,i) s0`; `val(cwin:int64)`;
-         `val(hhin:int64)`; `val(sum_s8:int64)`; `val(sum_s9:int64)`;
-         `lowdigits zorig i`; `lowdigits b i`; `bigdigit zorig i`; `bigdigit b i`; `i:num`]
-        INNER_ADVANCE_ADD) THEN
-      ANTS_TAC THENL
-       [REPEAT CONJ_TAC THENL
-         [FIRST_X_ASSUM ACCEPT_TAC;
-          (* negate-add via NEGADD_STEP *)
-          SUBGOAL_THEN
-            `val(hhin:int64) < 2 EXP 64 /\ q < 2 EXP 64 /\
-             (2 EXP 64 - 1 - bigdigit b i) < 2 EXP 64 /\ bigdigit zorig i < 2 EXP 64`
-            STRIP_ASSUME_TAC THENL
-           [REWRITE_TAC[VAL_BOUND_64; BIGDIGIT_BOUND] THEN ASM_REWRITE_TAC[] THEN
-            ARITH_TAC;
-            ALL_TAC] THEN
-          MP_TAC(ISPECL
-            [`bigdigit zorig i`; `val(hhin:int64)`; `q:num`;
-             `2 EXP 64 - 1 - bigdigit b i`; `val(sum_s6:int64)`; `val(sum_s8:int64)`;
-             `val(sum_s9:int64)`; `val(mullo_s3:int64)`; `val(mulhi_s3:int64)`;
-             `bitval carry_s6`; `bitval carry_s8`; `bitval carry_s9`] NEGADD_STEP) THEN
-          ANTS_TAC THENL
-           [REWRITE_TAC[BITVAL_BOUND; VAL_BOUND_64; BIGDIGIT_BOUND] THEN
-            ASM_REWRITE_TAC[ARITH_RULE `2 EXP 64 - 1 - x < 2 EXP 64`] THEN
-            SUBGOAL_THEN
-              `val(word(bigdigit zorig i):int64) = bigdigit zorig i /\
-               val(if ~carry_s6 then word 0 else word 1:int64) = bitval carry_s6 /\
-               val(word q:int64) = q /\
-               val(word_not(word(bigdigit b i)):int64) = 2 EXP 64 - 1 - bigdigit b i`
-              STRIP_ASSUME_TAC THENL
-             [REPEAT CONJ_TAC THENL
-               [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64; BIGDIGIT_BOUND];
-                COND_CASES_TAC THEN
-                ASM_REWRITE_TAC[VAL_WORD_0; VAL_WORD_1; BITVAL_CLAUSES];
-                MATCH_MP_TAC VAL_WORD_EQ THEN ASM_REWRITE_TAC[DIMINDEX_64];
-                REWRITE_TAC[VAL_WORD_NOT; DIMINDEX_64] THEN
-                SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; BIGDIGIT_BOUND]];
-              ALL_TAC] THEN
-            REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN ASM_REWRITE_TAC[] THEN
-            REWRITE_TAC[BIGDIGIT_BOUND];
-            DISCH_THEN ACCEPT_TAC];
-          REWRITE_TAC[BIGDIGIT_BOUND]];
-        REWRITE_TAC[ARITH_RULE `2 EXP 3 = 8`] THEN DISCH_THEN ACCEPT_TAC]];
-    (* BACKEDGE (pc2=0x234 -> pc1=0x1f4): X8=word i, cmp x8,x11; b.ne taken (i<dd
-       so i<>dd).  2 steps (cmp@0x234; b.ne@0x238 taken). *)
-    X_GEN_TAC `i:num` THEN STRIP_TAC THEN
-    SUBGOAL_THEN `val(word i:int64) = i /\ val(word dd:int64) = dd`
-      STRIP_ASSUME_TAC THENL
-     [CONJ_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
-      UNDISCH_TAC `i < dd` THEN UNDISCH_TAC `dd < k` THEN UNDISCH_TAC `k < 2 EXP 58` THEN
-      ARITH_TAC;
-      ALL_TAC] THEN
-    ARM_SIM_TAC BIGNUM_MOD_EXEC (1--2) THEN
-    ASM_SIMP_TAC[ARITH_RULE `i < dd ==> ~(i = dd)`];
-    (* EXIT (pc2=0x234 with inv dd -> postcond @0x238): cmp only, 1 step. *)
-    ARM_SIM_TAC BIGNUM_MOD_EXEC (1--1)]);;
-
-(* ---- INNERLOOP_LE: identical to BIGNUM_MOD_INNERLOOP but with the hypothesis
-   relaxed from dd < k to dd <= k (2026-07-26).  Needed for Stage 3f: the oracle
-   (cap11/capinner2.py) shows the loop-carried dd = l-1 grows 0,1,..,k and SATURATES
-   at k (steady state), so the inner loop must cover words 0..dd-1 for dd = k too.
-   The original dd<k was only used to derive i<k for i<dd; with dd<=k and i<dd we
-   still get i < dd <= k, so i<k.  The proof is the SAME modulo two
-   `UNDISCH_TAC dd<k` -> `dd<=k` edits (body i<k derivation, backedge val bound). ---- *)
 let BIGNUM_MOD_INNERLOOP_LE = prove
  (`!k z m dd q block zorig b pc.
       nonoverlapping (word pc,0x438) (z,8 * k) /\
@@ -4815,8 +7237,6 @@ let BIGNUM_MOD_INNERLOOP_LE = prove
     ASM_SIMP_TAC[ARITH_RULE `i < dd ==> ~(i = dd)`];
     ARM_SIM_TAC BIGNUM_MOD_EXEC (1--1)]);;
 
-
-(* ======== inlined: innerloop_log.ml ======== *)
 (* Stage 3f: augmented inner loop with lf/hf LOGGING (jargh, 2026-07-26).
    = BIGNUM_MOD_INNERLOOP_LE + the logging-invariant clauses:
      1 <= i        ==> X13 = read(mem z[8*(MIN i pcode - 1)]) s        (lf)
@@ -5064,8 +7484,6 @@ let BIGNUM_MOD_INNERLOOP_LOG = prove
     ARM_SIM_TAC BIGNUM_MOD_EXEC (1--1) THEN ASM_SIMP_TAC[] THEN
     DISCH_TAC THEN FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_REWRITE_TAC[NOT_LT]]);;
 
-
-(* ======== inlined: value_grow.ml ======== *)
 (* Stage 3f GROWING-regime value bridge (2026-07-27).  Connects the inner-loop dd-word
    additive relation (INNERLOOP_LOG_WIDE post) + the tail's word-dd processing to the
    block relation Zf' + 2^61*qhat*b = 2^61*Zf + block that BLOCK_ADVANCE/CONG_HALF consume.
@@ -5085,70 +7503,6 @@ let BIGNUM_MOD_INNERLOOP_LOG = prove
    (word cwin))(3,64)); z[dd+1] = ss DIV 8 = word_ushr(word ss) 3 (regime B/FLAT) with the
    +2^61*hh' the next carry (=0 by INV2 in the growing phase).
    Proof: pure corollary of INNER_ADVANCE_ADD (ISPEC ii:=dd) + LOWDIGITS_CLAUSES. *)
-
-let VALUE_GROW_STEP = prove
- (`!k dd q block zorig b cwin hi ss hh' bignum_lo_dd.
-     dd < k /\
-     bignum_lo_dd + 2 EXP (64 * dd) * (cwin DIV 8 + 2 EXP 61 * hi) +
-       2 EXP 61 * (q * lowdigits b dd) =
-       block + 2 EXP 61 * lowdigits zorig dd + 2 EXP 61 * (q * 2 EXP (64 * dd)) /\
-     2 EXP 64 * hh' + ss = bigdigit zorig dd + hi + q * (2 EXP 64 - 1 - bigdigit b dd) /\
-     bigdigit b dd < 2 EXP 64
-     ==> (bignum_lo_dd + 2 EXP (64 * dd) * (2 EXP 61 * ss MOD 2 EXP 3 + cwin DIV 8)) +
-         2 EXP (64 * (dd + 1)) * (ss DIV 2 EXP 3 + 2 EXP 61 * hh') +
-         2 EXP 61 * (q * lowdigits b (dd + 1)) =
-         block + 2 EXP 61 * lowdigits zorig (dd + 1) + 2 EXP 61 * (q * 2 EXP (64 * (dd + 1)))`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `lowdigits b (dd + 1) = 2 EXP (64 * dd) * bigdigit b dd + lowdigits b dd /\
-                lowdigits zorig (dd + 1) = 2 EXP (64 * dd) * bigdigit zorig dd + lowdigits zorig dd`
-    (fun th -> REWRITE_TAC[th]) THENL
-   [REWRITE_TAC[LOWDIGITS_CLAUSES]; ALL_TAC] THEN
-  MP_TAC(ISPECL [`block:num`; `q:num`; `bignum_lo_dd:num`; `cwin:num`; `hi:num`; `ss:num`;
-                `hh':num`; `lowdigits zorig dd`; `lowdigits b dd`; `bigdigit zorig dd`;
-                `bigdigit b dd`; `dd:num`] INNER_ADVANCE_ADD) THEN
-  ASM_REWRITE_TAC[]);;
-
-
-(* ======== inlined: blockload_sim.ml ======== *)
-(* Stage 3 block-load segment (pc+0x1a4 -> pc+0x1d4): sub i; ldp x[q],x[q+1];
-   funnel >> (i MOD 64); csel -> X22 = the 61-bit block window (masked value).
-   Postcond: val(X22) MOD 2^61 = (a DIV 2^(61i)) MOD 2^61.
-
-   FULLY PROVEN cheat-free (jargh, 2026-07-25).  Needs banked:
-     BLOCKPOS, I0_BOUNDS, MASKW, CSEL_BLOCK_VAL (-> CSEL_BLOCK_VAL'),
-     BLOCKLOAD_MASKED.
-
-   KEY LESSON (pin placement): the ldp maps base E to E+8; ARM_STEPS reads word2
-   at word_add x (word(8*q + 8)) in that EXACT normal form (confirmed by VSTEP:
-     read X6 s5 = read (memory :> bytes64 (word_add x (word (8*q + 8)))) s4 ).
-   NO address-form tweak is needed -- word(8*q+8) is already the form the stepper
-   wants.  The ONLY requirement is that BOTH word pins (x[q] and x[q+1]) must be
-   installed at s0 BEFORE ARM_STEPS(1--4), so the stepper propagates them forward
-   to s4/s6 where the ldp consumes them.  A pin added as an s0-fact AFTER stepping
-   has already reached s4 is too late: ARM_STEPS reads memory from the state, and
-   only pins carried into that state resolve.  (Same class as the preheader X7 and
-   window shift lessons: ARM_STEPS reads from STATE, not from freshly-added hyps.)
-
-   The X9 shift address is concretized in TWO clean pieces to dodge ARITH_TAC
-   blowup when 61*i has been rewritten to q*64+r under the binders:
-     word_ushr (word(61*i)) 6 = word q      [VAL_WORD + DIV_MULT_ADD + DIV_LT]
-     word_shl  (word q) 3     = word(8*q)   [VAL_WORD + ARITH]
-   then RULE_ASSUM installs X9 = word_add x (word(8*q)).
-
-   CSEL_BLOCK_VAL' is the ARM-operand-order (jshl-first) form of CSEL_BLOCK_VAL,
-   obtained by ONCE_REWRITE[WORD_OR_SYM] THEN MATCH_MP_TAC CSEL_BLOCK_VAL. *)
-
-let CSEL_BLOCK_VAL' = prove
- (`!hi lo r. r < 64 /\ hi < 2 EXP 64 /\ lo < 2 EXP 64
-     ==> val((if val(word r:int64) = 0
-              then word_jushr (word lo:int64) (word r:int64)
-              else word_or (word_jshl (word hi:int64) (word_sub (word 0) (word r):int64))
-                   (word_jushr (word lo:int64) (word r:int64)))
-             :int64)
-         = (2 EXP 64 * hi + lo) DIV 2 EXP r MOD 2 EXP 64`,
-  REPEAT STRIP_TAC THEN
-  ONCE_REWRITE_TAC[WORD_OR_SYM] THEN
-  MATCH_MP_TAC CSEL_BLOCK_VAL THEN ASM_REWRITE_TAC[]);;
 
 let BIGNUM_MOD_BLOCKLOAD = prove
  (`!x a n i pc.
@@ -5292,8 +7646,6 @@ let BIGNUM_MOD_BLOCKLOAD = prove
     ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
     DISCH_THEN SUBST1_TAC THEN REWRITE_TAC[MULT_SYM]]);;
 
-
-(* ======== inlined: qsetup.ml ======== *)
 (* Stage 3 q-setup segment (pc+0x1d4 -> pc+0x1f4): quotient-digit estimate +
    inner-loop preamble.  8 instrs:
      0x1d4 umulh x5,x21(w),x15(h)     ; x5 = (w*h) DIV 2^64
@@ -5357,8 +7709,6 @@ let BIGNUM_MOD_QSETUP = prove
   ONCE_REWRITE_TAC[WORD_SUB] THEN ASM_SIMP_TAC[] THEN
   COND_CASES_TAC THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC);;
 
-
-(* ======== inlined: tail_ddk.ml ======== *)
 (* Stage 3f TAIL, dd=k (steady-state) case (jargh, 2026-07-26).  PROVEN cheat-free,
    verified one-shot.  pc+0x23c -> pc+0x2e8 (27 instrs, all branches resolve).
 
@@ -5384,2030 +7734,6 @@ let BIGNUM_MOD_QSETUP = prove
    WORD_SUB_REFL+VAL_WORD_0 => b.eq TAKEN -> noel; ARM_STEPS(25--27) to 0x2e8;
    ENSURES_FINAL_STATE; z-preserve via READ_OVER_WRITE_ORTHOGONAL; X23' value closes by
    the arith rewrite (ztin+hi)+0+q*18446744073709551615 = ztin+hi+q*(2^64-1). *)
-
-let BIGNUM_MOD_TAIL_DDK = prove
- (`!k q hi cwin ztin b zpre m z pc jj pcode.
-     ~(k = 0) /\ k < 2 EXP 58 /\ b < 2 EXP (64 * k) /\ q < 2 EXP 64 /\
-     jj + 124 < 2 EXP 64 /\ k + 1 <= (jj + 63) DIV 64 /\ pcode < 2 EXP 64 /\
-     nonoverlapping (word pc,0x438) (z,8 * k) /\
-     nonoverlapping (word pc,0x438) (m,8 * k) /\ nonoverlapping (z,8 * k) (m,8 * k)
-     ==> ensures arm
-      (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-           read PC s = word (pc + 0x23c) /\
-           read X0 s = word k /\ read X8 s = word k /\ read X11 s = word k /\
-           read X1 s = z /\ read X4 s = m /\ read X12 s = word pcode /\
-           read X5 s = word hi /\ read X22 s = word cwin /\ read X23 s = word ztin /\
-           read X15 s = word q /\ read X17 s = word jj /\ read X19 s = word (k + 1) /\
-           bignum_from_memory (m,k) s = b /\ bignum_from_memory (z,k) s = zpre)
-      (\s. read PC s = word (pc + 0x2e8) /\ bignum_from_memory (z,k) s = zpre /\
-           read X8 s = word (k + 1) /\
-           read X23 s = word_subword (word_join
-             (word (ztin + hi + q * (2 EXP 64 - 1)):int64) (word cwin:int64):int128) (3,64))
-      (MAYCHANGE [PC; X5; X6; X7; X8; X9; X10; X13; X14; X15; X17; X19; X22; X23] ,,
-       MAYCHANGE [memory :> bignum(z,k)] ,, MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[SOME_FLAGS] THEN
-  SUBGOAL_THEN `val(word k:int64) = k` ASSUME_TAC THENL
-   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
-    UNDISCH_TAC `k < 2 EXP 58` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `val(word_add (word k) (word 1):int64) = k + 1` ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN MATCH_MP_TAC VAL_WORD_EQ THEN
-    REWRITE_TAC[DIMINDEX_64] THEN UNDISCH_TAC `k < 2 EXP 58` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `val(word q:int64) = q` ASSUME_TAC THENL
-   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  ENSURES_INIT_TAC "s0" THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (1--24) THEN
-  SUBGOAL_THEN `word_ushr (word_add (word jj) (word 124):int64) 6 = word((jj + 124) DIV 64)`
-    ASSUME_TAC THENL
-   [REWRITE_TAC[word_ushr; GSYM WORD_ADD] THEN AP_TERM_TAC THEN
-    SUBGOAL_THEN `val(word(jj + 124):int64) = jj + 124` SUBST1_TAC THENL
-     [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
-      UNDISCH_TAC `jj + 124 < 2 EXP 64` THEN ARITH_TAC; REWRITE_TAC[ARITH_RULE `2 EXP 6 = 64`]]; ALL_TAC] THEN
-  SUBGOAL_THEN `val(word((jj + 124) DIV 64):int64) = (jj + 124) DIV 64` ASSUME_TAC THENL
-   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
-    UNDISCH_TAC `jj + 124 < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `k + 1 <= (jj + 124) DIV 64` ASSUME_TAC THENL
-   [TRANS_TAC LE_TRANS `(jj + 63) DIV 64` THEN ASM_REWRITE_TAC[] THEN
-    MATCH_MP_TAC DIV_MONO THEN ARITH_TAC; ALL_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `word_ushr (word_add (word jj) (word 124):int64) 6 =
-                      word((jj + 124) DIV 64)`;
-                      ASSUME `val(word((jj + 124) DIV 64):int64) = (jj + 124) DIV 64`;
-                      ASSUME `val(word_add (word k) (word 1):int64) = k + 1`]) THEN
-  SUBGOAL_THEN
-    `(if k + 1 < (jj + 124) DIV 64 then word (k+1):int64 else word ((jj + 124) DIV 64))
-     = word(k + 1)` ASSUME_TAC THENL
-   [COND_CASES_TAC THENL [REFL_TAC;
-     AP_TERM_TAC THEN UNDISCH_TAC `k + 1 <= (jj + 124) DIV 64` THEN
-     POP_ASSUM MP_TAC THEN ARITH_TAC]; ALL_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[GSYM WORD_ADD;
-    ASSUME `(if k + 1 < (jj + 124) DIV 64 then word (k+1):int64 else word ((jj + 124) DIV 64))
-     = word(k + 1)`; WORD_SUB_REFL; VAL_WORD_0]) THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (25--27) THEN
-  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-  CONJ_TAC THENL
-   [REWRITE_TAC[BIGNUM_FROM_MEMORY_BYTES] THEN
-    FIRST_X_ASSUM(MP_TAC o check (can
-      (term_match [] `(f:armstate->armstate->bool) s0 s27`) o concl)) THEN
-    REWRITE_TAC[MAYCHANGE; SEQ_ID] THEN REWRITE_TAC[GSYM SEQ_ASSOC] THEN
-    REWRITE_TAC[ASSIGNS_SEQ; ASSIGNS_THM; LEFT_IMP_EXISTS_THM] THEN
-    REPEAT GEN_TAC THEN DISCH_THEN(SUBST1_TAC o SYM) THEN
-    REWRITE_TAC[GSYM BIGNUM_FROM_MEMORY_BYTES] THEN
-    FIRST_X_ASSUM(fun th -> if concl th = `bignum_from_memory (z,k) s0 = zpre`
-      then GEN_REWRITE_TAC RAND_CONV [SYM th] else NO_TAC) THEN
-    REWRITE_TAC[BIGNUM_FROM_MEMORY_BYTES] THEN READ_OVER_WRITE_ORTHOGONAL_TAC;
-    SUBGOAL_THEN `(ztin + hi) + 0 + q * 18446744073709551615 =
-                  ztin + hi + q * (2 EXP 64 - 1)` ASSUME_TAC THENL
-     [ARITH_TAC; ALL_TAC] THEN ASM_REWRITE_TAC[]]);;
-
-(* TAIL_EXTR_VAL: the extr's value, given the top overflow word t < 8 (oracle
-   capx10.py: X10 = ztin+hi+q*(2^64-1) mod 2^64 is always 0 or 1, so < 8). *)
-let TAIL_EXTR_VAL = prove
- (`!t cwin. t < 8 /\ cwin < 2 EXP 64
-    ==> val(word_subword (word_join (word t:int64) (word cwin:int64):int128) (3,64):int64)
-        = 2 EXP 61 * t + cwin DIV 8`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[EXTR_FUNNEL_VAL] THEN
-  SUBGOAL_THEN `val(word t:int64) = t /\ val(word cwin:int64) = cwin` STRIP_ASSUME_TAC THENL
-   [CONJ_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_ARITH_TAC;
-    ALL_TAC] THEN
-  ASM_REWRITE_TAC[] THEN
-  SUBGOAL_THEN `t MOD 2 EXP 3 = t` (fun th -> REWRITE_TAC[th; ARITH_RULE `2 EXP 3 = 8`]) THEN
-  MATCH_MP_TAC MOD_LT THEN ASM_ARITH_TAC);;
-
-(* VALUE_BRIDGE_DDK: the dd=k tail's value bookkeeping.  Given the INNERLOOP additive
-   relation (words 0..k-1; note lowdigits b k = b, bignum(z,dd)=bignum(z,k) at dd=k),
-   the top-word negate-add carry equation 2^64*q + t10 = ztin + hi + q*(2^64-1)
-   (t10 = X10 = the extr's low input = ztin+hi-q, carry-out = q), and t10 < 8, derive
-     Zfull' + 2^61*(q*b) = 2^61*Zfull_in + block
-   where Zfull' = 2^(64k)*val(X23') + ZK, val(X23')=2^61*t10 + cwin DIV 8 (TAIL_EXTR_VAL),
-   Zfull_in = 2^(64k)*ztin + zorig.  Exactly the BLOCK_ADVANCE congruence input.
-   Proved THROUGH INNER_ADVANCE_ADD (ii=k, zi=ztin, bi=0, hh'=q) -- raw REAL_RING hits
-   a "find" bug on the assembled identity, so route through the banked step lemma; the
-   dropped 2^(64(k+1)) high carry vanishes via t10 DIV 8 = 0 and cancels the
-   2^61*q*2^(64(k+1)) term. *)
-let VALUE_BRIDGE_DDK = prove
- (`!ZK cwin hi q b zorig block ztin t10 k.
-     2 EXP 64 * q + t10 = ztin + hi + q * (2 EXP 64 - 1) /\ t10 < 8 /\
-     ZK + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
-       block + 2 EXP 61 * zorig + 2 EXP 61 * q * 2 EXP (64 * k)
-     ==> ZK + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) + 2 EXP 61 * (q * b)
-         = block + 2 EXP 61 * (2 EXP (64 * k) * ztin + zorig)`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `t10 MOD 8 = t10 /\ t10 DIV 8 = 0` STRIP_ASSUME_TAC THENL
-   [CONJ_TAC THENL [MATCH_MP_TAC MOD_LT; MATCH_MP_TAC DIV_LT] THEN ASM_REWRITE_TAC[];
-    ALL_TAC] THEN
-  MP_TAC(ISPECL [`block:num`; `q:num`; `ZK:num`; `cwin:num`; `hi:num`; `t10:num`;
-                `q:num`; `zorig:num`; `b:num`; `ztin:num`; `0`; `k:num`]
-        INNER_ADVANCE_ADD) THEN
-  ASM_REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES; ARITH_RULE `2 EXP 3 = 8`] THEN
-  ANTS_TAC THENL
-   [REWRITE_TAC[ARITH_RULE `2 EXP 64 - 1 - 0 = 2 EXP 64 - 1`] THEN
-    ASM_REWRITE_TAC[] THEN ARITH_TAC;
-    REWRITE_TAC[ARITH_RULE `64 * (k + 1) = 64 * k + 64`; EXP_ADD] THEN ARITH_TAC]);;
-
-(* WINDOW_FROM_LOGGED: FIELDSEL's funnel of the two logged digits = the window.
-   Given lf = bigdigit Zf' (pcode-1) = bigdigit Zf' (p DIV 64), hf = bigdigit Zf' pcode
-   = bigdigit Zf' (p DIV 64 + 1), FIELDSEL computes (2^64*hf+lf) DIV 2^(p MOD 64) MOD
-   2^64 which = (Zf' DIV 2^p) MOD 2^64 = window(Zf') by BLOCKLOAD_ARITH (i:=p).  So the
-   logging->window step is a single rewrite once the logging invariant is established. *)
-let WINDOW_FROM_LOGGED = prove
- (`!Zf p. (2 EXP 64 * bigdigit Zf (p DIV 64 + 1) + bigdigit Zf (p DIV 64))
-            DIV 2 EXP (p MOD 64) MOD 2 EXP 64
-          = (Zf DIV 2 EXP p) MOD 2 EXP 64`,
-  REPEAT GEN_TAC THEN
-  GEN_REWRITE_TAC RAND_CONV [BLOCKLOAD_ARITH] THEN REFL_TAC);;
-
-
-(* ======== inlined: qhat_nowrap.ml ======== *)
-(* Stage 3f: the QHAT-NO-WRAP chain for the SATURATED (DDK/C) blocks.  RESOLVES a subtlety
-   the growing B block never hit (B has qhat=0): for qhat!=0 the machine computes qhat into a
-   64-bit register as ((w*h)DIV2^64 + h) MOD 2^64, while DDK_VALUE_CLOSE/BLOCK_VALUE use the
-   UNREDUCED (w*h)DIV2^64+h.  They agree ONLY IF qhat < 2^64 (register MOD is identity).  This
-   is a genuine correctness obligation, established here from h<=t0 + the recip bracket K.
-
-   ORACLE-GROUNDED (2026-07-28, qemu): the maintained accumulator bound is the TIGHT
-   Zf < b*2^64 (0 viol / 109 loop heads, incl 57 saturated), NOT the loose Zf < 2^(p+64)
-   (which allows h up to ~2*t0 and would wrap qhat).  From Zf < b*2^64: window h = Zf DIV2^p
-   <= t0 (WINDOW_DIV_LE_T0; oracle h<t0 0 viol/93).  Then qhat < 2^64 (QHAT_NO_WRAP_FINAL).
-   The old QHAT_NO_WRAP (value_close_lemmas.ml, needs h<2^61) is UNUSABLE -- oracle shows h
-   reaches 62 bits (h>=2^61 in 9/72 blocks).
-
-   *** INVARIANT IMPACT: the PDOWN bound clause (B) must be Zf < b*2^64, tighter than the
-   currently-coded Zf < 2^(p+64).  b*2^64 <= 2^p*2^64 = 2^(p+64) so it is strictly stronger;
-   B/FLAT produce it (growing: Zf'=2^61 Zf+block < 2^61(b+1) <= b*2^64 for b>=1); saturated
-   maintains it (oracle).  Requires re-checking BLOCK_VALUE/KI_CORE/GROWING_VALUE_CLOSE/B-block,
-   which currently produce/consume 2^(p+64).  SEE INVARIANT_ANALYSIS.md "QHAT-WRAP RESOLVED". ***
-
-   Deps: QHAT_ID (block_value.ml); DIVIDES_PRIMEPOW, PRIME_2 (library). *)
-
-(* BRACKET_STRICT: the recip bracket upper half is STRICT given t0,w < 2^64.  Equality
-   (2^64+w)*t0 = 2^128 would force 2^64+w a power of 2 in (2^64,2^65] (dividing 2^128), i.e.
-   2^65, i.e. w = 2^64 -- contradicting w < 2^64.  So (2^64+w)*t0 < 2^128 strictly. *)
-let BRACKET_STRICT = prove
- (`!w t0. t0 < 2 EXP 64 /\ w < 2 EXP 64 ==> ~((2 EXP 64 + w) * t0 = 2 EXP 128)`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(INST [`128`,`k:num`] (SPEC `2 EXP 64 + w` (MATCH_MP DIVIDES_PRIMEPOW PRIME_2))) THEN
-  SUBGOAL_THEN `(2 EXP 64 + w) divides (2 EXP 128)` (fun th -> REWRITE_TAC[th]) THENL
-   [REWRITE_TAC[divides] THEN EXISTS_TAC `t0:num` THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  DISCH_THEN(X_CHOOSE_THEN `j:num` (CONJUNCTS_THEN2 ASSUME_TAC ASSUME_TAC)) THEN
-  SUBGOAL_THEN `j = 64` ASSUME_TAC THENL
-   [SUBGOAL_THEN `2 EXP 64 <= 2 EXP j /\ 2 EXP j < 2 EXP 65` MP_TAC THENL
-     [UNDISCH_TAC `2 EXP 64 + w = 2 EXP j` THEN UNDISCH_TAC `w < 2 EXP 64` THEN
-      REWRITE_TAC[ARITH_RULE `2 EXP 65 = 2 EXP 64 + 2 EXP 64`] THEN ARITH_TAC;
-      REWRITE_TAC[LE_EXP; LT_EXP; ARITH] THEN ARITH_TAC];
-    ALL_TAC] THEN
-  UNDISCH_TAC `(2 EXP 64 + w) * t0 = 2 EXP 128` THEN ASM_REWRITE_TAC[] THEN
-  REWRITE_TAC[ARITH_RULE `128 = 64 + 64`; EXP_ADD] THEN ONCE_REWRITE_TAC[EQ_SYM_EQ] THEN
-  SIMP_TAC[EQ_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ] THEN
-  DISCH_THEN(SUBST_ALL_TAC o SYM) THEN UNDISCH_TAC `2 EXP 64 < 2 EXP 64` THEN ARITH_TAC);;
-
-(* QHAT_NO_WRAP_FINAL: from h<=t0 + K bracket + t0,w<2^64, the register quotient does not wrap. *)
-let QHAT_NO_WRAP_FINAL = prove
- (`!w h t0. h <= t0 /\ t0 < 2 EXP 64 /\ w < 2 EXP 64 /\
-            (&2 pow 64 + &w) * &t0 <= &2 pow 128
-      ==> (w * h) DIV 2 EXP 64 + h < 2 EXP 64`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[QHAT_ID] THEN
-  SUBGOAL_THEN `(2 EXP 64 + w) * t0 < 2 EXP 128` ASSUME_TAC THENL
-   [REWRITE_TAC[LT_LE] THEN CONJ_TAC THENL
-     [REWRITE_TAC[GSYM REAL_OF_NUM_LE] THEN
-      REWRITE_TAC[REAL_OF_NUM_ADD; REAL_OF_NUM_MUL; REAL_OF_NUM_POW] THEN
-      ASM_REWRITE_TAC[GSYM REAL_OF_NUM_POW; GSYM REAL_OF_NUM_MUL; GSYM REAL_OF_NUM_ADD];
-      MP_TAC(SPECL [`w:num`; `t0:num`] BRACKET_STRICT) THEN ASM_REWRITE_TAC[]];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `(2 EXP 64 + w) * h < 2 EXP 128` MP_TAC THENL
-   [TRANS_TAC LET_TRANS `(2 EXP 64 + w) * t0` THEN ASM_REWRITE_TAC[LE_MULT_LCANCEL];
-    REWRITE_TAC[ARITH_RULE `2 EXP 128 = 2 EXP 64 * 2 EXP 64`] THEN
-    SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ]]);;
-
-(* WINDOW_DIV_LE_T0: the TIGHT bound Zf < b*2^64 gives the window Zf DIV2^p <= t0 (< t0+1),
-   hence h = (Zf DIV2^p) MOD 2^64 <= t0 (the MOD is identity once we know Zf DIV2^p < 2^64). *)
-let WINDOW_DIV_LE_T0 = prove
- (`!Zf b p t0 s0. Zf < b * 2 EXP 64 /\ b * 2 EXP 64 = t0 * 2 EXP p + s0 /\ s0 < 2 EXP p
-      ==> Zf DIV 2 EXP p < t0 + 1`,
-  REPEAT STRIP_TAC THEN SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
-  REWRITE_TAC[RIGHT_ADD_DISTRIB; MULT_CLAUSES] THEN
-  TRANS_TAC LTE_TRANS `b * 2 EXP 64` THEN ASM_REWRITE_TAC[] THEN
-  UNDISCH_TAC `b * 2 EXP 64 = t0 * 2 EXP p + s0` THEN UNDISCH_TAC `s0 < 2 EXP p` THEN ARITH_TAC);;
-
-(* WINDOW_LE_T0: package WINDOW_DIV_LE_T0 with the MOD -- the register window
-   h = (Zf DIV2^p) MOD 2^64 <= t0 = (b*2^64) DIV 2^p, directly from the tight bound. *)
-let WINDOW_LE_T0 = prove
- (`!Zf b p. Zf < b * 2 EXP 64 /\ b < 2 EXP p /\ 1 <= p
-    ==> (Zf DIV 2 EXP p) MOD 2 EXP 64 <= (b * 2 EXP 64) DIV 2 EXP p`,
-  REPEAT STRIP_TAC THEN
-  MATCH_MP_TAC(ARITH_RULE `x <= t0 ==> x MOD 2 EXP 64 <= t0`) THEN
-  MATCH_MP_TAC(ARITH_RULE `x < t0 + 1 ==> x <= t0`) THEN
-  MATCH_MP_TAC WINDOW_DIV_LE_T0 THEN
-  MAP_EVERY EXISTS_TAC [`b:num`; `(b * 2 EXP 64) MOD 2 EXP p`] THEN
-  ASM_REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
-  MP_TAC(SPECL [`b * 2 EXP 64`; `2 EXP p`] DIVISION) THEN
-  REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
-
-(* DDK_QHAT_LT: the one-step qhat-no-wrap for the DDK/C blocks -- from the tight bound + K
-   bracket, the register qhat q = (w*h)DIV2^64 + h < 2^64, where h = (Zf DIV2^p)MOD2^64.
-   Composes WINDOW_LE_T0 + QHAT_NO_WRAP_FINAL.  This is what lets the saturated block match
-   the machine (register) qhat to DDK_VALUE_CLOSE's unreduced qhat. *)
-let DDK_QHAT_LT = prove
- (`!Zf b p w. Zf < b * 2 EXP 64 /\ b < 2 EXP p /\ 1 <= p /\ w < 2 EXP 64 /\
-              0 < (b * 2 EXP 64) DIV 2 EXP p /\ (b * 2 EXP 64) DIV 2 EXP p < 2 EXP 64 /\
-              (&2 pow 64 + &w) * &((b * 2 EXP 64) DIV 2 EXP p) <= &2 pow 128
-    ==> (w * ((Zf DIV 2 EXP p) MOD 2 EXP 64)) DIV 2 EXP 64 + (Zf DIV 2 EXP p) MOD 2 EXP 64 < 2 EXP 64`,
-  REPEAT STRIP_TAC THEN
-  MATCH_MP_TAC QHAT_NO_WRAP_FINAL THEN
-  EXISTS_TAC `(b * 2 EXP 64) DIV 2 EXP p` THEN
-  ASM_REWRITE_TAC[] THEN MATCH_MP_TAC WINDOW_LE_T0 THEN ASM_REWRITE_TAC[]);;
-
-Printf.printf "\n=== qhat_nowrap.ml: BRACKET_STRICT, QHAT_NO_WRAP_FINAL, WINDOW_DIV_LE_T0, WINDOW_LE_T0, DDK_QHAT_LT proved ===\n%!";;
-
-
-(* ======== inlined: bound_tight.ml ======== *)
-(* Stage 3f: the TIGHT bound clause (B) := Zf < b * 2^64, replacing the loose Zf < 2^(p+64).
-   RESOLVES the saturated qhat-no-wrap (h<=t0 => qhat<2^64) which the loose bound could not.
-   Paper chain (user-confirmed 2026-07-28; integer strictness is load-bearing):
-     L1 WINDOW_DIV_LE_T0 (qhat_nowrap.ml): Zf<b*2^64 => h = Zf DIV2^p <= t0.
-     L2 QHAT_NO_WRAP_FINAL+BRACKET_STRICT (qhat_nowrap.ml): h<=t0 + bracket => qhat<2^64.
-     L3 KI_CORE (ki_core.ml): reduced remainder R = Zf-qhat*b < 2^(p+2).
-     L4 BOUND_HALF_TIGHT (here): Zf'=2^61*R+block, R<=2^(p+2)-1, block<=2^61-1
-          => Zf' <= 2^(p+63)-1 < 2^(p+63) <= b*2^64  (2^(p-1)<=b).
-        The -2^61 from "R strictly < 2^(p+2)" EXACTLY cancels the +2^61 from block; the
-        near-power-of-2 corner (b=2^(p-1), b*2^64=2^(p+63) smallest) still clears by 1.
-        NO case split.
-   Consumers that only need the LOOSE Zf<2^(p+64) get it FREE: b*2^64 <= 2^p*2^64 = 2^(p+64).
-   Side condition 2^(p-1)<=b holds via BITSIZE_LOWER when p=bitsize b.
-   Deps: KI_CORE, CONG_HALF (ki_core.ml); RECIP_QBOUND; BITSIZE/BITSIZE_LE (library). *)
-
-let BITSIZE_LOWER = prove
- (`!n. ~(n = 0) ==> 2 EXP (bitsize n - 1) <= n`,
-  GEN_TAC THEN DISCH_TAC THEN
-  SUBGOAL_THEN `~(bitsize n = 0)` ASSUME_TAC THENL
-   [ASM_REWRITE_TAC[BITSIZE_EQ_0]; ALL_TAC] THEN
-  REWRITE_TAC[GSYM NOT_LT] THEN DISCH_TAC THEN
-  MP_TAC(ISPECL [`n:num`; `bitsize n - 1`] BITSIZE_LE) THEN
-  REWRITE_TAC[ARITH_RULE `bitsize n <= bitsize n - 1 <=> bitsize n = 0`] THEN
-  ASM_REWRITE_TAC[]);;
-
-(* L4: the one genuinely new bound-maintenance step.  Pure integer arithmetic; the strictness
-   Zf < qhat*b + 2^(p+2) (over naturals, = Zf <= ...-1) is what makes the +block absorbable. *)
-let BOUND_HALF_TIGHT = prove
- (`!Zf Zf' qhat b block p.
-     Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block /\
-     Zf < qhat * b + 2 EXP (p + 2) /\ block < 2 EXP 61 /\
-     2 EXP (p - 1) <= b /\ 1 <= p
-     ==> Zf' < b * 2 EXP 64`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `2 EXP (p + 2) = 8 * 2 EXP (p - 1)` SUBST_ALL_TAC THENL
-   [REWRITE_TAC[ARITH_RULE `8 = 2 EXP 3`] THEN REWRITE_TAC[GSYM EXP_ADD] THEN
-    AP_TERM_TAC THEN UNDISCH_TAC `1 <= p` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP 64 * 2 EXP (p - 1) <= b * 2 EXP 64` ASSUME_TAC THENL
-   [ONCE_REWRITE_TAC[MULT_SYM] THEN
-    GEN_REWRITE_TAC (LAND_CONV) [MULT_SYM] THEN
-    REWRITE_TAC[LE_MULT_LCANCEL] THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP 61 * (8 * 2 EXP (p - 1)) = 2 EXP 64 * 2 EXP (p - 1)` ASSUME_TAC THENL
-   [REWRITE_TAC[MULT_ASSOC] THEN AP_THM_TAC THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN
-  ASM_ARITH_TAC);;
-
-(* BLOCK_ADVANCE_TIGHT: CONG_HALF + BOUND_HALF_TIGHT + KI_CORE.  Like BLOCK_ADVANCE (ki_core.ml)
-   but concludes Zf' < b*2^64.  Extra hyps 2^(p-1)<=b, 1<=p (discharge via BITSIZE_LOWER). *)
-let BLOCK_ADVANCE_TIGHT = prove
- (`!a b i p t0 Zf Zf' qhat block s zr h.
-     (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
-     block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
-     b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\ t0 < 2 EXP 64 /\
-     b * 2 EXP 64 = t0 * 2 EXP p + s /\
-     Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
-     2 EXP 64 * h < qhat * t0 + (2 EXP 64 + 2 * t0) /\
-     Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block
-     ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b) /\
-         Zf' < b * 2 EXP 64`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN CONJ_TAC THENL
-   [MP_TAC(SPECL [`a:num`; `b:num`; `i:num`; `Zf:num`; `Zf':num`; `qhat:num`; `block:num`]
-      CONG_HALF) THEN ASM_REWRITE_TAC[];
-    MP_TAC(SPECL [`Zf:num`; `Zf':num`; `qhat:num`; `b:num`; `block:num`; `p:num`]
-      BOUND_HALF_TIGHT) THEN
-    ANTS_TAC THENL [ALL_TAC; REWRITE_TAC[]] THEN ASM_REWRITE_TAC[] THEN
-    MP_TAC(SPECL [`b:num`; `p:num`; `t0:num`; `Zf:num`; `h:num`; `qhat:num`; `s:num`; `zr:num`]
-      KI_CORE) THEN ASM_REWRITE_TAC[]]);;
-
-(* BLOCK_VALUE_TIGHT: BLOCK_ADVANCE_TIGHT wrapped with RECIP_QBOUND (bracket -> the 2^64*h<...
-   form).  Like BLOCK_VALUE (ki_core.ml) but concludes Zf' < b*2^64.  This is the saturated
-   value-close the DDK/C blocks consume. *)
-let BLOCK_VALUE_TIGHT = prove
- (`!a b i p t0 Zf Zf' w block s zr h l.
-    (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
-    block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
-    b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
-    t0 < 2 EXP 64 /\ 0 < t0 /\ h < 2 EXP 64 /\ l < 2 EXP 64 /\
-    b * 2 EXP 64 = t0 * 2 EXP p + s /\
-    Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
-    &2 pow 128 <= (&2 pow 64 + &w + &1) * &t0 /\ (&2 pow 64 + &w) * &t0 <= &2 pow 128 /\
-    Zf' + 2 EXP 61 * (((2 EXP 64 + w) * h) DIV 2 EXP 64) * b = 2 EXP 61 * Zf + block
-    ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b) /\ Zf' < b * 2 EXP 64`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  MP_TAC(SPECL [`a:num`; `b:num`; `i:num`; `p:num`; `t0:num`; `Zf:num`; `Zf':num`;
-               `((2 EXP 64 + w) * h) DIV 2 EXP 64`; `block:num`; `s:num`; `zr:num`; `h:num`]
-        BLOCK_ADVANCE_TIGHT) THEN
-  ANTS_TAC THENL
-   [ASM_REWRITE_TAC[] THEN
-    MP_TAC(SPECL [`w:num`; `t0:num`; `h:num`; `l:num`] RECIP_QBOUND) THEN
-    ASM_REWRITE_TAC[] THEN REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN REAL_ARITH_TAC;
-    DISCH_THEN ACCEPT_TAC]);;
-
-(* GROWING_BOUND_TIGHT: the growing-regime (qhat=0) analog, from the growing hypothesis Zf<2^p
-   as-is (h=window=0 => Zf<2^p).  Zf'=2^61*Zf+block < 2^(p+62) <= b*2^64 (2^(p-1)<=b), huge room.
-   This is what the B/FLAT value-close (GROWING_VALUE_CLOSE) uses to produce b*2^64. *)
-let GROWING_BOUND_TIGHT = prove
- (`!Zf Zf' b block p. Zf < 2 EXP p /\ block < 2 EXP 61 /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
-                      Zf' = 2 EXP 61 * Zf + block
-    ==> Zf' < b * 2 EXP 64`,
-  REPEAT STRIP_TAC THEN ASM_REWRITE_TAC[] THEN
-  SUBGOAL_THEN `2 EXP 61 * Zf + block < 2 EXP (p + 62)` MP_TAC THENL
-   [TRANS_TAC LTE_TRANS `2 EXP 61 * 2 EXP p + 2 EXP 61` THEN CONJ_TAC THENL
-     [MATCH_MP_TAC(ARITH_RULE `a < c /\ d < e ==> a + d < c + e`) THEN
-      ASM_SIMP_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ];
-      REWRITE_TAC[GSYM EXP_ADD] THEN
-      TRANS_TAC LE_TRANS `2 EXP (61 + p) + 2 EXP (61 + p)` THEN CONJ_TAC THENL
-       [MATCH_MP_TAC LE_ADD2 THEN CONJ_TAC THEN REWRITE_TAC[LE_EXP] THEN ARITH_TAC;
-        REWRITE_TAC[GSYM MULT_2; GSYM(CONJUNCT2 EXP); LE_EXP] THEN ARITH_TAC]];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP (p + 62) <= b * 2 EXP 64` MP_TAC THENL
-   [TRANS_TAC LE_TRANS `2 EXP (p - 1) * 2 EXP 64` THEN CONJ_TAC THENL
-     [REWRITE_TAC[GSYM EXP_ADD] THEN REWRITE_TAC[LE_EXP] THEN UNDISCH_TAC `1 <= p` THEN ARITH_TAC;
-      GEN_REWRITE_TAC RAND_CONV [MULT_SYM] THEN
-      GEN_REWRITE_TAC (LAND_CONV) [MULT_SYM] THEN
-      REWRITE_TAC[LE_MULT_LCANCEL] THEN ASM_REWRITE_TAC[]];
-    ARITH_TAC]);;
-
-Printf.printf "\n=== bound_tight.ml: BITSIZE_LOWER, BOUND_HALF_TIGHT, BLOCK_ADVANCE_TIGHT, BLOCK_VALUE_TIGHT, GROWING_BOUND_TIGHT ===\n%!";;
-
-
-(* ======== inlined: t10_bound.ml ======== *)
-(* Stage 3f: t10 < 8 DERIVED from the reduced-remainder bound -- ELIMINATES the last oracle
-   dependency for the DDK/C blocks.  t10 is the top word (position 64k+61) of the assembled new
-   accumulator Znew = 2^61*R + block, where R = Zf - qhat*b is this block's true reduced remainder
-   (R < 2^(p+2) by KI_CORE) and block < 2^61.  Since p <= 64*k (bitsize b, b<2^(64k)):
-     t10 = Znew DIV 2^(64k+61) < 8   (Znew < 2^(p+63)+2^61 <= 2^(64(k+1)) = 8*2^(64k+61)).
-   Same "3 spare bits" (61 = 64-3) phenomenon as the funnel, but PROVEN from KI, not oracle.
-   The DDK block connects this DIV-form t10 to VALUE_BRIDGE_DDK's funnel-form t10 (=ztin+hi-q) via
-   the tail's value semantics.  Replaces the capx10big oracle (which had shown t10 in {0,1}). *)
-let T10_FROM_R = prove
- (`!R block p k. R < 2 EXP (p + 2) /\ block < 2 EXP 61 /\ p <= 64 * k
-    ==> (2 EXP 61 * R + block) DIV 2 EXP (64 * k + 61) < 8`,
-  REPEAT STRIP_TAC THEN
-  SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
-  REWRITE_TAC[ARITH_RULE `8 = 2 EXP 3`; GSYM EXP_ADD] THEN
-  TRANS_TAC LTE_TRANS `2 EXP (p + 63) + 2 EXP 61` THEN CONJ_TAC THENL
-   [MATCH_MP_TAC(ARITH_RULE `a < c /\ d < e ==> a + d < c + e`) THEN
-    CONJ_TAC THENL
-     [REWRITE_TAC[GSYM EXP_ADD] THEN
-      TRANS_TAC LTE_TRANS `2 EXP 61 * 2 EXP (p + 2)` THEN CONJ_TAC THENL
-       [ASM_SIMP_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ];
-        REWRITE_TAC[GSYM EXP_ADD; LE_EXP] THEN ARITH_TAC];
-      ASM_REWRITE_TAC[]];
-    TRANS_TAC LE_TRANS `2 EXP (64 * k + 63) + 2 EXP (64 * k + 63)` THEN CONJ_TAC THENL
-     [MATCH_MP_TAC LE_ADD2 THEN CONJ_TAC THEN REWRITE_TAC[LE_EXP] THEN ASM_ARITH_TAC;
-      REWRITE_TAC[GSYM MULT_2; GSYM(CONJUNCT2 EXP)] THEN REWRITE_TAC[LE_EXP] THEN ARITH_TAC]]);;
-(* T10_LT_8_BRIDGE: the SEG-B composite -- t10 < 8 from the block-advance eqn + the reduced-
-   remainder value form Zf' = 2^61*R+block (R = Zf-q*b, KI gives R<2^(p+2)) + p<=64k.  This is
-   how the DDK block discharges VALUE_BRIDGE_DDK's t10<8 hypothesis WITHOUT the oracle: instantiate
-   R := (2^(64k)*ztin+zorig) - q*b at assembly (KI/BLOCK_VALUE guarantee R>=0 and R<2^(p+2)).
-   t10 = ss MOD 2^64 (funnel top) <= Zf' DIV 2^(64k+61) = (2^61*R+block) DIV 2^(64k+61) < 8. *)
-let T10_LT_8_BRIDGE = prove
- (`!ZK cwin hi q b zorig block ztin t10 k p R.
-     2 EXP 64 * q + t10 = ztin + hi + q * (2 EXP 64 - 1) /\
-     ZK + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
-       block + 2 EXP 61 * zorig + 2 EXP 61 * q * 2 EXP (64 * k) /\
-     ZK + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) = 2 EXP 61 * R + block /\
-     R < 2 EXP (p + 2) /\ block < 2 EXP 61 /\ p <= 64 * k
-     ==> t10 < 8`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(SPECL [`R:num`; `block:num`; `p:num`; `k:num`] T10_FROM_R) THEN
-  ASM_REWRITE_TAC[] THEN
-  MATCH_MP_TAC(ARITH_RULE `t10 <= x ==> x < 8 ==> t10 < 8`) THEN
-  FIRST_X_ASSUM(fun th -> if rand(concl th) = `2 EXP 61 * R + block` then MP_TAC th else NO_TAC) THEN
-  DISCH_THEN(fun th -> REWRITE_TAC[SYM th]) THEN
-  SIMP_TAC[LE_RDIV_EQ; EXP_EQ_0; ARITH_EQ] THEN
-  REWRITE_TAC[LEFT_ADD_DISTRIB; EXP_ADD] THEN
-  MATCH_MP_TAC(ARITH_RULE `a = c ==> a <= ZK + (c + d)`) THEN
-  REWRITE_TAC[MULT_AC]);;
-
-
-(* TAIL_CARRY_EQ_Q: given the top-word NO-BORROW (q <= Ztin+hi and (Ztin+hi)-q < 2^64), the tail's
-   funnel input ss = Ztin+hi+q*(2^64-1) satisfies  ss DIV 2^64 = q  (carry-out = qhat, the
-   saturation) and  ss MOD 2^64 = (Ztin+hi)-q = t10.  So 2^64*q + t10 = ss -- the exact premise
-   DDK_TOP_FUNNEL/VALUE_BRIDGE_DDK need.  *** PARSING LESSON: in HOL Light `-` binds TIGHTER than
-   `+`, so `Ztin+hi-q` = `Ztin+(hi-q)` (WRONG, truncates if q>hi).  MUST write `(Ztin+hi)-q`
-   with explicit parens.  This bit hard -- t10 = (Ztin+val hiw)-q everywhere, parenthesized. *)
-let TAIL_CARRY_EQ_Q = prove
- (`!Ztin hi q. q <= Ztin + hi /\ (Ztin + hi) - q < 2 EXP 64
-   ==> (Ztin + hi + q * (2 EXP 64 - 1)) DIV 2 EXP 64 = q /\
-       (Ztin + hi + q * (2 EXP 64 - 1)) MOD 2 EXP 64 = (Ztin + hi) - q`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  MATCH_MP_TAC DIVMOD_UNIQ THEN ASM_REWRITE_TAC[] THEN
-  SUBGOAL_THEN `q <= q * 2 EXP 64` ASSUME_TAC THENL
-   [GEN_REWRITE_TAC LAND_CONV [ARITH_RULE `q = q * 1`] THEN
-    REWRITE_TAC[LE_MULT_LCANCEL] THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `q * (2 EXP 64 - 1) = q * 2 EXP 64 - q` SUBST1_TAC THENL
-   [REWRITE_TAC[LEFT_SUB_DISTRIB; MULT_CLAUSES]; ALL_TAC] THEN
-  UNDISCH_TAC `q <= q * 2 EXP 64` THEN UNDISCH_TAC `q <= Ztin + hi` THEN
-  SPEC_TAC(`q * 2 EXP 64`,`Q:num`) THEN REPEAT STRIP_TAC THEN ASM_ARITH_TAC);;
-
-Printf.printf "\n=== t10_bound.ml: T10_FROM_R + T10_LT_8_BRIDGE (t10<8 derived from KI, oracle-free) ===\n%!";;
-
-
-(* ======== inlined: ddk_noborrow.ml ======== *)
-(* Stage 3f: DDK top-word NO-BORROW, DERIVED (not oracle, not hi-threaded).
-   ================================================================================
-   The saturated (DDK) tail leaves X23' = word_subword(word_join(word ss)(word cwin))(3,64)
-   with ss = ztin+hi+q*(2^64-1).  DDK_TOP_FUNNEL/DDK_SEGB_VALUE need the top-word NO-BORROW
-     q <= Ztin+hi   and   (Ztin+hi)-q < 8   (= t10 < 8).
-   These reference hi=X5, an INTERNAL ghost created by PREFIX at 0x23c -- so they CANNOT be
-   threaded as block-entry (0x1a4) hypotheses.  They must be DERIVED inside seg-B.
-
-   KEY RESULT (DDK_NOBORROW_FROM_R): both follow, by pure arithmetic, from
-     (i)  the reduced-remainder DECOMPOSITION  2^(64k)*Ztin + zpre = q*b + R  with  0 <= R
-          [i.e. qhat is an UNDER-estimate: qhat*b <= Zf.  This is the reciprocal invariant;
-           empirically qerr_neg=0 (cap7 25/25).  It is a TRUE theorem and a legitimate
-           dischargeable hypothesis (from RECIP_QBOUND's lower half lifted to the full width),
-           *** NEVER an axiom ***];
-     (ii) the KI reduced-remainder bound  R < 2^(p+2)  [KI_CORE, already proven];
-     (iii) the PREFIX inner-loop block-advance equation (INNER, the "big =" at PREFIX's post),
-           here with ZK=zpre (z untouched by the DDK tail up to the top word):
-             zpre + 2^(64k)*(cwin DIV8 + 2^61*hi) + 2^61*q*b
-               = block + 2^61*zpre + 2^61*q*2^(64k)
-     (iv) block<2^61, cwin DIV8<2^61 (= (X22 val)DIV8 < 2^61), zpre<2^(64k), p<=64k, 1<=k.
-
-   PROOF IDEA.  Add 2^61*2^(64k)*Ztin to INNER and substitute 2^61*Zf = 2^61*q*b + 2^61*R
-   (from (i)), cancel 2^61*q*b:
-       A + MM*(Ztin+hi) = (block + 2^61*R) + MM*q          (EQ3),   MM := 2^61*2^(64k),
-   where A := zpre + 2^(64k)*(cwin DIV8) < MM  [zpre<2^(64k), cwin DIV8<=2^61-1] and
-   C := block + 2^61*R < MM*8  [block<2^61, 2^61*R < 2^(p+63) <= 2^(64k+63) = MM*8].
-     - q <= Ztin+hi:  else MM*q >= MM*(Ztin+hi)+MM forces A >= MM, contra A<MM.
-     - (Ztin+hi)-q < 8:  MM*((Ztin+hi)-q) = C - A <= C < MM*8, cancel MM.
-   So the LAST oracle-flavoured obligation of the whole main loop collapses to R>=0, which
-   is banked reciprocal theory.  t10<8 no longer needs T10_LT_8_BRIDGE's separate hyp plumbing
-   either -- (Ztin+hi)-q = t10 and this lemma delivers t10<8 directly.
-   ================================================================================ *)
-
-let DDK_NOBORROW_FROM_R = prove
- (`!Ztin zpre b q hi cwin block k p R.
-     2 EXP (64 * k) * Ztin + zpre = q * b + R /\
-     R < 2 EXP (p + 2) /\ 0 <= R /\
-     block < 2 EXP 61 /\ cwin DIV 8 < 2 EXP 61 /\ zpre < 2 EXP (64 * k) /\
-     p <= 64 * k /\ 1 <= k /\
-     zpre + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
-       block + 2 EXP 61 * zpre + 2 EXP 61 * q * 2 EXP (64 * k)
-     ==> q <= Ztin + hi /\ (Ztin + hi) - q < 8`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  (* EQ3: fold the inner-loop eqn + R-decomposition into A + MM*(Ztin+hi) = C + MM*q *)
-  SUBGOAL_THEN
-   `zpre + 2 EXP (64*k) * (cwin DIV 8) + 2 EXP 61 * (2 EXP (64*k) * (Ztin+hi)) =
-    block + 2 EXP 61 * R + 2 EXP 61 * (2 EXP (64*k) * q)`
-   ASSUME_TAC THENL
-   [FIRST_X_ASSUM(fun th -> if lhs(concl th) =
-       `zpre + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b`
-      then MP_TAC th else NO_TAC) THEN
-    FIRST_X_ASSUM(fun th -> if lhs(concl th) = `2 EXP (64*k) * Ztin + zpre`
-      then MP_TAC th else NO_TAC) THEN
-    CONV_TAC NUM_RING;
-    ALL_TAC] THEN
-  (* the LHS-extra bound A < MM *)
-  SUBGOAL_THEN `zpre + 2 EXP (64 * k) * cwin DIV 8 < 2 EXP (64*k) * 2 EXP 61` ASSUME_TAC THENL
-   [TRANS_TAC LTE_TRANS `2 EXP (64*k) + 2 EXP (64*k) * (2 EXP 61 - 1)` THEN CONJ_TAC THENL
-     [MATCH_MP_TAC(ARITH_RULE
-        `zpre < M /\ Mc <= M * (2 EXP 61 - 1) ==> zpre + Mc < M + M * (2 EXP 61 - 1)`) THEN
-      ASM_REWRITE_TAC[LE_MULT_LCANCEL] THEN
-      UNDISCH_TAC `cwin DIV 8 < 2 EXP 61` THEN ARITH_TAC;
-      REWRITE_TAC[LEFT_SUB_DISTRIB; MULT_CLAUSES] THEN ARITH_TAC];
-    ALL_TAC] THEN
-  (* the RHS-extra bound C < MM*8 *)
-  SUBGOAL_THEN `block + 2 EXP 61 * R < 2 EXP 61 * 2 EXP (64*k) * 8` ASSUME_TAC THENL
-   [SUBGOAL_THEN `2 EXP 61 * R < 2 EXP (64*k+63)` ASSUME_TAC THENL
-     [TRANS_TAC LTE_TRANS `2 EXP 61 * 2 EXP (p+2)` THEN CONJ_TAC THENL
-       [REWRITE_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ] THEN ASM_REWRITE_TAC[];
-        REWRITE_TAC[GSYM EXP_ADD; LE_EXP] THEN UNDISCH_TAC `p <= 64*k` THEN ARITH_TAC];
-      ALL_TAC] THEN
-    SUBGOAL_THEN `block < 2 EXP (64*k+63)` ASSUME_TAC THENL
-     [TRANS_TAC LTE_TRANS `2 EXP 61` THEN ASM_REWRITE_TAC[LE_EXP] THEN ARITH_TAC; ALL_TAC] THEN
-    SUBGOAL_THEN `2 EXP 61 * 2 EXP (64*k) * 8 = 2 EXP (64*k+63) + 2 EXP (64*k+63)` SUBST1_TAC THENL
-     [REWRITE_TAC[EXP_ADD] THEN ARITH_TAC; ALL_TAC] THEN
-    ASM_ARITH_TAC;
-    ALL_TAC] THEN
-  (* abstract MM = 2^61*2^(64k), A, C *)
-  RULE_ASSUM_TAC(REWRITE_RULE
-    [ARITH_RULE `2 EXP 61 * (2 EXP (64 * k) * x) = (2 EXP 61 * 2 EXP (64 * k)) * x`;
-     ARITH_RULE `2 EXP (64 * k) * 2 EXP 61 = 2 EXP 61 * 2 EXP (64 * k)`]) THEN
-  ABBREV_TAC `MM = 2 EXP 61 * 2 EXP (64*k)` THEN
-  (* the folded EQ3, stated in A/C-free form; proven from the stored (unfolded) hyp by NUM_RING *)
-  SUBGOAL_THEN
-   `(zpre + 2 EXP (64 * k) * cwin DIV 8) + MM * (Ztin + hi) =
-    (block + 2 EXP 61 * R) + MM * q`
-   ASSUME_TAC THENL
-   [FIRST_X_ASSUM(fun th -> if is_eq(concl th) &&
-       can (find_term (fun t -> t = `MM * (Ztin + hi)`)) (concl th)
-      then MP_TAC th else NO_TAC) THEN ARITH_TAC;
-    ALL_TAC] THEN
-  ABBREV_TAC `A = zpre + 2 EXP (64 * k) * cwin DIV 8` THEN
-  ABBREV_TAC `C = block + 2 EXP 61 * R` THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `zpre + 2 EXP (64 * k) * cwin DIV 8 = A`;
-                              ASSUME `block + 2 EXP 61 * R = C`]) THEN
-  (* q <= Ztin+hi via MM-cancellation *)
-  SUBGOAL_THEN `q <= Ztin + hi` ASSUME_TAC THENL
-   [SUBGOAL_THEN `MM * q < MM * ((Ztin+hi)+1)` MP_TAC THENL
-     [MATCH_MP_TAC(ARITH_RULE
-        `A + MM * (Ztin+hi) = C + MM * q /\ A < MM ==> MM * q < MM * ((Ztin+hi)+1)`) THEN
-      ASM_REWRITE_TAC[];
-      REWRITE_TAC[LT_MULT_LCANCEL] THEN
-      MATCH_MP_TAC(TAUT `(b ==> c) ==> a /\ b ==> c`) THEN ARITH_TAC];
-    ALL_TAC] THEN
-  ASM_REWRITE_TAC[] THEN
-  SUBGOAL_THEN `MM * ((Ztin+hi)-q) < MM * 8` MP_TAC THENL
-   [MATCH_MP_TAC(ARITH_RULE
-      `A + MM * (Ztin+hi) = C + MM * q /\ q <= Ztin+hi /\ C < MM * 8 /\
-       MM * ((Ztin+hi)-q) = MM*(Ztin+hi) - MM*q
-       ==> MM * ((Ztin+hi)-q) < MM * 8`) THEN
-    ASM_REWRITE_TAC[LEFT_SUB_DISTRIB];
-    REWRITE_TAC[LT_MULT_LCANCEL] THEN
-    MATCH_MP_TAC(TAUT `(b ==> c) ==> a /\ b ==> c`) THEN ARITH_TAC]);;
-
-(* RGE0_FROM_BODY: R>=0 (qhat*b<=Zf) DERIVED from the machine's ADDITIVE body relation
-   Zf' + 2^61*(qhat*b) = 2^61*Zf + block and block<2^61 ALONE -- no reciprocal lower bound,
-   no threading, no oracle.  Since Zf'>=0: 2^61*qhat*b <= 2^61*Zf + block < 2^61*(Zf+1), so
-   qhat*b <= Zf.  This is what makes the DDK no-borrow entirely self-contained in seg-B: the
-   fused multiply-subtract's output equation certifies its own non-negativity. *)
-let RGE0_FROM_BODY = prove
- (`!Zf Zf' qhat b block.
-     Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block /\ block < 2 EXP 61
-     ==> qhat * b <= Zf`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `2 EXP 61 * (qhat * b) <= 2 EXP 61 * Zf + block` MP_TAC THENL
-   [UNDISCH_TAC `Zf' + 2 EXP 61 * (qhat * b) = 2 EXP 61 * Zf + block` THEN ARITH_TAC;
-    ALL_TAC] THEN
-  UNDISCH_TAC `block < 2 EXP 61` THEN ARITH_TAC);;
-
-(* DDK_NOBORROW_FROM_BODY: the seg-B-facing convenience form.  Takes EXACTLY the facts available
-   in seg-B -- the additive body relation (Zf'+2^61*qhat*b = 2^61*Zf+block), KI's upper reduced-
-   remainder bound (Zf < qhat*b+2^(p+2)), the PREFIX inner block-advance eqn, and the sizes --
-   and yields q<=Ztin+hi /\ t10<8.  Internally sets R := Zf - qhat*b, uses RGE0_FROM_BODY for
-   R>=0 and the additive+KI eqns for R<2^(p+2), then DDK_NOBORROW_FROM_R.  Here Zf = 2^(64k)*Ztin
-   + zpre and q = qhat (register).  NO oracle, NO hi-threaded hyp, NO reciprocal lower bound. *)
-let DDK_NOBORROW_FROM_BODY = prove
- (`!Ztin zpre b q hi cwin block k p Zf'.
-     Zf' + 2 EXP 61 * (q * b) = 2 EXP 61 * (2 EXP (64 * k) * Ztin + zpre) + block /\
-     (2 EXP (64 * k) * Ztin + zpre) < q * b + 2 EXP (p + 2) /\
-     block < 2 EXP 61 /\ cwin DIV 8 < 2 EXP 61 /\ zpre < 2 EXP (64 * k) /\
-     p <= 64 * k /\ 1 <= k /\
-     zpre + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
-       block + 2 EXP 61 * zpre + 2 EXP 61 * q * 2 EXP (64 * k)
-     ==> q <= Ztin + hi /\ (Ztin + hi) - q < 8`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `q * b <= 2 EXP (64 * k) * Ztin + zpre` ASSUME_TAC THENL
-   [MATCH_MP_TAC RGE0_FROM_BODY THEN
-    MAP_EVERY EXISTS_TAC [`Zf':num`; `block:num`] THEN ASM_REWRITE_TAC[];
-    ALL_TAC] THEN
-  MP_TAC(ISPECL [`Ztin:num`; `zpre:num`; `b:num`; `q:num`; `hi:num`; `cwin:num`; `block:num`;
-                 `k:num`; `p:num`; `(2 EXP (64 * k) * Ztin + zpre) - q * b`] DDK_NOBORROW_FROM_R) THEN
-  ASM_REWRITE_TAC[LE_0] THEN DISCH_THEN MATCH_MP_TAC THEN
-  REPEAT CONJ_TAC THENL
-   [UNDISCH_TAC `q * b <= 2 EXP (64 * k) * Ztin + zpre` THEN ARITH_TAC;
-    UNDISCH_TAC `(2 EXP (64 * k) * Ztin + zpre) < q * b + 2 EXP (p + 2)` THEN
-    UNDISCH_TAC `q * b <= 2 EXP (64 * k) * Ztin + zpre` THEN ARITH_TAC]);;
-
-(* DDK_NOBORROW_THREADED: the DDK-block-facing form.  Takes R>=0 as the LOOP-INVARIANT-CARRIED
-   value hypothesis  q*b <= 2^(64k)*Ztin+zpre  (=Zf; TRUE at every real loop head -- oracle+200k-sim
-   confirmed, cont23j -- a legitimate dischargeable hyp threaded from the MAINLOOP invariant, NEVER
-   an axiom), plus the KI reduced-remainder bound  (Zf - q*b) < 2^(p+2)  (from KI_CORE), plus the
-   PREFIX inner block-advance eqn + sizes, and yields  q<=Ztin+hi /\ t10<8.  This is the clean
-   interface: the DDK block threads q*b<=Zf (with the recip bracket K), discharged at MAINLOOP-wrap.
-   Cf. cont23j: per-block R>=0 is genuine (the loop only runs blocks above the modulus scale; my
-   earlier "R>=0 fails" was PHANTOM blocks below the loop range). *)
-let DDK_NOBORROW_THREADED = prove
- (`!Ztin zpre b q hi cwin block k p.
-    q * b <= 2 EXP (64 * k) * Ztin + zpre /\
-    (2 EXP (64 * k) * Ztin + zpre) - q * b < 2 EXP (p + 2) /\
-    block < 2 EXP 61 /\ cwin DIV 8 < 2 EXP 61 /\ zpre < 2 EXP (64 * k) /\ p <= 64 * k /\ 1 <= k /\
-    zpre + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
-      block + 2 EXP 61 * zpre + 2 EXP 61 * q * 2 EXP (64 * k)
-    ==> q <= Ztin + hi /\ (Ztin + hi) - q < 8`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  MP_TAC(ISPECL [`Ztin:num`;`zpre:num`;`b:num`;`q:num`;`hi:num`;`cwin:num`;`block:num`;`k:num`;`p:num`;
-                 `(2 EXP (64 * k) * Ztin + zpre) - q * b`] DDK_NOBORROW_FROM_R) THEN
-  ANTS_TAC THENL
-   [REWRITE_TAC[LE_0] THEN ASM_REWRITE_TAC[] THEN
-    UNDISCH_TAC `q * b <= 2 EXP (64 * k) * Ztin + zpre` THEN ARITH_TAC;
-    DISCH_THEN ACCEPT_TAC]);;
-
-(* DDK_NOBORROW_FROM_R_GEN / _THREADED_GEN: the SEPARATE-ZK/zorig forms, needed by the actual DDK
-   block (cont23t).  The inner loop STORES z[0..k-1], so at 0x23c bignum(z,k)=ZK (the NEW z-memory,
-   post-inner-loop) DIFFERS from zorig (the ORIGINAL incoming zpre).  The block's inner block-advance
-   eqn has ZK on the LHS accumulator slot and zorig on the RHS (matching VALUE_BRIDGE_DDK's ZK/zorig).
-   These lemmas take them SEPARATELY (needs ZK<2^(64k), the k-word bignum bound).  The non-GEN forms
-   (above) conflate ZK=zorig=zpre (z-unchanged model) and DO NOT apply to the real block -- use the
-   GEN forms there.  Proof: identical EQ3-fold as DDK_NOBORROW_FROM_R with ZK in place of zpre in the
-   LHS-extra bracket A. *)
-let DDK_NOBORROW_FROM_R_GEN = prove
- (`!Ztin zorig ZK b q hi cwin block k p R.
-     2 EXP (64 * k) * Ztin + zorig = q * b + R /\
-     R < 2 EXP (p + 2) /\ 0 <= R /\
-     block < 2 EXP 61 /\ cwin DIV 8 < 2 EXP 61 /\ ZK < 2 EXP (64 * k) /\
-     p <= 64 * k /\ 1 <= k /\
-     ZK + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
-       block + 2 EXP 61 * zorig + 2 EXP 61 * q * 2 EXP (64 * k)
-     ==> q <= Ztin + hi /\ (Ztin + hi) - q < 8`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN
-   `ZK + 2 EXP (64*k) * (cwin DIV 8) + 2 EXP 61 * (2 EXP (64*k) * (Ztin+hi)) =
-    block + 2 EXP 61 * R + 2 EXP 61 * (2 EXP (64*k) * q)`
-   ASSUME_TAC THENL
-   [FIRST_X_ASSUM(fun th -> if lhs(concl th) =
-       `ZK + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b`
-      then MP_TAC th else NO_TAC) THEN
-    FIRST_X_ASSUM(fun th -> if lhs(concl th) = `2 EXP (64*k) * Ztin + zorig`
-      then MP_TAC th else NO_TAC) THEN
-    CONV_TAC NUM_RING;
-    ALL_TAC] THEN
-  SUBGOAL_THEN `ZK + 2 EXP (64 * k) * cwin DIV 8 < 2 EXP (64*k) * 2 EXP 61` ASSUME_TAC THENL
-   [TRANS_TAC LTE_TRANS `2 EXP (64*k) + 2 EXP (64*k) * (2 EXP 61 - 1)` THEN CONJ_TAC THENL
-     [MATCH_MP_TAC(ARITH_RULE
-        `ZK < M /\ Mc <= M * (2 EXP 61 - 1) ==> ZK + Mc < M + M * (2 EXP 61 - 1)`) THEN
-      ASM_REWRITE_TAC[LE_MULT_LCANCEL] THEN UNDISCH_TAC `cwin DIV 8 < 2 EXP 61` THEN ARITH_TAC;
-      REWRITE_TAC[LEFT_SUB_DISTRIB; MULT_CLAUSES] THEN ARITH_TAC];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `block + 2 EXP 61 * R < 2 EXP 61 * 2 EXP (64*k) * 8` ASSUME_TAC THENL
-   [SUBGOAL_THEN `2 EXP 61 * R < 2 EXP (64*k+63)` ASSUME_TAC THENL
-     [TRANS_TAC LTE_TRANS `2 EXP 61 * 2 EXP (p+2)` THEN CONJ_TAC THENL
-       [REWRITE_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ] THEN ASM_REWRITE_TAC[];
-        REWRITE_TAC[GSYM EXP_ADD; LE_EXP] THEN UNDISCH_TAC `p <= 64*k` THEN ARITH_TAC];
-      ALL_TAC] THEN
-    SUBGOAL_THEN `block < 2 EXP (64*k+63)` ASSUME_TAC THENL
-     [TRANS_TAC LTE_TRANS `2 EXP 61` THEN ASM_REWRITE_TAC[LE_EXP] THEN ARITH_TAC; ALL_TAC] THEN
-    SUBGOAL_THEN `2 EXP 61 * 2 EXP (64*k) * 8 = 2 EXP (64*k+63) + 2 EXP (64*k+63)` SUBST1_TAC THENL
-     [REWRITE_TAC[EXP_ADD] THEN ARITH_TAC; ALL_TAC] THEN
-    ASM_ARITH_TAC;
-    ALL_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE
-    [ARITH_RULE `2 EXP 61 * 2 EXP (64 * k) * x = (2 EXP 61 * 2 EXP (64 * k)) * x`;
-     ARITH_RULE `2 EXP (64 * k) * 2 EXP 61 = 2 EXP 61 * 2 EXP (64 * k)`]) THEN
-  ABBREV_TAC `MM = 2 EXP 61 * 2 EXP (64*k)` THEN
-  SUBGOAL_THEN
-   `(ZK + 2 EXP (64 * k) * cwin DIV 8) + MM * (Ztin + hi) = (block + 2 EXP 61 * R) + MM * q`
-   ASSUME_TAC THENL
-   [FIRST_X_ASSUM(fun th -> if is_eq(concl th) &&
-       can (find_term (fun t -> t = `MM * (Ztin + hi)`)) (concl th)
-      then MP_TAC th else NO_TAC) THEN ARITH_TAC;
-    ALL_TAC] THEN
-  ABBREV_TAC `A = ZK + 2 EXP (64 * k) * cwin DIV 8` THEN
-  ABBREV_TAC `C = block + 2 EXP 61 * R` THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `ZK + 2 EXP (64 * k) * cwin DIV 8 = A`;
-                              ASSUME `block + 2 EXP 61 * R = C`]) THEN
-  SUBGOAL_THEN `q <= Ztin + hi` ASSUME_TAC THENL
-   [SUBGOAL_THEN `MM * q < MM * ((Ztin+hi)+1)` MP_TAC THENL
-     [MATCH_MP_TAC(ARITH_RULE
-        `A + MM * (Ztin+hi) = C + MM * q /\ A < MM ==> MM * q < MM * ((Ztin+hi)+1)`) THEN
-      ASM_REWRITE_TAC[];
-      REWRITE_TAC[LT_MULT_LCANCEL] THEN MATCH_MP_TAC(TAUT `(b ==> c) ==> a /\ b ==> c`) THEN ARITH_TAC];
-    ALL_TAC] THEN
-  ASM_REWRITE_TAC[] THEN
-  SUBGOAL_THEN `MM * ((Ztin+hi)-q) < MM * 8` MP_TAC THENL
-   [MATCH_MP_TAC(ARITH_RULE
-      `A + MM * (Ztin+hi) = C + MM * q /\ q <= Ztin+hi /\ C < MM * 8 /\
-       MM * ((Ztin+hi)-q) = MM*(Ztin+hi) - MM*q ==> MM * ((Ztin+hi)-q) < MM * 8`) THEN
-    ASM_REWRITE_TAC[LEFT_SUB_DISTRIB];
-    REWRITE_TAC[LT_MULT_LCANCEL] THEN MATCH_MP_TAC(TAUT `(b ==> c) ==> a /\ b ==> c`) THEN ARITH_TAC]);;
-
-let DDK_NOBORROW_THREADED_GEN = prove
- (`!Ztin zorig ZK b q hi cwin block k p.
-    q * b <= 2 EXP (64 * k) * Ztin + zorig /\
-    (2 EXP (64 * k) * Ztin + zorig) - q * b < 2 EXP (p + 2) /\
-    block < 2 EXP 61 /\ cwin DIV 8 < 2 EXP 61 /\ ZK < 2 EXP (64 * k) /\ p <= 64 * k /\ 1 <= k /\
-    ZK + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
-      block + 2 EXP 61 * zorig + 2 EXP 61 * q * 2 EXP (64 * k)
-    ==> q <= Ztin + hi /\ (Ztin + hi) - q < 8`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  MP_TAC(ISPECL [`Ztin:num`;`zorig:num`;`ZK:num`;`b:num`;`q:num`;`hi:num`;`cwin:num`;`block:num`;`k:num`;`p:num`;
-                 `(2 EXP (64 * k) * Ztin + zorig) - q * b`] DDK_NOBORROW_FROM_R_GEN) THEN
-  ANTS_TAC THENL
-   [REWRITE_TAC[LE_0] THEN ASM_REWRITE_TAC[] THEN
-    UNDISCH_TAC `q * b <= 2 EXP (64 * k) * Ztin + zorig` THEN ARITH_TAC;
-    DISCH_THEN ACCEPT_TAC]);;
-
-Printf.printf "\n=== ddk_noborrow.ml: FROM_R, RGE0_FROM_BODY, FROM_BODY, THREADED, FROM_R_GEN, THREADED_GEN ===\n%!";;
-
-
-(* ======== inlined: ki_lower.ml ======== *)
-(* Stage 3f: KI_LOWER -- the reciprocal UNDER-estimate  qhat*b <= Zf  (reduced remainder R>=0).
-   ================================================================================
-   This is the honest source of the DDK top-word NO-BORROW (R>=0), the mirror of KI_CORE's
-   upper bound (R < 2^(p+2)).  R>=0 is NOT free (RGE0_FROM_BODY is circular for DDK, and the
-   window-level under-estimate does NOT lift -- see DDK_BUILD_PLAN cont23b/c).  It reduces
-   cleanly to a SINGLE reciprocal bound:
-
-     (RECIP_B):   (2^64+w) * b <= 2^(p+64)      [w = word_recip output, p = bitsize b]
-
-   VERIFIED (oracle-free, 4.9M random real (b,w=word_recip): 0 failures; TIGHT -- equality at
-   b=2^p-1, w=max).  (RECIP_B) needs BOTH banked reciprocal brackets
-     (2^64+w)*t0 <= 2^128   AND   2^128 <= (2^64+w+1)*t0
-   (t0 = (b*2^64) DIV 2^p, the normalized window) PLUS the window floor facts
-     t0*2^p <= b*2^64 < (t0+1)*2^p.  [It does NOT follow from the lower bracket alone --
-     2.1M-fail counterexample search confirmed the upper bracket is required.]
-
-   PROVEN HERE: KI_LOWER_FROM_RECIPB -- given (RECIP_B) and h*2^p<=Zf, derive qhat*b<=Zf.
-   This makes (RECIP_B) the SOLE remaining obligation for the whole DDK no-borrow / t10<8 chain
-   (then: KI_LOWER -> R>=0 ; KI_CORE -> R<2^(p+2) ; DDK_NOBORROW_FROM_R -> q<=Ztin+hi /\ t10<8).
-
-   *** (RECIP_B) itself is NOT YET proven in HOL *** -- it is a bounded, tested, clean lemma
-   (both brackets + floor), NOT an oracle and NOT an axiom.  TODO: prove it (real-arith mirror of
-   KI_CORE, or check whether the recip window-setup block 0x68-0x1a4 already yields the b-level form).
-   ================================================================================ *)
-
-(* The reduction: (RECIP_B) + (h*2^p<=Zf) ==> qhat*b<=Zf.  Fully proven.
-   Uses only the floor bound qhat*2^64<=(2^64+w)*h and (RECIP_B). *)
-let KI_LOWER_FROM_RECIPB = prove
- (`!b p Zf h w.
-     (2 EXP 64 + w) * b <= 2 EXP (p + 64) /\
-     h * 2 EXP p <= Zf
-     ==> ((2 EXP 64 + w) * h) DIV 2 EXP 64 * b <= Zf`,
-  REPEAT STRIP_TAC THEN
-  ABBREV_TAC `QH = ((2 EXP 64 + w) * h) DIV 2 EXP 64` THEN
-  MATCH_MP_TAC(ARITH_RULE `QH * b <= h * 2 EXP p /\ h * 2 EXP p <= Zf ==> QH * b <= Zf`) THEN
-  ASM_REWRITE_TAC[] THEN
-  MATCH_MP_TAC(ARITH_RULE `QH * b * 2 EXP 64 <= (h * 2 EXP p) * 2 EXP 64 ==> QH * b <= h * 2 EXP p`) THEN
-  SUBGOAL_THEN `QH * 2 EXP 64 <= (2 EXP 64 + w) * h` ASSUME_TAC THENL
-   [EXPAND_TAC "QH" THEN REWRITE_TAC[MULT_SYM] THEN
-    MP_TAC(SPECL [`(2 EXP 64 + w) * h`; `2 EXP 64`] DIVISION) THEN
-    REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC; ALL_TAC] THEN
-  TRANS_TAC LE_TRANS `((2 EXP 64 + w) * h) * b` THEN CONJ_TAC THENL
-   [ONCE_REWRITE_TAC[ARITH_RULE `QH * b * 2 EXP 64 = (QH * 2 EXP 64) * b`] THEN
-    ASM_SIMP_TAC[LE_MULT_RCANCEL];
-    ONCE_REWRITE_TAC[ARITH_RULE `((2 EXP 64 + w) * h) * b = h * ((2 EXP 64 + w) * b)`] THEN
-    ONCE_REWRITE_TAC[ARITH_RULE `(h * 2 EXP p) * 2 EXP 64 = h * (2 EXP p * 2 EXP 64)`] THEN
-    MATCH_MP_TAC LE_MULT2 THEN REWRITE_TAC[LE_REFL] THEN
-    REWRITE_TAC[GSYM EXP_ADD] THEN ASM_REWRITE_TAC[]]);;
-
-(* qhat*t0 <= 2^64*h : the clean window-level under-estimate, from the recip LOWER bracket + floor.
-   (Not on the (RECIP_B) critical path, but a useful banked fact.) *)
-let QHAT_T0_LE = prove
- (`!w t0 h. (&2 pow 64 + &w) * &t0 <= &2 pow 128
-    ==> ((2 EXP 64 + w) * h) DIV 2 EXP 64 * t0 <= 2 EXP 64 * h`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `((2 EXP 64 + w) * h) DIV 2 EXP 64 * 2 EXP 64 <= (2 EXP 64 + w) * h` ASSUME_TAC THENL
-   [REWRITE_TAC[MULT_SYM] THEN
-    MP_TAC(SPECL [`(2 EXP 64 + w) * h`; `2 EXP 64`] DIVISION) THEN
-    REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC; ALL_TAC] THEN
-  REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[GSYM REAL_OF_NUM_CLAUSES]) THEN
-  MATCH_MP_TAC REAL_LE_LCANCEL_IMP THEN EXISTS_TAC `&2 pow 64` THEN
-  CONJ_TAC THENL [REWRITE_TAC[REAL_LT_POW2]; ALL_TAC] THEN
-  TRANS_TAC REAL_LE_TRANS `((&2 pow 64 + &w) * &h) * &t0` THEN CONJ_TAC THENL
-   [SUBGOAL_THEN
-     `&2 pow 64 * &(((2 EXP 64 + w) * h) DIV 2 EXP 64) * &t0 =
-      (&(((2 EXP 64 + w) * h) DIV 2 EXP 64) * &2 pow 64) * &t0` SUBST1_TAC THENL
-     [CONV_TAC REAL_RING; ALL_TAC] THEN
-    MATCH_MP_TAC REAL_LE_RMUL THEN ASM_REWRITE_TAC[REAL_POS];
-    ONCE_REWRITE_TAC[REAL_ARITH `((&2 pow 64 + &w) * &h) * &t0 = &h * ((&2 pow 64 + &w) * &t0)`] THEN
-    REWRITE_TAC[REAL_ARITH `&2 pow 64 * &2 pow 64 * &h = &h * &2 pow 128`] THEN
-    MATCH_MP_TAC REAL_LE_LMUL THEN ASM_REWRITE_TAC[REAL_POS]]);;
-
-Printf.printf "\n=== ki_lower.ml: KI_LOWER_FROM_RECIPB + QHAT_T0_LE (R>=0 reduces to (RECIP_B)) ===\n%!";;
-
-
-(* ======== inlined: recip_bridges.ml ======== *)
-(* ============================================================================
-   recip_bridges.ml (cont108) -- small glue lemmas for the recip-of-d retrofit.
-   Reusable across all block retrofits.  Deps: none beyond core HOL.
-   ============================================================================ *)
-
-(* window from the Zf=h*2^p+zr decomposition (h<2^64) -- the RED_LEMMA_D window hyp. *)
-let WINDOW_FROM_ZF = prove
- (`!h p zr Zf. Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\ h < 2 EXP 64
-       ==> h = (Zf DIV 2 EXP p) MOD 2 EXP 64`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `Zf DIV 2 EXP p = h` SUBST1_TAC THENL
-   [ASM_REWRITE_TAC[] THEN
-    SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ] THEN
-    ASM_SIMP_TAC[DIV_LT] THEN ARITH_TAC;
-    ASM_SIMP_TAC[MOD_LT]]);;
-
-(* recip-of-t0 LOWER bracket from recip-of-d LOWER, given t0<=d.  Discharges DDK_QHAT_LT's
-   (2^64+w)*t0 <= 2^128 hyp (t0 = (b*2^64)DIV2^p) from the recip-of-d LOWER (t0<=d in both regimes). *)
-let RECIP_T0_FROM_D = prove
- (`!w d t0. t0 <= d /\ (2 EXP 64 + w) * d <= 2 EXP 128
-            ==> (2 EXP 64 + w) * t0 <= 2 EXP 128`,
-  REPEAT STRIP_TAC THEN
-  TRANS_TAC LE_TRANS `(2 EXP 64 + w) * d` THEN ASM_REWRITE_TAC[] THEN
-  REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN ASM_REWRITE_TAC[]);;
-
-(* t0 <= d from the roundup disjunction (non-sat d=t0+1 => t0<d; sat d=t0 => t0=d). *)
-let ROUNDUP_T0_LE = prove
- (`!b p d.
-     (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
-      ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1))
-     ==> (b * 2 EXP 64) DIV 2 EXP p <= d`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[] THEN ARITH_TAC);;
-
-Printf.printf "\n=== recip_bridges.ml: WINDOW_FROM_ZF + RECIP_T0_FROM_D + ROUNDUP_T0_LE ===\n%!";;
-
-
-(* ======== inlined: roundup_val_disj.ml ======== *)
-(* ============================================================================
-   roundup_val_disj.ml (cont108) -- ROUNDUP_VAL_DISJ.
-   Bridge: turn the machine-level roundup value at 0x98 (bignum_mod.S:145
-     w's argument d = if ~(val(word_add t0 (word 1))=0) then t0+1 else word_not(t0+1),
-     with t0 = word((b*2^64)DIV2^p) exposed by roundup_block.ml / BIGNUM_MOD_WINUP@0x90)
-   into the RED_LEMMA_D / MAINLOOP recip-of-d ROUNDUP DISJUNCTION:
-     val(d) = (b*2^64)DIV2^p + 1  \/  ((b*2^64)DIV2^p = 2^64-1 /\ val(d) = 2^64-1).
-   i.e. d is the roundup of t0 = floor(b*2^64/2^p), EXCEPT when t0 saturates at 2^64-1
-   (then t0+1 wraps to 0 and the code takes word_not 0 = 2^64-1, keeping d = 2^64-1).
-
-   The `raw` here is t0 = (b*2^64)DIV2^p (the truncated recip base); raw<2^64 is
-   supplied by BIGNUM_MOD_WINUP (0 < t0 < 2^64 clause).  Standalone -- no session deps
-   beyond core word lemmas (VAL_WORD_ADD/_1/_NOT, MOD_LT, MOD_REFL).
-   ============================================================================ *)
-
-let ROUNDUP_VAL_DISJ = prove
- (`!b p raw.
-      raw < 2 EXP 64 /\ raw = (b * 2 EXP 64) DIV 2 EXP p
-      ==> val(if ~(val(word_add (word raw:int64) (word 1)) = 0)
-              then word_add (word raw:int64) (word 1)
-              else word_not(word_add (word raw:int64) (word 1))) =
-          (b * 2 EXP 64) DIV 2 EXP p + 1 \/
-          ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\
-           val(if ~(val(word_add (word raw:int64) (word 1)) = 0)
-               then word_add (word raw:int64) (word 1)
-               else word_not(word_add (word raw:int64) (word 1))) = 2 EXP 64 - 1)`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  FIRST_X_ASSUM(fun th -> if concl th = `raw = (b * 2 EXP 64) DIV 2 EXP p`
-                          then REWRITE_TAC[SYM th] else NO_TAC) THEN
-  SUBGOAL_THEN `val(word_add (word raw:int64) (word 1)) = (raw + 1) MOD 2 EXP 64` ASSUME_TAC THENL
-   [REWRITE_TAC[VAL_WORD_ADD; VAL_WORD_1; VAL_WORD; DIMINDEX_64] THEN
-    ASM_SIMP_TAC[MOD_LT] THEN CONV_TAC MOD_DOWN_CONV THEN REFL_TAC;
-    ALL_TAC] THEN
-  ASM_CASES_TAC `raw = 2 EXP 64 - 1` THENL
-   [(* saturated: t0+1 wraps to 0, code takes word_not(0) = 2^64-1 *)
-    DISJ2_TAC THEN CONJ_TAC THENL
-     [FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
-    SUBGOAL_THEN `val(word_add (word raw:int64) (word 1)) = 0` ASSUME_TAC THENL
-     [FIRST_X_ASSUM(fun th ->
-        if concl th = `val(word_add (word raw:int64) (word 1)) = (raw + 1) MOD 2 EXP 64`
-        then SUBST1_TAC th else NO_TAC) THEN
-      UNDISCH_TAC `raw = 2 EXP 64 - 1` THEN DISCH_THEN SUBST1_TAC THEN
-      REWRITE_TAC[ARITH_RULE `2 EXP 64 - 1 + 1 = 2 EXP 64`; MOD_REFL];
-      ALL_TAC] THEN
-    (* drop the two now-conflicting facts so ASM_REWRITE picks the =0 fact cleanly *)
-    FIRST_X_ASSUM(fun th ->
-      if concl th = `val(word_add (word raw:int64) (word 1)) = (raw + 1) MOD 2 EXP 64`
-      then K ALL_TAC th else NO_TAC) THEN
-    FIRST_X_ASSUM(fun th -> if concl th = `raw = 2 EXP 64 - 1` then K ALL_TAC th else NO_TAC) THEN
-    ASM_REWRITE_TAC[] THEN REWRITE_TAC[VAL_WORD_NOT; DIMINDEX_64] THEN
-    ASM_REWRITE_TAC[] THEN ARITH_TAC;
-    (* non-saturated: t0+1 does not wrap, code takes t0+1 = raw+1 *)
-    DISJ1_TAC THEN
-    SUBGOAL_THEN `(raw + 1) MOD 2 EXP 64 = raw + 1` ASSUME_TAC THENL
-     [MATCH_MP_TAC MOD_LT THEN UNDISCH_TAC `raw < 2 EXP 64` THEN
-      UNDISCH_TAC `~(raw = 2 EXP 64 - 1)` THEN ARITH_TAC;
-      ALL_TAC] THEN
-    SUBGOAL_THEN `~(val(word_add (word raw:int64) (word 1)) = 0)` ASSUME_TAC THENL
-     [ASM_REWRITE_TAC[] THEN UNDISCH_TAC `raw < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
-    ASM_REWRITE_TAC[]]);;
-
-Printf.printf "\n=== roundup_val_disj.ml: ROUNDUP_VAL_DISJ (0x98 roundup value -> recip-of-d disjunction) ===\n%!";;
-
-
-(* ======== inlined: qh_noovershoot_new.ml ======== *)
-(* ============================================================================
-   Stage 3f: QH_NOOVERSHOOT (CORRECTED, cont107) -- the honest qh*b <= V.
-   ----------------------------------------------------------------------------
-   Replaces the (RECIP_B)-routed QH_NOOVERSHOOT (mainloop_wrap.ml old) which was
-   FALSE for p>64.  The real reciprocal is of the ROUNDED-UP divisor
-     d = roundup((b*2^64) DIV 2^p)   [bignum_mod.S:145  w = word_recip((t+1==0)?t:t+1)]
-   so 2^64+w UNDER-estimates 2^128/t0 and qh never overshoots.  POINTWISE true
-   (verified 0/249340 under V<b*2^64); NO reachability, NO (RECIP_B).
-
-   Two building blocks:
-   * QH_NOOVERSHOOT_ROUND : the non-saturation core.  From the recip LOWER bracket on d
-       (2^64+w)*d <= 2^128  and the rounding fact  b*2^64 <= d*2^p, derive qh*b<=V.
-       (Uses QHAT_T0_LE + MOD_LE + DIVISION.  Upper bracket NOT needed.)
-   * QH_NOOVERSHOOT_SAT : the saturation core.  When w<=1 (forced by the bracket on the
-       saturated d=2^64-1), qh=h and qh*b = h*b < h*2^p <= V (uses b<2^p).
-   The rounding fact  b*2^64 <= ((b*2^64)DIV2^p + 1)*2^p  is unconditional (ROUND_FACT).
-   ============================================================================ *)
-
-let ROUND_FACT = prove
- (`!b p. b * 2 EXP 64 <= ((b * 2 EXP 64) DIV 2 EXP p + 1) * 2 EXP p`,
-  REPEAT GEN_TAC THEN
-  MP_TAC(SPECL [`b * 2 EXP 64`; `2 EXP p`] DIVISION) THEN
-  REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
-
-let QH_NOOVERSHOOT_ROUND = prove
- (`!b p V w d h.
-     (2 EXP 64 + w) * d <= 2 EXP 128 /\
-     b * 2 EXP 64 <= d * 2 EXP p /\
-     h = (V DIV 2 EXP p) MOD 2 EXP 64
-     ==> ((w * h) DIV 2 EXP 64 + h) * b <= V`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[QHAT_ID] THEN
-  ABBREV_TAC `qh = ((2 EXP 64 + w) * h) DIV 2 EXP 64` THEN
-  SUBGOAL_THEN `qh * d <= 2 EXP 64 * h` ASSUME_TAC THENL
-   [EXPAND_TAC "qh" THEN MATCH_MP_TAC QHAT_T0_LE THEN
-    ASM_REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN
-    UNDISCH_TAC `(2 EXP 64 + w) * d <= 2 EXP 128` THEN
-    REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN REAL_ARITH_TAC;
-    ALL_TAC] THEN
-  SUBGOAL_THEN `h * 2 EXP p <= V` ASSUME_TAC THENL
-   [TRANS_TAC LE_TRANS `(V DIV 2 EXP p) * 2 EXP p` THEN CONJ_TAC THENL
-     [REWRITE_TAC[LE_MULT_RCANCEL] THEN DISJ1_TAC THEN ASM_REWRITE_TAC[MOD_LE];
-      MP_TAC(SPECL [`V:num`; `2 EXP p`] DIVISION) THEN
-      REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC];
-    ALL_TAC] THEN
-  MATCH_MP_TAC(ARITH_RULE `(qh * b) * 2 EXP 64 <= V * 2 EXP 64 ==> qh * b <= V`) THEN
-  TRANS_TAC LE_TRANS `(qh * d) * 2 EXP p` THEN CONJ_TAC THENL
-   [ONCE_REWRITE_TAC[ARITH_RULE `(qh * b) * 2 EXP 64 = qh * (b * 2 EXP 64)`] THEN
-    ONCE_REWRITE_TAC[ARITH_RULE `(qh * d) * 2 EXP p = qh * (d * 2 EXP p)`] THEN
-    REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN FIRST_ASSUM ACCEPT_TAC;
-    TRANS_TAC LE_TRANS `(2 EXP 64 * h) * 2 EXP p` THEN CONJ_TAC THENL
-     [REWRITE_TAC[LE_MULT_RCANCEL] THEN DISJ1_TAC THEN FIRST_ASSUM ACCEPT_TAC;
-      ONCE_REWRITE_TAC[ARITH_RULE `(2 EXP 64 * h) * 2 EXP p = 2 EXP 64 * (h * 2 EXP p)`] THEN
-      ONCE_REWRITE_TAC[ARITH_RULE `V * 2 EXP 64 = 2 EXP 64 * V`] THEN
-      REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN FIRST_ASSUM ACCEPT_TAC]]);;
-
-let QH_NOOVERSHOOT_SAT = prove
- (`!b p V w h.
-     w <= 1 /\ b < 2 EXP p /\ h = (V DIV 2 EXP p) MOD 2 EXP 64
-     ==> ((w * h) DIV 2 EXP 64 + h) * b <= V`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `(w * h) DIV 2 EXP 64 = 0` SUBST1_TAC THENL
-   [MATCH_MP_TAC DIV_LT THEN
-    TRANS_TAC LET_TRANS `1 * h:num` THEN CONJ_TAC THENL
-     [REWRITE_TAC[LE_MULT_RCANCEL] THEN DISJ1_TAC THEN ASM_REWRITE_TAC[];
-      REWRITE_TAC[MULT_CLAUSES] THEN ASM_REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]];
-    REWRITE_TAC[ADD_CLAUSES] THEN
-    TRANS_TAC LE_TRANS `h * 2 EXP p` THEN CONJ_TAC THENL
-     [REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN ASM_SIMP_TAC[LT_IMP_LE];
-      TRANS_TAC LE_TRANS `(V DIV 2 EXP p) * 2 EXP p` THEN CONJ_TAC THENL
-       [REWRITE_TAC[LE_MULT_RCANCEL] THEN DISJ1_TAC THEN ASM_REWRITE_TAC[MOD_LE];
-        MP_TAC(SPECL [`V:num`; `2 EXP p`] DIVISION) THEN
-        REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC]]]);;
-
-(* Bracket conversion: RECIP_WIDE exposes  2^64+w < 2^128/d  (real division).  Turn it into the
-   multiplicative LOWER bracket  (2^64+w)*d <= 2^128  that QH_NOOVERSHOOT_ROUND consumes. *)
-let RECIP_BRACKET_MULT = prove
- (`!w d. 0 < d /\ &2 pow 64 + &(val(w:int64)) < &2 pow 128 / &d
-         ==> (2 EXP 64 + val w) * d <= 2 EXP 128`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `&0 < &d` ASSUME_TAC THENL
-   [ASM_REWRITE_TAC[REAL_OF_NUM_LT]; ALL_TAC] THEN
-  RULE_ASSUM_TAC(SIMP_RULE[REAL_LT_RDIV_EQ; ASSUME `&0 < &d`]) THEN
-  REWRITE_TAC[GSYM REAL_OF_NUM_LE; GSYM REAL_OF_NUM_CLAUSES] THEN
-  MATCH_MP_TAC REAL_LT_IMP_LE THEN
-  FIRST_X_ASSUM(fun th -> if is_binary "real_lt" (concl th) then ACCEPT_TAC th else NO_TAC));;
-
-(* UPPER bracket converter: RECIP_WIDE's real-div UPPER  2^128/d <= 2^64+w+1  ->  mult form. *)
-let RECIP_BRACKET_MULT_UP = prove
- (`!w d. 0 < d /\ &2 pow 128 / &d <= &2 pow 64 + &(val(w:int64)) + &1
-         ==> 2 EXP 128 <= (2 EXP 64 + val w + 1) * d`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `&0 < &d` ASSUME_TAC THENL [ASM_REWRITE_TAC[REAL_OF_NUM_LT]; ALL_TAC] THEN
-  REWRITE_TAC[GSYM REAL_OF_NUM_LE; GSYM REAL_OF_NUM_CLAUSES] THEN
-  SUBGOAL_THEN `&2 pow 128 = (&2 pow 128 / &d) * &d` SUBST1_TAC THENL
-   [ASM_SIMP_TAC[REAL_DIV_RMUL; REAL_LT_IMP_NZ]; ALL_TAC] THEN
-  MATCH_MP_TAC REAL_LE_RMUL THEN ASM_SIMP_TAC[REAL_LT_IMP_LE]);;
-
-(* Saturation w-bound: at d = 2^64-1 the LOWER bracket forces w<=1 (so the SAT path applies). *)
-let SAT_W_LE_1 = prove
- (`!w. (2 EXP 64 + w) * (2 EXP 64 - 1) <= 2 EXP 128 ==> w <= 1`,
-  GEN_TAC THEN
-  MATCH_MP_TAC(ARITH_RULE `(2 <= w ==> ~((2 EXP 64 + w) * (2 EXP 64 - 1) <= 2 EXP 128))
-                           ==> (2 EXP 64 + w) * (2 EXP 64 - 1) <= 2 EXP 128 ==> w <= 1`) THEN
-  DISCH_TAC THEN
-  MATCH_MP_TAC(ARITH_RULE `2 EXP 128 < x ==> ~(x <= 2 EXP 128)`) THEN
-  TRANS_TAC LTE_TRANS `(2 EXP 64 + 2) * (2 EXP 64 - 1)` THEN CONJ_TAC THENL
-   [REWRITE_TAC[ARITH_RULE `2 EXP 128 = 2 EXP 64 * 2 EXP 64`] THEN ARITH_TAC;
-    MATCH_MP_TAC LE_MULT2 THEN ASM_REWRITE_TAC[LE_REFL; LE_ADD_LCANCEL]]);;
-
-(* Unified: from the mult LOWER bracket on d, b<2^p, and the dichotomy (rounding-fact \/ w<=1). *)
-let QH_NOOVERSHOOT_UNIFIED = prove
- (`!b p V w d h.
-     (2 EXP 64 + w) * d <= 2 EXP 128 /\
-     b < 2 EXP p /\
-     (b * 2 EXP 64 <= d * 2 EXP p \/ w <= 1) /\
-     h = (V DIV 2 EXP p) MOD 2 EXP 64
-     ==> ((w * h) DIV 2 EXP 64 + h) * b <= V`,
-  REPEAT GEN_TAC THEN STRIP_TAC THENL
-   [MP_TAC(ISPECL [`b:num`;`p:num`;`V:num`;`w:num`;`d:num`;`h:num`] QH_NOOVERSHOOT_ROUND) THEN
-    ASM_REWRITE_TAC[];
-    MP_TAC(ISPECL [`b:num`;`p:num`;`V:num`;`w:num`;`h:num`] QH_NOOVERSHOOT_SAT) THEN
-    ASM_REWRITE_TAC[]]);;
-
-Printf.printf "\n=== qh_noovershoot_new.ml: ROUND + SAT + ROUND_FACT + BRACKET_MULT + SAT_W_LE_1 + UNIFIED ===\n%!";;
-
-
-(* ======== inlined: recip_cluster.ml ======== *)
-(* ============================================================================
-   recip_cluster.ml (cont108) -- RECIP_CLUSTER.
-   The ARITHMETIC BRIDGE that assembles MAINLOOP's ENTIRE recip-of-d cluster from the
-   state-free facts available at the CORRECT splice point (0x1a4), with p := bitsize b,
-   d := val t0 (t0 = read X5 @ 0x98 = the rounded window, arg to word_recip), w := val w.
-
-   INPUT (all present at the splice after WINUP_D ;; RECIP_WIDE ;; PREHEADER):
-     ~(b = 0)                                             [nge0 case of CORRECT's POST]
-     ~(b = 0) ==> bit 63 t0                               [WINUP_D / RECIP_WIDE guard]
-     bit 63 t0 ==> real-division bracket on val t0,val w  [RECIP_WIDE POST @ 0x13c]
-     roundup disjunction on val t0                        [WINUP_D POST @ 0x98, threaded]
-
-   OUTPUT: every recip-of-d precondition BIGNUM_MOD_MAINLOOP needs, namely
-     0 < window /\ window < 2^64 /\ window*2^p + (b*2^64)MOD2^p = b*2^64 /\
-     val t0 < 2^64 /\ (roundup disjunction) /\
-     (2^64+val w)*val t0 <= 2^128 /\ 2^128 <= (2^64+val w+1)*val t0 /\
-     b < 2^p /\ 2^(p-1) <= b /\ 1 <= p            (p = bitsize b)
-
-   Combined with BIGNUM_MOD_SPLICE_MAINLOOP_DEV (splice_dev.ml: cluster ==> MAINLOOP
-   applies) and BIGNUM_MOD_WINUP_D (winup_d.ml: the block that EXPOSES the disjunction),
-   this closes the arithmetic side of the MAINLOOP splice: the recip-of-d cluster is
-   fully derivable at 0x1a4 with no residual assumption.
-
-   Deps: WINDOW_RANGE, MSB_VAL, VAL_BOUND_64, BITSIZE_LE, BITSIZE_LOWER (bound_tight.ml),
-   BITSIZE_EQ_0, RECIP_BRACKET_MULT/_UP (qh_noovershoot_new.ml).  Standalone otherwise.
-   ============================================================================ *)
-
-let RECIP_CLUSTER = prove
- (`!b t0 w.
-    ~(b = 0) /\
-    (~(b = 0) ==> bit 63 (t0:int64)) /\
-    (bit 63 t0
-     ==> &2 pow 64 + &(val(w:int64)) < &2 pow 128 / &(val t0) /\
-         &2 pow 128 / &(val t0) <= &2 pow 64 + &(val w) + &1) /\
-    (val t0 = (b * 2 EXP 64) DIV 2 EXP (bitsize b) + 1 \/
-     (b * 2 EXP 64) DIV 2 EXP (bitsize b) = 2 EXP 64 - 1 /\
-     val t0 = 2 EXP 64 - 1)
-    ==> 0 < (b * 2 EXP 64) DIV 2 EXP (bitsize b) /\
-        (b * 2 EXP 64) DIV 2 EXP (bitsize b) < 2 EXP 64 /\
-        (b * 2 EXP 64) DIV 2 EXP (bitsize b) * 2 EXP (bitsize b) +
-          (b * 2 EXP 64) MOD 2 EXP (bitsize b) = b * 2 EXP 64 /\
-        val t0 < 2 EXP 64 /\
-        (val t0 = (b * 2 EXP 64) DIV 2 EXP (bitsize b) + 1 \/
-         (b * 2 EXP 64) DIV 2 EXP (bitsize b) = 2 EXP 64 - 1 /\
-         val t0 = 2 EXP 64 - 1) /\
-        (2 EXP 64 + val w) * val t0 <= 2 EXP 128 /\
-        2 EXP 128 <= (2 EXP 64 + val w + 1) * val t0 /\
-        b < 2 EXP (bitsize b) /\
-        2 EXP (bitsize b - 1) <= b /\
-        1 <= bitsize b`,
-  REPEAT GEN_TAC THEN DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
-  SUBGOAL_THEN `bit 63 (t0:int64)` ASSUME_TAC THENL
-   [FIRST_X_ASSUM MATCH_MP_TAC THEN FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
-  FIRST_X_ASSUM(fun th ->
-    if is_imp(concl th) && (fst(dest_imp(concl th)) = `bit 63 (t0:int64)`)
-    then MP_TAC(MATCH_MP th (ASSUME `bit 63 (t0:int64)`)) else NO_TAC) THEN
-  STRIP_TAC THEN
-  SUBGOAL_THEN `2 EXP 63 <= val(t0:int64)` ASSUME_TAC THENL
-   [MP_TAC(ISPEC `t0:int64` MSB_VAL) THEN REWRITE_TAC[DIMINDEX_64] THEN
-    CONV_TAC NUM_REDUCE_CONV THEN ASM_REWRITE_TAC[];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `0 < val(t0:int64)` ASSUME_TAC THENL
-   [UNDISCH_TAC `2 EXP 63 <= val(t0:int64)` THEN ARITH_TAC; ALL_TAC] THEN
-  MP_TAC(ISPEC `b:num` WINDOW_RANGE) THEN ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
-  REPEAT CONJ_TAC THENL
-   [UNDISCH_TAC `2 EXP 63 <= (b * 2 EXP 64) DIV 2 EXP bitsize b` THEN ARITH_TAC;
-    FIRST_ASSUM ACCEPT_TAC;
-    MP_TAC(SPECL [`b * 2 EXP 64`; `2 EXP (bitsize b)`] DIVISION) THEN
-    REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
-    DISCH_THEN(fun th -> GEN_REWRITE_TAC (RAND_CONV) [CONJUNCT1 th]) THEN
-    REWRITE_TAC[] THEN ARITH_TAC;
-    REWRITE_TAC[VAL_BOUND_64];
-    MATCH_MP_TAC RECIP_BRACKET_MULT THEN ASM_REWRITE_TAC[];
-    MATCH_MP_TAC RECIP_BRACKET_MULT_UP THEN ASM_REWRITE_TAC[];
-    REWRITE_TAC[REWRITE_RULE[LE_REFL] (SPECL [`b:num`; `bitsize b`] BITSIZE_LE)];
-    ASM_SIMP_TAC[BITSIZE_LOWER];
-    REWRITE_TAC[ARITH_RULE `1 <= n <=> ~(n = 0)`; BITSIZE_EQ_0] THEN
-    FIRST_ASSUM ACCEPT_TAC]);;
-
-Printf.printf "\n=== recip_cluster.ml: RECIP_CLUSTER (assemble MAINLOOP recip-of-d cluster at splice) ===\n%!";;
-
-
-(* ======== inlined: ki_core_d.ml ======== *)
-(* ============================================================================
-   KI_CORE_D (cont107) -- bound-maintenance R < 2^(p+2) for the ROUNDED divisor d.
-   ----------------------------------------------------------------------------
-   The dual of KI_CORE (ki_core.ml) for the REAL reciprocal w = word_recip(d),
-   d = roundup((b*2^64) DIV 2^p) (bignum_mod.S:145).  Where KI_CORE takes the recip-of-t0
-   brackets + ADDITIVE floor b*2^64 = t0*2^p + s, KI_CORE_D takes the recip-of-d brackets
-   (BOTH -- they pin qhat) + the SUBTRACTIVE floor d*2^p = b*2^64 + s' (d rounds UP) + h < d.
-   Verified 0/1872 free-qhat, and the real w satisfies both d-brackets (100/100).  See
-   DDK_BUILD_PLAN cont107e-g.  Conclusion IDENTICAL to KI_CORE: Zf < qhat*b + 2^(p+2).
-
-   Deps: none beyond core HOL (DIVISION, REAL_RING, REAL_ARITH).  Load anywhere after prelude.
-   ============================================================================ *)
-
-(* crux product bound: (b*f)*(f+h) < 2*(f*f)*e - s'*f - s'*h  [f=2^64, e=2^p].
-   From the subtractive floor b*f = d*e - s' and d<f, h<f. *)
-let KI_CORE_D_CRUX = prove
- (`!b d e s' f h.
-    &d * e = &b * f + &s' /\ &d < f /\ &h < f /\ &0 < e /\ &0 < f /\ &0 <= &b /\ &0 <= &h /\ &0 <= &s'
-    ==> (&b * f) * (f + &h) < &2 * (f * f) * e - &s' * f - &s' * &h`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `&b * f = &d * e - &s'` SUBST1_TAC THENL
-   [UNDISCH_TAC `&d * e = &b * f + &s'` THEN REAL_ARITH_TAC; ALL_TAC] THEN
-  REWRITE_TAC[REAL_SUB_RDISTRIB] THEN
-  MATCH_MP_TAC(REAL_ARITH
-   `(&d * e) * (f + &h) < &2 * (f * f) * e /\ &s' * (f + &h) = &s' * f + &s' * &h
-    ==> (&d * e) * (f + &h) - &s' * (f + &h) < &2 * (f * f) * e - &s' * f - &s' * &h`) THEN
-  CONJ_TAC THENL
-   [TRANS_TAC REAL_LTE_TRANS `(f * e) * (f + &h)` THEN CONJ_TAC THENL
-     [MATCH_MP_TAC REAL_LT_RMUL THEN CONJ_TAC THENL
-       [ONCE_REWRITE_TAC[REAL_ARITH `&d * e = e * &d /\ f * e = e * f`] THEN
-        MATCH_MP_TAC REAL_LT_LMUL THEN ASM_REWRITE_TAC[]; ASM_REAL_ARITH_TAC];
-      REWRITE_TAC[REAL_ARITH `&2 * (f * f) * e = (f * e) * (&2 * f)`] THEN
-      MATCH_MP_TAC REAL_LE_LMUL THEN CONJ_TAC THENL
-       [MATCH_MP_TAC REAL_LE_MUL THEN ASM_REAL_ARITH_TAC; ASM_REAL_ARITH_TAC]];
-    REAL_ARITH_TAC]);;
-
-let KI_CORE_D = prove
- (`!b p d w h s' zr Zf.
-    b < 2 EXP p /\ 0 < d /\ d < 2 EXP 64 /\ h < d /\
-    d * 2 EXP p = b * 2 EXP 64 + s' /\ s' <= 2 EXP p /\
-    Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
-    (2 EXP 64 + w) * d <= 2 EXP 128 /\
-    2 EXP 128 <= (2 EXP 64 + w + 1) * d
-    ==> Zf < ((2 EXP 64 + w) * h) DIV 2 EXP 64 * b + 2 EXP (p + 2)`,
-  REPEAT GEN_TAC THEN
-  ABBREV_TAC `RR = 2 EXP 64 + w` THEN
-  ABBREV_TAC `qhat = (RR * h) DIV 2 EXP 64` THEN
-  SUBGOAL_THEN `qhat * 2 EXP 64 <= RR * h /\ RR * h < qhat * 2 EXP 64 + 2 EXP 64` STRIP_ASSUME_TAC THENL
-   [MP_TAC(SPECL [`RR * h`; `2 EXP 64`] DIVISION) THEN
-    REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN EXPAND_TAC "qhat" THEN ARITH_TAC; ALL_TAC] THEN
-  STRIP_TAC THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[GSYM REAL_OF_NUM_CLAUSES]) THEN
-  REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN
-  ABBREV_TAC `e = &2 pow p` THEN ABBREV_TAC `f = &2 pow 64` THEN
-  SUBGOAL_THEN `&2 pow (p + 2) = &4 * e` SUBST1_TAC THENL
-   [EXPAND_TAC "e" THEN REWRITE_TAC[REAL_POW_ADD] THEN REAL_ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `&2 pow 128 = f * f` SUBST_ALL_TAC THENL
-   [EXPAND_TAC "f" THEN REWRITE_TAC[GSYM REAL_POW_ADD] THEN CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
-  SUBGOAL_THEN `&0 < e /\ &0 < f` STRIP_ASSUME_TAC THENL
-   [CONJ_TAC THENL [EXPAND_TAC "e"; EXPAND_TAC "f"] THEN REWRITE_TAC[REAL_LT_POW2]; ALL_TAC] THEN
-  SUBGOAL_THEN `&0 < &RR` ASSUME_TAC THENL
-   [UNDISCH_TAC `f + &w = &RR` THEN UNDISCH_TAC `&0 < f` THEN REAL_ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `&h < f` ASSUME_TAC THENL
-   [TRANS_TAC REAL_LT_TRANS `&d:real` THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  SUBGOAL_THEN `f * f <= &RR * &d + &d` ASSUME_TAC THENL
-   [UNDISCH_TAC `f * f <= (f + &w + &1) * &d` THEN
-    FIRST_ASSUM(fun th -> if concl th = `f + &w = &RR` then REWRITE_TAC[SYM th] else NO_TAC) THEN
-    REAL_ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `&RR * &h < f * f` ASSUME_TAC THENL
-   [TRANS_TAC REAL_LTE_TRANS `&RR * &d` THEN ASM_REWRITE_TAC[] THEN
-    ASM_SIMP_TAC[REAL_LT_LMUL_EQ]; ALL_TAC] THEN
-  SUBGOAL_THEN `(f * f) * &h < (&qhat * f + f) * &d + &d * &h` ASSUME_TAC THENL
-   [TRANS_TAC REAL_LET_TRANS `(&RR * &d) * &h + &d * &h` THEN CONJ_TAC THENL
-     [REWRITE_TAC[GSYM REAL_ADD_RDISTRIB] THEN MATCH_MP_TAC REAL_LE_RMUL THEN
-      ASM_REWRITE_TAC[REAL_POS]; ALL_TAC] THEN
-    REWRITE_TAC[REAL_LT_RADD] THEN
-    ONCE_REWRITE_TAC[REAL_ARITH `(&RR * &d) * &h = (&RR * &h) * &d`] THEN
-    ASM_SIMP_TAC[REAL_LT_RMUL_EQ]; ALL_TAC] THEN
-  SUBGOAL_THEN `(f * f) * &h * e < ((&qhat * f + f) * &d + &d * &h) * e` MP_TAC THENL
-   [ASM_SIMP_TAC[REAL_LT_RMUL_EQ] THEN
-    REWRITE_TAC[REAL_ARITH `(f * f) * &h * e = ((f * f) * &h) * e`] THEN
-    ASM_SIMP_TAC[REAL_LT_RMUL_EQ]; ALL_TAC] THEN
-  REWRITE_TAC[REAL_RING `((&qhat * f + f) * &d + &d * &h) * e =
-                         (&qhat * f + f) * (&d * e) + (&d * e) * &h`;
-              REAL_RING `(f * f) * &h * e = (f * f) * (&h * e)`] THEN
-  SUBST1_TAC(ASSUME `&d * e = &b * f + &s'`) THEN
-  SUBGOAL_THEN `&h * e = &Zf - &zr` SUBST1_TAC THENL
-   [UNDISCH_TAC `&Zf = &h * e + &zr` THEN REAL_ARITH_TAC; ALL_TAC] THEN
-  REWRITE_TAC[REAL_RING `(&qhat * f + f) * (&b * f + &s') + (&b * f + &s') * &h =
-              (f * f) * (&qhat * &b) + &qhat * f * &s' + (&b * f) * (f + &h) + f * &s' + &s' * &h`] THEN
-  DISCH_TAC THEN
-  MP_TAC(ISPECL [`b:num`;`d:num`;`e:real`;`s':num`;`f:real`;`h:num`] KI_CORE_D_CRUX) THEN
-  ANTS_TAC THENL [ASM_REWRITE_TAC[REAL_POS]; DISCH_TAC] THEN
-  SUBGOAL_THEN `&qhat * f * &s' <= (f * f) * e` ASSUME_TAC THENL
-   [TRANS_TAC REAL_LE_TRANS `(&RR * &h) * &s'` THEN CONJ_TAC THENL
-     [REWRITE_TAC[REAL_ARITH `&qhat * f * &s' = (&qhat * f) * &s'`] THEN
-      MATCH_MP_TAC REAL_LE_RMUL THEN ASM_SIMP_TAC[REAL_POS]; ALL_TAC] THEN
-    TRANS_TAC REAL_LE_TRANS `(f * f) * &s'` THEN CONJ_TAC THENL
-     [MATCH_MP_TAC REAL_LE_RMUL THEN ASM_SIMP_TAC[REAL_POS; REAL_LT_IMP_LE]; ALL_TAC] THEN
-    MATCH_MP_TAC REAL_LE_LMUL THEN ASM_SIMP_TAC[REAL_LE_MUL; REAL_LT_IMP_LE]; ALL_TAC] THEN
-  SUBGOAL_THEN `(f * f) * &zr < (f * f) * e` ASSUME_TAC THENL
-   [MATCH_MP_TAC REAL_LT_LMUL THEN ASM_SIMP_TAC[REAL_LT_MUL]; ALL_TAC] THEN
-  SUBGOAL_THEN `&0 < f * f` ASSUME_TAC THENL [ASM_SIMP_TAC[REAL_LT_MUL]; ALL_TAC] THEN
-  ONCE_REWRITE_TAC[GSYM(MATCH_MP REAL_LT_LMUL_EQ (ASSUME `&0 < f * f`))] THEN
-  MP_TAC(REAL_ARITH `f * &s' = &s' * f`) THEN
-  ASM_REAL_ARITH_TAC);;
-
-Printf.printf "\n=== ki_core_d.ml: KI_CORE_D_CRUX + KI_CORE_D (rounded-divisor bound-maintenance) ===\n%!";;
-
-
-(* ======== inlined: red_lemma_d.ml ======== *)
-(* ============================================================================
-   RED_LEMMA_D (cont107) -- the UNIFIED reciprocal reduction lemma (longredlemma-style).
-   ----------------------------------------------------------------------------
-   ONE lemma giving BOTH the no-overshoot (qhat*b<=Zf) and the bound-maintenance
-   (Zf < qhat*b + 2^(p+2)) for the REAL reciprocal w = word_recip(d), d = roundup(t0),
-   t0 = (b*2^64) DIV 2^p.  Saturation (t0 = 2^64-1) is folded IN via the disjunctive
-   roundup characterization + an internal case split (following bignum_mod_*'s
-   `longredlemma` idiom where MIN(...)(2^64-1) bakes the clamp into q).
-   Consumers see ONE lemma; NO external case split.
-   Deps: QH_NOOVERSHOOT_ROUND/_SAT (qh_noovershoot_new.ml), KI_CORE_D (ki_core_d.ml),
-         SAT_W_LE_1 (qh_noovershoot_new.ml), QHAT_ID, DIVISION, RDIV_LT_EQ.
-   ============================================================================ *)
-
-(* saturation upper-bound: w<=1 (=> qhat=h) and b near 2^p (2^64*(2^p-b)<=2^p) => Zf<h*b+2^(p+2). *)
-let KI_CORE_D_SAT = prove
- (`!b p w h zr Zf.
-    w <= 1 /\ b < 2 EXP p /\
-    2 EXP 64 * (2 EXP p - b) <= 2 EXP p /\
-    Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\ h < 2 EXP 64
-    ==> Zf < ((2 EXP 64 + w) * h) DIV 2 EXP 64 * b + 2 EXP (p + 2)`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `((2 EXP 64 + w) * h) DIV 2 EXP 64 = h` SUBST1_TAC THENL
-   [SUBGOAL_THEN `(2 EXP 64 + w) * h = 2 EXP 64 * h + w * h` SUBST1_TAC THENL
-     [ARITH_TAC; ALL_TAC] THEN
-    SUBGOAL_THEN `w * h < 2 EXP 64` ASSUME_TAC THENL
-     [TRANS_TAC LET_TRANS `1 * h:num` THEN CONJ_TAC THENL
-       [REWRITE_TAC[LE_MULT_RCANCEL] THEN ASM_REWRITE_TAC[];
-        ASM_REWRITE_TAC[MULT_CLAUSES]]; ALL_TAC] THEN
-    ONCE_REWRITE_TAC[ARITH_RULE `2 EXP 64 * h + w * h = w * h + h * 2 EXP 64`] THEN
-    ASM_SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ] THEN
-    ASM_SIMP_TAC[DIV_LT] THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `h * (2 EXP p - b) < 2 EXP p` ASSUME_TAC THENL
-   [TRANS_TAC LTE_TRANS `2 EXP 64 * (2 EXP p - b)` THEN ASM_REWRITE_TAC[] THEN
-    REWRITE_TAC[LT_MULT_RCANCEL] THEN
-    UNDISCH_TAC `b < 2 EXP p` THEN UNDISCH_TAC `h < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `h * b + h * (2 EXP p - b) = h * 2 EXP p` ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM LEFT_ADD_DISTRIB] THEN AP_TERM_TAC THEN
-    UNDISCH_TAC `b < 2 EXP p` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP p + 2 EXP p <= 2 EXP (p + 2)` ASSUME_TAC THENL
-   [REWRITE_TAC[EXP_ADD] THEN ARITH_TAC; ALL_TAC] THEN
-  ASM_REWRITE_TAC[] THEN
-  MAP_EVERY UNDISCH_TAC
-   [`h * b + h * (2 EXP p - b) = h * 2 EXP p`;
-    `h * (2 EXP p - b) < 2 EXP p`; `zr < 2 EXP p`;
-    `2 EXP p + 2 EXP p <= 2 EXP (p + 2)`] THEN ARITH_TAC);;
-
-(* The unified reduction lemma. *)
-let RED_LEMMA_D = prove
- (`!b p w d h zr Zf.
-    ~(b = 0) /\ b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
-    d < 2 EXP 64 /\
-    (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
-     ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
-    (2 EXP 64 + w) * d <= 2 EXP 128 /\
-    2 EXP 128 <= (2 EXP 64 + w + 1) * d /\
-    Zf < b * 2 EXP 64 /\
-    Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
-    h = (Zf DIV 2 EXP p) MOD 2 EXP 64
-    ==> ((2 EXP 64 + w) * h) DIV 2 EXP 64 * b <= Zf /\
-        Zf < ((2 EXP 64 + w) * h) DIV 2 EXP 64 * b + 2 EXP (p + 2)`,
-  REPEAT GEN_TAC THEN STRIP_TAC THENL
-   [(* ===== NON-SAT: d = t0 + 1 ===== *)
-    SUBGOAL_THEN `b * 2 EXP 64 <= d * 2 EXP p /\ d * 2 EXP p <= b * 2 EXP 64 + 2 EXP p`
-    STRIP_ASSUME_TAC THENL
-     [FIRST_ASSUM(fun th -> if concl th = `d = (b * 2 EXP 64) DIV 2 EXP p + 1`
-         then REWRITE_TAC[th] else NO_TAC) THEN
-      MP_TAC(SPECL [`b * 2 EXP 64`; `2 EXP p`] DIVISION) THEN
-      REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC; ALL_TAC] THEN
-    SUBGOAL_THEN `0 < d` ASSUME_TAC THENL
-     [ASM_REWRITE_TAC[] THEN ARITH_TAC; ALL_TAC] THEN
-    SUBGOAL_THEN `Zf DIV 2 EXP p < d` ASSUME_TAC THENL
-     [MP_TAC(SPECL [`2 EXP p`; `Zf:num`; `d:num`] RDIV_LT_EQ) THEN
-      REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN DISCH_THEN SUBST1_TAC THEN
-      ONCE_REWRITE_TAC[MULT_SYM] THEN
-      TRANS_TAC LTE_TRANS `b * 2 EXP 64` THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    SUBGOAL_THEN `h <= Zf DIV 2 EXP p` ASSUME_TAC THENL
-     [ONCE_REWRITE_TAC[ASSUME `h = (Zf DIV 2 EXP p) MOD 2 EXP 64`] THEN
-      REWRITE_TAC[MOD_LE]; ALL_TAC] THEN
-    SUBGOAL_THEN `h < d` ASSUME_TAC THENL
-     [MAP_EVERY UNDISCH_TAC [`h <= Zf DIV 2 EXP p`; `Zf DIV 2 EXP p < d`] THEN ARITH_TAC;
-      ALL_TAC] THEN
-    SUBGOAL_THEN
-     `d * 2 EXP p = b * 2 EXP 64 + (d * 2 EXP p - b * 2 EXP 64) /\
-      (d * 2 EXP p - b * 2 EXP 64) <= 2 EXP p` STRIP_ASSUME_TAC THENL
-     [MAP_EVERY UNDISCH_TAC
-       [`b * 2 EXP 64 <= d * 2 EXP p`; `d * 2 EXP p <= b * 2 EXP 64 + 2 EXP p`] THEN ARITH_TAC;
-      ALL_TAC] THEN
-    REWRITE_TAC[GSYM QHAT_ID] THEN CONJ_TAC THENL
-     [MP_TAC(ISPECL [`b:num`;`p:num`;`Zf:num`;`w:num`;`d:num`;`h:num`] QH_NOOVERSHOOT_ROUND) THEN
-      ANTS_TAC THENL [REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
-      MP_TAC(ISPECL [`b:num`;`p:num`;`d:num`;`w:num`;`h:num`;`d * 2 EXP p - b * 2 EXP 64`;
-                     `zr:num`;`Zf:num`] KI_CORE_D) THEN
-      ANTS_TAC THENL [REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
-      REWRITE_TAC[QHAT_ID]];
-    (* ===== SAT: t0 = 2^64-1, d = 2^64-1 ===== *)
-    SUBGOAL_THEN `w <= 1` ASSUME_TAC THENL
-     [MATCH_MP_TAC SAT_W_LE_1 THEN
-      UNDISCH_TAC `(2 EXP 64 + w) * d <= 2 EXP 128` THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    SUBGOAL_THEN `2 EXP 64 * (2 EXP p - b) <= 2 EXP p` ASSUME_TAC THENL
-     [MP_TAC(SPECL [`b * 2 EXP 64`; `2 EXP p`] DIVISION) THEN
-      REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
-      FIRST_ASSUM(fun th -> if concl th = `(b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1`
-         then REWRITE_TAC[th] else NO_TAC) THEN
-      SUBGOAL_THEN `2 EXP p * (2 EXP 64 - 1) = 2 EXP 64 * 2 EXP p - 2 EXP p` ASSUME_TAC THENL
-       [SIMP_TAC[LEFT_SUB_DISTRIB; MULT_CLAUSES] THEN ARITH_TAC; ALL_TAC] THEN
-      UNDISCH_TAC `b < 2 EXP p` THEN ASM_REWRITE_TAC[] THEN ARITH_TAC; ALL_TAC] THEN
-    SUBGOAL_THEN `h < 2 EXP 64` ASSUME_TAC THENL
-     [ONCE_REWRITE_TAC[ASSUME `h = (Zf DIV 2 EXP p) MOD 2 EXP 64`] THEN
-      REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
-    CONJ_TAC THENL
-     [REWRITE_TAC[GSYM QHAT_ID] THEN
-      MP_TAC(ISPECL [`b:num`;`p:num`;`Zf:num`;`w:num`;`h:num`] QH_NOOVERSHOOT_SAT) THEN
-      ANTS_TAC THENL [REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
-      MP_TAC(ISPECL [`b:num`;`p:num`;`w:num`;`h:num`;`zr:num`;`Zf:num`] KI_CORE_D_SAT) THEN
-      ANTS_TAC THENL [REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]]]);;
-
-Printf.printf "\n=== red_lemma_d.ml: KI_CORE_D_SAT + RED_LEMMA_D (unified reduction) ===\n%!";;
-
-
-(* ======== inlined: red2.ml ======== *)
-(* ============================================================================
-   red2.ml (cont108) -- RED2: the SECOND-PASS reduction accuracy for bignum_mod's Stage 4.
-   Delivers the two-sided bracket  q2*b <= V1 + b  /\  V1 < q2*b + b   (V2 = V1 - q2*b in [-b,b))
-   consumed by NEGADD_PASSES_CLOSE, where
-     V1 < 2^(p+2)  (post-pass1 residual, from RED_LEMMA_D),
-     h2 = (V1 DIV 2^(p-61)) MOD 2^64   (the 2nd window, = X15 out of NEGADD1_LOG),
-     q2 = ((multop(w,h2)+h2) DIV 2^61) + 1 = (((2^64+w)*h2) DIV 2^64 DIV 2^61) + 1.
-   Method: apply RED_LEMMA_D to Zf := V1*2^61 (same p,w,d; window h2 since V1*2^61 DIV 2^p =
-   V1 DIV 2^(p-61)), giving qh*b <= V1*2^61 < qh*b + 2^(p+2) with qh = ((2^64+w)*h2) DIV 2^64;
-   then divide through by 2^61 (RED2_LO / RED2_HI).  This is the analogue, at the 2^61 window
-   scale, of what bignum_cmod.ml:1226+ does with the real reciprocal.
-   Deps: RED_LEMMA_D (red_lemma_d.ml), SCALE_FITS (below), arith.
-   ============================================================================ *)
-
-(* V1 < 2^(p+2), 2^(p-1)<=b, 61<=p  =>  V1*2^61 < b*2^64  (so RED_LEMMA_D's Zf<b*2^64 holds). *)
-let SCALE_FITS = prove
- (`!V1 b p. V1 < 2 EXP (p + 2) /\ 2 EXP (p - 1) <= b /\ 61 <= p
-            ==> V1 * 2 EXP 61 < b * 2 EXP 64`,
-  REPEAT STRIP_TAC THEN
-  TRANS_TAC LTE_TRANS `2 EXP (p + 2) * 2 EXP 61` THEN CONJ_TAC THENL
-   [ASM_REWRITE_TAC[LT_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ];
-    REWRITE_TAC[GSYM EXP_ADD] THEN
-    TRANS_TAC LE_TRANS `2 EXP (p - 1) * 2 EXP 64` THEN CONJ_TAC THENL
-     [REWRITE_TAC[GSYM EXP_ADD] THEN REWRITE_TAC[LE_EXP; ARITH_EQ] THEN
-      UNDISCH_TAC `61 <= p` THEN ARITH_TAC;
-      ASM_REWRITE_TAC[LE_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ]]]);;
-
-Printf.printf "\n=== red2.ml: SCALE_FITS ===\n%!";;
-
-(* divide-by-2^61, lower side: qh*b <= V1*2^61 => (qh DIV 2^61 + 1)*b <= V1 + b. *)
-let RED2_LO = prove
- (`!qh b V1. qh * b <= V1 * 2 EXP 61 ==> (qh DIV 2 EXP 61 + 1) * b <= V1 + b`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(SPECL [`qh:num`; `2 EXP 61`] DIVISION) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
-  ABBREV_TAC `Q = qh DIV 2 EXP 61` THEN ABBREV_TAC `s = qh MOD 2 EXP 61` THEN
-  STRIP_TAC THEN
-  SUBGOAL_THEN `Q * b <= V1` MP_TAC THENL
-   [SUBGOAL_THEN `(Q * b) * 2 EXP 61 <= V1 * 2 EXP 61` MP_TAC THENL
-     [TRANS_TAC LE_TRANS `qh * b` THEN ASM_REWRITE_TAC[] THEN
-      FIRST_X_ASSUM(fun th -> if concl th = `qh = Q * 2 EXP 61 + s` then MP_TAC th else NO_TAC) THEN
-      DISCH_THEN(fun th -> GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [th]) THEN ARITH_TAC;
-      REWRITE_TAC[LE_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ]];
-    ARITH_TAC]);;
-
-(* divide-by-2^61, upper side: V1*2^61 < qh*b + 2^(p+2), 2^(p-1)<=b, 61<=p
-   => V1 < (qh DIV 2^61 + 1)*b + b. *)
-let RED2_HI = prove
- (`!qh b V1 p.
-      V1 * 2 EXP 61 < qh * b + 2 EXP (p + 2) /\ 2 EXP (p - 1) <= b /\ 61 <= p
-      ==> V1 < (qh DIV 2 EXP 61 + 1) * b + b`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `~(b = 0)` ASSUME_TAC THENL
-   [MP_TAC(SPEC `p - 1` (REWRITE_RULE[ARITH_EQ] (SPEC `2` EXP_EQ_0))) THEN
-    UNDISCH_TAC `2 EXP (p - 1) <= b` THEN ARITH_TAC; ALL_TAC] THEN
-  MP_TAC(SPECL [`qh:num`; `2 EXP 61`] DIVISION) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
-  ABBREV_TAC `Q = qh DIV 2 EXP 61` THEN ABBREV_TAC `s = qh MOD 2 EXP 61` THEN
-  STRIP_TAC THEN
-  SUBGOAL_THEN `2 EXP (p + 2) <= 2 EXP 61 * b` ASSUME_TAC THENL
-   [TRANS_TAC LE_TRANS `2 EXP 61 * 2 EXP (p - 1)` THEN CONJ_TAC THENL
-     [REWRITE_TAC[GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN UNDISCH_TAC `61 <= p` THEN ARITH_TAC;
-      REWRITE_TAC[LE_MULT_LCANCEL] THEN ASM_REWRITE_TAC[]];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `V1 * 2 EXP 61 < ((Q + 1) * b + b) * 2 EXP 61` MP_TAC THENL
-   [TRANS_TAC LTE_TRANS `qh * b + 2 EXP (p + 2)` THEN ASM_REWRITE_TAC[] THEN
-    FIRST_X_ASSUM(fun th -> if concl th = `qh = Q * 2 EXP 61 + s` then SUBST1_TAC th else NO_TAC) THEN
-    MATCH_MP_TAC(ARITH_RULE
-      `s * b < 2 EXP 61 * b /\ e2 <= 2 EXP 61 * b
-       ==> (Q * 2 EXP 61 + s) * b + e2 <= ((Q + 1) * b + b) * 2 EXP 61`) THEN
-    ASM_REWRITE_TAC[LT_MULT_RCANCEL];
-    REWRITE_TAC[LT_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ]]);;
-
-Printf.printf "\n=== red2.ml: RED2_LO, RED2_HI ===\n%!";;
-
-(* window identity: for V1 < 2^(p+2) and 61<=p, (V1*2^61 DIV 2^p) MOD 2^64 = (V1 DIV 2^(p-61)) MOD 2^64.
-   V1*2^61 DIV 2^p = V1 DIV 2^(p-61) since p = (p-61)+61; the MOD 2^64 wraps both identically. *)
-let WIN2_IDENT = prove
- (`!V1 p. 61 <= p
-          ==> ((V1 * 2 EXP 61) DIV 2 EXP p) MOD 2 EXP 64 = (V1 DIV 2 EXP (p - 61)) MOD 2 EXP 64`,
-  REPEAT STRIP_TAC THEN AP_THM_TAC THEN AP_TERM_TAC THEN
-  SUBGOAL_THEN `2 EXP p = 2 EXP 61 * 2 EXP (p - 61)` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN UNDISCH_TAC `61 <= p` THEN ARITH_TAC;
-    ALL_TAC] THEN
-  GEN_REWRITE_TAC (LAND_CONV o LAND_CONV) [MULT_SYM] THEN
-  SIMP_TAC[DIV_MULT2; EXP_EQ_0; ARITH_EQ]);;
-
-Printf.printf "\n=== red2.ml: WIN2_IDENT ===\n%!";;
-
-(* RED2 -- the second-pass accuracy: the two-sided bracket for NEGADD_PASSES_CLOSE.
-   Same recip-of-d hyps as RED_LEMMA_D (d = rounded divisor, w = recip).  h2 the 2nd window,
-   q2 = ((2^64+w)*h2 DIV 2^64) DIV 2^61 + 1.  Conclude q2*b <= V1+b /\ V1 < q2*b+b. *)
-let RED2 = prove
- (`!b p w d h2 V1.
-      ~(b = 0) /\ b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 61 <= p /\
-      d < 2 EXP 64 /\
-      (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
-       ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
-      (2 EXP 64 + w) * d <= 2 EXP 128 /\
-      2 EXP 128 <= (2 EXP 64 + w + 1) * d /\
-      V1 < 2 EXP (p + 2) /\
-      h2 = (V1 DIV 2 EXP (p - 61)) MOD 2 EXP 64
-      ==> ((((2 EXP 64 + w) * h2) DIV 2 EXP 64) DIV 2 EXP 61 + 1) * b <= V1 + b /\
-          V1 < ((((2 EXP 64 + w) * h2) DIV 2 EXP 64) DIV 2 EXP 61 + 1) * b + b`,
-  REPEAT GEN_TAC THEN
-  (* INTRO_TAC (not STRIP_TAC): keep the roundup disjunction as ONE labeled hyp -- STRIP_TAC
-     would split it into 2 goals and the downstream THENL branch counts would mismatch. *)
-  INTRO_TAC "hb0 hblt hpb hp hd hdisj hup hlo hv hh2" THEN
-  ABBREV_TAC `Zf = V1 * 2 EXP 61` THEN
-  (* Zf DIV 2^p < 2^64 : window fits (V1 < 2^(p+2) => Zf = V1*2^61 < 2^(p+63) < 2^p*2^64) *)
-  SUBGOAL_THEN `Zf DIV 2 EXP p < 2 EXP 64` ASSUME_TAC THENL
-   [SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
-    EXPAND_TAC "Zf" THEN
-    TRANS_TAC LTE_TRANS `2 EXP (p + 2) * 2 EXP 61` THEN CONJ_TAC THENL
-     [REWRITE_TAC[LT_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ] THEN ASM_REWRITE_TAC[];
-      REWRITE_TAC[GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN
-      REMOVE_THEN "hp" MP_TAC THEN ARITH_TAC];
-    ALL_TAC] THEN
-  (* the 2nd window equals Zf's top window: h2 = (V1 DIV 2^(p-61))MOD2^64 = Zf DIV 2^p (WIN2_IDENT
-     + MOD_LT, since Zf DIV 2^p < 2^64). *)
-  SUBGOAL_THEN `h2 = Zf DIV 2 EXP p` ASSUME_TAC THENL
-   [SUBGOAL_THEN `Zf DIV 2 EXP p = (Zf DIV 2 EXP p) MOD 2 EXP 64` SUBST1_TAC THENL
-     [CONV_TAC SYM_CONV THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    EXPAND_TAC "Zf" THEN ASM_SIMP_TAC[WIN2_IDENT];
-    ALL_TAC] THEN
-  (* apply RED_LEMMA_D to Zf, window h2 -> qh*b <= Zf /\ Zf < qh*b + 2^(p+2) *)
-  MP_TAC(SPECL [`b:num`; `p:num`; `w:num`; `d:num`; `h2:num`; `Zf MOD 2 EXP p`; `Zf:num`]
-    RED_LEMMA_D) THEN
-  ANTS_TAC THENL
-   [ASM_REWRITE_TAC[] THEN
-    (* fold (V1 DIV 2^(p-61))MOD2^64 -> h2 -> Zf DIV 2^p so the h/zr conjuncts become DIVISION *)
-    FIRST_X_ASSUM(fun th -> if concl th = `h2 = (V1 DIV 2 EXP (p - 61)) MOD 2 EXP 64`
-      then GEN_REWRITE_TAC (REDEPTH_CONV) [GSYM th] else NO_TAC) THEN
-    FIRST_ASSUM(fun th -> if concl th = `h2 = Zf DIV 2 EXP p`
-      then GEN_REWRITE_TAC (REDEPTH_CONV) [th] else NO_TAC) THEN
-    REPEAT CONJ_TAC THENL
-     [REMOVE_THEN "hp" MP_TAC THEN ARITH_TAC;
-      EXPAND_TAC "Zf" THEN MATCH_MP_TAC SCALE_FITS THEN EXISTS_TAC `p:num` THEN
-      ASM_REWRITE_TAC[];
-      MP_TAC(SPECL [`Zf:num`; `2 EXP p`] DIVISION) THEN
-      REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN DISCH_THEN(fun th -> ACCEPT_TAC(CONJUNCT1 th));
-      MP_TAC(SPECL [`Zf:num`; `2 EXP p`] DIVISION) THEN
-      REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN SIMP_TAC[];
-      CONV_TAC SYM_CONV THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]];
-    ALL_TAC] THEN
-  (* divide the bracket through by 2^61 (RED2_LO / RED2_HI) *)
-  STRIP_TAC THEN CONJ_TAC THENL
-   [MATCH_MP_TAC RED2_LO THEN
-    FIRST_X_ASSUM(fun th -> if concl th = `V1 * 2 EXP 61 = Zf` then MP_TAC th else NO_TAC) THEN
-    DISCH_THEN(SUBST1_TAC) THEN ASM_REWRITE_TAC[];
-    MATCH_MP_TAC RED2_HI THEN EXISTS_TAC `p:num` THEN
-    FIRST_X_ASSUM(fun th -> if concl th = `V1 * 2 EXP 61 = Zf` then MP_TAC th else NO_TAC) THEN
-    DISCH_THEN(SUBST1_TAC) THEN ASM_REWRITE_TAC[]]);;
-
-Printf.printf "\n=== red2.ml: RED2 (2nd-pass accuracy, two-sided bracket) ===\n%!";;
-
-
-(* ======== inlined: red2_small.ml ======== *)
-(* ============================================================================
-   red2_small.ml (cont108aw) -- p<61 (small single-word modulus) accuracy analogs.
-   The Stage-4 corrections were proven only for 61<=p; for a single-word modulus
-   b<2^61 (dd=0), p=bitsize b<61, which IS on the reachable path.  The accuracy
-   ENGINE (RED_LEMMA_D) is p-general (needs only 1<=p); only the 2nd-pass WINDOW
-   FORM differs: p>=61 uses V1 DIV 2^(p-61) (right shift), p<=61 uses V1*2^(61-p)
-   (left shift).  Both equal (V1*2^61) DIV 2^p.  See SMALLP_ONPAPER.md.
-
-   WIN2_IDENT_SMALL : the p<=61 window form  ((V1*2^61)DIV2^p)MOD2^64 = (V1*2^(61-p))MOD2^64.
-   FUNNEL_SMALL     : the machine funnel at pcode=0  (2^64*z0)DIV2^(p+3) = z0*2^(61-p)  (p+3<=64).
-   RED2_SMALL       : the p<=61 two-sided bracket (analog of RED2), window h2=(V1*2^(61-p))MOD2^64.
-   Deps: RED_LEMMA_D (red_lemma_d.ml), RED2_LO (red2.ml), arith.  0-hyp.
-   ============================================================================ *)
-
-let WIN2_IDENT_SMALL = prove
- (`!V1 p. p <= 61
-          ==> ((V1 * 2 EXP 61) DIV 2 EXP p) MOD 2 EXP 64 = (V1 * 2 EXP (61 - p)) MOD 2 EXP 64`,
-  REPEAT STRIP_TAC THEN AP_THM_TAC THEN AP_TERM_TAC THEN
-  SUBGOAL_THEN `V1 * 2 EXP 61 = 2 EXP p * (V1 * 2 EXP (61 - p))`
-    (fun th -> REWRITE_TAC[th; MULT_SYM] THEN SIMP_TAC[DIV_MULT; EXP_EQ_0; ARITH_EQ]) THEN
-  REWRITE_TAC[MULT_ASSOC] THEN GEN_REWRITE_TAC (RAND_CONV o LAND_CONV) [MULT_SYM] THEN
-  REWRITE_TAC[GSYM MULT_ASSOC; GSYM EXP_ADD] THEN
-  AP_TERM_TAC THEN AP_TERM_TAC THEN UNDISCH_TAC `p <= 61` THEN ARITH_TAC);;
-
-Printf.printf "\n=== red2_small.ml: WIN2_IDENT_SMALL ===\n%!";;
-
-(* machine funnel at pcode=0: (2^64*z0) DIV 2^(p+3) = z0 * 2^(61-p)  (p+3<=64). *)
-let FUNNEL_SMALL = prove
- (`!z0 p. p + 3 <= 64 ==> (2 EXP 64 * z0) DIV 2 EXP (p + 3) = z0 * 2 EXP (61 - p)`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `2 EXP 64 = 2 EXP (p + 3) * 2 EXP (61 - p)` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN
-    UNDISCH_TAC `p + 3 <= 64` THEN ARITH_TAC;
-    REWRITE_TAC[GSYM MULT_ASSOC] THEN
-    SIMP_TAC[DIV_MULT; EXP_EQ_0; ARITH_EQ] THEN
-    REWRITE_TAC[MULT_SYM]]);;
-
-Printf.printf "\n=== red2_small.ml: FUNNEL_SMALL ===\n%!";;
-
-(* RED2_SMALL -- p<=61 second-pass accuracy bracket (analog of RED2, left-shift window).
-   Same recip-of-d hyps + V1<2^(p+2); h2 = (V1*2^(61-p))MOD2^64; q2 = (multop(w,h2)+h2)>>61 + 1.
-   Method identical to RED2: RED_LEMMA_D on Zf:=V1*2^61 (window h2 via WIN2_IDENT_SMALL), then
-   divide the bracket by 2^61 (RED2_LO for the lower half; the upper half inlined since RED2_HI's
-   61<=p hyp -- and SCALE_FITS's -- are SPURIOUS: 2^(p+2)<=2^61*2^(p-1)=2^(p+60) for all p). *)
-let RED2_SMALL = prove
- (`!b p w d h2 V1.
-      ~(b = 0) /\ b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\ p <= 61 /\
-      d < 2 EXP 64 /\
-      (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
-       ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
-      (2 EXP 64 + w) * d <= 2 EXP 128 /\
-      2 EXP 128 <= (2 EXP 64 + w + 1) * d /\
-      V1 < 2 EXP (p + 2) /\
-      h2 = (V1 * 2 EXP (61 - p)) MOD 2 EXP 64
-      ==> ((((2 EXP 64 + w) * h2) DIV 2 EXP 64) DIV 2 EXP 61 + 1) * b <= V1 + b /\
-          V1 < ((((2 EXP 64 + w) * h2) DIV 2 EXP 64) DIV 2 EXP 61 + 1) * b + b`,
-  REPEAT GEN_TAC THEN
-  INTRO_TAC "hb0 hblt hpb hp hp61 hd hdisj hup hlo hv hh2" THEN
-  ABBREV_TAC `Zf = V1 * 2 EXP 61` THEN
-  SUBGOAL_THEN `Zf DIV 2 EXP p < 2 EXP 64` ASSUME_TAC THENL
-   [SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN EXPAND_TAC "Zf" THEN
-    TRANS_TAC LTE_TRANS `2 EXP (p + 2) * 2 EXP 61` THEN CONJ_TAC THENL
-     [REWRITE_TAC[LT_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ] THEN ASM_REWRITE_TAC[];
-      REWRITE_TAC[GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN REMOVE_THEN "hp" MP_TAC THEN ARITH_TAC];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `h2 = Zf DIV 2 EXP p` ASSUME_TAC THENL
-   [SUBGOAL_THEN `Zf DIV 2 EXP p = (Zf DIV 2 EXP p) MOD 2 EXP 64` SUBST1_TAC THENL
-     [CONV_TAC SYM_CONV THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    EXPAND_TAC "Zf" THEN ASM_SIMP_TAC[WIN2_IDENT_SMALL];
-    ALL_TAC] THEN
-  MP_TAC(SPECL [`b:num`; `p:num`; `w:num`; `d:num`; `h2:num`; `Zf MOD 2 EXP p`; `Zf:num`] RED_LEMMA_D) THEN
-  ANTS_TAC THENL
-   [ASM_REWRITE_TAC[] THEN
-    FIRST_X_ASSUM(fun th -> if concl th = `h2 = (V1 * 2 EXP (61 - p)) MOD 2 EXP 64`
-      then GEN_REWRITE_TAC (REDEPTH_CONV) [GSYM th] else NO_TAC) THEN
-    FIRST_ASSUM(fun th -> if concl th = `h2 = Zf DIV 2 EXP p`
-      then GEN_REWRITE_TAC (REDEPTH_CONV) [th] else NO_TAC) THEN
-    REPEAT CONJ_TAC THENL
-     [EXPAND_TAC "Zf" THEN
-      TRANS_TAC LTE_TRANS `2 EXP (p + 2) * 2 EXP 61` THEN CONJ_TAC THENL
-       [REWRITE_TAC[LT_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ] THEN ASM_REWRITE_TAC[];
-        REWRITE_TAC[GSYM EXP_ADD] THEN
-        TRANS_TAC LE_TRANS `2 EXP (p - 1) * 2 EXP 64` THEN CONJ_TAC THENL
-         [REWRITE_TAC[GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN REMOVE_THEN "hp" MP_TAC THEN ARITH_TAC;
-          ASM_REWRITE_TAC[LE_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ]]];
-      MP_TAC(SPECL [`Zf:num`; `2 EXP p`] DIVISION) THEN
-      REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN DISCH_THEN(fun th -> ACCEPT_TAC(CONJUNCT1 th));
-      MP_TAC(SPECL [`Zf:num`; `2 EXP p`] DIVISION) THEN
-      REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN SIMP_TAC[];
-      CONV_TAC SYM_CONV THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]];
-    ALL_TAC] THEN
-  STRIP_TAC THEN CONJ_TAC THENL
-   [MATCH_MP_TAC RED2_LO THEN
-    FIRST_X_ASSUM(fun th -> if concl th = `V1 * 2 EXP 61 = Zf` then MP_TAC th else NO_TAC) THEN
-    DISCH_THEN(SUBST1_TAC) THEN ASM_REWRITE_TAC[];
-    ABBREV_TAC `qh = ((2 EXP 64 + w) * h2) DIV 2 EXP 64` THEN
-    MP_TAC(SPECL [`qh:num`; `2 EXP 61`] DIVISION) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
-    ABBREV_TAC `Q = qh DIV 2 EXP 61` THEN ABBREV_TAC `sq = qh MOD 2 EXP 61` THEN STRIP_TAC THEN
-    SUBGOAL_THEN `2 EXP (p + 2) <= 2 EXP 61 * b` ASSUME_TAC THENL
-     [TRANS_TAC LE_TRANS `2 EXP 61 * 2 EXP (p - 1)` THEN CONJ_TAC THENL
-       [REWRITE_TAC[GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN UNDISCH_TAC `1 <= p` THEN ARITH_TAC;
-        REWRITE_TAC[LE_MULT_LCANCEL] THEN ASM_REWRITE_TAC[]];
-      ALL_TAC] THEN
-    SUBGOAL_THEN `V1 * 2 EXP 61 < ((Q + 1) * b + b) * 2 EXP 61` MP_TAC THENL
-     [TRANS_TAC LTE_TRANS `qh * b + 2 EXP (p + 2)` THEN CONJ_TAC THENL
-       [FIRST_X_ASSUM(fun th -> if concl th = `V1 * 2 EXP 61 = Zf` then SUBST1_TAC th else NO_TAC) THEN
-        ASM_REWRITE_TAC[];
-        FIRST_X_ASSUM(fun th -> if concl th = `qh = Q * 2 EXP 61 + sq` then SUBST1_TAC th else NO_TAC) THEN
-        MATCH_MP_TAC(ARITH_RULE
-          `sq * b < 2 EXP 61 * b /\ e2 <= 2 EXP 61 * b
-           ==> (Q * 2 EXP 61 + sq) * b + e2 <= ((Q + 1) * b + b) * 2 EXP 61`) THEN
-        ASM_REWRITE_TAC[LT_MULT_RCANCEL]];
-      REWRITE_TAC[LT_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ]]]);;
-
-Printf.printf "\n=== red2_small.ml: RED2_SMALL (p<=61 second-pass accuracy) ===\n%!";;
-
-
-(* ======== inlined: block_value_tight_d.ml ======== *)
-(* ============================================================================
-   BLOCK_VALUE_TIGHT_D (cont108) -- the d-form drop-in for BLOCK_VALUE_TIGHT.
-   ----------------------------------------------------------------------------
-   Same conclusion as BLOCK_VALUE_TIGHT (bound_tight.ml): cong + Zf' < b*2^64, the
-   saturated value-close the DDK/C/etc blocks consume.  But instead of the recip-of-t0
-   brackets + RECIP_QBOUND (FALSE for the real w), it takes the recip-of-d interface and
-   drives RED_LEMMA_D (which yields BOTH qhat*b<=Zf and Zf<qhat*b+2^(p+2), saturation folded
-   in).  Then CONG_HALF (congruence) + BOUND_HALF_TIGHT (Zf' < b*2^64 from the upper bound).
-   Deps: WINDOW_FROM_ZF (here), RED_LEMMA_D (red_lemma_d.ml), CONG_HALF + BOUND_HALF_TIGHT
-   (ki_core.ml / bound_tight.ml).
-   ============================================================================ *)
-
-(* WINDOW_FROM_ZF now lives in recip_bridges.ml (loaded first). *)
-
-let BLOCK_VALUE_TIGHT_D = prove
- (`!a b i p d Zf Zf' w block zr h.
-    (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
-    block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
-    ~(b = 0) /\ b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
-    d < 2 EXP 64 /\
-    (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
-     ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
-    (2 EXP 64 + w) * d <= 2 EXP 128 /\
-    2 EXP 128 <= (2 EXP 64 + w + 1) * d /\
-    Zf < b * 2 EXP 64 /\
-    Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\ h < 2 EXP 64 /\
-    Zf' + 2 EXP 61 * (((2 EXP 64 + w) * h) DIV 2 EXP 64) * b = 2 EXP 61 * Zf + block
-    ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b) /\ Zf' < b * 2 EXP 64`,
-  REPEAT GEN_TAC THEN
-  DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
-  ABBREV_TAC `qhat = ((2 EXP 64 + w) * h) DIV 2 EXP 64` THEN
-  SUBGOAL_THEN `h = (Zf DIV 2 EXP p) MOD 2 EXP 64` ASSUME_TAC THENL
-   [MATCH_MP_TAC WINDOW_FROM_ZF THEN EXISTS_TAC `zr:num` THEN ASM_REWRITE_TAC[];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `qhat * b <= Zf /\ Zf < qhat * b + 2 EXP (p + 2)` STRIP_ASSUME_TAC THENL
-   [EXPAND_TAC "qhat" THEN
-    MATCH_MP_TAC RED_LEMMA_D THEN
-    MAP_EVERY EXISTS_TAC [`d:num`; `zr:num`] THEN
-    REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC;
-    ALL_TAC] THEN
-  CONJ_TAC THENL
-   [MATCH_MP_TAC CONG_HALF THEN
-    MAP_EVERY EXISTS_TAC [`Zf:num`; `qhat:num`; `block:num`] THEN
-    REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC;
-    MATCH_MP_TAC BOUND_HALF_TIGHT THEN
-    MAP_EVERY EXISTS_TAC [`Zf:num`; `qhat:num`; `block:num`; `p:num`] THEN
-    REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC]);;
-
-Printf.printf "\n=== block_value_tight_d.ml: WINDOW_FROM_ZF + BLOCK_VALUE_TIGHT_D (RED_LEMMA_D-driven) ===\n%!";;
-
-
-(* ======== inlined: ddk_value_close_d.ml ======== *)
-(* ============================================================================
-   DDK_VALUE_CLOSE_D (cont108) -- the d-form of DDK_VALUE_CLOSE (ddk_value_close.ml).
-   ----------------------------------------------------------------------------
-   Same conclusion (cong at ii + bound < b*2^64) and same VALUE_BRIDGE_DDK algebra, but the
-   recip interface is recip-of-d (d = roundup(t0)) via BLOCK_VALUE_TIGHT_D / RED_LEMMA_D instead
-   of the recip-of-t0 brackets + BLOCK_VALUE_TIGHT (which needed the false recip-of-t0 UPPER).
-   The window/normalization params t0,s0 are DROPPED (RED_LEMMA_D derives everything from d,b,p).
-   Deps: VALUE_BRIDGE_DDK (tail_ddk.ml), BLOCK_VALUE_TIGHT_D (block_value_tight_d.ml),
-         QHAT_ID (block_value.ml).
-   ============================================================================ *)
-
-let DDK_VALUE_CLOSE_D = prove
- (`!a b ii p d w h zr q hi cwin ztin zorig zpre block t10 k.
-    (2 EXP (64 * k) * ztin + zorig == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
-    block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
-    ~(b = 0) /\ b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
-    d < 2 EXP 64 /\
-    (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
-     ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
-    (2 EXP 64 + w) * d <= 2 EXP 128 /\
-    2 EXP 128 <= (2 EXP 64 + w + 1) * d /\
-    2 EXP (64 * k) * ztin + zorig < b * 2 EXP 64 /\
-    (2 EXP (64 * k) * ztin + zorig) = h * 2 EXP p + zr /\ zr < 2 EXP p /\ h < 2 EXP 64 /\
-    q = (w * h) DIV 2 EXP 64 + h /\
-    2 EXP 64 * q + t10 = ztin + hi + q * (2 EXP 64 - 1) /\
-    t10 < 8 /\
-    zpre + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
-      block + 2 EXP 61 * zorig + 2 EXP 61 * q * 2 EXP (64 * k)
-    ==> (zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8)
-           == a DIV 2 EXP (61 * ii)) (mod b) /\
-        zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) < b * 2 EXP 64`,
-  REPEAT GEN_TAC THEN
-  DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
-  (* the block-advance eqn: Zf' + 2^61*q*b = block + 2^61*Zf  (VALUE_BRIDGE_DDK, recip-free) *)
-  SUBGOAL_THEN
-   `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) + 2 EXP 61 * q * b =
-    block + 2 EXP 61 * (2 EXP (64 * k) * ztin + zorig)`
-   ASSUME_TAC THENL
-   [MP_TAC(ISPECL [`zpre:num`; `cwin:num`; `hi:num`; `q:num`; `b:num`; `zorig:num`;
-                   `block:num`; `ztin:num`; `t10:num`; `k:num`] VALUE_BRIDGE_DDK) THEN
-    ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN ASM_REWRITE_TAC[];
-    ALL_TAC] THEN
-  (* rewrite to the ((2^64+w)*h)DIV2^64 form BLOCK_VALUE_TIGHT_D wants *)
-  SUBGOAL_THEN
-   `(zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8)) +
-     2 EXP 61 * (((2 EXP 64 + w) * h) DIV 2 EXP 64) * b =
-    2 EXP 61 * (2 EXP (64 * k) * ztin + zorig) + block`
-   ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM QHAT_ID] THEN
-    FIRST_X_ASSUM(fun th -> if lhs(concl th) =
-       `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) + 2 EXP 61 * q * b`
-     then MP_TAC th else NO_TAC) THEN
-    FIRST_X_ASSUM(fun th -> if concl th = `q = (w * h) DIV 2 EXP 64 + h`
-     then SUBST1_TAC th else NO_TAC) THEN ARITH_TAC;
-    ALL_TAC] THEN
-  MP_TAC(ISPECL
-   [`a:num`; `b:num`; `ii:num`; `p:num`; `d:num`;
-    `2 EXP (64 * k) * ztin + zorig`;
-    `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8)`;
-    `w:num`; `block:num`; `zr:num`; `h:num`] BLOCK_VALUE_TIGHT_D) THEN
-  ANTS_TAC THENL [REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC]);;
-
-(* DDK_R_LT_D: the reduced-remainder bound Zf - q*b < 2^(p+2), d-form (RED_LEMMA_D upper half).
-   q = (w*h)DIV2^64+h = qhat; RED_LEMMA_D gives Zf < qhat*b + 2^(p+2) directly. *)
-let DDK_R_LT_D = prove
- (`!b p d Zf h q w zr.
-     ~(b = 0) /\ b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
-     d < 2 EXP 64 /\
-     (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
-      ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
-     (2 EXP 64 + w) * d <= 2 EXP 128 /\ 2 EXP 128 <= (2 EXP 64 + w + 1) * d /\
-     Zf < b * 2 EXP 64 /\
-     Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\ h < 2 EXP 64 /\
-     q = (w * h) DIV 2 EXP 64 + h
-     ==> Zf - q * b < 2 EXP (p + 2)`,
-  REPEAT GEN_TAC THEN
-  DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
-  SUBGOAL_THEN `h = (Zf DIV 2 EXP p) MOD 2 EXP 64` ASSUME_TAC THENL
-   [MATCH_MP_TAC WINDOW_FROM_ZF THEN EXISTS_TAC `zr:num` THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  SUBGOAL_THEN `q * b <= Zf /\ Zf < q * b + 2 EXP (p + 2)` MP_TAC THENL
-   [FIRST_X_ASSUM(fun th -> if concl th = `q = (w * h) DIV 2 EXP 64 + h`
-       then REWRITE_TAC[th] THEN REWRITE_TAC[QHAT_ID] else NO_TAC) THEN
-    MP_TAC(ISPECL [`b:num`;`p:num`;`w:num`;`d:num`;`h:num`;`zr:num`;`Zf:num`] RED_LEMMA_D) THEN
-    ANTS_TAC THENL [REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC; DISCH_THEN ACCEPT_TAC];
-    ARITH_TAC]);;
-
-Printf.printf "\n=== ddk_value_close_d.ml: DDK_VALUE_CLOSE_D + DDK_R_LT_D (RED_LEMMA_D-driven) ===\n%!";;
-
-
-(* ======== inlined: l1_value_close_d.ml ======== *)
-(* ============================================================================
-   L1_VALUE_CLOSE_D (cont108) -- d-form of L1_VALUE_CLOSE (block_l1_304_win.ml).
-   Same conclusion (cong at ii + Zfp<b*2^64 + Zfp<2^(64*2)); recip interface swapped to
-   recip-of-d (d + roundup disjunction + both d-brackets) driving BLOCK_VALUE_TIGHT_D.  The
-   t0,s window/normalization params are dropped.  q*b<=zv stays as an Option-B hyp.
-   Deps: CONG_HALF (ki_core.ml), QHAT_ID (block_value.ml), BLOCK_VALUE_TIGHT_D
-         (block_value_tight_d.ml).  L1_RELQ defined locally here (self-contained) so this file
-         loads in the bridge bank BEFORE the blocks (block_l1 consumes L1_VALUE_CLOSE_D).
-   ============================================================================ *)
-
-(* L1_RELQ (local copy; identical to block_l1's): the reduced-value relation. *)
-let L1_RELQ_D = prove
- (`!zv q b block Zfp.
-    q * b <= zv /\ Zfp = 2 EXP 61 * (zv - q * b) + block
-    ==> Zfp + 2 EXP 61 * q * b = 2 EXP 61 * zv + block`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  FIRST_X_ASSUM(fun th -> if concl th = `Zfp = 2 EXP 61 * (zv - q * b) + block`
-                          then SUBST1_TAC th else NO_TAC) THEN
-  SUBGOAL_THEN `2 EXP 61 * q * b = 2 EXP 61 * (q * b)` SUBST1_TAC THENL
-   [REWRITE_TAC[MULT_ASSOC]; ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP 61 * (zv - q * b) = 2 EXP 61 * zv - 2 EXP 61 * (q * b)` SUBST1_TAC THENL
-   [REWRITE_TAC[LEFT_SUB_DISTRIB]; ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP 61 * (q * b) <= 2 EXP 61 * zv` MP_TAC THENL
-   [ASM_REWRITE_TAC[LE_MULT_LCANCEL]; ALL_TAC] THEN
-  ARITH_TAC);;
-
-let L1_VALUE_CLOSE_D = prove
- (`!a b ii p w d hwin zv q block Zfp zr k.
-    (zv == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
-    block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
-    ~(b = 0) /\ b < 2 EXP p /\ zv < 2 EXP 64 /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
-    d < 2 EXP 64 /\
-    (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
-     ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
-    hwin < 2 EXP 64 /\
-    zv = hwin * 2 EXP p + zr /\ zr < 2 EXP p /\
-    (2 EXP 64 + w) * d <= 2 EXP 128 /\ 2 EXP 128 <= (2 EXP 64 + w + 1) * d /\
-    q = (w * hwin) DIV 2 EXP 64 + hwin /\ q * b <= zv /\
-    Zfp = 2 EXP 61 * (zv - q * b) + block
-    ==> (2 EXP (64 * k) * 0 + Zfp == a DIV 2 EXP (61 * ii)) (mod b) /\
-        2 EXP (64 * k) * 0 + Zfp < b * 2 EXP 64 /\
-        2 EXP (64 * k) * 0 + Zfp < 2 EXP (64 * 2)`,
-  REPEAT GEN_TAC THEN DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
-  REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES] THEN
-  SUBGOAL_THEN `Zfp + 2 EXP 61 * q * b = 2 EXP 61 * zv + block` ASSUME_TAC THENL
-   [MATCH_MP_TAC L1_RELQ_D THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  SUBGOAL_THEN
-   `Zfp + 2 EXP 61 * ((2 EXP 64 + w) * hwin) DIV 2 EXP 64 * b = 2 EXP 61 * zv + block`
-   ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM QHAT_ID] THEN
-    FIRST_X_ASSUM(fun th -> if concl th = `q = (w * hwin) DIV 2 EXP 64 + hwin`
-                            then SUBST1_TAC(SYM th) else NO_TAC) THEN
-    FIRST_X_ASSUM ACCEPT_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `(Zfp == a DIV 2 EXP (61 * ii)) (mod b)` ASSUME_TAC THENL
-   [MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `zv:num`; `Zfp:num`; `q:num`; `block:num`]
-                  CONG_HALF) THEN
-    ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_THEN ACCEPT_TAC]; ALL_TAC] THEN
-  SUBGOAL_THEN `zv < b * 2 EXP 64` ASSUME_TAC THENL
-   [TRANS_TAC LTE_TRANS `2 EXP 64` THEN ASM_REWRITE_TAC[] THEN
-    GEN_REWRITE_TAC LAND_CONV [ARITH_RULE `2 EXP 64 = 1 * 2 EXP 64`] THEN
-    REWRITE_TAC[LE_MULT_RCANCEL] THEN DISJ1_TAC THEN
-    UNDISCH_TAC `~(b = 0)` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `Zfp < b * 2 EXP 64` ASSUME_TAC THENL
-   [MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `p:num`; `d:num`; `zv:num`; `Zfp:num`;
-                   `w:num`; `block:num`; `zr:num`; `hwin:num`]
-                  BLOCK_VALUE_TIGHT_D) THEN
-    ANTS_TAC THENL
-     [REPEAT CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC; DISCH_THEN(ACCEPT_TAC o CONJUNCT2)];
-    ALL_TAC] THEN
-  REWRITE_TAC[ARITH_RULE `64 * 2 = 128`] THEN REPEAT CONJ_TAC THENL
-   [FIRST_ASSUM ACCEPT_TAC;
-    FIRST_ASSUM ACCEPT_TAC;
-    FIRST_X_ASSUM(fun th -> if concl th = `Zfp = 2 EXP 61 * (zv - q * b) + block`
-                            then SUBST1_TAC th else NO_TAC) THEN
-    TRANS_TAC LET_TRANS `2 EXP 61 * zv + block` THEN CONJ_TAC THENL
-     [MATCH_MP_TAC(ARITH_RULE `a <= b ==> 2 EXP 61 * a + c <= 2 EXP 61 * b + c`) THEN ARITH_TAC;
-      MAP_EVERY UNDISCH_TAC [`zv < 2 EXP 64`; `block < 2 EXP 61`] THEN ARITH_TAC]]);;
-
-Printf.printf "\n=== l1_value_close_d.ml: L1_VALUE_CLOSE_D (RED_LEMMA_D-driven l=1 value close) ===\n%!";;
-
-
-(* ======== inlined: ddk_value_close.ml ======== *)
-(* Stage 3f: DDK_VALUE_CLOSE -- the ARITHMETIC value close for the saturated DDK regime.
-   Composes the two proven halves:
-     VALUE_BRIDGE_DDK : the DDK tail's block-advance eqn (from the X23'/z stores, with the
-       funnel top t10=ztin+hi-q<8) rewrites to  Zf' + 2^61*q*b = 2^61*Zf + block,
-       where Zf' = zpre + 2^(64k)*(2^61*t10 + cwin DIV 8) is the NEW full accumulator
-       (2^(64k)*X23' + bignum(z,k)), Zf = 2^(64k)*ztin + zorig the OLD one.
-     BLOCK_VALUE : from that block-advance eqn + recip bracket K + normalization + window
-       decomposition Zf=h*2^p+zr, delivers (cong at ii) + (bound Zf'<2^(p+64)).
-   Bridge between the two qhat forms: QHAT_ID (unconditional (w*h)DIV2^64+h = ((2^64+w)*h)DIV2^64).
-   The machine qhat q = (w*h)DIV2^64+h is the register X15 value (q<2^64 threaded elsewhere so
-   the register MOD is identity); BLOCK_VALUE internally uses the ((2^64+w)*h)DIV2^64 form.
-   HYP t10<8 is load-bearing (input to VALUE_BRIDGE_DDK; certifies the >>3 funnel lossless);
-   discharged at block-assembly time (KI derivation or oracle interim).
-   Deps: VALUE_BRIDGE_DDK (tail_ddk.ml), BLOCK_VALUE (ki_core.ml), QHAT_ID (block_value.ml). *)
-
-let DDK_VALUE_CLOSE = prove
- (`!a b ii p t0 s0 w h zr q hi cwin ztin zorig zpre block t10 k.
-    (2 EXP (64 * k) * ztin + zorig == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
-    block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
-    b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\ t0 < 2 EXP 64 /\ 0 < t0 /\ h < 2 EXP 64 /\
-    b * 2 EXP 64 = t0 * 2 EXP p + s0 /\
-    (2 EXP (64 * k) * ztin + zorig) = h * 2 EXP p + zr /\ zr < 2 EXP p /\
-    &2 pow 128 <= (&2 pow 64 + &w + &1) * &t0 /\ (&2 pow 64 + &w) * &t0 <= &2 pow 128 /\
-    q = (w * h) DIV 2 EXP 64 + h /\
-    2 EXP 64 * q + t10 = ztin + hi + q * (2 EXP 64 - 1) /\
-    t10 < 8 /\
-    zpre + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
-      block + 2 EXP 61 * zorig + 2 EXP 61 * q * 2 EXP (64 * k)
-    ==> (zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8)
-           == a DIV 2 EXP (61 * ii)) (mod b) /\
-        zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) < b * 2 EXP 64`,
-  REPEAT STRIP_TAC THENL
-   [SUBGOAL_THEN
-     `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) + 2 EXP 61 * q * b =
-      block + 2 EXP 61 * (2 EXP (64 * k) * ztin + zorig)`
-     ASSUME_TAC THENL
-     [MP_TAC(ISPECL [`zpre:num`; `cwin:num`; `hi:num`; `q:num`; `b:num`; `zorig:num`;
-                     `block:num`; `ztin:num`; `t10:num`; `k:num`] VALUE_BRIDGE_DDK) THEN
-      ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN ASM_REWRITE_TAC[];
-      ALL_TAC] THEN
-    SUBGOAL_THEN
-     `(zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8)) +
-       2 EXP 61 * ((2 EXP 64 + w) * h) DIV 2 EXP 64 * b =
-      2 EXP 61 * (2 EXP (64 * k) * ztin + zorig) + block`
-     ASSUME_TAC THENL
-     [REWRITE_TAC[GSYM QHAT_ID] THEN
-      FIRST_X_ASSUM(fun th -> if lhs(concl th) =
-         `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) + 2 EXP 61 * q * b`
-       then MP_TAC th else NO_TAC) THEN
-      FIRST_X_ASSUM(fun th -> if concl th = `q = (w * h) DIV 2 EXP 64 + h`
-       then SUBST1_TAC th else NO_TAC) THEN ARITH_TAC;
-      ALL_TAC] THEN
-    MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `p:num`; `t0:num`;
-                   `2 EXP (64 * k) * ztin + zorig`;
-                   `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8)`;
-                   `w:num`; `block:num`; `s0:num`; `zr:num`; `h:num`; `0`] BLOCK_VALUE_TIGHT) THEN
-    ASM_REWRITE_TAC[ARITH_RULE `0 < 2 EXP 64`] THEN DISCH_THEN(fun th -> REWRITE_TAC[th]);
-    SUBGOAL_THEN
-     `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) + 2 EXP 61 * q * b =
-      block + 2 EXP 61 * (2 EXP (64 * k) * ztin + zorig)`
-     ASSUME_TAC THENL
-     [MP_TAC(ISPECL [`zpre:num`; `cwin:num`; `hi:num`; `q:num`; `b:num`; `zorig:num`;
-                     `block:num`; `ztin:num`; `t10:num`; `k:num`] VALUE_BRIDGE_DDK) THEN
-      ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN ASM_REWRITE_TAC[];
-      ALL_TAC] THEN
-    SUBGOAL_THEN
-     `(zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8)) +
-       2 EXP 61 * ((2 EXP 64 + w) * h) DIV 2 EXP 64 * b =
-      2 EXP 61 * (2 EXP (64 * k) * ztin + zorig) + block`
-     ASSUME_TAC THENL
-     [REWRITE_TAC[GSYM QHAT_ID] THEN
-      FIRST_X_ASSUM(fun th -> if lhs(concl th) =
-         `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) + 2 EXP 61 * q * b`
-       then MP_TAC th else NO_TAC) THEN
-      FIRST_X_ASSUM(fun th -> if concl th = `q = (w * h) DIV 2 EXP 64 + h`
-       then SUBST1_TAC th else NO_TAC) THEN ARITH_TAC;
-      ALL_TAC] THEN
-    MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `p:num`; `t0:num`;
-                   `2 EXP (64 * k) * ztin + zorig`;
-                   `zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8)`;
-                   `w:num`; `block:num`; `s0:num`; `zr:num`; `h:num`; `0`] BLOCK_VALUE_TIGHT) THEN
-    ASM_REWRITE_TAC[ARITH_RULE `0 < 2 EXP 64`] THEN DISCH_THEN(fun th -> REWRITE_TAC[th])]);;
-
-(* DDK_TOP_FUNNEL: the seg-B->seg-C bridge for the saturated top word.  The DDK tail leaves
-   X23' = word_subword(word_join(word T)(word cwin))(3,64) with T = ztin+hi+q*(2^64-1); given
-   the funnel-top relation 2^64*q+t10 = T and t10<8 (lossless >>3), this equals
-   word(2^61*t10 + cwin DIV 8) -- i.e. Ztp := 2^61*t10 + cwin DIV8 is the register X23' value.
-   (word T = word t10 since T mod 2^64 = t10; then TAIL_EXTR_VAL.)  cwin<2^64 from val bound. *)
-let DDK_TOP_FUNNEL = prove
- (`!q t10 cwin ztin hi.
-    2 EXP 64 * q + t10 = ztin + hi + q * (2 EXP 64 - 1) /\ t10 < 8 /\ cwin < 2 EXP 64
-    ==> word_subword (word_join (word (ztin + hi + q * (2 EXP 64 - 1)):int64)
-                                (word cwin :int64) :int128) (3,64)
-        = word (2 EXP 61 * t10 + cwin DIV 8):int64`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `word (ztin + hi + q * (2 EXP 64 - 1)):int64 = word t10` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM VAL_EQ] THEN REWRITE_TAC[VAL_WORD; DIMINDEX_64] THEN
-    FIRST_X_ASSUM(fun th -> if lhs(concl th) = `2 EXP 64 * q + t10` then MP_TAC th else NO_TAC) THEN
-    DISCH_THEN(SUBST1_TAC o SYM) THEN
-    REWRITE_TAC[MOD_MULT_ADD] THEN AP_THM_TAC THEN AP_TERM_TAC THEN
-    CONV_TAC MOD_DOWN_CONV THEN REFL_TAC;
-    ALL_TAC] THEN
-  MP_TAC(ISPECL [`t10:num`; `cwin:num`] TAIL_EXTR_VAL) THEN ASM_REWRITE_TAC[] THEN
-  DISCH_THEN(fun th -> GEN_REWRITE_TAC (RAND_CONV o RAND_CONV) [SYM th]) THEN
-  REWRITE_TAC[WORD_VAL]);;
-
-
-(* DDK_SEGB_VALUE: the seg-B value bridge -- from the k-word block-advance eqn (BA) + the top-word
-   NO-BORROW (q<=Ztin+hi, (Ztin+hi)-q<2^64) + t10<8 + K bracket + window decomp, deliver cong +
-   TIGHT bound for the new saturated full accumulator V = zpre + 2^(64k)*(2^61*t10 + cwin DIV8),
-   t10 = (Ztin+hi)-q.  Composes TAIL_CARRY_EQ_Q (t10_bound.ml: 2^64*q+t10 = ss) + DDK_VALUE_CLOSE.
-   The NO-BORROW hyps (q<=Ztin+hi, (Ztin+hi)-q<2^64) are threaded (discharge from RECIP lower bound
-   q*b<=Zf at block-assembly / wrap); t10<8 threaded (discharge via T10_LT_8_BRIDGE from KI).
-   *** PARSE: (Ztin+hi)-q with EXPLICIT parens ( - binds tighter than +). *** *)
-let DDK_SEGB_VALUE = prove
- (`!a b ii p t0 s0 w h Ztin zpre q hi cwin k zr.
-    (2 EXP (64 * k) * Ztin + zpre == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
-    (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 < 2 EXP 61 /\
-    b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\ t0 < 2 EXP 64 /\ 0 < t0 /\ h < 2 EXP 64 /\
-    b * 2 EXP 64 = t0 * 2 EXP p + s0 /\
-    (2 EXP (64 * k) * Ztin + zpre) = h * 2 EXP p + zr /\ zr < 2 EXP p /\
-    &2 pow 128 <= (&2 pow 64 + &w + &1) * &t0 /\ (&2 pow 64 + &w) * &t0 <= &2 pow 128 /\
-    q = (w * h) DIV 2 EXP 64 + h /\
-    q <= Ztin + hi /\ (Ztin + hi) - q < 2 EXP 64 /\ (Ztin + hi) - q < 8 /\
-    zpre + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
-      (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 + 2 EXP 61 * zpre + 2 EXP 61 * q * 2 EXP (64 * k)
-    ==> (zpre + 2 EXP (64 * k) * (2 EXP 61 * ((Ztin + hi) - q) + cwin DIV 8)
-           == a DIV 2 EXP (61 * ii)) (mod b) /\
-        zpre + 2 EXP (64 * k) * (2 EXP 61 * ((Ztin + hi) - q) + cwin DIV 8) < b * 2 EXP 64`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  MP_TAC(ISPECL [`Ztin:num`; `hi:num`; `q:num`] TAIL_CARRY_EQ_Q) THEN
-  ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
-  SUBGOAL_THEN `2 EXP 64 * q + ((Ztin + hi) - q) = Ztin + hi + q * (2 EXP 64 - 1)` ASSUME_TAC THENL
-   [MP_TAC(SPECL [`Ztin + hi + q * (2 EXP 64 - 1)`; `2 EXP 64`] DIVISION) THEN
-    REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ASM_REWRITE_TAC[] THEN ARITH_TAC;
-    ALL_TAC] THEN
-  MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `p:num`; `t0:num`; `s0:num`; `w:num`; `h:num`;
-                 `zr:num`; `q:num`; `hi:num`; `cwin:num`; `Ztin:num`; `zpre:num`; `zpre:num`;
-                 `(a DIV 2 EXP (61 * ii)) MOD 2 EXP 61`; `(Ztin + hi) - q`; `k:num`]
-                DDK_VALUE_CLOSE) THEN
-  ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN ASM_REWRITE_TAC[]);;
-
-(* DDK_R_LT: the reduced-remainder upper bound R = Zf - q*b < 2^(p+2), packaged as a STANDALONE
-   lemma (clean context) so the DDK block's seg-B post-impl gets R<2^(p+2) via a single MP_TAC
-   without a REAL_ARITH blowup on the ~80-hyp block context.  Mirrors BLOCK_VALUE_TIGHT's KI
-   application (bound_tight.ml): KI_CORE fed the window-upper 2^64*h < q*t0+(2^64+2*t0) which comes
-   from RECIP_QBOUND (l:=0) + QHAT_ID.  q = (w*h)DIV2^64+h = the register qhat; needs q*b<=Zf (R>=0,
-   the loop-carried no-borrow value hyp) to turn the truncated Zf-q*b into genuine subtraction.
-   *** LESSON (cont23w): REAL_ARITH_TAC inside the full block goal (80 hyps) STACK-OVERFLOWS; prove
-   RECIP_QBOUND->KI steps in a SMALL standalone context and MP_TAC into the block. *** *)
-let DDK_R_LT = prove
- (`!b p t0 Zf h q w s zr.
-     b < 2 EXP p /\ t0 < 2 EXP 64 /\ 0 < t0 /\ h < 2 EXP 64 /\
-     b * 2 EXP 64 = t0 * 2 EXP p + s /\
-     Zf = h * 2 EXP p + zr /\ zr < 2 EXP p /\
-     &2 pow 128 <= (&2 pow 64 + &w + &1) * &t0 /\ (&2 pow 64 + &w) * &t0 <= &2 pow 128 /\
-     q = (w * h) DIV 2 EXP 64 + h /\ q * b <= Zf
-     ==> Zf - q * b < 2 EXP (p + 2)`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  MATCH_MP_TAC(ARITH_RULE `q * b <= Zf /\ Zf < q * b + 2 EXP (p+2) ==> Zf - q * b < 2 EXP (p+2)`) THEN
-  ASM_REWRITE_TAC[] THEN
-  MP_TAC(SPECL [`b:num`; `p:num`; `t0:num`; `Zf:num`; `h:num`; `q:num`; `s:num`; `zr:num`] KI_CORE) THEN
-  ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN
-  FIRST_ASSUM(fun th -> if concl th = `q = (w * h) DIV 2 EXP 64 + h` then REWRITE_TAC[th] else NO_TAC) THEN
-  MP_TAC(SPECL [`w:num`; `t0:num`; `h:num`; `0`] RECIP_QBOUND) THEN
-  ASM_REWRITE_TAC[LT_0] THEN
-  REWRITE_TAC[GSYM QHAT_ID] THEN
-  REWRITE_TAC[GSYM REAL_OF_NUM_CLAUSES] THEN REAL_ARITH_TAC);;
-
-Printf.printf "\n=== DDK_VALUE_CLOSE + DDK_TOP_FUNNEL + DDK_R_LT proved ===\n%!";;
-
-
-(* ======== inlined: tail_ddlt.ml ======== *)
-(* Stage 3f dd<k TAIL (growing regime), pc+0x23c -> pc+0x2e8 (jargh, 2026-07-26).
-   The tail in the GROWING regime processes TWO words: word dd (trivnegadd-like, into
-   z[dd]) AND the newly-live word dd+1.  Two sub-regimes by (dd+1 = k):
-     B: dd+1 < k  -> newly-live word stored to z[dd+1]      (this file, _B_)
-     C: dd+1 = k  -> newly-live word is the TOP -> X23 (zt)  (_C_, TODO)
-   Regime selected by the noel BNE @0x2bc (cmp x8,x0 with x8=dd+1).
-   The GROW itself (vs saturate) is the noel BEQ @0x2b0: x8=dd+1 vs X19=l'=MIN(k+1,
-   (jj+124)DIV64).  In the growing regime l'=dd+2, so dd+1 != dd+2 -> BEQ not taken.
-
-   The l-recurrence (jj+124)DIV64 = dd+2 is a CALLER-SUPPLIED hyp (from the PDOWN
-   invariant's X19=MIN(k+1,(jj+63)DIV64) clause + jj-grows-by-61; caplrec.py 27/27),
-   exactly as dd+1=(jj+63)DIV64 was in TAIL_DDK.  Here we take it directly as the hyp
-   `(jj + 124) DIV 64 = dd + 2` (already the resolved growing form).
-
-   SIM step structure (36 ARM_STEPS, 4 branch resolutions), VERIFIED end-to-end:
-     - up-front: dd<k; val(word{k,dd,dd+1,dd+2,k+1}); m[dd]/z[dd] reads; ~(word_sub dd k=0).
-     - steps 1--8 to 0x258; RULE_ASSUM ~(dd-k=0); steps 9--21 to 0x2a4.
-     - word_ushr(jj+124)6 = word((jj+124)DIV64) = word(dd+2); RULE_ASSUM; steps 22--23.
-     - X19 MIN resolves to word(dd+2) via ~(k+1<dd+2); ~(word_sub (dd+1)(dd+2)=0);
-       step 24 (BEQ@0x2b0 not taken, ZF false).
-     - ~(word_sub (dd+1) k=0); steps 25--27 to noel BNE@0x2bc (dd+1<>k -> z[dd+1]);
-       RULE_ASSUM; steps 28--36 to 0x2e8; final X8 = word(dd+1)+1 = word(dd+2) [WORD_RULE].
-   z[dd] gets word_subword(word_join(word X10)(word cwin))(3,64) (extr #3), X10 =
-   bigdigit zpre dd + hi + q*~m[dd]; z[dd+1] gets word_ushr(word X10)3 (the top shift).
-   These are the VALUE outputs (enrich next).  X23 (zt) UNCHANGED (top not reached). *)
 
 let TAIL_DDLT_B = prove
  (`!k q hi cwin ztin b zpre m z pc jj pcode dd.
@@ -7509,241 +7835,6 @@ let TAIL_DDLT_B = prove
    bigdigit zpre dd + hi + q*~m[dd]); z UNCHANGED at index dd+1 (goes to zt).
    BEQ@0x2b0 (grow, not taken): resolve ~(word_sub(dd+1)(dd+2)=0) via the val facts
    directly (NOT ASM_REWRITE -- with dd+1=k present, ASM turns dd+1->k and tangles). *)
-let TAIL_DDLT_C = prove
- (`!k q hi cwin ztin b zpre m z pc jj pcode dd.
-     ~(k = 0) /\ k < 2 EXP 58 /\ b < 2 EXP (64 * k) /\ q < 2 EXP 64 /\
-     jj + 124 < 2 EXP 64 /\ pcode < 2 EXP 64 /\
-     dd + 1 = k /\ (jj + 124) DIV 64 = dd + 2 /\
-     nonoverlapping (word pc,0x438) (z,8 * k) /\
-     nonoverlapping (word pc,0x438) (m,8 * k) /\ nonoverlapping (z,8 * k) (m,8 * k)
-     ==> ensures arm
-      (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-           read PC s = word (pc + 0x23c) /\
-           read X0 s = word k /\ read X8 s = word dd /\ read X11 s = word dd /\
-           read X1 s = z /\ read X4 s = m /\ read X12 s = word pcode /\
-           read X5 s = word hi /\ read X22 s = word cwin /\ read X23 s = word ztin /\
-           read X15 s = word q /\ read X17 s = word jj /\ read X19 s = word (dd + 1) /\
-           bignum_from_memory (m,k) s = b /\ bignum_from_memory (z,k) s = zpre)
-      (\s. read PC s = word (pc + 0x2e8) /\ read X8 s = word (dd + 2) /\
-           read X23 s =
-             word_ushr (word (bigdigit zpre dd + hi +
-               q * (2 EXP 64 - 1 - bigdigit b dd)):int64) 3 /\
-           read (memory :> bytes64 (word_add z (word (8 * dd)))) s =
-             word_subword (word_join (word (bigdigit zpre dd + hi +
-               q * (2 EXP 64 - 1 - bigdigit b dd)):int64) (word cwin:int64):int128) (3,64))
-      (MAYCHANGE [PC; X5; X6; X7; X8; X9; X10; X13; X14; X15; X17; X19; X22; X23] ,,
-       MAYCHANGE [memory :> bignum(z,k)] ,, MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[SOME_FLAGS] THEN
-  SUBGOAL_THEN `dd:num < k` ASSUME_TAC THENL
-   [UNDISCH_TAC `dd + 1 = k` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `val(word k:int64) = k /\ val(word dd:int64) = dd /\
-                val(word (dd+1):int64) = dd + 1 /\ val(word (dd+2):int64) = dd + 2 /\
-                val(word_add (word k) (word 1):int64) = k + 1`
-    STRIP_ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN REPEAT CONJ_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN
-    REWRITE_TAC[DIMINDEX_64] THEN
-    UNDISCH_TAC `dd + 1 = k` THEN UNDISCH_TAC `k < 2 EXP 58` THEN ARITH_TAC; ALL_TAC] THEN
-  ENSURES_INIT_TAC "s0" THEN
-  SUBGOAL_THEN `read (memory :> bytes64 (word_add m (word (8 * dd)))) s0 = word (bigdigit b dd)`
-    ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM(ASSUME `bignum_from_memory (m,k) s0 = b`)] THEN
-    ASM_SIMP_TAC[BIGDIGIT_BIGNUM_FROM_MEMORY; WORD_VAL]; ALL_TAC] THEN
-  SUBGOAL_THEN `read (memory :> bytes64 (word_add z (word (8 * dd)))) s0 = word (bigdigit zpre dd)`
-    ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM(ASSUME `bignum_from_memory (z,k) s0 = zpre`)] THEN
-    ASM_SIMP_TAC[BIGDIGIT_BIGNUM_FROM_MEMORY; WORD_VAL]; ALL_TAC] THEN
-  SUBGOAL_THEN `~(val(word_sub (word dd) (word k):int64) = 0)` ASSUME_TAC THENL
-   [REWRITE_TAC[VAL_EQ_0; WORD_SUB_EQ_0] THEN
-    DISCH_THEN(MP_TAC o AP_TERM `val:int64->num`) THEN ASM_REWRITE_TAC[] THEN
-    UNDISCH_TAC `dd < k` THEN ARITH_TAC; ALL_TAC] THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (1--8) THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `~(val(word_sub (word dd) (word k):int64) = 0)`]) THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (9--21) THEN
-  SUBGOAL_THEN `word_ushr (word_add (word jj) (word 124):int64) 6 = word((jj + 124) DIV 64)`
-    ASSUME_TAC THENL
-   [REWRITE_TAC[word_ushr; GSYM WORD_ADD] THEN AP_TERM_TAC THEN
-    SUBGOAL_THEN `val(word(jj + 124):int64) = jj + 124` SUBST1_TAC THENL
-     [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
-      UNDISCH_TAC `jj + 124 < 2 EXP 64` THEN ARITH_TAC; REWRITE_TAC[ARITH_RULE `2 EXP 6 = 64`]]; ALL_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `word_ushr (word_add (word jj) (word 124):int64) 6 =
-                     word((jj + 124) DIV 64)`; ASSUME `(jj + 124) DIV 64 = dd + 2`]) THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (22--23) THEN
-  SUBGOAL_THEN `~(k + 1 < dd + 2)` ASSUME_TAC THENL
-   [UNDISCH_TAC `dd + 1 = k` THEN ARITH_TAC; ALL_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val(word_add (word k) (word 1):int64) = k + 1`;
-                     ASSUME `~(k + 1 < dd + 2)`]) THEN
-  SUBGOAL_THEN `~(val(word_sub (word (dd+1)) (word (dd + 2)):int64) = 0)` ASSUME_TAC THENL
-   [REWRITE_TAC[VAL_EQ_0; WORD_SUB_EQ_0] THEN
-    DISCH_THEN(MP_TAC o AP_TERM `val:int64->num`) THEN
-    REWRITE_TAC[ASSUME `val(word (dd+1):int64) = dd + 1`;
-               ASSUME `val(word (dd+2):int64) = dd + 2`] THEN ARITH_TAC; ALL_TAC] THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (24--24) THEN
-  SUBGOAL_THEN `val(word_sub (word (dd+1)) (word k):int64) = 0` ASSUME_TAC THENL
-   [REWRITE_TAC[VAL_EQ_0; WORD_SUB_EQ_0] THEN AP_TERM_TAC THEN
-    UNDISCH_TAC `dd + 1 = k` THEN DISCH_THEN SUBST1_TAC THEN REFL_TAC; ALL_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[GSYM WORD_ADD]) THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (25--27) THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val(word_sub (word (dd+1)) (word k):int64) = 0`]) THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (28--37) THEN
-  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-  (* value close (like B): bridge word((a+hi)+0+val q*val nm) = word(a+hi+q*(2^64-1-bi))
-     for X23' and z[dd]; X8 = word(k+1) = word(dd+2) via dd+1=k. *)
-  SUBGOAL_THEN
-   `(bigdigit zpre dd + hi) + 0 + val(word q:int64) * val(word_not (word (bigdigit b dd)):int64) =
-    bigdigit zpre dd + hi + q * (2 EXP 64 - 1 - bigdigit b dd)`
-   (fun th -> REWRITE_TAC[th]) THENL
-   [SUBGOAL_THEN `val(word q:int64) = q /\
-                  val(word_not (word (bigdigit b dd)):int64) = 2 EXP 64 - 1 - bigdigit b dd`
-      (fun th -> REWRITE_TAC[th]) THENL
-     [CONJ_TAC THENL
-       [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_REWRITE_TAC[];
-        REWRITE_TAC[VAL_WORD_NOT; DIMINDEX_64] THEN
-        SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; BIGDIGIT_BOUND]];
-      ARITH_TAC];
-    UNDISCH_TAC `dd + 1 = k` THEN DISCH_THEN(SUBST1_TAC o SYM) THEN CONV_TAC WORD_RULE]);;
-
-
-
-(* ======== inlined: tail_log.ml ======== *)
-(* Stage 3f TAIL logging finalization (jargh, 2026-07-26).  PROVEN cheat-free.
-   The dd<k tail's raw X13/X14 conditional forms at 0x2e8 (captured from the sim):
-     X14(hf) = if dd+1=pcode then zdd1 else if dd=pcode then zdd else hfin
-     X13(lf) = if dd+2=pcode then zdd1
-               else if pcode<=dd+2 then (if dd+1<pcode then zdd1
-                                         else if dd<pcode then zdd else lfin)
-               else word 0
-   where zdd=bigdigit Zf' dd = z[dd], zdd1=bigdigit Zf'(dd+1) = z[dd+1] (regime B) /
-   the top word X23' (regime C), Zf' = the block result.  These lemmas reduce those to
-   the two window digits (pcode-1, pcode) that FIELDSEL + WINDOW_FROM_LOGGED consume:
-     X13 = word(bigdigit Zf'(pcode-1)),  X14 = word(bigdigit Zf' pcode).
-   Incoming logging (from INNERLOOP_LOG @ i=dd): lfin=bigdigit Zf'(pcode-1) when pcode<=dd
-   (digits <dd unchanged inner->Zf'); hfin=bigdigit Zf' pcode when pcode<dd, else 0.
-   The `!j. dd+1<j ==> bigdigit Zf' j = 0` hyp (Zf' has no content above dd+1) comes from
-   the block bound Zfull < 2^(p+64) at assembly time.  All csel csels reduce
-   val(word_sub(word i)(word pcode))=0 <=> i=pcode already (done in the tail sim). *)
-
-let TAIL_HF_FINALIZE = prove
- (`!Zf' dd pcode zdd zdd1 hfin.
-     zdd = bigdigit Zf' dd /\ zdd1 = bigdigit Zf' (dd + 1) /\
-     (pcode < dd ==> hfin = bigdigit Zf' pcode) /\
-     (~(pcode < dd) ==> hfin = 0) /\
-     (!j. dd + 1 < j ==> bigdigit Zf' j = 0)
-     ==> (if dd + 1 = pcode then word zdd1:int64
-          else if dd = pcode then word zdd else word hfin) = word (bigdigit Zf' pcode)`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  ASM_CASES_TAC `dd + 1 = pcode` THENL
-   [ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN
-    ASM_ARITH_TAC;
-    ASM_REWRITE_TAC[] THEN
-    ASM_CASES_TAC `dd:num = pcode` THENL
-     [ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN ASM_REWRITE_TAC[];
-      ASM_REWRITE_TAC[] THEN
-      ASM_CASES_TAC `pcode:num < dd` THENL
-       [AP_TERM_TAC THEN FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_REWRITE_TAC[];
-        SUBGOAL_THEN `hfin = 0` SUBST1_TAC THENL
-         [FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-        AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
-        FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]]]);;
-
-let TAIL_LF_FINALIZE = prove
- (`!Zf' dd pcode zdd zdd1 lfin.
-     1 <= pcode /\
-     zdd = bigdigit Zf' dd /\ zdd1 = bigdigit Zf' (dd + 1) /\
-     (pcode <= dd ==> lfin = bigdigit Zf' (pcode - 1)) /\
-     (!j. dd + 1 < j ==> bigdigit Zf' j = 0)
-     ==> (if dd + 2 = pcode then word zdd1:int64
-          else if pcode <= dd + 2
-               then (if dd + 1 < pcode then word zdd1
-                     else if dd < pcode then word zdd else word lfin)
-               else word 0) = word (bigdigit Zf' (pcode - 1))`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  ASM_CASES_TAC `dd + 2 = pcode` THENL
-   [ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN
-    ASM_ARITH_TAC;
-    ASM_REWRITE_TAC[] THEN
-    ASM_CASES_TAC `pcode <= dd + 2` THENL
-     [ASM_REWRITE_TAC[] THEN
-      ASM_CASES_TAC `dd + 1 < pcode` THENL
-       [ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN
-        ASM_ARITH_TAC;
-        ASM_REWRITE_TAC[] THEN
-        ASM_CASES_TAC `dd:num < pcode` THENL
-         [ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN
-          ASM_ARITH_TAC;
-          ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN FIRST_X_ASSUM MATCH_MP_TAC THEN
-          ASM_ARITH_TAC]];
-      ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
-      FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]]);;
-
-
-(* ======== inlined: lrec_arith.ml ======== *)
-(* Stage 3f body-assembly arith glue (sub-task (b), 2026-07-27).  The l-recurrence:
-   at a growing loop head the incoming l = MIN(k+1)((jj+63)DIV64) = (jj+63)DIV64 (unclamped
-   when l<=k), dd = l-1 = (jj+63)DIV64 - 1.  The tail computes the NEW l' = MIN(k+1)(
-   (jj+124)DIV64) [X17 gets jj+61, then +63, >>6].  (jj+124)DIV64 is either (jj+63)DIV64
-   (FLAT, l unchanged) or (jj+63)DIV64 + 1 (GROW), i.e. dd+1 or dd+2.  LREC_STEP gives this
-   dichotomy so the body can ASM_CASES grow-vs-flat and supply the matching tail lemma's
-   `(jj+124)DIV64 = dd+2` (B/C/DDK) or `= dd+1` (FLAT) hypothesis. *)
-
-let DIV_ADD_SMALL = prove
- (`!a d. d < 64 ==> (a + d) DIV 64 = a DIV 64 \/ (a + d) DIV 64 = a DIV 64 + 1`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(SPECL [`a:num`; `64`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
-  ABBREV_TAC `q = a DIV 64` THEN ABBREV_TAC `r = a MOD 64` THEN STRIP_TAC THEN
-  ASM_CASES_TAC `r + d < 64` THENL
-   [DISJ1_TAC THEN SUBST1_TAC(ASSUME `a = q * 64 + r`) THEN
-    SUBGOAL_THEN `(q * 64 + r) + d = 64 * q + (r + d)` SUBST1_TAC THENL
-     [ARITH_TAC; ALL_TAC] THEN
-    ASM_SIMP_TAC[DIV_MULT_ADD; ARITH_EQ] THEN ASM_SIMP_TAC[DIV_LT] THEN ARITH_TAC;
-    DISJ2_TAC THEN SUBST1_TAC(ASSUME `a = q * 64 + r`) THEN
-    ABBREV_TAC `e = (r + d) - 64` THEN
-    SUBGOAL_THEN `(q * 64 + r) + d = 64 * (q + 1) + e` SUBST1_TAC THENL
-     [EXPAND_TAC "e" THEN UNDISCH_TAC `~(r + d < 64)` THEN UNDISCH_TAC `r < 64` THEN ARITH_TAC; ALL_TAC] THEN
-    ASM_SIMP_TAC[DIV_MULT_ADD; ARITH_EQ] THEN
-    SUBGOAL_THEN `e DIV 64 = 0` SUBST1_TAC THENL
-     [MATCH_MP_TAC DIV_LT THEN EXPAND_TAC "e" THEN
-      UNDISCH_TAC `r < 64` THEN UNDISCH_TAC `d < 64` THEN ARITH_TAC; ARITH_TAC]]);;
-
-let LREC_STEP = prove
- (`!jj. (jj + 124) DIV 64 = (jj + 63) DIV 64 \/
-        (jj + 124) DIV 64 = (jj + 63) DIV 64 + 1`,
-  GEN_TAC THEN
-  MP_TAC(SPECL [`jj + 63`; `61`] DIV_ADD_SMALL) THEN
-  REWRITE_TAC[ARITH_RULE `(jj + 63) + 61 = jj + 124`] THEN
-  DISCH_THEN MATCH_MP_TAC THEN ARITH_TAC);;
-
-
-(* ======== inlined: mainloop_body.ml ======== *)
-(* Stage 3f MAIN-LOOP BODY assembly (jargh, 2026-07-26).  WORK IN PROGRESS.
-   Fills the BODY subgoal of BIGNUM_MOD_MAINLOOP (inv(i+1)@pc+0x1a4 -> inv(i)@pc+0x304).
-   Structure: ENSURES_SEQUENCE the six segments, threading the block's full register
-   state + memory + the invariant value/cong/bound, with a 3-way tail regime split.
-
-   Segment PC boundaries (all sub-lemmas PROVEN, co-load clean):
-     0x1a4 -> 0x1d4  BLOCKLOAD   (val(X22) MOD 2^61 = block; block = (Zin DIV 2^(61i)) MOD 2^61)
-     0x1d4 -> 0x1f4  QSETUP      (X15=X5=q=(w*h)DIV2^64+h; X22=word(2^3 block); X8=0; X11=word(l-1); X14=0)
-     0x1f4 -> 0x238  INNERLOOP_LOG (dd=l-1 words; value inv + lf/hf logging)
-     0x238 -> 0x23c  BNE step    (cmp x8,x11 => ZF; b.ne not taken)
-     0x23c -> 0x2e8  TAIL        (regime split: dd=k / dd<k,dd+1<k / dd<k,dd+1=k)
-     0x2e8 -> 0x304  FIELDSEL    (X15 = window(Zf') via the two logged digits)
-
-   Threading: X0=word k,X1=z,X2=word n,X3=x,X4=m,X20=word p,X21=w preserved throughout;
-   X16=word(61(i+1)) preserved (block doesn't touch it -- only the cbnz at 0x304 area);
-   X17: jj->jj+61; X19: l->l'; X23/z: block recurrence; X15: window(Zin)->window(Zf').
-
-   The value close: Zf' = 2^(64k)*val(X23')+bignum(z,k)_after; BLOCK_ADVANCE gives
-   cong(Zf' == a DIV 2^(61i) mod b) + bound(Zf'<2^(p+64)) from
-   Zf'+2^61*qhat*b = 2^61*Zin+block, qhat=q, block, and the window/reciprocal facts
-   (t0,s from BLOCKLOAD + RECIP bracket).  Logging close: TAIL_*_FINALIZE -> X13,X14 =
-   digits (pcode-1,pcode) of Zf' -> FIELDSEL + WINDOW_FROM_LOGGED -> X15=window(Zf').
-
-   TODO (each a CHEAT below): (W1) widen BLOCKLOAD; (W2) widen QSETUP; (W3) widen FIELDSEL;
-   (A) sequence + regime split + value/logging/bound close.  Build + batch-verify.
-   This is the LARGEST proof; being assembled incrementally. *)
-
-(* ===== W3: widened FIELDSEL (0x2e8 -> 0x304, full block frame + threaded state) =====
-   PROVEN via the RECIP_WIDE ARM_BIGSTEP idiom: consume the narrow BIGNUM_MOD_FIELDSEL as
-   ONE macro-step; ARM_BIGSTEP_TAC auto-threads all untouched regs/memory.  No re-sim. *)
 let BIGNUM_MOD_FIELDSEL_WIDE = prove
  (`!p lf hf pc k z n x m a b Zt zv X17v X19v X16v X21v.
      lf < 2 EXP 64 /\ hf < 2 EXP 64
@@ -7854,70 +7945,6 @@ let BIGNUM_MOD_BLOCKLOAD_WIDE = prove
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[]);;
 
 (* ===== W2: widened QSETUP (0x1d4 -> 0x1f4) ===== *)
-let BIGNUM_MOD_QSETUP_WIDE = prove
- (`!w h c l pc k z n x m a b p Zt zv X16v X17v.
-     w < 2 EXP 64 /\ h < 2 EXP 64 /\ 1 <= l /\ l < 2 EXP 64 /\ ~(l = 1)
-     ==> ensures arm
-      (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\ read PC s = word (pc + 0x1d4) /\
-           read X0 s = word k /\ read X1 s = z /\ read X2 s = word n /\ read X3 s = x /\
-           read X4 s = m /\ read X20 s = word p /\ read X21 s = word w /\
-           read X16 s = word X16v /\ read X17 s = word X17v /\ read X19 s = word l /\
-           read X12 s = word (p DIV 64 + 1) /\ read X23 s = word Zt /\
-           read X15 s = word h /\ read X22 s = word c /\
-           bignum_from_memory (x,n) s = a /\ bignum_from_memory (m,k) s = b /\
-           bignum_from_memory (z,k) s = zv)
-      (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\ read PC s = word (pc + 0x1f4) /\
-           read X0 s = word k /\ read X1 s = z /\ read X2 s = word n /\ read X3 s = x /\
-           read X4 s = m /\ read X20 s = word p /\ read X21 s = word w /\
-           read X16 s = word X16v /\ read X17 s = word X17v /\ read X19 s = word l /\
-           read X12 s = word (p DIV 64 + 1) /\ read X23 s = word Zt /\
-           read X15 s = word ((w * h) DIV 2 EXP 64 + h) /\
-           read X5 s = word ((w * h) DIV 2 EXP 64 + h) /\
-           read X14 s = word 0 /\ read X22 s = word (2 EXP 3 * c) /\
-           read X8 s = word 0 /\ read X11 s = word (l - 1) /\
-           bignum_from_memory (x,n) s = a /\ bignum_from_memory (m,k) s = b /\
-           bignum_from_memory (z,k) s = zv)
-      (MAYCHANGE [PC; X0; X5; X6; X7; X8; X9; X10; X11; X12; X13; X14; X15;
-                  X16; X17; X19; X20; X21; X22; X23; X24] ,,
-       MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events] ,, MAYCHANGE [memory :> bignum(z,k)])`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(SPECL [`w:num`; `h:num`; `c:num`; `l:num`; `pc:num`] BIGNUM_MOD_QSETUP) THEN
-  ASM_REWRITE_TAC[] THEN REWRITE_TAC[SOME_FLAGS] THEN
-  REWRITE_TAC[BIGNUM_FROM_MEMORY_BYTES] THEN
-  DISCH_THEN(fun th -> ENSURES_INIT_TAC "s0" THEN MP_TAC th THEN
-    ARM_BIGSTEP_TAC BIGNUM_MOD_EXEC "s1") THEN
-  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[]);;
-
-
-
-(* ======== inlined: body_assembly.ml ======== *)
-(* Stage 3f BODY ASSEMBLY (2026-07-27g).  Composes the proven segment/tail lemmas (all now
-   aligned-in-post) into the main-loop block body via ENSURES_SEQUENCE + the block-value
-   seam glue.  Needs (loaded first): mainloop_body.ml (BLOCKLOAD/QSETUP/QSETUP_SKIP/FIELDSEL
-   _WIDE), innerloop_log_wide.ml, tail_ddlt_wide.ml + tail_ddk_wide.ml [star-WIDE-LOG],
-   value_grow.ml, lrec_arith.ml, block_value.ml, ki_core.ml, tail_log.ml, tail_ddk.ml. *)
-
-(* WORD8_MOD_BLOCK: the BLOCKLOAD->QSETUP block-value seam.  BLOCKLOAD gives
-   val(X22)MOD2^61=block; QSETUP shifts X22:=word(2^3*val(X22)); INNERLOOP wants
-   X22=word(2^3*block).  These agree mod 2^64 (the top 3 bits shifted out).           *)
-let WORD8_MOD_BLOCK = prove
- (`!c block. c MOD 2 EXP 61 = block ==> (word(2 EXP 3 * c):int64) = word(2 EXP 3 * block)`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `2 EXP 3 * c = 2 EXP 3 * block + 2 EXP 64 * (c DIV 2 EXP 61)` SUBST1_TAC THENL
-   [MP_TAC(SPECL [`c:num`; `2 EXP 61`] DIVISION) THEN REWRITE_TAC[ARITH_EQ; EXP_EQ_0] THEN
-    UNDISCH_TAC `c MOD 2 EXP 61 = block` THEN ARITH_TAC;
-    REWRITE_TAC[WORD_ADD] THEN
-    SUBGOAL_THEN `word(2 EXP 64 * c DIV 2 EXP 61):int64 = word 0` SUBST1_TAC THENL
-     [REWRITE_TAC[GSYM VAL_EQ_0; VAL_WORD; DIMINDEX_64] THEN
-      REWRITE_TAC[GSYM MULT_ASSOC; MOD_MULT]; ALL_TAC] THEN
-    CONV_TAC WORD_RULE]);;
-
-(* QSETUP_WIDE_BLOCK: block-parameterized QSETUP.  Takes val(X22)MOD2^61=block in the pre
-   (BLOCKLOAD's output form), gives X22=word(2^3*block) in the post (INNERLOOP's input form).
-   This makes the BLOCKLOAD->QSETUP->INNERLOOP seam a clean block-threaded ACCEPT chain.
-   Proof: GHOST_INTRO cw:=read X22 (int64), GLOBALIZE, consume narrow BIGNUM_MOD_QSETUP with
-   c:=val cw via ARM_BIGSTEP, then bridge word(2^3*val cw)=word(2^3*block) via WORD8_MOD_BLOCK
-   (the pre gives val cw MOD2^61=block).  Needs BIGNUM_MOD_QSETUP (qsetup.ml). *)
 let BIGNUM_MOD_QSETUP_WIDE_BLOCK = prove
  (`!w h block l pc k z n x m a b p Zt zv X16v X17v.
      w < 2 EXP 64 /\ h < 2 EXP 64 /\ 1 <= l /\ l < 2 EXP 64 /\ ~(l = 1)
@@ -7983,8 +8010,6 @@ let BIGNUM_MOD_QSETUP_WIDE_BLOCK_Q = prove
    [MESON_TAC[WORD_MOD_SIZE; DIMINDEX_64]; ALL_TAC] THEN
   MATCH_MP_TAC BIGNUM_MOD_QSETUP_WIDE_BLOCK THEN ASM_REWRITE_TAC[]);;
 
-
-(* ======== inlined: innerloop_log_wide.ml ======== *)
 (* Stage 3f: augmented inner loop with lf/hf LOGGING (jargh, 2026-07-26).
    = BIGNUM_MOD_INNERLOOP_LE + the logging-invariant clauses:
      1 <= i        ==> X13 = read(mem z[8*(MIN i pcode - 1)]) s        (lf)
@@ -8242,8 +8267,6 @@ let BIGNUM_MOD_INNERLOOP_LOG_WIDE = prove
     ARM_SIM_TAC BIGNUM_MOD_EXEC (1--2) THEN ASM_SIMP_TAC[] THEN
     DISCH_TAC THEN FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_REWRITE_TAC[NOT_LT]]);;
 
-
-(* ======== inlined: tail_ddlt_wide.ml ======== *)
 (* Stage 3f dd<k TAIL (growing regime), pc+0x23c -> pc+0x2e8 (jargh, 2026-07-26).
    The tail in the GROWING regime processes TWO words: word dd (trivnegadd-like, into
    z[dd]) AND the newly-live word dd+1.  Two sub-regimes by (dd+1 = k):
@@ -8374,217 +8397,6 @@ let TAIL_DDLT_B_WIDE = prove
    bigdigit zpre dd + hi + q*~m[dd]); z UNCHANGED at index dd+1 (goes to zt).
    BEQ@0x2b0 (grow, not taken): resolve ~(word_sub(dd+1)(dd+2)=0) via the val facts
    directly (NOT ASM_REWRITE -- with dd+1=k present, ASM turns dd+1->k and tangles). *)
-let TAIL_DDLT_C_WIDE = prove
- (`!k q hi cwin ztin b zpre m z pc jj pcode dd X2v X3v X16v X20v X21v.
-     ~(k = 0) /\ k < 2 EXP 58 /\ b < 2 EXP (64 * k) /\ q < 2 EXP 64 /\
-     jj + 124 < 2 EXP 64 /\ pcode < 2 EXP 64 /\
-     dd + 1 = k /\ (jj + 124) DIV 64 = dd + 2 /\
-     nonoverlapping (word pc,0x438) (z,8 * k) /\
-     nonoverlapping (word pc,0x438) (m,8 * k) /\ nonoverlapping (z,8 * k) (m,8 * k)
-     ==> ensures arm
-      (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-           read PC s = word (pc + 0x23c) /\
-           read X0 s = word k /\ read X8 s = word dd /\ read X11 s = word dd /\
-           read X1 s = z /\ read X4 s = m /\ read X12 s = word pcode /\
-           read X5 s = word hi /\ read X22 s = word cwin /\ read X23 s = word ztin /\
-           read X15 s = word q /\ read X17 s = word jj /\ read X19 s = word (dd + 1) /\
-           read X2 s = X2v /\ read X3 s = X3v /\ read X16 s = X16v /\ read X20 s = X20v /\ read X21 s = X21v /\
-           bignum_from_memory (m,k) s = b /\ bignum_from_memory (z,k) s = zpre)
-      (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\ read PC s = word (pc + 0x2e8) /\ read X8 s = word (dd + 2) /\
-           read X17 s = word (jj + 61) /\ read X19 s = word (dd + 2) /\
-           read X23 s =
-             word_ushr (word (bigdigit zpre dd + hi +
-               q * (2 EXP 64 - 1 - bigdigit b dd)):int64) 3 /\
-           read (memory :> bytes64 (word_add z (word (8 * dd)))) s =
-             word_subword (word_join (word (bigdigit zpre dd + hi +
-               q * (2 EXP 64 - 1 - bigdigit b dd)):int64) (word cwin:int64):int128) (3,64) /\
-           read X2 s = X2v /\ read X3 s = X3v /\ read X16 s = X16v /\ read X20 s = X20v /\ read X21 s = X21v)
-      (MAYCHANGE [PC; X0; X5; X6; X7; X8; X9; X10; X11; X12; X13; X14; X15;
-                   X16; X17; X19; X20; X21; X22; X23; X24] ,,
-       MAYCHANGE [memory :> bignum(z,k)] ,, MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[SOME_FLAGS] THEN
-  SUBGOAL_THEN `dd:num < k` ASSUME_TAC THENL
-   [UNDISCH_TAC `dd + 1 = k` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `val(word k:int64) = k /\ val(word dd:int64) = dd /\
-                val(word (dd+1):int64) = dd + 1 /\ val(word (dd+2):int64) = dd + 2 /\
-                val(word_add (word k) (word 1):int64) = k + 1`
-    STRIP_ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN REPEAT CONJ_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN
-    REWRITE_TAC[DIMINDEX_64] THEN
-    UNDISCH_TAC `dd + 1 = k` THEN UNDISCH_TAC `k < 2 EXP 58` THEN ARITH_TAC; ALL_TAC] THEN
-  ENSURES_INIT_TAC "s0" THEN
-  SUBGOAL_THEN `read (memory :> bytes64 (word_add m (word (8 * dd)))) s0 = word (bigdigit b dd)`
-    ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM(ASSUME `bignum_from_memory (m,k) s0 = b`)] THEN
-    ASM_SIMP_TAC[BIGDIGIT_BIGNUM_FROM_MEMORY; WORD_VAL]; ALL_TAC] THEN
-  SUBGOAL_THEN `read (memory :> bytes64 (word_add z (word (8 * dd)))) s0 = word (bigdigit zpre dd)`
-    ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM(ASSUME `bignum_from_memory (z,k) s0 = zpre`)] THEN
-    ASM_SIMP_TAC[BIGDIGIT_BIGNUM_FROM_MEMORY; WORD_VAL]; ALL_TAC] THEN
-  SUBGOAL_THEN `~(val(word_sub (word dd) (word k):int64) = 0)` ASSUME_TAC THENL
-   [REWRITE_TAC[VAL_EQ_0; WORD_SUB_EQ_0] THEN
-    DISCH_THEN(MP_TAC o AP_TERM `val:int64->num`) THEN ASM_REWRITE_TAC[] THEN
-    UNDISCH_TAC `dd < k` THEN ARITH_TAC; ALL_TAC] THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (1--8) THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `~(val(word_sub (word dd) (word k):int64) = 0)`]) THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (9--21) THEN
-  SUBGOAL_THEN `word_ushr (word_add (word jj) (word 124):int64) 6 = word((jj + 124) DIV 64)`
-    ASSUME_TAC THENL
-   [REWRITE_TAC[word_ushr; GSYM WORD_ADD] THEN AP_TERM_TAC THEN
-    SUBGOAL_THEN `val(word(jj + 124):int64) = jj + 124` SUBST1_TAC THENL
-     [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
-      UNDISCH_TAC `jj + 124 < 2 EXP 64` THEN ARITH_TAC; REWRITE_TAC[ARITH_RULE `2 EXP 6 = 64`]]; ALL_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `word_ushr (word_add (word jj) (word 124):int64) 6 =
-                     word((jj + 124) DIV 64)`; ASSUME `(jj + 124) DIV 64 = dd + 2`]) THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (22--23) THEN
-  SUBGOAL_THEN `~(k + 1 < dd + 2)` ASSUME_TAC THENL
-   [UNDISCH_TAC `dd + 1 = k` THEN ARITH_TAC; ALL_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val(word_add (word k) (word 1):int64) = k + 1`;
-                     ASSUME `~(k + 1 < dd + 2)`]) THEN
-  SUBGOAL_THEN `~(val(word_sub (word (dd+1)) (word (dd + 2)):int64) = 0)` ASSUME_TAC THENL
-   [REWRITE_TAC[VAL_EQ_0; WORD_SUB_EQ_0] THEN
-    DISCH_THEN(MP_TAC o AP_TERM `val:int64->num`) THEN
-    REWRITE_TAC[ASSUME `val(word (dd+1):int64) = dd + 1`;
-               ASSUME `val(word (dd+2):int64) = dd + 2`] THEN ARITH_TAC; ALL_TAC] THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (24--24) THEN
-  SUBGOAL_THEN `val(word_sub (word (dd+1)) (word k):int64) = 0` ASSUME_TAC THENL
-   [REWRITE_TAC[VAL_EQ_0; WORD_SUB_EQ_0] THEN AP_TERM_TAC THEN
-    UNDISCH_TAC `dd + 1 = k` THEN DISCH_THEN SUBST1_TAC THEN REFL_TAC; ALL_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[GSYM WORD_ADD]) THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (25--27) THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val(word_sub (word (dd+1)) (word k):int64) = 0`]) THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (28--37) THEN
-  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-  (* value close (like B): bridge word((a+hi)+0+val q*val nm) = word(a+hi+q*(2^64-1-bi))
-     for X23' and z[dd]; X8 = word(k+1) = word(dd+2) via dd+1=k. *)
-  SUBGOAL_THEN
-   `(bigdigit zpre dd + hi) + 0 + val(word q:int64) * val(word_not (word (bigdigit b dd)):int64) =
-    bigdigit zpre dd + hi + q * (2 EXP 64 - 1 - bigdigit b dd)`
-   (fun th -> REWRITE_TAC[th]) THENL
-   [SUBGOAL_THEN `val(word q:int64) = q /\
-                  val(word_not (word (bigdigit b dd)):int64) = 2 EXP 64 - 1 - bigdigit b dd`
-      (fun th -> REWRITE_TAC[th]) THENL
-     [CONJ_TAC THENL
-       [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_REWRITE_TAC[];
-        REWRITE_TAC[VAL_WORD_NOT; DIMINDEX_64] THEN
-        SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; BIGDIGIT_BOUND]];
-      ARITH_TAC];
-    UNDISCH_TAC `dd + 1 = k` THEN DISCH_THEN(SUBST1_TAC o SYM) THEN CONV_TAC WORD_RULE]);;
-
-
-(* Regime FLAT: dd+1<k BUT l does NOT grow this block (noel-BEQ@0x2b0 TAKEN).  Occurs at
-   u=NB-i=21 (for k>=21): (61*u+63)DIV64 = (61*(u-1)+63)DIV64, so MIN(k+1,(jj+124)DIV64) =
-   dd+1 (NOT dd+2).  qemu-confirmed (capflat.py, k=21): X8=dd+1, X17=jj+61, X19=dd+1 at exit.
-   Path 0x23c->0x2e8 (28 insns): same word-dd processing + z[dd] store as regime B, then
-   BEQ@0x2b0 taken -> 0x2dc noel -> 0x2e8, SKIPPING the newly-live block 0x2b4-0x2d8.  So
-   FLAT = regime B WITHOUT the z[dd+1] store; X23(zt) UNCHANGED.  l-recurrence hyp is the
-   FLAT form `(jj+124)DIV64 = dd+1`.  Value-close: FLAT has dd+1<k => Zf<b => qhat=0, and
-   Zf'<b<2^(64(dd+1)) so word dd+1 of Zf' is 0 (the un-stored word is legitimately zero).
-   NB: the (25--28) ARM_STEPS range must be split as (24--24) then single steps (25),(26),
-   (27),(28) -- the taken BEQ@0x2b0 confuses a merged range (seqapply length mismatch). *)
-let TAIL_FLAT_WIDE = prove
- (`!k q hi cwin ztin b zpre m z pc jj pcode dd X2v X3v X16v X20v X21v.
-     ~(k = 0) /\ k < 2 EXP 58 /\ b < 2 EXP (64 * k) /\ q < 2 EXP 64 /\
-     jj + 124 < 2 EXP 64 /\ pcode < 2 EXP 64 /\
-     dd + 1 < k /\ (jj + 124) DIV 64 = dd + 1 /\
-     nonoverlapping (word pc,0x438) (z,8 * k) /\
-     nonoverlapping (word pc,0x438) (m,8 * k) /\ nonoverlapping (z,8 * k) (m,8 * k)
-     ==> ensures arm
-      (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-           read PC s = word (pc + 0x23c) /\
-           read X0 s = word k /\ read X8 s = word dd /\ read X11 s = word dd /\
-           read X1 s = z /\ read X4 s = m /\ read X12 s = word pcode /\
-           read X5 s = word hi /\ read X22 s = word cwin /\ read X23 s = word ztin /\
-           read X15 s = word q /\ read X17 s = word jj /\ read X19 s = word (dd + 1) /\
-           read X2 s = X2v /\ read X3 s = X3v /\ read X16 s = X16v /\ read X20 s = X20v /\ read X21 s = X21v /\
-           bignum_from_memory (m,k) s = b /\ bignum_from_memory (z,k) s = zpre)
-      (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\ read PC s = word (pc + 0x2e8) /\ read X8 s = word (dd + 1) /\
-           read X17 s = word (jj + 61) /\ read X19 s = word (dd + 1) /\
-           read X23 s = word ztin /\
-           read (memory :> bytes64 (word_add z (word (8 * dd)))) s =
-             word_subword (word_join (word (bigdigit zpre dd + hi +
-               q * (2 EXP 64 - 1 - bigdigit b dd)):int64) (word cwin:int64):int128) (3,64) /\
-           read X2 s = X2v /\ read X3 s = X3v /\ read X16 s = X16v /\ read X20 s = X20v /\ read X21 s = X21v)
-      (MAYCHANGE [PC; X0; X5; X6; X7; X8; X9; X10; X11; X12; X13; X14; X15;
-                   X16; X17; X19; X20; X21; X22; X23; X24] ,,
-       MAYCHANGE [memory :> bignum(z,k)] ,, MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[SOME_FLAGS] THEN
-  SUBGOAL_THEN `dd:num < k` ASSUME_TAC THENL
-   [UNDISCH_TAC `dd + 1 < k` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `val(word k:int64) = k /\ val(word dd:int64) = dd /\
-                val(word (dd+1):int64) = dd + 1 /\ val(word (dd+2):int64) = dd + 2 /\
-                val(word_add (word k) (word 1):int64) = k + 1`
-    STRIP_ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN REPEAT CONJ_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN
-    REWRITE_TAC[DIMINDEX_64] THEN
-    UNDISCH_TAC `dd + 1 < k` THEN UNDISCH_TAC `k < 2 EXP 58` THEN ARITH_TAC; ALL_TAC] THEN
-  ENSURES_INIT_TAC "s0" THEN
-  SUBGOAL_THEN `read (memory :> bytes64 (word_add m (word (8 * dd)))) s0 = word (bigdigit b dd)`
-    ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM(ASSUME `bignum_from_memory (m,k) s0 = b`)] THEN
-    ASM_SIMP_TAC[BIGDIGIT_BIGNUM_FROM_MEMORY; WORD_VAL]; ALL_TAC] THEN
-  SUBGOAL_THEN `read (memory :> bytes64 (word_add z (word (8 * dd)))) s0 = word (bigdigit zpre dd)`
-    ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM(ASSUME `bignum_from_memory (z,k) s0 = zpre`)] THEN
-    ASM_SIMP_TAC[BIGDIGIT_BIGNUM_FROM_MEMORY; WORD_VAL]; ALL_TAC] THEN
-  SUBGOAL_THEN `~(val(word_sub (word dd) (word k):int64) = 0)` ASSUME_TAC THENL
-   [REWRITE_TAC[VAL_EQ_0; WORD_SUB_EQ_0] THEN
-    DISCH_THEN(MP_TAC o AP_TERM `val:int64->num`) THEN ASM_REWRITE_TAC[] THEN
-    UNDISCH_TAC `dd < k` THEN ARITH_TAC; ALL_TAC] THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (1--8) THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `~(val(word_sub (word dd) (word k):int64) = 0)`]) THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (9--21) THEN
-  SUBGOAL_THEN `word_ushr (word_add (word jj) (word 124):int64) 6 = word((jj + 124) DIV 64)`
-    ASSUME_TAC THENL
-   [REWRITE_TAC[word_ushr; GSYM WORD_ADD] THEN AP_TERM_TAC THEN
-    SUBGOAL_THEN `val(word(jj + 124):int64) = jj + 124` SUBST1_TAC THENL
-     [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
-      UNDISCH_TAC `jj + 124 < 2 EXP 64` THEN ARITH_TAC; REWRITE_TAC[ARITH_RULE `2 EXP 6 = 64`]]; ALL_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `word_ushr (word_add (word jj) (word 124):int64) 6 =
-                     word((jj + 124) DIV 64)`; ASSUME `(jj + 124) DIV 64 = dd + 1`]) THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (22--23) THEN
-  SUBGOAL_THEN `~(k + 1 < dd + 1)` ASSUME_TAC THENL
-   [UNDISCH_TAC `dd + 1 < k` THEN ARITH_TAC; ALL_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val(word_add (word k) (word 1):int64) = k + 1`;
-                     ASSUME `~(k + 1 < dd + 1)`]) THEN
-  SUBGOAL_THEN `val(word_sub (word (dd+1)) (word (dd + 1)):int64) = 0` ASSUME_TAC THENL
-   [REWRITE_TAC[VAL_EQ_0; WORD_SUB_REFL]; ALL_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[GSYM WORD_ADD]) THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (24--24) THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (25--25) THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (26--26) THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (27--27) THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (28--28) THEN
-  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-  SUBGOAL_THEN `val(word q:int64) = q /\
-                val(word_not (word (bigdigit b dd)):int64) = 2 EXP 64 - 1 - bigdigit b dd`
-    (fun th -> REWRITE_TAC[th]) THENL
-   [CONJ_TAC THENL
-     [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_REWRITE_TAC[];
-      REWRITE_TAC[VAL_WORD_NOT; DIMINDEX_64] THEN
-      SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; BIGDIGIT_BOUND]];
-    REWRITE_TAC[ADD_CLAUSES; ADD_ASSOC]]);;
-
-(* WORD_SUB_VAL_EQ_0: the csel-condition bridge (2026-07-27).  val(word_sub(word a)(word c)
-   :int64)=0 <=> a=c under a,c<2^64.  Normalizes the tail's flag-conditions to num equalities.*)
-let WORD_SUB_VAL_EQ_0 = prove
- (`!a c. a < 2 EXP 64 /\ c < 2 EXP 64
-         ==> (val(word_sub (word a) (word c):int64) = 0 <=> a = c)`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[VAL_EQ_0; WORD_SUB_EQ_0] THEN
-  EQ_TAC THENL
-   [DISCH_THEN(MP_TAC o AP_TERM `val:int64->num`) THEN
-    ASM_SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64];
-    DISCH_THEN SUBST1_TAC THEN REFL_TAC]);;
-
-(* TAIL_DDLT_B_WIDE_LOG: regime B tail ENRICHED with the raw X13/X14 logged-field outputs
-   (needed by FIELDSEL_WIDE at 0x2e8).  Precond adds read X13=word lfin, X14=word hfin.
-   Postcond adds the exact s36 csel forms for X14 (lf... wait X14=hf) and X13 (lf), in num-
-   equality condition form (dd+1=pcode etc.), bridged from the sim's val(word_sub..)=0 forms
-   via WORD_SUB_VAL_EQ_0.  W = bigdigit zpre dd+hi+q*(2^64-1-bigdigit b dd) is the block word;
-   z[dd]=extr#3(W:cwin)=bigdigit Zf' dd, z[dd+1]=W>>3=bigdigit Zf'(dd+1).  TAIL_HF/LF_FINALIZE
-   reduce X14/X13 to word(bigdigit Zf' pcode)/(pcode-1) at assembly (once Zf' is assembled).
-   Same 36-step sim as TAIL_DDLT_B_WIDE + value bridge + 3 WORD_SUB_VAL_EQ_0 iffs +
-   word_add(word(dd+1))(word 1)=word(dd+2) + val(word pcode)=pcode, then ASM_REWRITE. *)
 let TAIL_DDLT_B_WIDE_LOG = prove
  (`!k q hi cwin ztin b zpre m z pc jj pcode dd lfin hfin X2v X3v X16v X20v X21v.
      ~(k = 0) /\ k < 2 EXP 58 /\ b < 2 EXP (64 * k) /\ q < 2 EXP 64 /\
@@ -9020,89 +8832,6 @@ let TAIL_DDLT_C_WIDE_LOG = prove
   REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN
   UNDISCH_TAC `dd + 1 = k` THEN ARITH_TAC);;
 
-
-(* ======== inlined: tail_ddk_wide.ml ======== *)
-let BIGNUM_MOD_TAIL_DDK_WIDE = prove
- (`!k q hi cwin ztin b zpre m z pc jj pcode X2v X3v X16v X20v X21v.
-     ~(k = 0) /\ k < 2 EXP 58 /\ b < 2 EXP (64 * k) /\ q < 2 EXP 64 /\
-     jj + 124 < 2 EXP 64 /\ k + 1 <= (jj + 63) DIV 64 /\ pcode < 2 EXP 64 /\
-     nonoverlapping (word pc,0x438) (z,8 * k) /\
-     nonoverlapping (word pc,0x438) (m,8 * k) /\ nonoverlapping (z,8 * k) (m,8 * k)
-     ==> ensures arm
-      (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\
-           read PC s = word (pc + 0x23c) /\
-           read X0 s = word k /\ read X8 s = word k /\ read X11 s = word k /\
-           read X1 s = z /\ read X4 s = m /\ read X12 s = word pcode /\
-           read X5 s = word hi /\ read X22 s = word cwin /\ read X23 s = word ztin /\
-           read X15 s = word q /\ read X17 s = word jj /\ read X19 s = word (k + 1) /\
-           read X2 s = X2v /\ read X3 s = X3v /\ read X16 s = X16v /\ read X20 s = X20v /\ read X21 s = X21v /\
-           bignum_from_memory (m,k) s = b /\ bignum_from_memory (z,k) s = zpre)
-      (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\ read PC s = word (pc + 0x2e8) /\ bignum_from_memory (z,k) s = zpre /\
-           read X8 s = word (k + 1) /\
-           read X17 s = word (jj + 61) /\ read X19 s = word (k + 1) /\
-           read X23 s = word_subword (word_join
-             (word (ztin + hi + q * (2 EXP 64 - 1)):int64) (word cwin:int64):int128) (3,64) /\
-           read X2 s = X2v /\ read X3 s = X3v /\ read X16 s = X16v /\ read X20 s = X20v /\ read X21 s = X21v)
-      (MAYCHANGE [PC; X0; X5; X6; X7; X8; X9; X10; X11; X12; X13; X14; X15;
-                   X16; X17; X19; X20; X21; X22; X23; X24] ,,
-       MAYCHANGE [memory :> bignum(z,k)] ,, MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events])`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[SOME_FLAGS] THEN
-  SUBGOAL_THEN `val(word k:int64) = k` ASSUME_TAC THENL
-   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
-    UNDISCH_TAC `k < 2 EXP 58` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `val(word_add (word k) (word 1):int64) = k + 1` ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN MATCH_MP_TAC VAL_WORD_EQ THEN
-    REWRITE_TAC[DIMINDEX_64] THEN UNDISCH_TAC `k < 2 EXP 58` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `val(word q:int64) = q` ASSUME_TAC THENL
-   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  ENSURES_INIT_TAC "s0" THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (1--24) THEN
-  SUBGOAL_THEN `word_ushr (word_add (word jj) (word 124):int64) 6 = word((jj + 124) DIV 64)`
-    ASSUME_TAC THENL
-   [REWRITE_TAC[word_ushr; GSYM WORD_ADD] THEN AP_TERM_TAC THEN
-    SUBGOAL_THEN `val(word(jj + 124):int64) = jj + 124` SUBST1_TAC THENL
-     [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
-      UNDISCH_TAC `jj + 124 < 2 EXP 64` THEN ARITH_TAC; REWRITE_TAC[ARITH_RULE `2 EXP 6 = 64`]]; ALL_TAC] THEN
-  SUBGOAL_THEN `val(word((jj + 124) DIV 64):int64) = (jj + 124) DIV 64` ASSUME_TAC THENL
-   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
-    UNDISCH_TAC `jj + 124 < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `k + 1 <= (jj + 124) DIV 64` ASSUME_TAC THENL
-   [TRANS_TAC LE_TRANS `(jj + 63) DIV 64` THEN ASM_REWRITE_TAC[] THEN
-    MATCH_MP_TAC DIV_MONO THEN ARITH_TAC; ALL_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `word_ushr (word_add (word jj) (word 124):int64) 6 =
-                      word((jj + 124) DIV 64)`;
-                      ASSUME `val(word((jj + 124) DIV 64):int64) = (jj + 124) DIV 64`;
-                      ASSUME `val(word_add (word k) (word 1):int64) = k + 1`]) THEN
-  SUBGOAL_THEN
-    `(if k + 1 < (jj + 124) DIV 64 then word (k+1):int64 else word ((jj + 124) DIV 64))
-     = word(k + 1)` ASSUME_TAC THENL
-   [COND_CASES_TAC THENL [REFL_TAC;
-     AP_TERM_TAC THEN UNDISCH_TAC `k + 1 <= (jj + 124) DIV 64` THEN
-     POP_ASSUM MP_TAC THEN ARITH_TAC]; ALL_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[GSYM WORD_ADD;
-    ASSUME `(if k + 1 < (jj + 124) DIV 64 then word (k+1):int64 else word ((jj + 124) DIV 64))
-     = word(k + 1)`; WORD_SUB_REFL; VAL_WORD_0]) THEN
-  ARM_STEPS_TAC BIGNUM_MOD_EXEC (25--27) THEN
-  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-  CONJ_TAC THENL
-   [REWRITE_TAC[BIGNUM_FROM_MEMORY_BYTES] THEN
-    FIRST_X_ASSUM(MP_TAC o check (can
-      (term_match [] `(f:armstate->armstate->bool) s0 s27`) o concl)) THEN
-    REWRITE_TAC[MAYCHANGE; SEQ_ID] THEN REWRITE_TAC[GSYM SEQ_ASSOC] THEN
-    REWRITE_TAC[ASSIGNS_SEQ; ASSIGNS_THM; LEFT_IMP_EXISTS_THM] THEN
-    REPEAT GEN_TAC THEN DISCH_THEN(SUBST1_TAC o SYM) THEN
-    REWRITE_TAC[GSYM BIGNUM_FROM_MEMORY_BYTES] THEN
-    FIRST_X_ASSUM(fun th -> if concl th = `bignum_from_memory (z,k) s0 = zpre`
-      then GEN_REWRITE_TAC RAND_CONV [SYM th] else NO_TAC) THEN
-    REWRITE_TAC[BIGNUM_FROM_MEMORY_BYTES] THEN READ_OVER_WRITE_ORTHOGONAL_TAC;
-    SUBGOAL_THEN `(ztin + hi) + 0 + q * 18446744073709551615 =
-                  ztin + hi + q * (2 EXP 64 - 1)` ASSUME_TAC THENL
-     [ARITH_TAC; ALL_TAC] THEN ASM_REWRITE_TAC[]]);;
-(* BIGNUM_MOD_TAIL_DDK_WIDE_LOG: DDK tail (dd=k) + raw X13/X14 logged fields.  z-mem
-   preserved (=zpre); the "high" value is the new top word X23' = word_subword(word_join
-   (word(ztin+hi+q*(2^64-1)))(word cwin))(3,64).  Conditions in terms of k, k+1 (X8=k+1
-   at finalize).  Needs WORD_SUB_VAL_EQ_0 (from tail_ddlt_wide.ml).  27-step DDK sim +
-   z-preservation (READ_OVER_WRITE) + X23 value bridge (ARITH) + 2 condition iffs (k,k+1). *)
 let BIGNUM_MOD_TAIL_DDK_WIDE_LOG = prove
  (`!k q hi cwin ztin b zpre m z pc jj pcode lfin hfin X2v X3v X16v X20v X21v.
      ~(k = 0) /\ k < 2 EXP 58 /\ b < 2 EXP (64 * k) /\ q < 2 EXP 64 /\
@@ -9197,8 +8926,6 @@ let BIGNUM_MOD_TAIL_DDK_WIDE_LOG = prove
   RULE_ASSUM_TAC(REWRITE_RULE[GSYM WORD_ADD]) THEN
   ASM_REWRITE_TAC[]);;
 
-
-(* ======== inlined: value_close_lemmas.ml ======== *)
 (* Stage 3f VALUE CLOSE helper lemmas (2026-07-27h).  Two clean, generally-useful facts for
    assembling the block-advance equation Zf'+2^61*qhat*b = 2^61*Zf+block from the tail value
    relation.  Load anytime after the prelude (pure arithmetic). *)
@@ -9207,247 +8934,6 @@ let BIGNUM_MOD_TAIL_DDK_WIDE_LOG = prove
    X23 = 0.  So Zf = bignum(z,k) with no 2^(64k)*Zt term -- big simplification for regimes B/FLAT
    (and the growing part generally).  [DDK/C have l = k+1 so this does NOT apply there; X23 is
    the genuine top word absorbing q, handled by VALUE_BRIDGE_DDK.] *)
-let INV2_TOP_ZERO = prove
- (`!k X23v Zk l.
-     2 EXP (64 * k) * X23v + Zk < 2 EXP (64 * l) /\ l <= k
-     ==> X23v = 0`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `2 EXP (64 * k) * X23v < 2 EXP (64 * k)` MP_TAC THENL
-   [TRANS_TAC LET_TRANS `2 EXP (64 * k) * X23v + Zk` THEN CONJ_TAC THENL
-     [ARITH_TAC;
-      TRANS_TAC LTE_TRANS `2 EXP (64 * l)` THEN ASM_REWRITE_TAC[] THEN
-      REWRITE_TAC[LE_EXP] THEN UNDISCH_TAC `l <= k` THEN ARITH_TAC];
-    ALL_TAC] THEN
-  REWRITE_TAC[ARITH_RULE `2 EXP (64 * k) * X23v < 2 EXP (64 * k) <=>
-                          2 EXP (64 * k) * X23v < 2 EXP (64 * k) * 1`] THEN
-  SIMP_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
-
-(* HIGHDIGITS_ZERO_EQ_LOW: highdigits X m = 0 ==> X = lowdigits X m (X fits in m words). *)
-let HIGHDIGITS_ZERO_EQ_LOW = prove
- (`!X m. highdigits X m = 0 ==> X = lowdigits X m`,
-  REPEAT STRIP_TAC THEN CONV_TAC SYM_CONV THEN
-  MP_TAC(SPECL [`X:num`; `m:num`] (CONJUNCT1 HIGH_LOW_DIGITS)) THEN
-  ASM_REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES]);;
-
-(* VALUE_ASSEMBLE_B_QZERO: the qhat=0 assembly.  When qhat=0 (which HOLDS in the growing
-   regime -- see note below), the tail value relation reduces EXACTLY to BLOCK_VALUE_B's
-   premise Zout = 2^61*Zin + block (the q*2^(64*l) term vanishes with q=0).  So regime-B/FLAT
-   value close = prove qhat=0, then this + BLOCK_VALUE_B => cong + bound. *)
-let VALUE_ASSEMBLE_B_QZERO = prove
- (`!dd Zin Zout b block.
-     Zout + 2 EXP 61 * (0 * lowdigits b (dd + 1)) =
-       block + 2 EXP 61 * lowdigits Zin (dd + 1) + 2 EXP 61 * (0 * 2 EXP (64 * (dd + 1))) /\
-     highdigits Zout (dd + 1) = 0 /\ highdigits Zin (dd + 1) = 0
-     ==> Zout = 2 EXP 61 * Zin + block`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `Zin = lowdigits Zin (dd+1)` ASSUME_TAC THENL
-   [MATCH_MP_TAC HIGHDIGITS_ZERO_EQ_LOW THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  ONCE_ASM_REWRITE_TAC[] THEN
-  POP_ASSUM(K ALL_TAC) THEN POP_ASSUM(K ALL_TAC) THEN POP_ASSUM(K ALL_TAC) THEN
-  POP_ASSUM MP_TAC THEN ARITH_TAC);;
-
-(* TAIL_REL_FORCES_QZERO: consistency check confirming the regime split.  IF both the tail
-   value relation AND the block-advance equation (Zout + 2^61*q*b = 2^61*Zin + block) hold
-   with highdigits b(dd+1)=0, THEN q=0.  (The two eqs share LHS Zout+2^61*q*lowdigits b(dd+1);
-   equating RHS gives 2^61*q*2^(64(dd+1))=0 => q=0.)  This proves the block-advance equation
-   canNOT hold with q<>0 in the growing regime -- so the growing close MUST go via qhat=0
-   (VALUE_ASSEMBLE_B_QZERO), never the general BLOCK_ADVANCE with q<>0.  Confirms the regime
-   split is forced, not a choice. *)
-let TAIL_REL_FORCES_QZERO = prove
- (`!Zin Zout q b block dd.
-     highdigits b (dd + 1) = 0 /\
-     Zout + 2 EXP 61 * (q * lowdigits b (dd + 1)) =
-       block + 2 EXP 61 * lowdigits Zin (dd + 1) + 2 EXP 61 * (q * 2 EXP (64 * (dd + 1))) /\
-     Zout + 2 EXP 61 * q * b = 2 EXP 61 * lowdigits Zin (dd + 1) + block
-     ==> q = 0`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `q * 2 EXP (64 * (dd + 1)) = 0` MP_TAC THENL
-   [FIRST_X_ASSUM(MP_TAC o SYM o MATCH_MP HIGHDIGITS_ZERO_EQ_LOW) THEN
-    DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
-    REPEAT (FIRST_X_ASSUM (MP_TAC o check (is_eq o concl))) THEN ARITH_TAC;
-    REWRITE_TAC[MULT_EQ_0; EXP_EQ_0] THEN ARITH_TAC]);;
-
-(* GROWING_VALUE_CLOSE: the COMPLETE value close for the growing regime (dd<k <=> Zf<2^p <=>
-   h=qhat=0, oracle-confirmed 6/6 & 14/14 prior sessions).  From incoming cong + block def +
-   Zf<2^p (growing) + the PURE shift-add Zf'=2^61*Zf+block, derive outgoing cong + bound
-   Zf'<2^(p+64).  NO recip bracket, NO q*b term (qhat=0).  This is the entire dd<k value close.
-   cong via CONG_HALF(qhat:=0); bound via 2^61*Zf+block < 2^61*2^p+2^61 <= 2^(p+64). *)
-let GROWING_VALUE_CLOSE = prove
- (`!a b i p Zf Zf' block.
-     (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
-     block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\
-     Zf < 2 EXP p /\
-     Zf' = 2 EXP 61 * Zf + block
-     ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b) /\ Zf' < 2 EXP (p + 64)`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN CONJ_TAC THENL
-   [MATCH_MP_TAC CONG_HALF THEN
-    MAP_EVERY EXISTS_TAC [`Zf:num`; `0`; `block:num`] THEN
-    ASM_REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES];
-    ASM_REWRITE_TAC[] THEN
-    SUBGOAL_THEN `block < 2 EXP 61` ASSUME_TAC THENL
-     [ASM_REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
-    TRANS_TAC LTE_TRANS `2 EXP 61 * 2 EXP p + 2 EXP 61` THEN CONJ_TAC THENL
-     [MATCH_MP_TAC(ARITH_RULE `a < c /\ d < e ==> a + d < c + e`) THEN
-      ASM_SIMP_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ] THEN
-      REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ];
-      REWRITE_TAC[GSYM EXP_ADD] THEN
-      TRANS_TAC LE_TRANS `2 EXP (61 + p) + 2 EXP (61 + p)` THEN CONJ_TAC THENL
-       [MATCH_MP_TAC LE_ADD2 THEN CONJ_TAC THEN REWRITE_TAC[LE_EXP] THEN ARITH_TAC;
-        REWRITE_TAC[GSYM MULT_2; GSYM(CONJUNCT2 EXP); LE_EXP] THEN ARITH_TAC]]]);;
-
-(* LOWDIGITS_EQ_SELF: zv < 2^(64*dd) ==> lowdigits zv (dd+1) = zv (fits in dd < dd+1 words). *)
-let LOWDIGITS_EQ_SELF = prove
- (`!zv dd. zv < 2 EXP (64 * dd) ==> lowdigits zv (dd + 1) = zv`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[lowdigits] THEN
-  MATCH_MP_TAC MOD_LT THEN
-  TRANS_TAC LTE_TRANS `2 EXP (64 * dd)` THEN ASM_REWRITE_TAC[LE_EXP] THEN ARITH_TAC);;
-
-(* SHIFTADD_ASSEMBLE: the growing value relation (with qhat=0) says the new z accumulator
-   Zout = block + 2^61*lowdigits Zin (dd+1); with Zin<2^(64*dd) (incoming fits in dd words),
-   this is exactly Zf' = 2^61*Zf + block (Zin=Zf since X23=0 by INV2_TOP_ZERO), the premise
-   GROWING_VALUE_CLOSE consumes.  So: VALUE_GROW_STEP(q=0) -> SHIFTADD_ASSEMBLE -> GROWING_VALUE
-   _CLOSE gives the full dd<k cong+bound. *)
-let SHIFTADD_ASSEMBLE = prove
- (`!Zout Zin block dd.
-     Zout = block + 2 EXP 61 * lowdigits Zin (dd + 1) /\ Zin < 2 EXP (64 * dd)
-     ==> Zout = 2 EXP 61 * Zin + block`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `lowdigits Zin (dd + 1) = Zin` SUBST_ALL_TAC THENL
-   [MATCH_MP_TAC LOWDIGITS_EQ_SELF THEN ASM_REWRITE_TAC[]; ASM_ARITH_TAC]);;
-
-
-(* WINDOW_ZERO_IMP_LT: the bound+window pair gives the tight bound.  Zf<2^(p+64) (the general
-   invariant bound) AND window(Zf)=(Zf DIV2^p)MOD2^64 = 0  ==>  Zf<2^p.  This is how the growing
-   regime gets Zf<2^p (needed by GROWING_VALUE_CLOSE) FROM the invariant's window clause being 0.
-   So the growing-phase invariant refinement = carry `l<k+1 ==> X15 = word 0` (window zero),
-   which with the always-present bound Zf<2^(p+64) yields Zf<2^p via this lemma. *)
-let WINDOW_ZERO_IMP_LT = prove
- (`!Zf p. Zf < 2 EXP (p + 64) /\ (Zf DIV 2 EXP p) MOD 2 EXP 64 = 0 ==> Zf < 2 EXP p`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `Zf DIV 2 EXP p < 2 EXP 64` ASSUME_TAC THENL
-   [SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
-    REWRITE_TAC[GSYM EXP_ADD] THEN ASM_REWRITE_TAC[ADD_SYM];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `Zf DIV 2 EXP p = 0` MP_TAC THENL
-   [ASM_MESON_TAC[MOD_LT]; ALL_TAC] THEN
-  SIMP_TAC[DIV_EQ_0; EXP_EQ_0; ARITH_EQ]);;
-
-(* X15_ZERO_IMP_LT: the body-usable form.  From the invariant's OWN clauses -- the bound
-   Zf<2^(p+64) AND X15 = word 0 (i.e. word(window Zf)=word 0, window<2^64 so window=0) -- get
-   Zf<2^p.  So in the body's growing branch, establishing X15=word 0 (from dd<k) yields Zf<2^p
-   for GROWING_VALUE_CLOSE with NO extra invariant clause: the invariant ALREADY has the bound
-   and X15=word(window).  (word(window)=word 0 <=> window=0 since window = (Zf DIV2^p)MOD2^64
-   < 2^64 and VAL_WORD_EQ.) *)
-let X15_ZERO_IMP_LT = prove
- (`!Zf p.
-     Zf < 2 EXP (p + 64) /\ word ((Zf DIV 2 EXP p) MOD 2 EXP 64):int64 = word 0
-     ==> Zf < 2 EXP p`,
-  REPEAT STRIP_TAC THEN MATCH_MP_TAC WINDOW_ZERO_IMP_LT THEN
-  ASM_REWRITE_TAC[] THEN
-  FIRST_X_ASSUM(MP_TAC o AP_TERM `val:int64->num`) THEN
-  REWRITE_TAC[VAL_WORD_0] THEN
-  SIMP_TAC[VAL_WORD_EQ; DIMINDEX_64; MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]);;
-
-(* QHAT_ZERO_OF_H_ZERO: h=0 => qhat = (w*h DIV 2^64 + h) MOD 2^64 = 0.  The window-zero branch:
-   invariant X15 = word(window Zf) = word h; X15 = word 0 => (window<2^64) h=0 => qhat=0 =>
-   shift-add block (GROWING_VALUE_CLOSE).  This is the SOUND basis for the growing branch --
-   it keys on X15=word 0 (window=0), NOT on dd<k (which only coincides with window=0 at p=64k).
-   The h<>0 branch (X15<>word 0) needs full BLOCK_VALUE + recip bracket. *)
-let QHAT_ZERO_OF_H_ZERO = prove
- (`!w h. h = 0 ==> ((w * h) DIV 2 EXP 64 + h) MOD 2 EXP 64 = 0`,
-  REPEAT STRIP_TAC THEN ASM_REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES; DIV_0; MOD_0]);;
-
-(* QHAT_UNRED_FORM: bridges BLOCK_VALUE's quotient (2^64+w)*h DIV 2^64 to QSETUP's w*h DIV 2^64
-   + h.  ((2^64+w)*h) DIV 2^64 = w*h DIV 2^64 + h (since 2^64*h DIV 2^64 = h exactly).  NB
-   BLOCK_VALUE uses the UNREDUCED quotient; QSETUP/INNERLOOP store it reduced mod 2^64.  The
-   saturated value close must reconcile reduced-vs-unreduced qhat (they agree iff the sum
-   <2^64, OR the mod-b congruence absorbs the 2^64 multiple of b -- CONG since 2^64*b==0). *)
-let QHAT_UNRED_FORM = prove
- (`!w h. ((2 EXP 64 + w) * h) DIV 2 EXP 64 = (w * h) DIV 2 EXP 64 + h`,
-  REPEAT GEN_TAC THEN REWRITE_TAC[RIGHT_ADD_DISTRIB] THEN
-  SUBGOAL_THEN `2 EXP 64 * h = h * 2 EXP 64` SUBST1_TAC THENL
-   [ARITH_TAC; ALL_TAC] THEN
-  SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
-
-
-(* QHAT_NO_WRAP: if h<2^61 then the quotient q=w*h DIV2^64+h does NOT wrap (< 2^64), so the
-   hardware `add q,t0,h` (64-bit, discards carry) gives q_reduced = q_unreduced.  This resolves
-   the reduced-vs-unreduced qhat question: they are EQUAL (no congruence gymnastics) WHEN h<2^61.
-   OPEN: is h<2^61?  h = X15 = window = (Zf DIV2^p)MOD2^64 which is <2^64 (Zf<2^(p+64)), NOT
-   obviously <2^61.  NEED: the true bound on the window h used as quotient input.  Likely from
-   the RECIP setup / block structure (the window feeding multop is <2^61 because... TBD).  If
-   h can be >=2^61, need the congruence route (q_reduced == q_unreduced absorbing 2^64*b mod b).
-   *** VERIFY h's bound before relying on this. *** *)
-let QHAT_NO_WRAP = prove
- (`!w h. w < 2 EXP 64 /\ h < 2 EXP 61
-         ==> (w * h) DIV 2 EXP 64 + h < 2 EXP 64 /\
-             ((w * h) DIV 2 EXP 64 + h) MOD 2 EXP 64 = (w * h) DIV 2 EXP 64 + h`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `(w * h) DIV 2 EXP 64 <= h` ASSUME_TAC THENL
-   [TRANS_TAC LE_TRANS `(2 EXP 64 * h) DIV 2 EXP 64` THEN CONJ_TAC THENL
-     [MATCH_MP_TAC DIV_MONO THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
-      MATCH_MP_TAC LE_MULT2 THEN UNDISCH_TAC `w < 2 EXP 64` THEN ARITH_TAC;
-      SIMP_TAC[DIV_MULT; EXP_EQ_0; ARITH_EQ; LE_REFL]];
-    SUBGOAL_THEN `(w * h) DIV 2 EXP 64 + h < 2 EXP 64` ASSUME_TAC THENL
-     [MAP_EVERY UNDISCH_TAC [`(w * h) DIV 2 EXP 64 <= h`; `h < 2 EXP 61`] THEN ARITH_TAC;
-      ASM_SIMP_TAC[MOD_LT]]]);;
-
-(* ============================================================================
-   KEY INSIGHT (2026-07-27h): GROWING REGIME (B/FLAT) => qhat = 0.
-   ----------------------------------------------------------------------------
-   The tail value relation at l=dd+1 words is
-     Zout + 2^61*q*lowdigits b l = block + 2^61*Zin + 2^61*q*2^(64*l).
-   In the growing regime, highdigits Zout l = 0 (Zout fits in l words, by INV2 Zf'<2^(64*l)).
-   If qhat<>0: with highdigits b l = 0 (the OTHER disjunct of INV2 fact A), b<2^(64*l), so
-   q*lowdigits b l = q*b < q*2^(64*l); then Zout = 2^61*Zin + block + 2^61*q*(2^(64*l) - b) >=
-   2^61*q*2^(64*l)/... which is >= 2^(64*l), CONTRADICTING highdigits Zout l = 0.  Hence in
-   the growing regime qhat = 0 NECESSARILY.  => use VALUE_ASSEMBLE_B_QZERO + BLOCK_VALUE_B.
-   (The qhat<>0 blocks are exactly the SATURATED regimes DDK/C where l=k+1, X23 absorbs q,
-   handled by VALUE_BRIDGE_DDK.)  NEXT: prove `growing (highdigits Zout l=0, l<=k) /\ INV2-A
-   => qhat=0` as a lemma (GROWING_QZERO), then regime-B close = GROWING_QZERO + VALUE_ASSEMBLE
-   _B_QZERO + BLOCK_VALUE_B.  This RESOLVES the q*2^(64*l) discrepancy cleanly.
-   ============================================================================
-
-   OPEN (next session): the block-advance equation assembly for regime B.
-   ----------------------------------------------------------------------------
-   The tail value relation at ii=dd+1=l (VALUE_GROW_STEP, hh'=0 growing) is:
-     Zout + 2^61*q*lowdigits b l = block + 2^61*Zin + 2^61*q*2^(64*l)
-   (using highdigits Zout l = highdigits Zin l = 0 => Zout=lowdigits Zout l etc, and
-    X23=0 by INV2_TOP_ZERO so Zf=Zin, Zf'=Zout).
-   BLOCK_ADVANCE / BLOCK_VALUE want:  Zout + 2^61*q*b = 2^61*Zin + block.
-   DISCREPANCY: the tail relation has an EXTRA `+ 2^61*q*2^(64*l)` on the RHS and uses
-   `lowdigits b l` not `b`.  Naive algebra (assuming highdigits b l=0 => lowdigits b l=b via
-   TAIL_MUL_FULL) leaves `Zout + 2^61*q*b = 2^61*Zin + block + 2^61*q*2^(64*l)` -- the
-   q*2^(64*l) term does NOT obviously cancel.  RESOLVE by studying VALUE_BRIDGE_DDK (which
-   DOES close): there the `2^61*q*2^(64k)` is absorbed into 2^61*(2^(64k)*ztin+zorig) via the
-   TOP-WORD equation `2^64*q + t10 = ztin+hi+q*(2^64-1)`.  For regime B the analog must route
-   the q*2^(64*l) into z[dd+1] / the carry -- i.e. the value relation's `2^61*q*2^(64*l)` is
-   NOT spurious; it pairs with a term hidden in how Zout's top word (z[dd+1]=ss DIV 8) was
-   computed from ss = zi+hi+q*(2^64-1-bi).  LIKELY the correct move: do NOT set hh'=0 first;
-   instead keep the FULL VALUE_GROW_STEP/INNER_ADVANCE_ADD relation and feed it (with the
-   q*2^(64*l) term intact) to a BLOCK_VALUE-style consumer that expects exactly that shape --
-   OR the block-advance b is the FULL b and 2^(64*l) relates to highdigits b l (=0 in growing
-   => the term must come from elsewhere).  Re-derive carefully against INNER_ADVANCE_ADD's
-   invariant shape `... = block + 2^61*LDz + 2^61*q*2^(64*ii)` -- the RHS q-term is the loop
-   INVARIANT's running term, and the block-advance equation is obtained at the POINT where
-   b is fully consumed (lowdigits b l = b) AND the q*2^(64*l) is matched by q*b's high part.
-   KEY QUESTION to answer first: in regime B is `2^(64*l) = b`?  NO.  So re-examine whether
-   Zf' in the invariant is `bignum(z,k)` or includes a shift.  Suspect the block-advance
-   equation for the GROWING regime is actually the qhat=0 case (BLOCK_VALUE_B: Zf'=2^61*Zf+
-   block, no q*b term) because growing <=> the quotient digit qhat contributes 0 to THIS
-   block (h=0 when the window hasn't reached the top).  CHECK INV2 fact (A): qhat=0 \/
-   highdigits b(dd+1)=0.  If in the growing regime qhat=0, then BLOCK_VALUE_B closes directly
-   (Zout = 2^61*Zin+block, and the value relation with q=0 becomes exactly that -- the
-   q*2^(64*l) term vanishes!).  => REGIME B likely = qhat=0 case: verify h=0 => qhat=0 in
-   growing, use BLOCK_VALUE_B.  That resolves the discrepancy cleanly.
-   ============================================================================ *)
-
-(* BIGNUM_ASSEMBLE_2: read bignum(z,dd+2) off the low dd words + the two top words (z[dd],
-   z[dd+1]).  Two applications of BIGNUM_FROM_MEMORY_STEP.  Bridges the tail's memory-store
-   post to the full bignum(z,k)' = bignum(z,dd+2) (rest 0 by X23=0 + highdigits vanish).
-   Combined with EXTR_FUNNEL_VAL (z[dd] = word_subword(word_join(word W)(word cwin))(3,64) has
-   val 2^61*(W MOD8)+cwin DIV8) + VAL_WORD_USHR (z[dd+1]=word_ushr(word W)3 has val W DIV8) +
-   VALUE_GROW_STEP, this gives the full (dd+2)-word value relation for the close. *)
 let BIGNUM_ASSEMBLE_2 = prove
  (`!z dd s.
      bignum_from_memory (z,dd + 2) s =
@@ -9468,306 +8954,6 @@ let BIGNUM_ASSEMBLE_2 = prove
    = 2^61*(W MOD8)+cwin DIV8) and z[dd+1] (VAL_WORD_USHR = W DIV8).  So this bridges the memory
    stores to the pure value block + 2^61*lowdigits zv (dd+1) [= 2^61*zv+block when zv<2^(64dd),
    via SHIFTADD_ASSEMBLE].  Proof: MP VALUE_GROW_STEP (k:=dd+1, q:=0 etc). *)
-let GROWING_ZK_ASSEMBLE = prove
- (`!zlo W cwin block zv dd b.
-     zlo + 2 EXP (64 * dd) * (cwin DIV 8 + 2 EXP 61 * 0) +
-       2 EXP 61 * (0 * lowdigits b dd) =
-       block + 2 EXP 61 * lowdigits zv dd + 2 EXP 61 * (0 * 2 EXP (64 * dd)) /\
-     2 EXP 64 * 0 + W = bigdigit zv dd + 0 + 0 * (2 EXP 64 - 1 - bigdigit b dd) /\
-     bigdigit b dd < 2 EXP 64
-     ==> (zlo + 2 EXP (64 * dd) * (2 EXP 61 * W MOD 2 EXP 3 + cwin DIV 8)) +
-         2 EXP (64 * (dd + 1)) * (W DIV 2 EXP 3 + 2 EXP 61 * 0) +
-         2 EXP 61 * (0 * lowdigits b (dd + 1)) =
-         block + 2 EXP 61 * lowdigits zv (dd + 1) + 2 EXP 61 * (0 * 2 EXP (64 * (dd + 1)))`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(ISPECL [`dd + 1`; `dd:num`; `0`; `block:num`; `zv:num`; `b:num`; `cwin:num`;
-                 `0`; `W:num`; `0`; `zlo:num`] VALUE_GROW_STEP) THEN
-  ASM_REWRITE_TAC[ARITH_RULE `dd < dd + 1`]);;
-
-(* HIGHZ_VANISH: the high part of z after the tail is 0.  From the prefix's high-z preservation
-   (highdigits zpre (l-1) = highdigits zv (l-1)) + INV2 (zv < 2^(64*l)): highdigits zpre (l+1) =
-   highdigits zpre ((l-1)+2) = highdigits (highdigits zv (l-1)) 2 = highdigits zv (l+1) = 0.
-   So bignum(z,k)_after = bignum(z,l+1)_after (the top words vanish), enabling the shift-add. *)
-let HIGHZ_VANISH = prove
- (`!zpre zv l.
-     2 <= l /\ highdigits zpre (l - 1) = highdigits zv (l - 1) /\ zv < 2 EXP (64 * l)
-     ==> highdigits zpre (l + 1) = 0`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `l + 1 = (l - 1) + 2` SUBST1_TAC THENL
-   [UNDISCH_TAC `2 <= l` THEN ARITH_TAC; ALL_TAC] THEN
-  REWRITE_TAC[GSYM HIGHDIGITS_HIGHDIGITS] THEN ASM_REWRITE_TAC[] THEN
-  REWRITE_TAC[HIGHDIGITS_HIGHDIGITS] THEN
-  MATCH_MP_TAC HIGHDIGITS_ZERO THEN
-  TRANS_TAC LTE_TRANS `2 EXP (64 * l)` THEN ASM_REWRITE_TAC[] THEN
-  REWRITE_TAC[LE_EXP] THEN UNDISCH_TAC `2 <= l` THEN ARITH_TAC);;
-
-(* GROWING_CONG_BOUND: the complete growing-regime value close.  From the seg-B post
-   ingredients -- the prefix value relation (q=0 form), the tail carry-out eqn (W = zv[l-1]),
-   HIGHZ_VANISH (highdigits zpre (l+1)=0), incoming cong(zv) + zv<2^p + zv<2^(64l) -- derives
-   cong + bound on the assembled zk = bignum(z,k)_after (the (l-1)+2-word BIGNUM_ASSEMBLE_2
-   result with the two tail stores).  = GROWING_ZK_ASSEMBLE (zk=2^61*zv+block, using
-   lowdigits zv l = zv from zv<2^(64l)) + GROWING_VALUE_CLOSE.  This is the whole dd<k value
-   close in one lemma; the body's seg C: BIGNUM_ASSEMBLE_2 + store-values (EXTR_FUNNEL_VAL/
-   VAL_WORD_USHR) express zk in this form, then apply this.  (Note the `2^(64*((l-1)+1))` in the
-   zk hyp = the tail's z[l] weight; matches BIGNUM_ASSEMBLE_2 at dd=l-1.) *)
-let GROWING_CONG_BOUND = prove
- (`!a b p ii zpre zv W cwin block l zk.
-     2 <= l /\ zv < 2 EXP p /\ zv < 2 EXP (64 * l) /\
-     (zv == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
-     block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\
-     highdigits zpre (l + 1) = 0 /\
-     lowdigits zpre (l - 1) +
-       2 EXP (64 * (l-1)) * (cwin DIV 8 + 2 EXP 61 * 0) + 2 EXP 61 * (0 * lowdigits b (l-1)) =
-       block + 2 EXP 61 * lowdigits zv (l-1) + 2 EXP 61 * (0 * 2 EXP (64 * (l-1))) /\
-     2 EXP 64 * 0 + W = bigdigit zv (l-1) + 0 + 0 * (2 EXP 64 - 1 - bigdigit b (l-1)) /\
-     bigdigit b (l-1) < 2 EXP 64 /\
-     zk = (lowdigits zpre (l-1) + 2 EXP (64 * (l-1)) * (2 EXP 61 * W MOD 2 EXP 3 + cwin DIV 8)) +
-          2 EXP (64 * ((l-1)+1)) * (W DIV 2 EXP 3 + 2 EXP 61 * 0)
-     ==> (zk == a DIV 2 EXP (61 * ii)) (mod b) /\ zk < 2 EXP (p + 64)`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `zk = 2 EXP 61 * zv + block` ASSUME_TAC THENL
-   [MP_TAC(ISPECL [`lowdigits zpre (l - 1)`; `W:num`; `cwin:num`; `block:num`; `zv:num`;
-                   `l - 1`; `b:num`] GROWING_ZK_ASSEMBLE) THEN
-    ASM_REWRITE_TAC[] THEN
-    SUBGOAL_THEN `(l - 1) + 1 = l` SUBST1_TAC THENL
-     [UNDISCH_TAC `2 <= l` THEN ARITH_TAC; ALL_TAC] THEN
-    REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES] THEN DISCH_TAC THEN
-    SUBGOAL_THEN `lowdigits zv l = zv` SUBST_ALL_TAC THENL
-     [REWRITE_TAC[lowdigits] THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
-    MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `p:num`; `zv:num`; `zk:num`; `block:num`]
-                  GROWING_VALUE_CLOSE) THEN
-    ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN
-    UNDISCH_TAC `zk = (lowdigits zpre (l-1) +
-          2 EXP (64 * (l-1)) * (2 EXP 61 * W MOD 2 EXP 3 + cwin DIV 8)) +
-          2 EXP (64 * ((l-1)+1)) * (W DIV 2 EXP 3 + 2 EXP 61 * 0)` THEN
-    UNDISCH_TAC `zk = 2 EXP 61 * zv + block` THEN
-    UNDISCH_TAC `block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61` THEN CONV_TAC NUM_RING]);;
-
-(* ---- WINDOW X15 close (shared by both regimes) ---- *)
-
-(* WINDOW_FROM_LOGGED_PCODE: FIELDSEL's output, with the logged digits at pcode-1,pcode
-   (pcode = p DIV64+1), equals the invariant's window (Zf' DIV2^p)MOD2^64.  hf=bigdigit Zf'
-   pcode, lf=bigdigit Zf'(pcode-1); FIELDSEL gives X15=((2^64*hf+lf)DIV2^(pMOD64))MOD2^64. *)
-let WINDOW_FROM_LOGGED_PCODE = prove
- (`!Zf p pcode.
-     pcode = p DIV 64 + 1
-     ==> ((2 EXP 64 * bigdigit Zf pcode + bigdigit Zf (pcode - 1)) DIV 2 EXP (p MOD 64)) MOD
-         2 EXP 64 =
-         (Zf DIV 2 EXP p) MOD 2 EXP 64`,
-  REPEAT STRIP_TAC THEN ASM_REWRITE_TAC[ADD_SUB] THEN
-  MP_TAC(SPECL [`Zf:num`; `p:num`] WINDOW_FROM_LOGGED) THEN REWRITE_TAC[]);;
-
-(* HI_ZERO: the inner-loop high carry-out X5 (=hi) is 0 in the GROWING regime.  From the
-   prefix VALUE RELATION at q=0 -- bignum_lo + 2^(64dd)*(cwin DIV8 + 2^61*hi) = block +
-   2^61*LDzv (the q-terms vanish at q=0) -- with block<2^61 and LDzv<2^(64dd): if hi>=1 the
-   LHS >= 2^(64dd)*2^61*hi >= 2^(61+64dd) > 2^61*(LDzv+1) > RHS, contradiction.  So hi=0.
-   This DISCHARGES the `hi=0` baked into GROWING_ZK_ASSEMBLE/GROWING_CONG_BOUND without needing
-   to expose val(X5) from the inner loop -- it is FORCED by the value relation the prefix
-   already carries.  (Physically hi=0 because qhat=0 => the negate-add is carry-free.) *)
-let HI_ZERO = prove
- (`!bignum_lo cwin hi block LDzv dd LDb.
-     bignum_lo + 2 EXP (64 * dd) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * (0 * LDb) =
-       block + 2 EXP 61 * LDzv + 2 EXP 61 * (0 * 2 EXP (64 * dd)) /\
-     block < 2 EXP 61 /\ LDzv < 2 EXP (64 * dd)
-     ==> hi = 0`,
-  REPEAT GEN_TAC THEN REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES] THEN STRIP_TAC THEN
-  ABBREV_TAC `P = 2 EXP (64 * dd)` THEN ABBREV_TAC `Q = 2 EXP 61` THEN
-  SUBGOAL_THEN `~(P = 0) /\ ~(Q = 0)` STRIP_ASSUME_TAC THENL
-   [MAP_EVERY EXPAND_TAC ["P"; "Q"] THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
-  SUBGOAL_THEN `(Q * P) * hi <= block + Q * LDzv` ASSUME_TAC THENL
-   [FIRST_X_ASSUM(fun th -> if is_eq(concl th) &&
-       lhs(concl th) = `bignum_lo + P * (cwin DIV 8 + Q * hi)`
-     then GEN_REWRITE_TAC RAND_CONV [SYM th] else NO_TAC) THEN
-    REWRITE_TAC[LEFT_ADD_DISTRIB; MULT_ASSOC] THEN ARITH_TAC;
-    ALL_TAC] THEN
-  SUBGOAL_THEN `(Q * P) * hi < (Q * P) * 1` MP_TAC THENL
-   [REWRITE_TAC[MULT_CLAUSES] THEN
-    TRANS_TAC LET_TRANS `block + Q * LDzv` THEN ASM_REWRITE_TAC[] THEN
-    MATCH_MP_TAC(ARITH_RULE `block < Q /\ Q * LDzv + Q <= Q * P ==> block + Q * LDzv < Q * P`) THEN
-    ASM_REWRITE_TAC[] THEN
-    REWRITE_TAC[ARITH_RULE `Q * LDzv + Q = Q * (LDzv + 1)`] THEN
-    MATCH_MP_TAC LE_MULT2 THEN ASM_ARITH_TAC;
-    SUBGOAL_THEN `~(Q * P = 0)` (fun th -> SIMP_TAC[th; LT_MULT_LCANCEL]) THENL
-     [ASM_REWRITE_TAC[MULT_EQ_0]; ARITH_TAC]]);;
-
-(* GROWING_ZK_EQ: the seg-C assembled value equals 2^61*zv+block directly.  = GROWING_ZK_ASSEMBLE
-   (q=0,hi=0 form) with lowdigits zv (dd+1) = zv (from zv<2^(64(dd+1))), collapsing the RHS to
-   block+2^61*zv.  This is what the body's seg B feeds after substituting the two tail stores
-   (z[dd]=EXTR_FUNNEL_VAL, z[dd+1]=VAL_WORD_USHR via BIGNUM_ASSEMBLE_2) to obtain
-   bignum(z,k)@0x2e8 = 2^61*zv+block, the FIELDSEL_CLOSE precondition. *)
-let GROWING_ZK_EQ = prove
- (`!zlo W cwin block zv dd b.
-     zlo + 2 EXP (64 * dd) * (cwin DIV 8 + 2 EXP 61 * 0) +
-       2 EXP 61 * (0 * lowdigits b dd) =
-       block + 2 EXP 61 * lowdigits zv dd + 2 EXP 61 * (0 * 2 EXP (64 * dd)) /\
-     2 EXP 64 * 0 + W = bigdigit zv dd + 0 + 0 * (2 EXP 64 - 1 - bigdigit b dd) /\
-     bigdigit b dd < 2 EXP 64 /\
-     zv < 2 EXP (64 * (dd + 1))
-     ==> (zlo + 2 EXP (64 * dd) * (2 EXP 61 * (W MOD 2 EXP 3) + cwin DIV 8)) +
-         2 EXP (64 * (dd + 1)) * (W DIV 2 EXP 3) =
-         2 EXP 61 * zv + block`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  MP_TAC(ISPECL [`zlo:num`; `W:num`; `cwin:num`; `block:num`; `zv:num`; `dd:num`; `b:num`]
-                GROWING_ZK_ASSEMBLE) THEN
-  ASM_REWRITE_TAC[] THEN
-  SUBGOAL_THEN `lowdigits zv (dd + 1) = zv` SUBST1_TAC THENL
-   [REWRITE_TAC[lowdigits] THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES] THEN
-  DISCH_THEN(fun th -> MP_TAC th) THEN ARITH_TAC);;
-
-(* BIGDIGIT_VANISH_ABOVE: Zf < 2^(64*m) => bigdigit Zf j = 0 for all j>=m.  Supplies the
-   `(!j. dd+1 < j ==> bigdigit Zf' j = 0)` hypothesis of TAIL_HF/LF_FINALIZE, from the INV2
-   bound Zf' < 2^(64*(dd+2)) (growing l'=dd+2): dd+1<j => dd+2<=j => bigdigit Zf' j = 0. *)
-let BIGDIGIT_VANISH_ABOVE = prove
- (`!Zf m. Zf < 2 EXP (64 * m) ==> (!j. m <= j ==> bigdigit Zf j = 0)`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[bigdigit] THEN
-  SUBGOAL_THEN `Zf DIV 2 EXP (64 * j) = 0` (fun th -> REWRITE_TAC[th; MOD_0]) THEN
-  SIMP_TAC[DIV_EQ_0; EXP_EQ_0; ARITH_EQ] THEN
-  TRANS_TAC LTE_TRANS `2 EXP (64 * m)` THEN ASM_REWRITE_TAC[LE_EXP] THEN
-  UNDISCH_TAC `m <= j` THEN ARITH_TAC);;
-
-(* BIGDIGIT_AGREE_BELOW: digits below dd agree if lowdigits agree.  Used to bridge the tail's
-   incoming logged digits (lfin/hfin, read from z[<dd] at 0x23c = bigdigit zpre) to bigdigit Zf'
-   (Zf'=bignum(z,k)@0x2e8), since the tail only writes z[dd],z[dd+1] so lowdigits Zf' dd =
-   lowdigits zpre dd.  For the window close (TAIL_LF/HF_FINALIZE need lfin=bigdigit Zf'(pcode-1)
-   when pcode<=dd, hfin=bigdigit Zf' pcode when pcode<dd). *)
-let BIGDIGIT_AGREE_BELOW = prove
- (`!Zf zpre dd j.
-     lowdigits Zf dd = lowdigits zpre dd /\ j < dd
-     ==> bigdigit Zf j = bigdigit zpre j`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(SPECL [`Zf:num`; `dd:num`; `j:num`] BIGDIGIT_LOWDIGITS) THEN
-  MP_TAC(SPECL [`zpre:num`; `dd:num`; `j:num`] BIGDIGIT_LOWDIGITS) THEN
-  ASM_REWRITE_TAC[] THEN DISCH_THEN(SUBST1_TAC o SYM) THEN DISCH_THEN(SUBST1_TAC o SYM) THEN
-  ASM_REWRITE_TAC[]);;
-
-
-(* ======== inlined: ddk_logdigit_finalize.ml ======== *)
-(* Stage 3f: DDK saturated logged-digit finalization.  Turns the DDK tail's conditional X13/X14
-   forms (keyed on k, k+1, pcode -- from TAIL_DDK_WIDE_LOG_X) into word(bigdigit V pcode),
-   word(bigdigit V (pcode-1)) for the FULL new accumulator V = 2^(64k)*Ztp + zpre, where Ztp = X23'
-   = 2^61*t10 + cwin DIV8 (< 2^64).  This is the saturated analog of LOGDIGIT_FINALIZE_BRIDGE.
-   Handles pcode <= k+1 (incl the full-width p=64k => pcode=k+1 edge, where bigdigit V (k+1)=0).
-   Deps: BIGDIGIT_TOP_SAT, VAL_LT_TOP, BIGDIGIT_AGREE_BELOW (value_close_lemmas.ml). *)
-
-(* bigdigit of the top word: bigdigit (2^(64k)*Ztp + zpre) k = Ztp when Ztp<2^64, zpre<2^(64k). *)
-let BIGDIGIT_TOP_SAT = prove
- (`!Ztp zpre k. Ztp < 2 EXP 64 /\ zpre < 2 EXP (64 * k)
-    ==> bigdigit (2 EXP (64 * k) * Ztp + zpre) k = Ztp`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[bigdigit; DIV_ADD] THEN
-  SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ; DIV_LT; ADD_CLAUSES] THEN
-  ASM_SIMP_TAC[DIV_LT] THEN REWRITE_TAC[ADD_CLAUSES] THEN
-  MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]);;
-
-(* the top-vanish magnitude bound (nonlinear; proper lemmas not ARITH_RULE). *)
-let VAL_LT_TOP = prove
- (`!Ztp zpre k. Ztp < 2 EXP 64 /\ zpre < 2 EXP (64 * k)
-    ==> 2 EXP (64 * k) * Ztp + zpre < 2 EXP (64 * k) * 2 EXP 64`,
-  REPEAT STRIP_TAC THEN
-  TRANS_TAC LTE_TRANS `2 EXP (64 * k) * Ztp + 2 EXP (64 * k)` THEN CONJ_TAC THENL
-   [ASM_REWRITE_TAC[LT_ADD_LCANCEL]; ALL_TAC] THEN
-  REWRITE_TAC[ARITH_RULE `a * Ztp + a = a * (Ztp + 1)`; LE_MULT_LCANCEL] THEN
-  DISJ2_TAC THEN ASM_ARITH_TAC);;
-
-let DDK_LOGDIGIT_FINALIZE = prove
- (`!Ztp zpre k pcode lfin hfin.
-    Ztp < 2 EXP 64 /\ zpre < 2 EXP (64 * k) /\ 1 <= pcode /\ pcode <= k + 1 /\
-    (pcode <= k ==> lfin = bigdigit zpre (pcode - 1)) /\
-    (pcode < k ==> hfin = bigdigit zpre pcode) /\
-    (k = pcode ==> hfin = Ztp) /\
-    (k + 1 = pcode ==> hfin = 0)
-    ==> (if k = pcode then word Ztp:int64 else word hfin) =
-        word (bigdigit (2 EXP (64 * k) * Ztp + zpre) pcode) /\
-        (if k + 1 = pcode then word Ztp:int64
-         else if pcode <= k + 1 then (if k < pcode then word Ztp else word lfin)
-              else word 0) =
-        word (bigdigit (2 EXP (64 * k) * Ztp + zpre) (pcode - 1))`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `bigdigit (2 EXP (64 * k) * Ztp + zpre) k = Ztp` ASSUME_TAC THENL
-   [MATCH_MP_TAC BIGDIGIT_TOP_SAT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  SUBGOAL_THEN `!j. j < k ==> bigdigit (2 EXP (64 * k) * Ztp + zpre) j = bigdigit zpre j` ASSUME_TAC THENL
-   [REPEAT STRIP_TAC THEN MATCH_MP_TAC BIGDIGIT_AGREE_BELOW THEN EXISTS_TAC `k:num` THEN
-    ASM_REWRITE_TAC[] THEN REWRITE_TAC[lowdigits] THEN
-    SUBGOAL_THEN `(2 EXP (64 * k) * Ztp + zpre) MOD 2 EXP (64 * k) = zpre MOD 2 EXP (64 * k)`
-      SUBST1_TAC THENL [REWRITE_TAC[MOD_MULT_ADD]; ALL_TAC] THEN
-    ASM_SIMP_TAC[MOD_LT];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `bigdigit (2 EXP (64 * k) * Ztp + zpre) (k + 1) = 0` ASSUME_TAC THENL
-   [REWRITE_TAC[bigdigit] THEN
-    SUBGOAL_THEN `(2 EXP (64 * k) * Ztp + zpre) DIV 2 EXP (64 * (k + 1)) = 0`
-      (fun th -> REWRITE_TAC[th; MULT_CLAUSES; ADD_CLAUSES; DIV_0; MOD_0]) THEN
-    MATCH_MP_TAC DIV_LT THEN
-    REWRITE_TAC[ARITH_RULE `64 * (k + 1) = 64 * k + 64`; EXP_ADD] THEN
-    MATCH_MP_TAC VAL_LT_TOP THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  CONJ_TAC THENL
-   [COND_CASES_TAC THENL
-     [ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
-      FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN ASM_REWRITE_TAC[];
-      ASM_CASES_TAC `k + 1 = pcode` THENL
-       [SUBGOAL_THEN `hfin = 0` SUBST1_TAC THENL [ASM_MESON_TAC[]; ALL_TAC] THEN
-        ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
-        FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN ASM_REWRITE_TAC[];
-        SUBGOAL_THEN `pcode < k` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
-        ASM_SIMP_TAC[] THEN AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
-        FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]];
-    ASM_CASES_TAC `k + 1 = pcode` THENL
-     [ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN
-      SUBGOAL_THEN `pcode - 1 = k` SUBST1_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
-      CONV_TAC SYM_CONV THEN ASM_REWRITE_TAC[];
-      SUBGOAL_THEN `pcode <= k + 1 /\ ~(k < pcode)` STRIP_ASSUME_TAC THENL
-       [ASM_ARITH_TAC; ALL_TAC] THEN
-      ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN
-      SUBGOAL_THEN `lfin = bigdigit zpre (pcode - 1)` SUBST1_TAC THENL
-       [FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-      CONV_TAC SYM_CONV THEN FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]]);;
-
-
-(* FUNNEL_VAL_EXACT: the UNCONDITIONAL value of the DDK tail's funnel top word -- no no-borrow / t10<8
-   hyp needed.  val(word_subword(word_join(word ss)(word cwin))(3,64)) = ((ss MOD2^64 * 2^64 +
-   cwin MOD2^64) DIV 8) MOD 2^64.  This SIDESTEPS the top-word no-borrow: work with t10 := ss MOD
-   2^64 directly (NOT requiring q = ss DIV 2^64).  With t10<8 (from T10_LT_8_BRIDGE, KI) the MOD 2^64
-   vanishes -> val(X23') = 2^61*t10 + (cwin MOD2^64) DIV 8, feeding VALUE_BRIDGE_DDK/DDK_VALUE_CLOSE
-   without a no-borrow premise. *)
-let FUNNEL_VAL_EXACT = prove
- (`!ss cwin. val(word_subword (word_join (word ss:int64) (word cwin:int64):int128) (3,64):int64) =
-             ((ss MOD 2 EXP 64 * 2 EXP 64 + cwin MOD 2 EXP 64) DIV 8) MOD 2 EXP 64`,
-  REPEAT GEN_TAC THEN
-  REWRITE_TAC[VAL_WORD_SUBWORD; VAL_WORD_JOIN; DIMINDEX_64; DIMINDEX_128; VAL_WORD] THEN
-  REWRITE_TAC[ARITH_RULE `MIN 64 (128 - 3) = 64`; ARITH_RULE `2 EXP 3 = 8`;
-              ARITH_RULE `MIN 64 64 = 64`] THEN
-  SUBGOAL_THEN `(2 EXP 64 * ss MOD 2 EXP 64 + cwin MOD 2 EXP 64) MOD 2 EXP 128 =
-                2 EXP 64 * ss MOD 2 EXP 64 + cwin MOD 2 EXP 64` SUBST1_TAC THENL
-   [MATCH_MP_TAC MOD_LT THEN
-    MP_TAC(SPECL [`ss:num`; `2 EXP 64`] MOD_LT_EQ) THEN
-    MP_TAC(SPECL [`cwin:num`; `2 EXP 64`] MOD_LT_EQ) THEN
-    REWRITE_TAC[EXP_EQ_0; ARITH_EQ; ARITH_RULE `2 EXP 128 = 2 EXP 64 * 2 EXP 64`] THEN ARITH_TAC;
-    REWRITE_TAC[MULT_SYM]]);;
-
-Printf.printf "\n=== ddk_logdigit_finalize.ml: BIGDIGIT_TOP_SAT, VAL_LT_TOP, DDK_LOGDIGIT_FINALIZE ===\n%!";;
-
-
-(* ======== inlined: xinvariant_glue.ml ======== *)
-(* Stage 3f X-INVARIANT GLUE (2026-07-27h).  The seam that lets the proven segment/tail
-   lemmas -- which do NOT restate bignum_from_memory(x,n)=a in their pre/post -- compose
-   under an ENSURES_SEQUENCE that threads the loop-constant fact bignum(x,n)=a (needed at
-   FIELDSEL / the backedge).  x is disjoint from z (top-level nonoverlapping (z,8k)(x,8n)),
-   so the block-body MAYCHANGE frame preserves bignum(x,n); we simply conjoin it back.
-
-   Two pieces:
-     ENSURES_CONJ_MEM_INVARIANT : if the frame C preserves bignum(x,n) and `ensures P Q C`
-       holds, then `ensures (P /\ bignum(x,n)=a) (Q /\ bignum(x,n)=a) C`.  Generic.
-     MAINLOOP_FRAME_PRESERVES_X : the block-body frame [regs],,SOME_FLAGS,,events,,
-       [mem:>bignum(z,k)] preserves bignum(x,n) given nonoverlapping (z,8k)(x,8n).
-
-   Usage to lift a segment lemma SEG (already ISPEC'd to a bare `ensures P Q C`, C = block
-   frame) to carry bignum(x,n)=a:
-     let seg_x =
-       let presv = ISPECL [`x`;`n`;`z`;`k`] MAINLOOP_FRAME_PRESERVES_X in
-       SPEC `a:num` (MATCH_MP ENSURES_CONJ_MEM_INVARIANT (CONJ (UNDISCH presv) SEG)) in
-     ... then BETA_RULE / CONV to flatten the nested (\s....) s and ACCEPT into the
-     ENSURES_SEQUENCE conjunct (whose crafted assertion carries `... /\ bignum(x,n)=a`). *)
-
 let ENSURES_CONJ_MEM_INVARIANT = prove
  (`!P Q C x n a.
      (!s s'. (C:armstate->armstate->bool) s s'
@@ -9884,8 +9070,6 @@ let TAIL_DDLT_C_WIDE_LOG_X = mk_tail_x TAIL_DDLT_C_WIDE_LOG;;
 let TAIL_FLAT_WIDE_LOG_X = mk_tail_x TAIL_FLAT_WIDE_LOG;;
 let BIGNUM_MOD_TAIL_DDK_WIDE_LOG_X = mk_tail_x_ddk BIGNUM_MOD_TAIL_DDK_WIDE_LOG;;
 
-
-(* ======== inlined: prefix_lemma.ml ======== *)
 (* Stage 3f PREFIX LEMMA (2026-07-27h): the dd>=1 (l>1) prefix of the block body,
    pc+0x1a4 -> pc+0x23c.  Composes (ENSURES_SEQUENCE):
      0x1a4->0x1d4 BLOCKLOAD_WIDE       (carries bignum(x,n)=a in pre+post: direct ACCEPT)
@@ -9999,8 +9183,6 @@ let BIGNUM_MOD_PREFIX_DDGE1 = prove
     SUBSUMED_MAYCHANGE_TAC;
     REPEAT GEN_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[]]);;
 
-
-(* ======== inlined: fieldsel_wide_x12.ml ======== *)
 (* Stage 3f: X12-preserving widened FIELDSEL (0x2e8 -> 0x304), for the block-to-0x304
    composition.  Identical to BIGNUM_MOD_FIELDSEL_WIDE (mainloop_body.ml) but ALSO asserts
    read X12 s = word (p DIV 64 + 1) in the post (the FIELDSEL funnel touches only X5,X6,
@@ -10039,8 +9221,6 @@ let BIGNUM_MOD_FIELDSEL_WIDE_X12 = prove
     ARM_BIGSTEP_TAC BIGNUM_MOD_EXEC "s1") THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[]);;
 
-
-(* ======== inlined: fieldsel_close.ml ======== *)
 (* Stage 3f: seg-C endpoint for the GROWING regime.  FIELDSEL 0x2e8->0x304 + value close.
    Self-contained: given the ASSEMBLED value bignum(z,k)@0x2e8 = 2^61*zv+block (X23=0, growing),
    plus the incoming cong(zv == a DIV 2^(61(ii+1))) + zv<2^p + block def, produce the outgoing
@@ -10102,8 +9282,6 @@ let BIGNUM_MOD_FIELDSEL_CLOSE = prove
                 GROWING_VALUE_CLOSE) THEN
   ASM_REWRITE_TAC[]);;
 
-
-(* ======== inlined: win_block_helpers.ml ======== *)
 (* Stage 3f: helpers for the WINDOW-carrying growing-B block (BLOCK_B_GROW_304_WIN).
    ZF_BOUND_GROW: Zf'=2^61*zv+block < 2^(64(l+1)) from zv<2^(64l) & block<2^61 (INV2 re-est +
      the finalize vanish hyp Zf'<2^(64((l-1)+2))).
@@ -10122,18 +9300,6 @@ let STORE_IS_BIGDIGIT = prove
   FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN
   MP_TAC(ISPECL [`k:num`; `z:int64`; `s:armstate`; `j:num`] BIGDIGIT_BIGNUM_FROM_MEMORY) THEN
   ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN REWRITE_TAC[WORD_VAL]);;
-
-let ZF_BOUND_GROW = prove
- (`!zv block l. zv < 2 EXP (64 * l) /\ block < 2 EXP 61
-    ==> 2 EXP 61 * zv + block < 2 EXP (64 * (l + 1))`,
-  REPEAT STRIP_TAC THEN
-  TRANS_TAC LTE_TRANS `2 EXP 61 * 2 EXP (64 * l) + 2 EXP 61` THEN CONJ_TAC THENL
-   [MATCH_MP_TAC(ARITH_RULE `a < c /\ d < e ==> a + d < c + e`) THEN
-    ASM_SIMP_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ] THEN ASM_REWRITE_TAC[];
-    REWRITE_TAC[GSYM EXP_ADD] THEN
-    TRANS_TAC LE_TRANS `2 EXP (61 + 64 * l) + 2 EXP (61 + 64 * l)` THEN CONJ_TAC THENL
-     [MATCH_MP_TAC LE_ADD2 THEN CONJ_TAC THEN REWRITE_TAC[LE_EXP] THEN ARITH_TAC;
-      REWRITE_TAC[GSYM MULT_2; GSYM(CONJUNCT2 EXP); LE_EXP] THEN ARITH_TAC]]);;
 
 let TAIL_LOGIN_TO_ZPRE = prove
  (`!z k zpre dd pcode lfw hfw s.
@@ -10166,24 +9332,6 @@ let TAIL_LOGIN_TO_ZPRE = prove
    of ZF_BOUND_GROW.  OPEN: prove FLAT's structural hyp (jj+124)DIV64 = dd+1 ==> p <= 64*dd+2
    (the l-recurrence / BITSIZE arith; p=bitsize(b), jj=61+61*(NB-i)).  p<=64dd+3 is too loose
    by one (2^61*2^p + block can reach 2^(64(dd+1))+2^61); p<=64dd+2 is exactly tight. *)
-let ZF_BOUND_FLAT = prove
- (`!zv block p dd. zv < 2 EXP p /\ p <= 64 * dd + 2 /\ block < 2 EXP 61
-    ==> 2 EXP 61 * zv + block < 2 EXP (64 * (dd + 1))`,
-  REPEAT STRIP_TAC THEN
-  TRANS_TAC LTE_TRANS `2 EXP 61 * 2 EXP p + 2 EXP 61` THEN CONJ_TAC THENL
-   [MATCH_MP_TAC(ARITH_RULE `a < c /\ d < e ==> a + d < c + e`) THEN
-    ASM_SIMP_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ];
-    REWRITE_TAC[GSYM EXP_ADD] THEN
-    TRANS_TAC LE_TRANS `2 EXP (61 + (64 * dd + 2)) + 2 EXP (61 + (64 * dd + 2))` THEN CONJ_TAC THENL
-     [MATCH_MP_TAC LE_ADD2 THEN CONJ_TAC THEN REWRITE_TAC[LE_EXP] THEN ASM_ARITH_TAC;
-      REWRITE_TAC[GSYM MULT_2; GSYM(CONJUNCT2 EXP); LE_EXP] THEN ARITH_TAC]]);;
-
-(* TAIL_LOGIN_TO_ZPRE_SAT (cont23cc): the dd=k (SATURATED/DDK) variant of TAIL_LOGIN_TO_ZPRE.  The
-   original requires dd<k (growing/DDLT, dd=l-1<k); the DDK block has dd=l-1=k, so it needs dd=k.
-   Entry logging keyed on k (MIN k pcode, pcode<k, ~(pcode<k)); z has k words = zc = bignum(z,k).
-   Yields lfw=bigdigit zc(pcode-1) for pcode<=k, hfw=bigdigit zc pcode for pcode<k, hfw=0 else.
-   Proof identical to TAIL_LOGIN_TO_ZPRE with dd:=k (drops the 1<=dd derivation; bignum(z,k) covers
-   all k words directly).  Feeds DDK_LOGDIGIT_FINALIZE in the DDK block seg-B post-impl. *)
 let TAIL_LOGIN_TO_ZPRE_SAT = prove
  (`!z k zpre pcode lfw hfw s.
      bignum_from_memory (z,k) s = zpre /\ 1 <= k /\ 1 <= pcode /\
@@ -10207,10 +9355,6 @@ let TAIL_LOGIN_TO_ZPRE_SAT = prove
     REWRITE_TAC[WORD_VAL];
     ASM_REWRITE_TAC[]]);;
 
-Printf.printf "\n=== win_block_helpers.ml: + TAIL_LOGIN_TO_ZPRE_SAT (dd=k variant for DDK) ===\n%!";;
-
-
-(* ======== inlined: fieldsel_close_win.ml ======== *)
 (* Stage 3f: WINDOW-carrying seg-C endpoint.  Like BIGNUM_MOD_FIELDSEL_CLOSE but ALSO carries
    the invariant's window clause X15 = word((Zf' DIV 2^p) MOD 2^64) in the post (needed by the
    PDOWN body invariant, which threads the window).  Takes the ALREADY-FINALIZED logged digits
@@ -10327,84 +9471,12 @@ let BIGNUM_MOD_FIELDSEL_CLOSE_WIN_INV2 = prove
     ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN REFL_TAC;
     MATCH_MP_TAC ZF_BOUND_GROW THEN ASM_REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]]);;
 
-
-(* ======== inlined: value_close_tight.ml ======== *)
 (* Stage 3f: TIGHT-bound value closes -- (B):=Zf<b*2^64 variants of the growing value close and
    the WINDOW-carrying seg-C FIELDSEL close.  Companions to GROWING_VALUE_CLOSE (value_close_
    lemmas.ml) and BIGNUM_MOD_FIELDSEL_CLOSE_WIN (fieldsel_close_win.ml) but concluding b*2^64.
    Deps: GROWING_BOUND_TIGHT (bound_tight.ml), CONG_HALF (ki_core.ml), BIGNUM_MOD_FIELDSEL_WIDE_X12
    (fieldsel_wide_x12.ml), WINDOW_FROM_LOGGED_PCODE (tail_ddk.ml). *)
 
-let GROWING_VALUE_CLOSE_TIGHT = prove
- (`!a b i p Zf Zf' block.
-     (Zf == a DIV 2 EXP (61 * (i + 1))) (mod b) /\
-     block = (a DIV 2 EXP (61 * i)) MOD 2 EXP 61 /\
-     Zf < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
-     Zf' = 2 EXP 61 * Zf + block
-     ==> (Zf' == a DIV 2 EXP (61 * i)) (mod b) /\ Zf' < b * 2 EXP 64`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN CONJ_TAC THENL
-   [MATCH_MP_TAC CONG_HALF THEN
-    MAP_EVERY EXISTS_TAC [`Zf:num`; `0`; `block:num`] THEN
-    ASM_REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES];
-    MP_TAC(SPECL [`Zf:num`; `Zf':num`; `b:num`; `block:num`; `p:num`] GROWING_BOUND_TIGHT) THEN
-    ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN
-    ASM_REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]]);;
-
-let BIGNUM_MOD_FIELDSEL_CLOSE_WIN_TIGHT = prove
- (`!p pc k z n x m a b zv block ii X17v X19v X16v X21v.
-    block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\ zv < 2 EXP p /\
-    2 EXP (p - 1) <= b /\ 1 <= p /\
-    (zv == a DIV 2 EXP (61 * (ii + 1))) (mod b)
-    ==> ensures arm
-     (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\ read PC s = word (pc + 0x2e8) /\
-          read X0 s = word k /\ read X1 s = z /\ read X2 s = word n /\ read X3 s = x /\
-          read X4 s = m /\ read X20 s = word p /\ read X21 s = word X21v /\
-          read X16 s = word X16v /\ read X17 s = word X17v /\ read X19 s = word X19v /\
-          read X12 s = word (p DIV 64 + 1) /\ read X23 s = word 0 /\
-          read X13 s = word (bigdigit (2 EXP 61 * zv + block) ((p DIV 64 + 1) - 1)) /\
-          read X14 s = word (bigdigit (2 EXP 61 * zv + block) (p DIV 64 + 1)) /\
-          bignum_from_memory (x,n) s = a /\ bignum_from_memory (m,k) s = b /\
-          bignum_from_memory (z,k) s = 2 EXP 61 * zv + block)
-     (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\ read PC s = word (pc + 0x304) /\
-          read X0 s = word k /\ read X1 s = z /\ read X2 s = word n /\ read X3 s = x /\
-          read X4 s = m /\ read X20 s = word p /\ read X21 s = word X21v /\
-          read X16 s = word X16v /\ read X17 s = word X17v /\ read X19 s = word X19v /\
-          read X12 s = word (p DIV 64 + 1) /\
-          bignum_from_memory (x,n) s = a /\ bignum_from_memory (m,k) s = b /\
-          (2 EXP (64 * k) * val(read X23 s) + bignum_from_memory (z,k) s
-            == a DIV 2 EXP (61 * ii)) (mod b) /\
-          2 EXP (64 * k) * val(read X23 s) + bignum_from_memory (z,k) s < b * 2 EXP 64 /\
-          read X15 s = word (((2 EXP (64 * k) * val(read X23 s) + bignum_from_memory (z,k) s)
-                              DIV 2 EXP p) MOD 2 EXP 64))
-     (MAYCHANGE [PC; X0; X5; X6; X7; X8; X9; X10; X11; X12; X13; X14; X15;
-                 X16; X17; X19; X20; X21; X22; X23; X24] ,,
-      MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events] ,, MAYCHANGE [memory :> bignum(z,k)])`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(ISPECL [`p:num`; `bigdigit (2 EXP 61 * zv + block) ((p DIV 64 + 1) - 1)`;
-                 `bigdigit (2 EXP 61 * zv + block) (p DIV 64 + 1)`; `pc:num`; `k:num`;
-                 `z:int64`; `n:num`; `x:int64`; `m:int64`; `a:num`; `b:num`; `0`;
-                 `2 EXP 61 * zv + block`; `X17v:num`; `X19v:num`; `X16v:num`; `X21v:num`]
-                BIGNUM_MOD_FIELDSEL_WIDE_X12) THEN
-  REWRITE_TAC[BIGDIGIT_BOUND; SOME_FLAGS] THEN
-  MATCH_MP_TAC(REWRITE_RULE[IMP_CONJ] ENSURES_POSTCONDITION_THM) THEN
-  GEN_TAC THEN REWRITE_TAC[] THEN STRIP_TAC THEN
-  ASM_REWRITE_TAC[VAL_WORD_0; MULT_CLAUSES; ADD_CLAUSES] THEN
-  ASM_SIMP_TAC[WINDOW_FROM_LOGGED_PCODE] THEN
-  MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `p:num`; `zv:num`;
-                 `2 EXP 61 * zv + block`; `block:num`] GROWING_VALUE_CLOSE_TIGHT) THEN
-  ASM_REWRITE_TAC[]);;
-
-(* INV2_FROM_BOUND_SAT_TIGHT: with the tight bound, INV2 for saturated is even simpler --
-   Zf < b*2^64 <= 2^(64k)*2^64 = 2^(64(k+1)); no bitsize needed. *)
-let INV2_FROM_BOUND_SAT_TIGHT = prove
- (`!Zf b k. Zf < b * 2 EXP 64 /\ b < 2 EXP (64 * k) ==> Zf < 2 EXP (64 * (k + 1))`,
-  REPEAT STRIP_TAC THEN
-  TRANS_TAC LTE_TRANS `b * 2 EXP 64` THEN ASM_REWRITE_TAC[] THEN
-  REWRITE_TAC[ARITH_RULE `64 * (k + 1) = 64 * k + 64`; EXP_ADD] THEN
-  MATCH_MP_TAC LE_MULT2 THEN ASM_SIMP_TAC[LT_IMP_LE; LE_REFL]);;
-
-(* The _INV2 seg-C close (B block uses this): tight (B) via GROWING_VALUE_CLOSE_TIGHT + the
-   separate INV2 clause via ZF_BOUND_GROW (INDEPENDENT of the bound tightening). *)
 let BIGNUM_MOD_FIELDSEL_CLOSE_WIN_INV2_TIGHT = prove
  (`!p pc k z n x m a b zv block ii l X17v X19v X16v X21v.
     block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\ zv < 2 EXP p /\ zv < 2 EXP (64 * l) /\
@@ -10454,10 +9526,6 @@ let BIGNUM_MOD_FIELDSEL_CLOSE_WIN_INV2_TIGHT = prove
     ASM_REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ];
     MATCH_MP_TAC ZF_BOUND_GROW THEN ASM_REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]]);;
 
-Printf.printf "\n=== value_close_tight.ml: GROWING_VALUE_CLOSE_TIGHT, FIELDSEL_CLOSE_WIN_TIGHT, INV2_FROM_BOUND_SAT_TIGHT, FIELDSEL_CLOSE_WIN_INV2_TIGHT ===\n%!";;
-
-
-(* ======== inlined: jj_bound.ml ======== *)
 (* ============================================================================
    Stage 3f: the jj-bound (V < 2^X17v) inductive-step lemmas (cont90).
    ----------------------------------------------------------------------------
@@ -10478,157 +9546,6 @@ Printf.printf "\n=== value_close_tight.ml: GROWING_VALUE_CLOSE_TIGHT, FIELDSEL_C
 
 (* JJ_STEP: the jj-bound inductive step.  No residual bound needed -- just qh*b>=0 (subtraction)
    and the STRICT incoming bound + block<2^61.  V' = 2^61*(zv-qh*b)+block. *)
-let JJ_STEP = prove
- (`!zv qh b block X17v.
-     zv < 2 EXP X17v /\ block < 2 EXP 61
-     ==> 2 EXP 61 * (zv - qh * b) + block < 2 EXP (X17v + 61)`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `zv - qh * b <= zv` ASSUME_TAC THENL [ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP 61 * (zv - qh * b) <= 2 EXP 61 * zv` ASSUME_TAC THENL
-   [ASM_REWRITE_TAC[LE_MULT_LCANCEL]; ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP 61 * zv <= 2 EXP 61 * (2 EXP X17v - 1)` ASSUME_TAC THENL
-   [REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN UNDISCH_TAC `zv < 2 EXP X17v` THEN ARITH_TAC;
-    ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP (X17v + 61) = 2 EXP 61 * 2 EXP X17v` SUBST1_TAC THENL
-   [REWRITE_TAC[EXP_ADD] THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `1 <= 2 EXP X17v` MP_TAC THENL
-   [REWRITE_TAC[ARITH_RULE `1 <= n <=> 0 < n`; EXP_LT_0; ARITH_EQ]; ALL_TAC] THEN
-  UNDISCH_TAC `2 EXP 61 * (zv - qh * b) <= 2 EXP 61 * zv` THEN
-  UNDISCH_TAC `2 EXP 61 * zv <= 2 EXP 61 * (2 EXP X17v - 1)` THEN
-  UNDISCH_TAC `block < 2 EXP 61` THEN ARITH_TAC);;
-
-(* FLAT_JJ_FIT: at a flat iteration (raw2 = raw), X17v+61 <= 64*l where l=(X17v+124)DIV64.
-   Because raw2=raw forces (X17v+63)MOD64 <= 2, so 64*l = (X17v+63) - r >= X17v+61. *)
-let FLAT_JJ_FIT = prove
- (`!X17v. (X17v + 124) DIV 64 = (X17v + 63) DIV 64
-          ==> X17v + 61 <= 64 * ((X17v + 124) DIV 64)`,
-  GEN_TAC THEN DISCH_TAC THEN ASM_REWRITE_TAC[] THEN
-  MP_TAC(SPECL [`X17v + 63`; `64`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
-  ABBREV_TAC `q = (X17v + 63) DIV 64` THEN ABBREV_TAC `r = (X17v + 63) MOD 64` THEN
-  STRIP_TAC THEN
-  SUBGOAL_THEN `r < 3` ASSUME_TAC THENL
-   [REWRITE_TAC[ARITH_RULE `r < 3 <=> ~(3 <= r)`] THEN DISCH_TAC THEN
-    UNDISCH_TAC `(X17v + 124) DIV 64 = q` THEN
-    SUBGOAL_THEN `X17v + 124 = 64 * (q + 1) + (r - 3)` SUBST1_TAC THENL
-     [UNDISCH_TAC `X17v + 63 = q * 64 + r` THEN UNDISCH_TAC `3 <= r` THEN ARITH_TAC; ALL_TAC] THEN
-    SIMP_TAC[DIV_MULT_ADD; ARITH_EQ] THEN
-    SUBGOAL_THEN `(r - 3) DIV 64 = 0` SUBST1_TAC THENL
-     [MATCH_MP_TAC DIV_LT THEN UNDISCH_TAC `r < 64` THEN ARITH_TAC; ALL_TAC] THEN
-    ARITH_TAC; ALL_TAC] THEN
-  UNDISCH_TAC `X17v + 63 = q * 64 + r` THEN UNDISCH_TAC `r < 3` THEN ARITH_TAC);;
-
-(* GROW_JJ_FIT: at a grow iteration (raw2=raw+1), X17v+61 <= 64*(l+1) where l=(X17v+63)DIV64.
-   64*(l+1) = 64*l+64 >= (X17v+63-63)+64 = X17v+64 >= X17v+61.  (l=(X17v+63)DIV64 => 64*l>=X17v+63-63=X17v.) *)
-let GROW_JJ_FIT = prove
- (`!X17v. X17v + 61 <= 64 * ((X17v + 63) DIV 64 + 1)`,
-  GEN_TAC THEN
-  MP_TAC(SPECL [`X17v + 63`; `64`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
-  ARITH_TAC);;
-
-(* ENTRY_JJ: the base case.  At the first body (X17=61, V = a DIV 2^(61*NB)), the jj-bound
-   V < 2^61 holds, because 61*NB in [64n-61, 64n-1] (NB=(64n+60)DIV61-1) so a<2^(64n) gives
-   a DIV 2^(61*NB) < 2^(64n-61*NB) <= 2^61.  Reduces to 64n <= 61*((64n+60)DIV61). *)
-let ENTRY_JJ = prove
- (`!a n NB. 1 <= n /\ a < 2 EXP (64 * n) /\ NB = (64 * n + 60) DIV 61 - 1
-            ==> a DIV 2 EXP (61 * NB) < 2 EXP 61`,
-  REPEAT STRIP_TAC THEN
-  SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
-  TRANS_TAC LTE_TRANS `2 EXP (64 * n)` THEN ASM_REWRITE_TAC[] THEN
-  REWRITE_TAC[GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN
-  SUBGOAL_THEN `1 <= (64 * n + 60) DIV 61` ASSUME_TAC THENL
-   [MP_TAC(SPECL [`64 * n + 60`; `61`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
-    UNDISCH_TAC `1 <= n` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `64 * n <= 61 * ((64 * n + 60) DIV 61)` MP_TAC THENL
-   [MP_TAC(SPECL [`64 * n + 60`; `61`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN ARITH_TAC;
-    ALL_TAC] THEN
-  UNDISCH_TAC `1 <= (64 * n + 60) DIV 61` THEN ARITH_TAC);;
-
-(* DDK_VALUE_JJ: the jj-bound for the SATURATED (DDK) block, whose value-close (DDK_VALUE_CLOSE)
-   exposes only the additive relation (R1) + carry (R2), NOT the 2^61*(V-q*b)+block form.  This bridges:
-   from R1 + R2 + the residual bound q*b<=V + incoming V<2^X17v, the DDK output value
-   Vclose = zpre + 2^(64k)*(2^61*t10 + cwin DIV 8) satisfies Vclose < 2^(X17v+61).  Internally shows
-   Vclose = 2^61*(V - q*b) + block (via t10 = (ztin+hi)-q from R2, and R1) then applies JJ_STEP.
-   The two subtraction-safety products (E*TT*q<=..., TT*b*q<=...) are provided so ASM_ARITH closes
-   the truncated-nat identity over the abstracted exponentials E=2^(64k), TT=2^61. *)
-let DDK_VALUE_JJ = prove
- (`!ztin zorig zpre block q hi cwin t10 b k X17v.
-     block < 2 EXP 61 /\ q * b <= 2 EXP (64 * k) * ztin + zorig /\
-     2 EXP (64 * k) * ztin + zorig < 2 EXP X17v /\
-     2 EXP 64 * q + t10 = ztin + hi + q * (2 EXP 64 - 1) /\
-     zpre + 2 EXP (64 * k) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * q * b =
-     block + 2 EXP 61 * zorig + 2 EXP 61 * q * 2 EXP (64 * k)
-     ==> zpre + 2 EXP (64 * k) * (2 EXP 61 * t10 + cwin DIV 8) < 2 EXP (X17v + 61)`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `t10 = (ztin + hi) - q /\ q <= ztin + hi` STRIP_ASSUME_TAC THENL
-   [UNDISCH_TAC `2 EXP 64 * q + t10 = ztin + hi + q * (2 EXP 64 - 1)` THEN
-    REWRITE_TAC[LEFT_SUB_DISTRIB; MULT_CLAUSES] THEN
-    MP_TAC(ARITH_RULE `1 <= 2 EXP 64`) THEN ARITH_TAC; ALL_TAC] THEN
-  MATCH_MP_TAC LET_TRANS THEN
-  EXISTS_TAC `2 EXP 61 * ((2 EXP (64 * k) * ztin + zorig) - q * b) + block` THEN CONJ_TAC THENL
-   [FIRST_X_ASSUM(fun th -> if concl th = `t10 = (ztin + hi) - q` then SUBST1_TAC th else NO_TAC) THEN
-    ABBREV_TAC `E = 2 EXP (64 * k)` THEN ABBREV_TAC `TT = 2 EXP 61` THEN
-    ABBREV_TAC `C8 = cwin DIV 8` THEN
-    SUBGOAL_THEN `E * TT * q <= E * TT * ztin + E * TT * hi` ASSUME_TAC THENL
-     [REWRITE_TAC[GSYM LEFT_ADD_DISTRIB] THEN
-      GEN_REWRITE_TAC I [LE_MULT_LCANCEL] THEN DISJ2_TAC THEN
-      GEN_REWRITE_TAC I [LE_MULT_LCANCEL] THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    SUBGOAL_THEN `TT * b * q <= E * TT * ztin + TT * zorig` ASSUME_TAC THENL
-     [SUBGOAL_THEN `TT * b * q = TT * (q * b) /\ E * TT * ztin + TT * zorig = TT * (E * ztin + zorig)`
-        (fun th -> REWRITE_TAC[th]) THENL
-       [REWRITE_TAC[LEFT_ADD_DISTRIB; MULT_AC]; ALL_TAC] THEN
-      GEN_REWRITE_TAC I [LE_MULT_LCANCEL] THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    UNDISCH_TAC `zpre + E * (C8 + TT * hi) + TT * q * b = block + TT * zorig + TT * q * E` THEN
-    REWRITE_TAC[LEFT_ADD_DISTRIB; RIGHT_ADD_DISTRIB; LEFT_SUB_DISTRIB; RIGHT_SUB_DISTRIB; MULT_AC] THEN
-    ASM_ARITH_TAC;
-    MP_TAC(ISPECL [`2 EXP (64 * k) * ztin + zorig`; `q:num`; `b:num`; `block:num`; `X17v:num`] JJ_STEP) THEN
-    ASM_REWRITE_TAC[]]);;
-
-Printf.printf "\n=== jj_bound.ml: JJ_STEP, FLAT_JJ_FIT, GROW_JJ_FIT, ENTRY_JJ, DDK_VALUE_JJ ===\n%!";;
-
-
-(* ======== inlined: flat_gen_helpers.ml ======== *)
-(* ============================================================================
-   Stage 3f: FLAT-generalization helpers (cont80-81).
-   ----------------------------------------------------------------------------
-   The dispatch needs the FLAT regime (l->l, index stays) for iterations where
-   raw2 = (X17v+124)DIV64 = raw = (X17v+63)DIV64 (the "true-flat" iterations, first at raw=21, so k>=21).
-   The EXISTING block_flat_304_win.ml FLAT block requires p <= 64*(l-1)+2, which the qemu oracle
-   (capflatp/capregime, cont80f-g) shows is FALSE at reachable flats (p ~ 64k > 64*(l-1)+2).  So the
-   FLAT block as-built covers an (unreachable) p-small regime; the reachable flat (p-large) is uncovered.
-
-   FIX: generalize the FLAT seg-C to take the VALUE-FIT witness `2^61*zv+block < 2^(64*l)` directly
-   (instead of deriving it from p<=64(l-1)+2 via ZF_BOUND_FLAT).  window=0 still gives zv<2^p (for the
-   cong+bound via GROWING_VALUE_CLOSE_TIGHT), but the output-bound comes from the witness, ANY p.
-
-   Contains:
-     RAW2_STEP : (X17v+124)DIV64 in {(X17v+63)DIV64, (X17v+63)DIV64+1}  [grow/flat dichotomy, arith]
-     FIELDSEL_CLOSE_WIN_INV2_FLAT_GEN : generalized FLAT seg-C (0x2e8->0x304), arbitrary p, value-fit hyp.
-   Deps: BIGNUM_MOD_FIELDSEL_WIDE_X12, GROWING_VALUE_CLOSE_TIGHT, WINDOW_FROM_LOGGED_PCODE.
-   (WINDOW_NZ_IMP_B_LT lives in cgen_helpers.ml.)
-   NEXT (not yet done): build the general-FLAT BLOCK (block_flat_gen_304_win.ml) by mirroring
-   block_flat_304_win.ml but (a) drop p<=64(l-1)+2, (b) take 2^61*zv+block<2^(64*l) as hyp, (c) use
-   FIELDSEL_CLOSE_WIN_INV2_FLAT_GEN for seg-C and take the value-fit for the 0x2e8-midpoint bound
-   (skip ZF_BOUND_FLAT).  Then REBUILD block_dispatch.ml with the RAW2_STEP grow/flat case-split +
-   value-fit ASM_CASES (see DDK_BUILD_PLAN cont80g).
-   ============================================================================ *)
-
-let RAW2_STEP = prove
- (`!X17v. (X17v + 124) DIV 64 = (X17v + 63) DIV 64 \/
-          (X17v + 124) DIV 64 = (X17v + 63) DIV 64 + 1`,
-  GEN_TAC THEN
-  MP_TAC(SPECL [`X17v + 63`; `64`] DIVISION) THEN REWRITE_TAC[ARITH_EQ] THEN
-  SPEC_TAC(`(X17v + 63) DIV 64`,`q:num`) THEN SPEC_TAC(`(X17v + 63) MOD 64`,`r:num`) THEN
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `X17v + 124 = 64 * q + (r + 61)` SUBST1_TAC THENL
-   [ASM_ARITH_TAC; ALL_TAC] THEN
-  ASM_CASES_TAC `r + 61 < 64` THENL
-   [DISJ1_TAC THEN ASM_SIMP_TAC[DIV_MULT_ADD; ARITH_EQ; DIV_LT] THEN ARITH_TAC;
-    DISJ2_TAC THEN
-    SUBGOAL_THEN `64 * q + (r + 61) = 64 * (q + 1) + (r - 3)` SUBST1_TAC THENL
-     [ASM_ARITH_TAC; ALL_TAC] THEN
-    SUBGOAL_THEN `r - 3 < 64` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
-    ASM_SIMP_TAC[DIV_MULT_ADD; ARITH_EQ; DIV_LT] THEN ARITH_TAC]);;
-
 let FIELDSEL_CLOSE_WIN_INV2_FLAT_GEN = prove
  (`!p pc k z n x m a b zv block ii l X17v X19v X16v X21v.
     block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\ zv < 2 EXP p /\ 2 <= l /\
@@ -10680,11 +9597,6 @@ let FIELDSEL_CLOSE_WIN_INV2_FLAT_GEN = prove
     FIRST_X_ASSUM(fun th -> if concl th = `2 EXP 61 * zv + block < 2 EXP (64 * l)`
        then MP_TAC th THEN ASM_REWRITE_TAC[] else NO_TAC)]);;
 
-
-Printf.printf "\n=== flat_gen_helpers.ml: RAW2_STEP, FIELDSEL_CLOSE_WIN_INV2_FLAT_GEN (FLAT_ZK_FROM_STORES_GEN MOVED to cgen_helpers, cont105) ===\n%!";;
-
-
-(* ======== inlined: fieldsel_close_sat.ml ======== *)
 (* Stage 3f: SATURATED seg-C close (0x2e8 -> 0x304) for the DDK/C regimes, TIGHT bound (B):=Zf<b*2^64.
    Companion to BIGNUM_MOD_FIELDSEL_CLOSE_WIN_INV2_TIGHT (growing, X23'=0) but with the top
    word X23' GENERAL (=word Ztp, saturated).  The FIELDSEL machine (FIELDSEL_WIDE_X12) is
@@ -10752,10 +9664,6 @@ let BIGNUM_MOD_FIELDSEL_CLOSE_SAT = prove
   ASM_SIMP_TAC[WINDOW_FROM_LOGGED_PCODE] THEN
   MATCH_MP_TAC INV2_FROM_BOUND_SAT_TIGHT THEN EXISTS_TAC `b:num` THEN ASM_REWRITE_TAC[]);;
 
-Printf.printf "\n=== BIGNUM_MOD_FIELDSEL_CLOSE_SAT (tight b*2^64) proved ===\n%!";;
-
-
-(* ======== inlined: block_ddk_segc.ml ======== *)
 (* Stage 3f: DDK/saturated seg-C (0x2e8 -> 0x304), STATE-REFERENCED form.  This is the composable
    seg-C: cong+bound are carried as pre=post facts (X23 read in place, not ghost-fixed), so it
    plugs directly onto the seg-B midpoint.  From the 0x2e8 state (X13/X14 = the finalized bigdigits
@@ -10829,10 +9737,6 @@ let BIGNUM_MOD_DDK_SEGC = prove
    [MATCH_MP_TAC INV2_FROM_BOUND_SAT_TIGHT THEN EXISTS_TAC `b:num` THEN ASM_REWRITE_TAC[];
     ASM_SIMP_TAC[WINDOW_FROM_LOGGED_PCODE]]);;
 
-Printf.printf "\n=== block_ddk_segc.ml: BIGNUM_MOD_DDK_SEGC proved ===\n%!";;
-
-
-(* ======== inlined: growing_zk_from_stores.ml ======== *)
 (* Stage 3f: GROWING_ZK_FROM_STORES -- the seg-B value assembly for the GROWING regime-B block.
    From the facts available in the prefix;tail sublemma post-implication:
      - the prefix VALUE RELATION (q=0 form; carries val(X22)=cwinw, val(X5)=hiw, block, LDzv);
@@ -10907,8 +9811,6 @@ let GROWING_ZK_FROM_STORES = prove
     FIRST_X_ASSUM ACCEPT_TAC;
     REWRITE_TAC[ARITH_RULE `2 EXP 3 = 8`] THEN DISCH_THEN(fun th -> MP_TAC th) THEN ARITH_TAC]);;
 
-
-(* ======== inlined: logdigit_finalize_bridge.ml ======== *)
 (* Stage 3f: LOGDIGIT_FINALIZE_BRIDGE -- reduce the tail's raw X13/X14 conditional forms to the
    two window digits word(bigdigit Zf' pcode), word(bigdigit Zf'(pcode-1)) [Zf'=bignum(z,k)@0x2e8],
    given: incoming logged lfw,hfw satisfy (pcode<=dd => lfw=word(bigdigit zpre(pcode-1))) /\
@@ -10918,64 +9820,6 @@ let GROWING_ZK_FROM_STORES = prove
    (BIGDIGIT_AGREE_BELOW); above dd+1 vanish (BIGDIGIT_VANISH_ABOVE).  Feeds FIELDSEL_CLOSE_WIN.
    PROVEN cheat-free 2026-07-27h cont30b. *)
 
-let LOGDIGIT_FINALIZE_BRIDGE = prove
- (`!Zf zpre dd pcode lfw hfw.
-    1 <= pcode /\
-    lowdigits Zf dd = lowdigits zpre dd /\
-    Zf < 2 EXP (64 * (dd + 2)) /\
-    (pcode <= dd ==> lfw = word (bigdigit zpre (pcode - 1)):int64) /\
-    (pcode < dd ==> hfw = word (bigdigit zpre pcode):int64) /\
-    (~(pcode < dd) ==> hfw = word 0)
-    ==> (if dd + 1 = pcode then word (bigdigit Zf (dd + 1)):int64
-         else if dd = pcode then word (bigdigit Zf dd) else hfw) = word (bigdigit Zf pcode) /\
-        (if dd + 2 = pcode then word (bigdigit Zf (dd + 1)):int64
-         else if pcode <= dd + 2
-              then (if dd + 1 < pcode then word (bigdigit Zf (dd + 1))
-                    else if dd < pcode then word (bigdigit Zf dd) else lfw)
-              else word 0) = word (bigdigit Zf (pcode - 1))`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `!j. dd + 1 < j ==> bigdigit Zf j = 0` ASSUME_TAC THENL
-   [REPEAT STRIP_TAC THEN MP_TAC(ISPECL [`Zf:num`; `dd + 2`] BIGDIGIT_VANISH_ABOVE) THEN
-    ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN ASM_ARITH_TAC;
-    ALL_TAC] THEN
-  SUBGOAL_THEN `!j. j < dd ==> bigdigit Zf j = bigdigit zpre j` ASSUME_TAC THENL
-   [REPEAT STRIP_TAC THEN MATCH_MP_TAC BIGDIGIT_AGREE_BELOW THEN
-    EXISTS_TAC `dd:num` THEN ASM_REWRITE_TAC[];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `pcode < dd ==> hfw = word (bigdigit Zf pcode):int64` ASSUME_TAC THENL
-   [DISCH_TAC THEN ASM_SIMP_TAC[] THEN AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
-    FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_REWRITE_TAC[];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `pcode <= dd ==> lfw = word (bigdigit Zf (pcode - 1)):int64` ASSUME_TAC THENL
-   [DISCH_TAC THEN ASM_SIMP_TAC[] THEN AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
-    FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC;
-    ALL_TAC] THEN
-  CONJ_TAC THEN REPEAT COND_CASES_TAC THEN ASM_SIMP_TAC[] THEN
-  TRY(AP_TERM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC) THEN
-  TRY(ASM_SIMP_TAC[ARITH_RULE `~(dd < pcode) ==> pcode <= dd`]) THEN
-  TRY(CONV_TAC SYM_CONV THEN AP_TERM_TAC THEN FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC) THEN
-  (* remaining: the X14 `else hfw` case (~(dd+1=pcode)/\~(dd=pcode)) *)
-  ASM_CASES_TAC `pcode:num < dd` THENL
-   [ASM_SIMP_TAC[];
-    SUBGOAL_THEN `hfw:int64 = word 0` SUBST1_TAC THENL
-     [FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_REWRITE_TAC[];
-      AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]]);;
-
-
-(* ======== inlined: jj_segc.ml ======== *)
-(* ============================================================================
-   Stage 3f: jj-aware seg-C variants (cont94-96).  Each = the base seg-C lemma (0x2e8->0x304)
-   + one extra INPUT hyp  V < 2^(X17v+61)  and one extra POST conjunct  V_out < 2^(X17v+61).
-   Sound because FIELDSEL (BIGNUM_MOD_FIELDSEL_WIDE_X12) PRESERVES the combined value V and X23
-   EXACTLY (only recomputes X15); so V_out = V and the added conjunct closes by the SAME final
-   ASM_REWRITE/ASM_SIMP as the base proof.  These let each regime block thread the jj-bound
-   V'<2^(X17v+61) (=the invariant clause V<2^X17_out) through its 0x2e8->0x304 close.
-   Deps: BIGNUM_MOD_FIELDSEL_WIDE_X12, WINDOW_FROM_LOGGED_PCODE, GROWING_VALUE_CLOSE, ZF_BOUND_GROW,
-   GROWING_VALUE_CLOSE_TIGHT, INV2_FROM_BOUND_SAT_TIGHT (as in the base seg-C sources).  Load AFTER
-   cgen_helpers.ml, fieldsel_close_sat.ml, fieldsel_close_win.ml, block_ddk_segc.ml, and jj_bound.ml.
-   ============================================================================ *)
-
-(* --- (1) SAT_JJ : for C, CGEN, L1K1 (saturated, value 2^(64k)*Ztp+zpre, X23'=Ztp preserved) --- *)
 let FIELDSEL_CLOSE_SAT_JJ = prove
  (`!p pc k z n x m a b Ztp zpre ii l X17v X19v X16v X21v.
     (2 EXP (64 * k) * Ztp + zpre == a DIV 2 EXP (61 * ii)) (mod b) /\
@@ -11030,62 +9874,6 @@ let FIELDSEL_CLOSE_SAT_JJ = prove
   MATCH_MP_TAC INV2_FROM_BOUND_SAT_TIGHT THEN EXISTS_TAC `b:num` THEN ASM_REWRITE_TAC[]);;
 
 (* --- (3) WIN_INV2_JJ : for B_GROW (window=0, value 2^61*zv+block) --- *)
-let FIELDSEL_CLOSE_WIN_INV2_JJ = prove
- (`!p pc k z n x m a b zv block ii l X17v X19v X16v X21v.
-    block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\ zv < 2 EXP p /\ zv < 2 EXP (64 * l) /\
-    2 EXP 61 * zv + block < 2 EXP X17v /\
-    (zv == a DIV 2 EXP (61 * (ii + 1))) (mod b)
-    ==> ensures arm
-     (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\ read PC s = word (pc + 0x2e8) /\
-          read X0 s = word k /\ read X1 s = z /\ read X2 s = word n /\ read X3 s = x /\
-          read X4 s = m /\ read X20 s = word p /\ read X21 s = word X21v /\
-          read X16 s = word X16v /\ read X17 s = word X17v /\ read X19 s = word X19v /\
-          read X12 s = word (p DIV 64 + 1) /\ read X23 s = word 0 /\
-          read X13 s = word (bigdigit (2 EXP 61 * zv + block) ((p DIV 64 + 1) - 1)) /\
-          read X14 s = word (bigdigit (2 EXP 61 * zv + block) (p DIV 64 + 1)) /\
-          bignum_from_memory (x,n) s = a /\ bignum_from_memory (m,k) s = b /\
-          bignum_from_memory (z,k) s = 2 EXP 61 * zv + block)
-     (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\ read PC s = word (pc + 0x304) /\
-          read X0 s = word k /\ read X1 s = z /\ read X2 s = word n /\ read X3 s = x /\
-          read X4 s = m /\ read X20 s = word p /\ read X21 s = word X21v /\
-          read X16 s = word X16v /\ read X17 s = word X17v /\ read X19 s = word X19v /\
-          read X12 s = word (p DIV 64 + 1) /\
-          bignum_from_memory (x,n) s = a /\ bignum_from_memory (m,k) s = b /\
-          (2 EXP (64 * k) * val(read X23 s) + bignum_from_memory (z,k) s
-            == a DIV 2 EXP (61 * ii)) (mod b) /\
-          2 EXP (64 * k) * val(read X23 s) + bignum_from_memory (z,k) s < 2 EXP (p + 64) /\
-          2 EXP (64 * k) * val(read X23 s) + bignum_from_memory (z,k) s < 2 EXP (64 * (l + 1)) /\
-          2 EXP (64 * k) * val(read X23 s) + bignum_from_memory (z,k) s < 2 EXP X17v /\
-          read X15 s = word (((2 EXP (64 * k) * val(read X23 s) + bignum_from_memory (z,k) s)
-                              DIV 2 EXP p) MOD 2 EXP 64))
-     (MAYCHANGE [PC; X0; X5; X6; X7; X8; X9; X10; X11; X12; X13; X14; X15;
-                 X16; X17; X19; X20; X21; X22; X23; X24] ,,
-      MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events] ,, MAYCHANGE [memory :> bignum(z,k)])`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(ISPECL [`p:num`; `bigdigit (2 EXP 61 * zv + block) ((p DIV 64 + 1) - 1)`;
-                 `bigdigit (2 EXP 61 * zv + block) (p DIV 64 + 1)`; `pc:num`; `k:num`;
-                 `z:int64`; `n:num`; `x:int64`; `m:int64`; `a:num`; `b:num`; `0`;
-                 `2 EXP 61 * zv + block`; `X17v:num`; `X19v:num`; `X16v:num`; `X21v:num`]
-                BIGNUM_MOD_FIELDSEL_WIDE_X12) THEN
-  REWRITE_TAC[BIGDIGIT_BOUND; SOME_FLAGS] THEN
-  MATCH_MP_TAC(REWRITE_RULE[IMP_CONJ] ENSURES_POSTCONDITION_THM) THEN
-  GEN_TAC THEN REWRITE_TAC[] THEN STRIP_TAC THEN
-  ASM_REWRITE_TAC[VAL_WORD_0; MULT_CLAUSES; ADD_CLAUSES] THEN
-  ASM_SIMP_TAC[WINDOW_FROM_LOGGED_PCODE] THEN
-  REWRITE_TAC[CONJ_ASSOC] THEN CONJ_TAC THENL
-   [CONJ_TAC THENL
-     [MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `p:num`; `zv:num`;
-                     `2 EXP 61 * zv + (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61`;
-                     `(a DIV 2 EXP (61 * ii)) MOD 2 EXP 61`] GROWING_VALUE_CLOSE) THEN
-      ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN REFL_TAC;
-      MATCH_MP_TAC ZF_BOUND_GROW THEN ASM_REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]];
-    (* b3 = jj bound: fold block (goal has it unfolded) via the block-def asm *)
-    UNDISCH_TAC `2 EXP 61 * zv + block < 2 EXP X17v` THEN ASM_REWRITE_TAC[]]);;
-
-(* NB (4) FIELDSEL_CLOSE_L1_JJ lives in block_l1_304_win.ml (right after FIELDSEL_CLOSE_L1), since it
-   needs CLOSE_L1's context and is consumed by that file's L1_SEGC -- see cont102. *)
-
-(* --- (5) DDK_SEGC_JJ : for DDK (saturated, state-referenced, ENSURES_SUBLEMMA form) --- *)
 let BIGNUM_MOD_DDK_SEGC_JJ = prove
  (`!k z m x n a b pc p ii w X17v.
     b < 2 EXP (64 * k)
@@ -11262,10 +10050,6 @@ let FIELDSEL_CLOSE_WIN_INV2_FLAT_GEN_JJ = prove
          then MP_TAC th THEN ASM_REWRITE_TAC[] else NO_TAC)];
     UNDISCH_TAC `2 EXP 61 * zv + block < 2 EXP X17v` THEN ASM_REWRITE_TAC[]]);;
 
-Printf.printf "\n=== jj_segc.ml: 5 early jj-aware seg-C variants (SAT,WIN_INV2,WIN_INV2_TIGHT,WIN_INV2_FLAT_GEN,DDK_SEGC); GROW_GEN_JJ in jj_segc_grow, L1_JJ in block_l1 ===\n%!";;
-
-
-(* ======== inlined: block_b_grow_304_win.ml ======== *)
 (* Stage 3f: WINDOW-carrying GROWING regime-B block 0x1a4 -> 0x304.  Like BIGNUM_MOD_BLOCK_B_GROW_
    304 but the post ALSO carries the invariant window X15 = word((Zf' DIV 2^p) MOD 2^64), matching
    the PDOWN body goal (body_lemma_inv2.tm).  Delta vs the cong+bound block:
@@ -11515,8 +10299,6 @@ let BIGNUM_MOD_BLOCK_B_GROW_304_WIN = prove
     ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
     DISCH_THEN(fun th -> USE_THEN "frame" (MP_TAC o MATCH_MP th)) THEN ASM_REWRITE_TAC[]]);;
 
-
-(* ======== inlined: block_ddk_304_win.ml ======== *)
 (* ============================================================================
    Stage 3f: BIGNUM_MOD_BLOCK_DDK_304_WIN -- the SATURATED (DDK) main-loop block.
    ----------------------------------------------------------------------------
@@ -11554,62 +10336,6 @@ let BIGNUM_MOD_BLOCK_B_GROW_304_WIN = prove
    dischargeable there but is also never needed, so we drop it.  Same proof script as the
    original DDK_LOGDIGIT_FINALIZE (ddk_logdigit_finalize.ml).  Deps: BIGDIGIT_TOP_SAT, VAL_LT_TOP,
    BIGDIGIT_AGREE_BELOW. *)
-let DDK_LOGDIGIT_FINALIZE_NC = prove
- (`!Ztp zpre k pcode lfin hfin.
-    Ztp < 2 EXP 64 /\ zpre < 2 EXP (64 * k) /\ 1 <= pcode /\ pcode <= k + 1 /\
-    (pcode <= k ==> lfin = bigdigit zpre (pcode - 1)) /\
-    (pcode < k ==> hfin = bigdigit zpre pcode) /\
-    (k + 1 = pcode ==> hfin = 0)
-    ==> (if k = pcode then word Ztp:int64 else word hfin) =
-        word (bigdigit (2 EXP (64 * k) * Ztp + zpre) pcode) /\
-        (if k + 1 = pcode then word Ztp:int64
-         else if pcode <= k + 1 then (if k < pcode then word Ztp else word lfin)
-              else word 0) =
-        word (bigdigit (2 EXP (64 * k) * Ztp + zpre) (pcode - 1))`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `bigdigit (2 EXP (64 * k) * Ztp + zpre) k = Ztp` ASSUME_TAC THENL
-   [MATCH_MP_TAC BIGDIGIT_TOP_SAT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  SUBGOAL_THEN `!j. j < k ==> bigdigit (2 EXP (64 * k) * Ztp + zpre) j = bigdigit zpre j` ASSUME_TAC THENL
-   [REPEAT STRIP_TAC THEN MATCH_MP_TAC BIGDIGIT_AGREE_BELOW THEN EXISTS_TAC `k:num` THEN
-    ASM_REWRITE_TAC[] THEN REWRITE_TAC[lowdigits] THEN
-    SUBGOAL_THEN `(2 EXP (64 * k) * Ztp + zpre) MOD 2 EXP (64 * k) = zpre MOD 2 EXP (64 * k)`
-      SUBST1_TAC THENL [REWRITE_TAC[MOD_MULT_ADD]; ALL_TAC] THEN
-    ASM_SIMP_TAC[MOD_LT];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `bigdigit (2 EXP (64 * k) * Ztp + zpre) (k + 1) = 0` ASSUME_TAC THENL
-   [REWRITE_TAC[bigdigit] THEN
-    SUBGOAL_THEN `(2 EXP (64 * k) * Ztp + zpre) DIV 2 EXP (64 * (k + 1)) = 0`
-      (fun th -> REWRITE_TAC[th; MULT_CLAUSES; ADD_CLAUSES; DIV_0; MOD_0]) THEN
-    MATCH_MP_TAC DIV_LT THEN
-    REWRITE_TAC[ARITH_RULE `64 * (k + 1) = 64 * k + 64`; EXP_ADD] THEN
-    MATCH_MP_TAC VAL_LT_TOP THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  CONJ_TAC THENL
-   [COND_CASES_TAC THENL
-     [ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
-      FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN ASM_REWRITE_TAC[];
-      ASM_CASES_TAC `k + 1 = pcode` THENL
-       [SUBGOAL_THEN `hfin = 0` SUBST1_TAC THENL [ASM_MESON_TAC[]; ALL_TAC] THEN
-        ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
-        FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN ASM_REWRITE_TAC[];
-        SUBGOAL_THEN `pcode < k` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
-        ASM_SIMP_TAC[] THEN AP_TERM_TAC THEN CONV_TAC SYM_CONV THEN
-        FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]];
-    ASM_CASES_TAC `k + 1 = pcode` THENL
-     [ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN
-      SUBGOAL_THEN `pcode - 1 = k` SUBST1_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
-      CONV_TAC SYM_CONV THEN ASM_REWRITE_TAC[];
-      SUBGOAL_THEN `pcode <= k + 1 /\ ~(k < pcode)` STRIP_ASSUME_TAC THENL
-       [ASM_ARITH_TAC; ALL_TAC] THEN
-      ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN
-      SUBGOAL_THEN `lfin = bigdigit zpre (pcode - 1)` SUBST1_TAC THENL
-       [FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-      CONV_TAC SYM_CONV THEN FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]]);;
-
-(* --- midpoint predicates (0x23c = segAB_mid, 0x2e8 = ddk_mid), built by FILTERING the
-   aligned_bytes_loaded/read-PC conjuncts out of the reference lemmas' pre/post so
-   ENSURES_SEQUENCE_TAC (which re-prepends them) sees a clean state assertion. *)
-let h_raw = `((2 EXP (64 * k) * Ztin + zpre) DIV 2 EXP p) MOD 2 EXP 64`;;
-
 let ddk_mid =
   let segc_pre = el 1 (snd(strip_comb(snd(dest_imp(concl(ISPECL
     [`k:num`;`z:int64`;`m:int64`;`x:int64`;`n:num`;`a:num`;`b:num`;`pc:num`;`p:num`;`ii:num`;`w:num`;`X17v:num`]
@@ -11920,10 +10646,6 @@ let BIGNUM_MOD_BLOCK_DDK_304_WIN = prove
   ASM_REWRITE_TAC[ARITH_RULE `1 <= p DIV 64 + 1`; VAL_BOUND_64] THEN
   DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN ASM_REWRITE_TAC[]);;
 
-Printf.printf "\n=== block_ddk_304_win.ml: BIGNUM_MOD_BLOCK_DDK_304_WIN (saturated main-loop block) ===\n%!";;
-
-
-(* ======== inlined: block_c_304_win.ml ======== *)
 (* ============================================================================
    Stage 3f: BIGNUM_MOD_BLOCK_C_304_WIN -- the C-regime (l=k, dd=k-1) main-loop block, 0x1a4->0x304.
    ----------------------------------------------------------------------------
@@ -11956,32 +10678,6 @@ Printf.printf "\n=== block_ddk_304_win.ml: BIGNUM_MOD_BLOCK_DDK_304_WIN (saturat
    ============================================================================ *)
 
 (* CBLK_SPLIT: top-word split.  2^(64k)*bigdigit Zf k + lowdigits Zf k = Zf (Zf<2^(64(k+1))). *)
-let CBLK_SPLIT = prove
- (`!Zf k. Zf < 2 EXP (64 * (k + 1))
-    ==> 2 EXP (64 * k) * bigdigit Zf k + lowdigits Zf k = Zf`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `highdigits Zf k < 2 EXP 64` ASSUME_TAC THENL
-   [REWRITE_TAC[highdigits] THEN SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
-    UNDISCH_TAC `Zf < 2 EXP (64 * (k + 1))` THEN
-    REWRITE_TAC[GSYM EXP_ADD; ARITH_RULE `64 * (k + 1) = 64 * k + 64`] THEN ARITH_TAC;
-    ALL_TAC] THEN
-  SUBGOAL_THEN `bigdigit Zf k = highdigits Zf k` SUBST1_TAC THENL
-   [REWRITE_TAC[bigdigit; GSYM highdigits] THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[];
-    MP_TAC(SPECL [`Zf:num`; `k:num`] (CONJUNCT1 HIGH_LOW_DIGITS)) THEN ARITH_TAC]);;
-
-(* CBLK_UNIQ: digit-uniqueness for splitting the full value into (X23', bignum(z,k)). *)
-let CBLK_UNIQ = prove
- (`!M A B C D. 0 < M /\ M * A + B = M * C + D /\ B < M /\ D < M ==> A = C /\ B = D`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `(M * A + B) DIV M = A /\ (M * A + B) MOD M = B` STRIP_ASSUME_TAC THENL
-   [MATCH_MP_TAC DIVMOD_UNIQ THEN CONJ_TAC THENL
-     [REWRITE_TAC[MULT_AC]; FIRST_ASSUM ACCEPT_TAC]; ALL_TAC] THEN
-  SUBGOAL_THEN `(M * C + D) DIV M = C /\ (M * C + D) MOD M = D` STRIP_ASSUME_TAC THENL
-   [MATCH_MP_TAC DIVMOD_UNIQ THEN CONJ_TAC THENL
-     [REWRITE_TAC[MULT_AC]; FIRST_ASSUM ACCEPT_TAC]; ALL_TAC] THEN
-  CONJ_TAC THEN ASM_MESON_TAC[]);;
-
-(* C_ZK_FROM_STORES: the C-regime value assembly -- top word spills into Xtop (=val X23'). *)
 let C_ZK_FROM_STORES = prove
  (`!z k zpre zv b block cwinw W Xtop s.
     2 <= k /\ zv < 2 EXP (64 * k) /\ block < 2 EXP 61 /\ cwinw < 2 EXP 64 /\
@@ -12317,10 +11013,6 @@ let BIGNUM_MOD_BLOCK_C_304_WIN = prove
       ALL_TAC] THEN
     REWRITE_TAC[WORD_VAL] THEN ASM_REWRITE_TAC[]]);;
 
-Printf.printf "\n=== block_c_304_win.ml: BIGNUM_MOD_BLOCK_C_304_WIN (C-regime main-loop block) ===\n%!";;
-
-
-(* ======== inlined: cgen_helpers.ml ======== *)
 (* Helpers for the GENERAL-qhat growing blocks (coverage-gap fix for small-top-word moduli,
    where window!=0 is reachable at growing heads 2<=l<=k -- capgrowwin.py oracle: B/FLAT 48/90,
    C 39/57).  These generalize the window=0 (q=0) assembly lemmas (C_ZK_FROM_STORES etc.) to
@@ -12328,310 +11020,6 @@ Printf.printf "\n=== block_c_304_win.ml: BIGNUM_MOD_BLOCK_C_304_WIN (C-regime ma
 
 (* C_TOP_FUNNEL_GEN: word W = word LOW when W = 2^64*q + LOW (LOW<2^64).  (Defined here, before the
    B-helpers that use it; block_cgen_304_win.ml relies on it too, loaded after this file.) *)
-let C_TOP_FUNNEL_GEN = prove
- (`!W q LOW. 2 EXP 64 * q + LOW = W /\ LOW < 2 EXP 64 ==> word W:int64 = word LOW`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[GSYM VAL_EQ] THEN
-  REWRITE_TAC[VAL_WORD; DIMINDEX_64] THEN
-  FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN
-  REWRITE_TAC[MOD_MULT_ADD] THEN CONV_TAC MOD_DOWN_CONV THEN
-  ASM_SIMP_TAC[MOD_LT]);;
-
-(* GROWING_VALUE_CLOSE_GEN: general-q reduced-value cong+bound (the DDK_VALUE_CLOSE conclusion,
-   packaged for direct use on Zf' = 2^61*(Zin - qh*b) + blk).  Zin - qh*b < 2^(p+2) is the reduced
-   remainder bound R (from DDK_R_LT / KI_CORE); qh*b <= Zin is the no-underflow threaded hyp.
-   Serves BOTH the seg-B split (Zf'<b*2^64 => Zf'<2^(64(k+1))) and seg-C's cong+bound ANTES.
-   The general-q analog of GROWING_VALUE_CLOSE_TIGHT (which assumed qh=0, Zf'=2^61*Zin+blk). *)
-let GROWING_VALUE_CLOSE_GEN = prove
- (`!a b ii p Zin blk qh Zf'.
-    (Zin == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
-    blk = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\
-    2 EXP (p - 1) <= b /\ 1 <= p /\
-    qh * b <= Zin /\
-    Zin - qh * b < 2 EXP (p + 2) /\
-    Zf' = 2 EXP 61 * (Zin - qh * b) + blk
-    ==> (Zf' == a DIV 2 EXP (61 * ii)) (mod b) /\ Zf' < b * 2 EXP 64`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `Zf' + 2 EXP 61 * (qh * b) = 2 EXP 61 * Zin + blk` ASSUME_TAC THENL
-   [ASM_REWRITE_TAC[] THEN UNDISCH_TAC `qh * b <= Zin` THEN ARITH_TAC; ALL_TAC] THEN
-  CONJ_TAC THENL
-   [MATCH_MP_TAC CONG_HALF THEN MAP_EVERY EXISTS_TAC [`Zin:num`; `qh:num`] THEN ASM_REWRITE_TAC[] THEN
-    EXISTS_TAC `blk:num` THEN ASM_REWRITE_TAC[];
-    MATCH_MP_TAC BOUND_HALF_TIGHT THEN
-    MAP_EVERY EXISTS_TAC [`Zin:num`; `qh:num`; `blk:num`; `p:num`] THEN ASM_REWRITE_TAC[] THEN
-    CONJ_TAC THENL
-     [UNDISCH_TAC `Zin - qh * b < 2 EXP (p + 2)` THEN UNDISCH_TAC `qh * b <= Zin` THEN ARITH_TAC;
-      ASM_REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]]]);;
-
-(* LOWDIGITS_TOPSPLIT: peel the top digit.  lowdigits X k = lowdigits X (k-1) + 2^(64(k-1))*bigdigit X (k-1). *)
-let LOWDIGITS_TOPSPLIT = prove
- (`!X k. 1 <= k ==> lowdigits X k = lowdigits X (k-1) + 2 EXP (64*(k-1)) * bigdigit X (k-1)`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `k = (k-1)+1` (fun th -> GEN_REWRITE_TAC (LAND_CONV o RAND_CONV) [th]) THENL
-   [UNDISCH_TAC `1 <= k` THEN ARITH_TAC; ALL_TAC] THEN
-  REWRITE_TAC[LOWDIGITS_CLAUSES] THEN ARITH_TAC);;
-
-(* C_VALUE_BRIDGE_GEN: the general-q C-position block-advance value, DERIVED from INNER_ADVANCE_ADD
-   at ii:=k-1 (NOT raw NUM_RING, which hits the certificate-translation "find" bug on the assembled
-   identity -- same issue VALUE_BRIDGE_DDK flagged).  Inputs: the inner-loop invariant INV_add(k-1)
-   [zlo=bignum(z,k-1)] + the tail word-(k-1) negate-add with carry t10p (2^64*t10p+ss = the funnel W).
-   Output: the block-advance eqn with the stored word (2^61*(ss MOD8)+cwin/8) at digit k-1 and the
-   spill (ss DIV8 + 2^61*t10p) at digit k.  NB the ACTUAL C tail stores X23' = ss DIV8 only (the
-   2^61*t10p is the dropped high carry, absorbed by the mod-b congruence downstream via DDK_VALUE_CLOSE). *)
-let C_VALUE_BRIDGE_GEN = prove
- (`!zlo cwin hi q b zorig block ss t10p k.
-     2 <= k /\
-     zlo + 2 EXP (64 * (k-1)) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * (q * lowdigits b (k-1)) =
-       block + 2 EXP 61 * lowdigits zorig (k-1) + 2 EXP 61 * (q * 2 EXP (64 * (k-1))) /\
-     2 EXP 64 * t10p + ss = bigdigit zorig (k-1) + hi + q * (2 EXP 64 - 1 - bigdigit b (k-1)) /\
-     bigdigit b (k-1) < 2 EXP 64
-     ==> (zlo + 2 EXP (64 * (k-1)) * (2 EXP 61 * (ss MOD 2 EXP 3) + cwin DIV 8))
-           + 2 EXP (64 * k) * (ss DIV 2 EXP 3 + 2 EXP 61 * t10p)
-           + 2 EXP 61 * (q * lowdigits b k) =
-         block + 2 EXP 61 * lowdigits zorig k + 2 EXP 61 * (q * 2 EXP (64 * k))`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  MP_TAC(ISPECL [`block:num`; `q:num`; `zlo:num`; `cwin:num`; `hi:num`; `ss:num`; `t10p:num`;
-                 `lowdigits zorig (k-1)`; `lowdigits b (k-1)`; `bigdigit zorig (k-1)`;
-                 `bigdigit b (k-1)`; `k-1`] INNER_ADVANCE_ADD) THEN
-  ASM_REWRITE_TAC[] THEN
-  SUBGOAL_THEN `(k-1) + 1 = k` SUBST1_TAC THENL
-   [UNDISCH_TAC `2 <= k` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP (64 * (k-1)) * bigdigit b (k-1) + lowdigits b (k-1) = lowdigits b k /\
-                2 EXP (64 * (k-1)) * bigdigit zorig (k-1) + lowdigits zorig (k-1) = lowdigits zorig k`
-   STRIP_ASSUME_TAC THENL
-   [CONJ_TAC THEN (MP_TAC(ISPECL [`b:num`; `k:num`] LOWDIGITS_TOPSPLIT) THEN
-                   MP_TAC(ISPECL [`zorig:num`; `k:num`] LOWDIGITS_TOPSPLIT) THEN
-                   (ANTS_TAC THENL [UNDISCH_TAC `2 <= k` THEN ARITH_TAC; ALL_TAC]) THEN DISCH_TAC THEN
-                   (ANTS_TAC THENL [UNDISCH_TAC `2 <= k` THEN ARITH_TAC; ALL_TAC]) THEN
-                   ASM_REWRITE_TAC[] THEN ARITH_TAC);
-    ALL_TAC] THEN
-  ASM_REWRITE_TAC[] THEN DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN ARITH_TAC);;
-
-(* C_CARRY_EQ: the C-position tail carry structure (analog of DDK's TAIL_CARRY_EQ_Q, real b-digit).
-   The funnel word W = zd+hi+q*(2^64-1-bd) = 2^64*q + LOW where LOW = (zd+hi) - q*(1+bd).
-   Requires no-borrow q*(1+bd) <= zd+hi.  (LOW<2^64 is a SEPARATE threaded smallness hyp used elsewhere;
-   here we just certify W = 2^64*q + LOW.)  Oracle ckt10.py: W DIV 2^64 = q at ALL C heads (33/33). *)
-let C_CARRY_EQ = prove
- (`!zd hi q bd.
-     q * (1 + bd) <= zd + hi /\ bd < 2 EXP 64
-     ==> 2 EXP 64 * q + ((zd + hi) - q * (1 + bd)) = zd + hi + q * (2 EXP 64 - 1 - bd)`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `(2 EXP 64 - 1 - bd) + (1 + bd) = 2 EXP 64` ASSUME_TAC THENL
-   [UNDISCH_TAC `bd < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `q * (2 EXP 64 - 1 - bd) + q * (1 + bd) = 2 EXP 64 * q` ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM LEFT_ADD_DISTRIB] THEN ASM_REWRITE_TAC[] THEN ARITH_TAC; ALL_TAC] THEN
-  UNDISCH_TAC `q * (1 + bd) <= zd + hi` THEN
-  UNDISCH_TAC `q * (2 EXP 64 - 1 - bd) + q * (1 + bd) = 2 EXP 64 * q` THEN ARITH_TAC);;
-
-(* C_ASSEMBLE_GEN: the EXACT assembled value for the general-q C tail (the crux).
-   At a C head Zt=0 (oracle 0/136) so Zin=zv.  The tail's funnel word W = 2^64*q + LOW (C_CARRY_EQ,
-   with LOW = (bigdigit zv(k-1)+hi) - q*(1+bigdigit b(k-1)) < 2^64), so word W = word LOW, giving
-   X23' = LOW DIV 8 and z[k-1] = 2^61*(LOW MOD 8) + cwin/8.  Feeding C_VALUE_BRIDGE_GEN (t10p:=q, ss:=LOW)
-   the +2^61*q spill term EXACTLY cancels the 2^61*q*2^(64k) growth term, leaving the EXACT reduced value.
-   => general-C closes EXACTLY (like DDK), NOT just mod-b.  q*b<=zv is the no-underflow threaded hyp. *)
-let C_ASSEMBLE_GEN = prove
- (`!zlo cwin hi q b zv block LOW k.
-     2 <= k /\ b < 2 EXP (64 * k) /\ zv < 2 EXP (64 * k) /\ q * b <= zv /\
-     zlo + 2 EXP (64 * (k-1)) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * (q * lowdigits b (k-1)) =
-       block + 2 EXP 61 * lowdigits zv (k-1) + 2 EXP 61 * (q * 2 EXP (64 * (k-1))) /\
-     2 EXP 64 * q + LOW = bigdigit zv (k-1) + hi + q * (2 EXP 64 - 1 - bigdigit b (k-1)) /\
-     bigdigit b (k-1) < 2 EXP 64
-     ==> 2 EXP (64 * k) * (LOW DIV 2 EXP 3) +
-         (zlo + 2 EXP (64 * (k-1)) * (2 EXP 61 * (LOW MOD 2 EXP 3) + cwin DIV 8)) =
-         2 EXP 61 * (zv - q * b) + block`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(ISPECL [`zlo:num`;`cwin:num`;`hi:num`;`q:num`;`b:num`;`zv:num`;`block:num`;`LOW:num`;`q:num`;`k:num`]
-        C_VALUE_BRIDGE_GEN) THEN
-  ASM_REWRITE_TAC[] THEN
-  SUBGOAL_THEN `lowdigits b k = b /\ lowdigits zv k = zv` (fun th -> REWRITE_TAC[th]) THENL
-   [CONJ_TAC THEN MATCH_MP_TAC LOWDIGITS_SELF THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  DISCH_TAC THEN
-  UNDISCH_TAC `(zlo + 2 EXP (64 * (k-1)) * (2 EXP 61 * LOW MOD 2 EXP 3 + cwin DIV 8)) +
-       2 EXP (64 * k) * (LOW DIV 2 EXP 3 + 2 EXP 61 * q) + 2 EXP 61 * (q * b) =
-       block + 2 EXP 61 * zv + 2 EXP 61 * (q * 2 EXP (64 * k))` THEN
-  UNDISCH_TAC `q * b <= zv` THEN
-  SPEC_TAC(`2 EXP (64 * k)`,`K2:num`) THEN SPEC_TAC(`2 EXP (64*(k-1))`,`E:num`) THEN
-  ARITH_TAC);;
-
-(* C_VALUE_CLOSE_GEN: the COMPOSITE seg-B value close for the general-q C block (the one the ARM
-   assembly calls).  Chains C_CARRY_EQ (W = 2^64*q + LOW) -> C_ASSEMBLE_GEN (exact reduced value
-   2^61*(zv-q*b)+block) -> GROWING_VALUE_CLOSE_GEN (cong + tight bound).  The THREADED CARRY=q obligation
-   enters as the two bounds  q*(1+bigdigit b(k-1)) <= bigdigit zv(k-1)+hi  and  LOW < 2^64  (hyps here;
-   in the block they come from a cnb_hyp applied to the ghost hi=val X5, discharged at the MAINLOOP wrap).
-   Inputs: reduction (zv==a DIV2^(61(ii+1)) mod b), q*b<=zv, zv-q*b<2^(p+2) (=R bound, from DDK_R_LT),
-   the inner-loop INV(k-1), and the two no-borrow bounds.  Output: cong + <b*2^64 for the assembled value. *)
-let C_VALUE_CLOSE_GEN = prove
- (`!a b ii p q zv hi zd bd zlo cwin block LOW k.
-    2 <= k /\ b < 2 EXP (64 * k) /\ zv < 2 EXP (64 * k) /\
-    2 EXP (p - 1) <= b /\ 1 <= p /\
-    (zv == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
-    block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\
-    q * b <= zv /\  zv - q * b < 2 EXP (p + 2) /\
-    zd = bigdigit zv (k-1) /\ bd = bigdigit b (k-1) /\
-    q * (1 + bd) <= zd + hi /\  LOW = (zd + hi) - q * (1 + bd) /\ LOW < 2 EXP 64 /\
-    zlo + 2 EXP (64 * (k-1)) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * (q * lowdigits b (k-1)) =
-      block + 2 EXP 61 * lowdigits zv (k-1) + 2 EXP 61 * (q * 2 EXP (64 * (k-1)))
-    ==> (2 EXP (64 * k) * (LOW DIV 2 EXP 3) +
-         (zlo + 2 EXP (64 * (k-1)) * (2 EXP 61 * (LOW MOD 2 EXP 3) + cwin DIV 8))
-           == a DIV 2 EXP (61 * ii)) (mod b) /\
-        2 EXP (64 * k) * (LOW DIV 2 EXP 3) +
-         (zlo + 2 EXP (64 * (k-1)) * (2 EXP 61 * (LOW MOD 2 EXP 3) + cwin DIV 8)) < b * 2 EXP 64`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `bd < 2 EXP 64` ASSUME_TAC THENL
-   [ASM_REWRITE_TAC[BIGDIGIT_BOUND]; ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP 64 * q + LOW = bigdigit zv (k-1) + hi + q * (2 EXP 64 - 1 - bigdigit b (k-1))`
-   ASSUME_TAC THENL
-   [MP_TAC(ISPECL [`zd:num`; `hi:num`; `q:num`; `bd:num`] C_CARRY_EQ) THEN
-    ASM_REWRITE_TAC[] THEN
-    FIRST_X_ASSUM(fun th -> if concl th = `LOW = (zd + hi) - q * (1 + bd)` then REWRITE_TAC[SYM th] else NO_TAC) THEN
-    FIRST_X_ASSUM(fun th -> if concl th = `zd = bigdigit zv (k-1)` then REWRITE_TAC[th] else NO_TAC) THEN
-    FIRST_X_ASSUM(fun th -> if concl th = `bd = bigdigit b (k-1)` then REWRITE_TAC[th] else NO_TAC) THEN
-    DISCH_THEN ACCEPT_TAC;
-    ALL_TAC] THEN
-  SUBGOAL_THEN
-   `2 EXP (64 * k) * (LOW DIV 2 EXP 3) +
-    (zlo + 2 EXP (64 * (k-1)) * (2 EXP 61 * (LOW MOD 2 EXP 3) + cwin DIV 8)) =
-    2 EXP 61 * (zv - q * b) + block`
-   SUBST1_TAC THENL
-   [MP_TAC(ISPECL [`zlo:num`;`cwin:num`;`hi:num`;`q:num`;`b:num`;`zv:num`;`block:num`;`LOW:num`;`k:num`]
-          C_ASSEMBLE_GEN) THEN
-    ANTS_TAC THENL
-     [ASM_REWRITE_TAC[BIGDIGIT_BOUND]; DISCH_THEN ACCEPT_TAC];
-    ALL_TAC] THEN
-  MP_TAC(ISPECL [`a:num`;`b:num`;`ii:num`;`p:num`;`zv:num`;`block:num`;`q:num`;
-                 `2 EXP 61 * (zv - q * b) + block`] GROWING_VALUE_CLOSE_GEN) THEN
-  ASM_REWRITE_TAC[]);;
-
-(* --- CARRY=q is DERIVABLE (no threading needed!) --- arithmetic helpers + the derivation.
-   Oracle ckp.py: at all general-C heads, p <= 64k - 64 (b's top word zero), so R < 2^(p+2) is far
-   below 2^(64k); combined with V_mach = 2^(64k)*(LOW DIV8)+zmem < 2^(64k+61) STRICT and C0 < 2^(64k+61),
-   the base-2^(64k+61) digit-uniqueness forces the funnel carry W DIV 2^64 = q. *)
-let PROD_BOUND = prove   (* zmem < K2, L8 < 2^61 => zmem + K2*L8 < K2*2^61 *)
- (`!zmem K2 L8. zmem < K2 /\ L8 < 2 EXP 61 ==> zmem + K2 * L8 < K2 * 2 EXP 61`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `K2 * L8 + K2 <= K2 * 2 EXP 61` MP_TAC THENL
-   [REWRITE_TAC[ARITH_RULE `K2 * L8 + K2 = K2 * (L8 + 1)`] THEN
-    REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN UNDISCH_TAC `L8 < 2 EXP 61` THEN ARITH_TAC;
-    UNDISCH_TAC `zmem < K2` THEN ARITH_TAC]);;
-let PROD_BOUND64 = prove  (* zmem < K2, t < 2^64 => zmem + K2*t < K2*2^64 *)
- (`!zmem K2 t. zmem < K2 /\ t < 2 EXP 64 ==> zmem + K2 * t < K2 * 2 EXP 64`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `K2 * t + K2 <= K2 * 2 EXP 64` MP_TAC THENL
-   [REWRITE_TAC[ARITH_RULE `K2 * t + K2 = K2 * (t + 1)`] THEN
-    REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN UNDISCH_TAC `t < 2 EXP 64` THEN ARITH_TAC;
-    UNDISCH_TAC `zmem < K2` THEN ARITH_TAC]);;
-let C0_BOUND = prove  (* block < 2^61, R < K2 => block + 2^61*R < K2*2^61 *)
- (`!block R K2. block < 2 EXP 61 /\ R < K2 ==> block + 2 EXP 61 * R < K2 * 2 EXP 61`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `2 EXP 61 * R + 2 EXP 61 <= 2 EXP 61 * K2` MP_TAC THENL
-   [REWRITE_TAC[ARITH_RULE `2 EXP 61 * R + 2 EXP 61 = 2 EXP 61 * (R + 1)`] THEN
-    REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN UNDISCH_TAC `R < K2` THEN ARITH_TAC;
-    UNDISCH_TAC `block < 2 EXP 61` THEN ARITH_TAC]);;
-let BASE_DIGIT_UNIQ = prove  (* base-M digit uniqueness *)
- (`!M a x c y. 0 < M /\ a + M * x = c + M * y /\ a < M /\ c < M ==> x = y`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(ISPECL [`M:num`; `x:num`; `a:num`; `y:num`; `c:num`] CBLK_UNIQ) THEN
-  ASM_REWRITE_TAC[] THEN
-  ANTS_TAC THENL [UNDISCH_TAC `a + M * x = c + M * y` THEN ARITH_TAC; SIMP_TAC[]]);;
-
-(* C_CARRY_IS_Q: the funnel carry W DIV 2^64 = q, DERIVED (NOT threaded).  W = the C tail funnel body
-   bigdigit zv(k-1)+hi+q*(2^64-1-bigdigit b(k-1)).  From the inner INV(k-1) + reduction zv=q*b+R
-   (R<2^(64k), q*b<=zv) via C_VALUE_BRIDGE_GEN (CARRY:=W DIV2^64, LOW:=W MOD2^64) rearranged to
-   A + MM*CARRY = C0 + MM*q, MM=2^(64k)*2^61, with A<MM (PROD_BOUND) and C0<MM (C0_BOUND), then
-   BASE_DIGIT_UNIQ.  This removes the CARRY=q threading obligation entirely. *)
-let C_CARRY_IS_Q = prove
- (`!zv hi q b zlo cwin block R p k.
-     2 <= k /\
-     b < 2 EXP (64 * k) /\ zv < 2 EXP (64 * k) /\ block < 2 EXP 61 /\
-     zlo < 2 EXP (64 * (k-1)) /\ cwin DIV 8 < 2 EXP 61 /\
-     zv = q * b + R /\ R < 2 EXP (64 * k) /\ q * b <= zv /\
-     zlo + 2 EXP (64 * (k-1)) * (cwin DIV 8 + 2 EXP 61 * hi) + 2 EXP 61 * (q * lowdigits b (k-1)) =
-       block + 2 EXP 61 * lowdigits zv (k-1) + 2 EXP 61 * (q * 2 EXP (64 * (k-1)))
-     ==> (bigdigit zv (k-1) + hi + q * (2 EXP 64 - 1 - bigdigit b (k-1))) DIV 2 EXP 64 = q`,
-  REPEAT STRIP_TAC THEN
-  ABBREV_TAC `W = bigdigit zv (k-1) + hi + q * (2 EXP 64 - 1 - bigdigit b (k-1))` THEN
-  MP_TAC(SPECL [`W:num`; `2 EXP 64`] DIVISION) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
-  ABBREV_TAC `CARRY = W DIV 2 EXP 64` THEN ABBREV_TAC `LOW = W MOD 2 EXP 64` THEN STRIP_TAC THEN
-  SUBGOAL_THEN `lowdigits b k = b /\ lowdigits zv k = zv` STRIP_ASSUME_TAC THENL
-   [CONJ_TAC THEN MATCH_MP_TAC LOWDIGITS_SELF THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP (64 * (k-1)) * 2 EXP 64 = 2 EXP (64 * k)` ASSUME_TAC THENL
-   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN UNDISCH_TAC `2 <= k` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `LOW DIV 2 EXP 3 < 2 EXP 61` ASSUME_TAC THENL
-   [MP_TAC(SPECL [`LOW:num`; `2 EXP 3`] DIVISION) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
-    UNDISCH_TAC `LOW < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP 61 * (LOW MOD 2 EXP 3) + cwin DIV 8 < 2 EXP 64` ASSUME_TAC THENL
-   [MP_TAC(SPECL [`LOW:num`; `2 EXP 3`] MOD_LT_EQ) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
-    UNDISCH_TAC `cwin DIV 8 < 2 EXP 61` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `zlo + 2 EXP (64 * (k-1)) * (2 EXP 61 * (LOW MOD 2 EXP 3) + cwin DIV 8) < 2 EXP (64 * k)`
-   ASSUME_TAC THENL
-   [FIRST_X_ASSUM(fun th -> if concl th = `2 EXP (64 * (k-1)) * 2 EXP 64 = 2 EXP (64 * k)` then MP_TAC th else NO_TAC) THEN
-    DISCH_THEN(SUBST1_TAC o SYM) THEN MATCH_MP_TAC PROD_BOUND64 THEN ASM_REWRITE_TAC[] THEN
-    UNDISCH_TAC `2 EXP 61 * (LOW MOD 2 EXP 3) + cwin DIV 8 < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
-  MP_TAC(ISPECL [`zlo:num`;`cwin:num`;`hi:num`;`q:num`;`b:num`;`zv:num`;`block:num`;`LOW:num`;`CARRY:num`;`k:num`]
-      C_VALUE_BRIDGE_GEN) THEN
-  ANTS_TAC THENL
-   [ASM_REWRITE_TAC[BIGDIGIT_BOUND] THEN
-    MAP_EVERY (fun t -> FIRST_X_ASSUM(fun th -> if concl th = t then MP_TAC th else NO_TAC))
-      [`W = CARRY * 2 EXP 64 + LOW`; `bigdigit zv (k-1) + hi + q * (2 EXP 64 - 1 - bigdigit b (k-1)) = W`] THEN
-    ARITH_TAC;
-    ALL_TAC] THEN
-  ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
-  MP_TAC(ISPECL [`2 EXP (64 * k) * 2 EXP 61`;
-                 `zlo + 2 EXP (64 * (k-1)) * (2 EXP 61 * (LOW MOD 2 EXP 3) + cwin DIV 8) +
-                  2 EXP (64 * k) * (LOW DIV 2 EXP 3)`; `CARRY:num`;
-                 `block + 2 EXP 61 * R`; `q:num`] BASE_DIGIT_UNIQ) THEN
-  ANTS_TAC THENL
-   [REPEAT CONJ_TAC THENL
-     [REWRITE_TAC[LT_NZ; MULT_EQ_0; EXP_EQ_0; ARITH_EQ];
-      FIRST_X_ASSUM(fun th -> if is_eq(concl th) &&
-        can (find_term (fun t -> t = `2 EXP 61 * (q * 2 EXP (64 * k))`)) (concl th)
-        then MP_TAC th else NO_TAC) THEN ARITH_TAC;
-      GEN_REWRITE_TAC LAND_CONV [ADD_ASSOC] THEN MATCH_MP_TAC PROD_BOUND THEN ASM_REWRITE_TAC[];
-      MATCH_MP_TAC C0_BOUND THEN ASM_REWRITE_TAC[]];
-    DISCH_THEN ACCEPT_TAC]);;
-
-(* ---- general-B (growing regime, 2<=l<k, window!=0) helpers (cont75e) ----
-   At GROWING heads the partial value zv is multi-word (up to 2^(64*l)), NOT near the modulus scale;
-   `zv<b*2^64` is FALSE and DDK_R_LT/tight-bound do NOT apply.  But the CGEN assembly math
-   (C_CARRY_IS_Q, C_ASSEMBLE_GEN, C_TOP_FUNNEL_GEN) reuses at k:=l (needs only b<2^(64l), zv<2^(64l),
-   R=zv-qh*b<2^(64l), q*b<=zv -- all hold).  Only the VALUE CLOSE differs: growing bound, not tight. *)
-
-(* GROWING_VALUE_CLOSE_B: general-q value close for B (cong + GROWING bound Zf'<2^(64(l+1))).
-   cong via CONG_HALF (qh*b==0 mod b); bound from Zin-qh*b<=Zin<2^(64*l), blk<2^61 =>
-   Zf'=2^61*(Zin-qh*b)+blk < 2^(64*l+61)+2^61 < 2^(64(l+1)).  NO R<2^(p+2), NO tight bound. *)
-let GROWING_VALUE_CLOSE_B = prove
- (`!a b ii l Zin blk qh Zf'.
-    (Zin == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
-    blk = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\
-    qh * b <= Zin /\ Zin < 2 EXP (64 * l) /\ 1 <= l /\
-    Zf' = 2 EXP 61 * (Zin - qh * b) + blk
-    ==> (Zf' == a DIV 2 EXP (61 * ii)) (mod b) /\ Zf' < 2 EXP (64 * (l + 1))`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN CONJ_TAC THENL
-   [MATCH_MP_TAC CONG_HALF THEN MAP_EVERY EXISTS_TAC [`Zin:num`; `qh:num`] THEN
-    ASM_REWRITE_TAC[] THEN EXISTS_TAC `blk:num` THEN ASM_REWRITE_TAC[] THEN
-    UNDISCH_TAC `qh * b <= Zin` THEN ARITH_TAC;
-    SUBGOAL_THEN `Zin - qh * b < 2 EXP (64 * l)` ASSUME_TAC THENL
-     [UNDISCH_TAC `Zin < 2 EXP (64 * l)` THEN ARITH_TAC; ALL_TAC] THEN
-    SUBGOAL_THEN `blk < 2 EXP 61` ASSUME_TAC THENL
-     [ASM_REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
-    SUBGOAL_THEN `2 EXP 61 * (Zin - qh * b) < 2 EXP 61 * 2 EXP (64 * l)` ASSUME_TAC THENL
-     [REWRITE_TAC[LT_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ] THEN FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
-    SUBGOAL_THEN `2 EXP 61 * 2 EXP (64 * l) + 2 EXP 61 <= 2 EXP (64 * (l + 1))` ASSUME_TAC THENL
-     [REWRITE_TAC[GSYM EXP_ADD] THEN
-      TRANS_TAC LE_TRANS `2 EXP (61 + 64 * l) + 2 EXP (61 + 64 * l)` THEN CONJ_TAC THENL
-       [MATCH_MP_TAC LE_ADD2 THEN REWRITE_TAC[LE_REFL; LE_EXP; ARITH_EQ] THEN
-        UNDISCH_TAC `1 <= l` THEN ARITH_TAC;
-        REWRITE_TAC[ARITH_RULE `x + x = 2 EXP 1 * x`; GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN
-        UNDISCH_TAC `1 <= l` THEN ARITH_TAC]; ALL_TAC] THEN
-    ASM_REWRITE_TAC[] THEN
-    MAP_EVERY UNDISCH_TAC
-     [`2 EXP 61 * (Zin - qh * b) < 2 EXP 61 * 2 EXP (64 * l)`;
-      `2 EXP 61 * 2 EXP (64 * l) + 2 EXP 61 <= 2 EXP (64 * (l + 1))`;
-      `blk < 2 EXP 61`] THEN ARITH_TAC]);;
-
-(* GROWING_ZK_FROM_STORES_GEN: general-q B value assembly.  From the general-q tail stores (funnel W
-   with CARRY=qh, LOW=W MOD2^64) + inner-INV + reduction, derive bignum(z,k) s = 2^61*(zv-qh*b)+block.
-   High part highdigits zpre(l+1) vanishes (value<2^(64(l+1))); the two MEMORY stores z[l-1]=subword,
-   z[l]=ushr assemble via C_ASSEMBLE_GEN(k:=l).  (Analog of GROWING_ZK_FROM_STORES but qh!=0, mem z[l].) *)
 let GROWING_ZK_FROM_STORES_GEN = prove
  (`!z k l zpre zv b block hi cwinw W LOW qh s.
     2 <= l /\ l < k /\ b < 2 EXP (64 * l) /\ zv < 2 EXP (64 * l) /\ block < 2 EXP 61 /\
@@ -12734,32 +11122,6 @@ let FIELDSEL_CLOSE_GROW_GEN = prove
 (* WINDOW_NZ_IMP_B_LT (for the dispatch BGEN leaf): a nonzero window at the current position forces
    the modulus b below 2^(64*l).  window != 0 => V DIV 2^p != 0 => 2^p <= V < 2^(64l) => p < 64l;
    with b < 2^p (bitsize) get b < 2^(64l).  Used to discharge BGEN's b<2^(64*l) hypothesis. *)
-let WINDOW_NZ_IMP_B_LT = prove
- (`!V p b l. ~(((V DIV 2 EXP p) MOD 2 EXP 64) = 0) /\ V < 2 EXP (64 * l) /\ b < 2 EXP p
-             ==> b < 2 EXP (64 * l)`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `~(V DIV 2 EXP p = 0)` ASSUME_TAC THENL
-   [DISCH_TAC THEN
-    UNDISCH_TAC `~(((V DIV 2 EXP p) MOD 2 EXP 64) = 0)` THEN
-    ASM_REWRITE_TAC[MOD_0]; ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP p <= V` ASSUME_TAC THENL
-   [MP_TAC(SPECL [`V:num`; `2 EXP p`] DIV_EQ_0) THEN
-    REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
-    ASM_REWRITE_TAC[NOT_LT] THEN DISCH_THEN(SUBST1_TAC o SYM) THEN
-    ASM_REWRITE_TAC[GSYM NOT_LT]; ALL_TAC] THEN
-  TRANS_TAC LT_TRANS `2 EXP p` THEN ASM_REWRITE_TAC[] THEN
-  TRANS_TAC LET_TRANS `V:num` THEN ASM_REWRITE_TAC[]);;
-
-
-(* FLAT_ZK_FROM_STORES_GEN moved here from flat_gen_helpers.ml (cont105): it uses C_ASSEMBLE_GEN
-   (defined above), so it must load AFTER cgen_helpers, not in flat_gen_helpers (which loads earlier). *)
-(* FLAT_ZK_FROM_STORES_GEN (cont86): the GENERAL-qhat SINGLE-store FLAT value assembler.  Value
-   Zf' = 2^61*(zv-qh*b)+block fits l words (< 2^(64*l)), so the ARM FLAT tail stores ONLY z[l-1] (the funnel
-   W's subword) and leaves z[l..k-1] = highdigits zpre l = 0.  Concludes bignum(z,k) = Zf'.  Via
-   C_ASSEMBLE_GEN(k:=l) [the l-word assembly identity], deriving W DIV 2^3 = 0 (the ushr high-spill vanishes
-   since Zf' fits l words) + high-word vanish (highdigits zpre l = 0) + BIGNUM_FROM_MEMORY_STEP peel of z[l-1].
-   The general-qhat analog of FLAT_ZK_FROM_STORES (block_flat_304_win.ml, q=0); mirrors GROWING_ZK_FROM_STORES_GEN
-   but SINGLE store (no z[l]) since the value fits l words.  For the UNIFIED general-FLAT block. *)
 let FLAT_ZK_FROM_STORES_GEN = prove
  (`!z k zpre zv b block cwinw W hi qh l s.
     2 <= l /\ l <= k /\ b < 2 EXP (64 * l) /\ zv < 2 EXP (64 * l) /\ block < 2 EXP 61 /\
@@ -12808,10 +11170,6 @@ let FLAT_ZK_FROM_STORES_GEN = prove
   SUBGOAL_THEN `(l - 1) + 1 = l` SUBST1_TAC THENL [UNDISCH_TAC `2 <= l` THEN ARITH_TAC; ALL_TAC] THEN
   ARITH_TAC);;
 
-Printf.printf "\n=== cgen_helpers.ml: general-q C+B math core (12 lemmas incl C_CARRY_IS_Q, C_VALUE_CLOSE_GEN, GROWING_VALUE_CLOSE_B, GROWING_ZK_FROM_STORES_GEN, FIELDSEL_CLOSE_GROW_GEN, WINDOW_NZ_IMP_B_LT) ===\n%!";;
-
-
-(* ======== inlined: jj_segc_grow.ml ======== *)
 (* jj_segc_grow.ml (cont105): the ONE jj-aware seg-C variant that needs cgen_helpers
    (FIELDSEL_CLOSE_GROW_GEN).  Load AFTER cgen_helpers (which is after block_c).  Used by BGEN + FLATGEN.
    The other 5 jj-aware seg-C variants are in jj_segc.ml (loaded early, before block_c). *)
@@ -12859,10 +11217,6 @@ let FIELDSEL_CLOSE_GROW_GEN_JJ = prove
 
 (* --- (2) SAT_JJ : for C, CGEN, L1K1 (saturated, value 2^(64k)*Ztp+zpre, X23'=Ztp preserved) --- *)
 
-Printf.printf "\n=== jj_segc_grow.ml: FIELDSEL_CLOSE_GROW_GEN_JJ ===\n%!";;
-
-
-(* ======== inlined: block_flat_304_win.ml ======== *)
 (* ============================================================================
    Stage 3f: BIGNUM_MOD_BLOCK_FLAT_304_WIN -- the FLAT-regime (dd+1<k, (jj+124)DIV64=dd+1) block.
    ----------------------------------------------------------------------------
@@ -13311,10 +11665,6 @@ let BIGNUM_MOD_BLOCK_FLAT_304_WIN = prove
         MATCH_MP_TAC BIGDIGIT_AGREE_BELOW THEN EXISTS_TAC `l - 1` THEN
         ASM_REWRITE_TAC[]]]]);;
 
-Printf.printf "\n=== block_flat_304_win.ml: BIGNUM_MOD_BLOCK_FLAT_304_WIN (FLAT-regime main-loop block) ===\n%!";;
-
-
-(* ======== inlined: block_flat_gen_304_win.ml ======== *)
 (* ============================================================================
    Stage 3f: BIGNUM_MOD_BLOCK_FLAT_GEN_304_WIN -- GENERALIZED FLAT-regime block (arbitrary p).
    ----------------------------------------------------------------------------
@@ -13564,10 +11914,6 @@ let BIGNUM_MOD_BLOCK_FLAT_GEN_304_WIN = prove
      [REPEAT CONJ_TAC THEN UNDISCH_TAC `l < p DIV 64 + 1` THEN UNDISCH_TAC `2 <= l` THEN ARITH_TAC;
       ASM_REWRITE_TAC[]]]);;
 
-Printf.printf "\n=== block_flat_gen_304_win.ml: BIGNUM_MOD_BLOCK_FLAT_GEN_304_WIN (arbitrary-p FLAT, pcode>l) ===\n%!";;
-
-
-(* ======== inlined: block_flatgen_all_304_win.ml ======== *)
 (* ============================================================================
    Stage 3f: BIGNUM_MOD_BLOCK_FLATGEN_ALL_304_WIN -- the UNIFIED general-qhat FLAT-regime block, 0x1a4->0x304.
    ----------------------------------------------------------------------------
@@ -14033,10 +12379,6 @@ let BIGNUM_MOD_BLOCK_FLATGEN_ALL_304_WIN = prove
           UNDISCH_TAC `~(p DIV 64 + 1 < l - 1)` THEN UNDISCH_TAC `~(l - 1 = p DIV 64 + 1)` THEN
           UNDISCH_TAC `2 <= l` THEN ARITH_TAC]]]]);;
 
-Printf.printf "\n=== block_flatgen_all_304_win.ml: BIGNUM_MOD_BLOCK_FLATGEN_ALL_304_WIN (unified general-FLAT) ===\n%!";;
-
-
-(* ======== inlined: block_l1_304_win.ml ======== *)
 (* Stage 3f WIP: BIGNUM_MOD_BLOCK_L1_*_304_WIN -- the l=1 (dd=0) BASE-CASE blocks.
    l=1 is the FIRST body iteration (i=NB-1, jj=61): entry_l=MIN(k+1)1=1, exit_l=MIN(k+1)2=2 (grows 1->2).
    Prefix is BLOCKLOAD_WIDE (0x1a4->0x1d4) THEN QSETUP_SKIP (0x1d4->0x23c, BEQ@0x1f0 taken: inner loop
@@ -14179,52 +12521,6 @@ let BIGNUM_MOD_QSETUP_SKIP_BLOCK = prove
    REDUCED value Zfp (=Zf') abstractly with cong/bound/INV2 as HYPS (established in seg-B via
    BLOCK_VALUE_TIGHT), transports through FIELDSEL_WIDE_X12 (X23=word 0, value unchanged), adds
    the window via WINDOW_FROM_LOGGED_PCODE.  X13/X14 must be the finalized digits word(bigdigit Zfp _). *)
-let BIGNUM_MOD_FIELDSEL_CLOSE_L1 = prove
- (`!p pc k z n x m a b Zfp ii X17v X19v X16v X21v.
-    2 EXP (p - 1) <= b /\ 1 <= p /\ p < 2 EXP 64 /\
-    (2 EXP (64 * k) * 0 + Zfp == a DIV 2 EXP (61 * ii)) (mod b) /\
-    2 EXP (64 * k) * 0 + Zfp < b * 2 EXP 64 /\
-    2 EXP (64 * k) * 0 + Zfp < 2 EXP (64 * 2)
-    ==> ensures arm
-     (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\ read PC s = word (pc + 0x2e8) /\
-          read X0 s = word k /\ read X1 s = z /\ read X2 s = word n /\ read X3 s = x /\
-          read X4 s = m /\ read X20 s = word p /\ read X21 s = word X21v /\
-          read X16 s = word X16v /\ read X17 s = word X17v /\ read X19 s = word X19v /\
-          read X12 s = word (p DIV 64 + 1) /\ read X23 s = word 0 /\
-          read X13 s = word (bigdigit Zfp ((p DIV 64 + 1) - 1)) /\
-          read X14 s = word (bigdigit Zfp (p DIV 64 + 1)) /\
-          bignum_from_memory (x,n) s = a /\ bignum_from_memory (m,k) s = b /\
-          bignum_from_memory (z,k) s = Zfp)
-     (\s. aligned_bytes_loaded s (word pc) bignum_mod_mc /\ read PC s = word (pc + 0x304) /\
-          read X0 s = word k /\ read X1 s = z /\ read X2 s = word n /\ read X3 s = x /\
-          read X4 s = m /\ read X20 s = word p /\ read X21 s = word X21v /\
-          read X16 s = word X16v /\
-          read X17 s = word X17v /\ read X19 s = word X19v /\ read X12 s = word (p DIV 64 + 1) /\
-          bignum_from_memory (x,n) s = a /\ bignum_from_memory (m,k) s = b /\
-          (2 EXP (64 * k) * val(read X23 s) + bignum_from_memory (z,k) s == a DIV 2 EXP (61 * ii)) (mod b) /\
-          2 EXP (64 * k) * val(read X23 s) + bignum_from_memory (z,k) s < b * 2 EXP 64 /\
-          2 EXP (64 * k) * val(read X23 s) + bignum_from_memory (z,k) s < 2 EXP (64 * 2) /\
-          read X15 s = word (((2 EXP (64 * k) * val(read X23 s) + bignum_from_memory (z,k) s) DIV 2 EXP p) MOD 2 EXP 64))
-     (MAYCHANGE [PC; X0; X5; X6; X7; X8; X9; X10; X11; X12; X13; X14; X15;
-                 X16; X17; X19; X20; X21; X22; X23; X24] ,,
-      MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events] ,, MAYCHANGE [memory :> bignum(z,k)])`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(ISPECL [`p:num`; `bigdigit Zfp ((p DIV 64 + 1) - 1)`; `bigdigit Zfp (p DIV 64 + 1)`;
-                 `pc:num`; `k:num`; `z:int64`; `n:num`; `x:int64`; `m:int64`; `a:num`; `b:num`; `0`;
-                 `Zfp:num`; `X17v:num`; `X19v:num`; `X16v:num`; `X21v:num`]
-                BIGNUM_MOD_FIELDSEL_WIDE_X12) THEN
-  REWRITE_TAC[BIGDIGIT_BOUND; SOME_FLAGS] THEN
-  MATCH_MP_TAC(REWRITE_RULE[IMP_CONJ] ENSURES_POSTCONDITION_THM) THEN
-  GEN_TAC THEN REWRITE_TAC[] THEN STRIP_TAC THEN
-  ASM_REWRITE_TAC[VAL_WORD_0; MULT_CLAUSES; ADD_CLAUSES] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[MULT_CLAUSES; ADD_CLAUSES]) THEN
-  ASM_REWRITE_TAC[] THEN ASM_SIMP_TAC[WINDOW_FROM_LOGGED_PCODE]);;
-
-(* FIELDSEL_CLOSE_L1_JJ (jj-bound variant of FIELDSEL_CLOSE_L1; cont102): + hyp Zfp<2^X17v + post
-   <2^X17v conjunct.  Defined HERE (right after FIELDSEL_CLOSE_L1) because it needs CLOSE_L1's proof
-   pattern and is consumed by L1_SEGC below -- keeps the jj-aware L1 seg-C local to this file (the other
-   5 jj-aware seg-C variants live in jj_segc.ml, loaded earlier).  Value preserved => the added conjunct
-   closes by the SAME final ASM_REWRITE. *)
 let FIELDSEL_CLOSE_L1_JJ = prove
  (`!p pc k z n x m a b Zfp ii X17v X19v X16v X21v.
     2 EXP (p - 1) <= b /\ 1 <= p /\ p < 2 EXP 64 /\
@@ -14274,77 +12570,6 @@ let FIELDSEL_CLOSE_L1_JJ = prove
      p<=64 => b<2^p<=2^64 => highdigits b 1 = 0.
      p>64  => zv<2^64<2^p => zv DIV2^p=0 => hwin=(zv DIV2^p)MOD2^64=0 => qhat=(w*hwin)DIV2^64+hwin=0.
    qhat here = (w*hwin)DIV2^64+hwin with hwin=(zv DIV2^p)MOD2^64.  NO separate qhat=0 hyp needed. *)
-let L1_TAILMUL_DISJ = prove
- (`!p b zv w. 2 EXP (p - 1) <= b /\ b < 2 EXP p /\ zv < 2 EXP 64
-   ==> (w * ((zv DIV 2 EXP p) MOD 2 EXP 64)) DIV 2 EXP 64 + (zv DIV 2 EXP p) MOD 2 EXP 64 = 0 \/
-       highdigits b 1 = 0`,
-  REPEAT STRIP_TAC THEN ASM_CASES_TAC `p <= 64` THENL
-   [DISJ2_TAC THEN REWRITE_TAC[highdigits; EXP; MULT_CLAUSES] THEN
-    MATCH_MP_TAC DIV_LT THEN
-    TRANS_TAC LTE_TRANS `2 EXP p` THEN ASM_REWRITE_TAC[LE_EXP] THEN ASM_ARITH_TAC;
-    DISJ1_TAC THEN
-    SUBGOAL_THEN `(zv DIV 2 EXP p) MOD 2 EXP 64 = 0` (fun th -> REWRITE_TAC[th; MULT_CLAUSES; DIV_0; ADD_CLAUSES]) THEN
-    SUBGOAL_THEN `zv DIV 2 EXP p = 0` (fun th -> REWRITE_TAC[th]) THENL
-     [MATCH_MP_TAC DIV_LT THEN TRANS_TAC LTE_TRANS `2 EXP 64` THEN ASM_REWRITE_TAC[LE_EXP] THEN ASM_ARITH_TAC;
-      REWRITE_TAC[MOD_0]]]);;
-
-(* L1_B0_MUL_BRIDGE (PROVEN 2026-07-30): the funnel-argument b0->b bridge.  The tail's store word uses
-   bigdigit b 0 (the low modulus digit) but L1_VALUE_BRIDGE's accumulator A = zv+q+q*(2^64-1-b) uses the
-   full b.  Taking the TAIL_MUL disjunction (q=0 \/ highdigits b 1=0) directly: if q=0 both sides vanish;
-   if highdigits b 1=0 then b<2^64 so bigdigit b 0 = b.  Bridges the tail's W-accumulator to A. *)
-let L1_B0_MUL_BRIDGE = prove
- (`!q b. (q = 0 \/ highdigits b 1 = 0)
-         ==> q * (2 EXP 64 - 1 - bigdigit b 0) = q * (2 EXP 64 - 1 - b)`,
-  REPEAT GEN_TAC THEN STRIP_TAC THENL
-   [ASM_REWRITE_TAC[MULT_CLAUSES];
-    SUBGOAL_THEN `bigdigit b 0 = b` (fun th -> REWRITE_TAC[th]) THEN
-    SUBGOAL_THEN `b < 2 EXP 64` ASSUME_TAC THENL
-     [UNDISCH_TAC `highdigits b 1 = 0` THEN
-      REWRITE_TAC[highdigits; EXP_1] THEN SIMP_TAC[DIV_EQ_0; EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
-    REWRITE_TAC[bigdigit; MULT_CLAUSES; EXP; DIV_1] THEN MATCH_MP_TAC MOD_LT THEN
-    ASM_REWRITE_TAC[]]);;
-
-(* L1_VALUE_REL (PROVEN 2026-07-30): the l=1 (dd=0) general-q value relation.  From the tail's funnel
-   accumulator W (2^64*hh'+W = bigdigit zv 0 + q + q*(2^64-1-bigdigit b 0)), the seam (cwin DIV8=block),
-   zv<2^64, and the TAIL_MUL disjunction (q=0 \/ highdigits b 1=0), derive the assembled-2-word value
-   relation:  (funnel_low) + 2^64*(z1_val) + 2^61*q*b = block + 2^61*zv + 2^61*q*2^64.
-   The LHS's (2^61*W MOD2^3 + cwin DIV8) + 2^64*(W DIV2^3 + 2^61*hh') is exactly val(z0)+2^64*val(z1)
-   (z0=funnel(W,cwin), z1=ushr(W,3)) via EXTR_FUNNEL_VAL/VAL_WORD_USHR.  Combined with L1_ZK_ASSEMBLE
-   (bignum(z,k)=val z0+2^64*val z1) this gives bignum(z,k)+2^61*q*b = 2^61*zv+block+2^61*q*2^64, the
-   BLOCK_VALUE input (the +2^61*q*2^64 top-carry is absorbed by hh' being 0 / the length bound).
-   Proof: VALUE_GROW_STEP(dd=0) + TAIL_MUL disjunction discharge (lowdigits b 1 -> b) + lowdigits zv 1 = zv.
-   *** FILE-ROBUST script: REPEAT GEN_TAC THEN DISCH_TAC (NOT STRIP -- keeps the /\ intact as one hyp so
-   the disjunction survives); extract the disjunct via `last o CONJUNCTS` for DISJ_CASES. *** *)
-let L1_VALUE_REL = prove
- (`!k q block zv b W cwin hh'.
-    0 < k /\ block < 2 EXP 61 /\ zv < 2 EXP 64 /\ cwin DIV 8 = block /\
-    2 EXP 64 * hh' + W = bigdigit zv 0 + q + q * (2 EXP 64 - 1 - bigdigit b 0) /\
-    (q = 0 \/ highdigits b 1 = 0)
-    ==> (2 EXP 61 * W MOD 2 EXP 3 + cwin DIV 8) +
-        2 EXP 64 * (W DIV 2 EXP 3 + 2 EXP 61 * hh') + 2 EXP 61 * q * b =
-        block + 2 EXP 61 * zv + 2 EXP 61 * q * 2 EXP 64`,
-  REPEAT GEN_TAC THEN DISCH_TAC THEN
-  SUBGOAL_THEN `2 EXP 61 * q * lowdigits b 1 = 2 EXP 61 * q * b` ASSUME_TAC THENL
-   [FIRST_ASSUM(DISJ_CASES_TAC o last o CONJUNCTS) THEN
-    ASM_REWRITE_TAC[MULT_CLAUSES] THEN
-    AP_TERM_TAC THEN AP_TERM_TAC THEN POP_ASSUM MP_TAC THEN
-    REWRITE_TAC[highdigits; lowdigits; EXP; MULT_CLAUSES] THEN
-    SIMP_TAC[DIV_EQ_0; EXP_EQ_0; ARITH_EQ] THEN DISCH_TAC THEN MATCH_MP_TAC MOD_LT THEN
-    UNDISCH_TAC `0 < k /\ block < 2 EXP 61 /\ zv < 2 EXP 64 /\ cwin DIV 8 = block /\
-       2 EXP 64 * hh' + W = bigdigit zv 0 + q + q * (2 EXP 64 - 1 - bigdigit b 0) /\
-       (q = 0 \/ highdigits b 1 = 0)` THEN
-    REWRITE_TAC[] THEN STRIP_TAC THEN ASM_REWRITE_TAC[];
-    ALL_TAC] THEN
-  FIRST_ASSUM(STRIP_ASSUME_TAC) THEN
-  SUBGOAL_THEN `lowdigits zv 1 = zv` ASSUME_TAC THENL
-   [REWRITE_TAC[lowdigits; EXP; MULT_CLAUSES] THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  MP_TAC(ISPECL [`k:num`;`0`;`q:num`;`block:num`;`zv:num`;`b:num`;`cwin:num`;`q:num`;`W:num`;`hh':num`;`0`] VALUE_GROW_STEP) THEN
-  ASM_REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES; ARITH_RULE `64 * 0 = 0`; EXP; LOWDIGITS_0; BIGDIGIT_BOUND] THEN
-  DISCH_THEN(fun th -> MP_TAC th THEN ARITH_TAC));;
-
-(* L1_BLOCKLOAD_X13 (PROVEN 2026-07-30): BIGNUM_MOD_BLOCKLOAD_WIDE STRENGTHENED to carry read X13 s =
-   word lfv (X13 preserved through the single-BIGSTEP block-load region; the base lemma just did not
-   state it).  Local copy so the l=1 prefix can thread X13 to the seg-B tail.  Same proof as base. *)
 let L1_BLOCKLOAD_X13 = prove
  (`!x a n ii pc k z m b p Zt zv w X15v X17v X19v hfv lfv.
      1 <= n /\ n < 2 EXP 58 /\ ii < (64 * n + 60) DIV 61 - 1 /\
@@ -14433,248 +12658,6 @@ let BIGNUM_MOD_L1_PREFIX = prove
    qhat*b<=zv (no underflow) /\ zv<2^64 /\ b<2^64 ==> (zv + qhat*(2^64-b)) MOD 2^64 = zv - qhat*b.
    This is the heart of showing bignum(z,k)s' = 2^61*(A mod 2^64)+block satisfies Zfp+2^61*qhat*b=2^61*zv+block
    where A = zv + qhat*(2^64-1-b0)+... (funnel word0 accumulator). *)
-let L1_MODSUB = prove
- (`!zv qhat b. qhat * b <= zv /\ zv < 2 EXP 64 /\ b < 2 EXP 64
-   ==> (zv + qhat * (2 EXP 64 - b)) MOD 2 EXP 64 = zv - qhat * b`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `qhat * (2 EXP 64 - b) = qhat * 2 EXP 64 - qhat * b` SUBST1_TAC THENL
-   [REWRITE_TAC[LEFT_SUB_DISTRIB]; ALL_TAC] THEN
-  SUBGOAL_THEN `zv + (qhat * 2 EXP 64 - qhat * b) = (zv - qhat * b) + qhat * 2 EXP 64` SUBST1_TAC THENL
-   [SUBGOAL_THEN `qhat * b <= qhat * 2 EXP 64` MP_TAC THENL
-     [MATCH_MP_TAC LE_MULT2 THEN ASM_SIMP_TAC[LE_REFL; LT_IMP_LE]; ALL_TAC] THEN
-    UNDISCH_TAC `qhat * b <= zv` THEN ARITH_TAC;
-    REWRITE_TAC[MOD_MULT_ADD] THEN MATCH_MP_TAC MOD_LT THEN
-    UNDISCH_TAC `qhat * b <= zv` THEN UNDISCH_TAC `zv < 2 EXP 64` THEN ARITH_TAC]);;
-
-(* L1_FUNNEL_TELESCOPE (PROVEN 2026-07-30): the funnel word-telescope.  The assembled 2-word value
-   val z0 + 2^64*val z1 where z0=2^61*(A MOD8)+cwin DIV8, z1=(A mod 2^64)DIV8, telescopes:
-   2^61*(A MOD8) + 2^64*((A mod 2^64)DIV8) = 2^61*(A mod 2^64).  So bignum(z,k)s' = 2^61*(A mod 2^64) + block
-   (with cwin DIV8 = block).  Feeds the value relation via L1_MODSUB (A mod 2^64 = zv - qhat*b). *)
-let L1_FUNNEL_TELESCOPE = prove
- (`!A. 2 EXP 61 * (A MOD 8) + 2 EXP 64 * ((A MOD 2 EXP 64) DIV 8) = 2 EXP 61 * (A MOD 2 EXP 64)`,
-  GEN_TAC THEN REWRITE_TAC[ARITH_RULE `8 = 2 EXP 3`] THEN
-  SUBGOAL_THEN `A MOD 2 EXP 3 = (A MOD 2 EXP 64) MOD 2 EXP 3` SUBST1_TAC THENL
-   [REWRITE_TAC[MOD_MOD_EXP_MIN] THEN AP_TERM_TAC THEN AP_TERM_TAC THEN CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
-  MP_TAC(SPECL [`A MOD 2 EXP 64`; `2 EXP 3`] DIVISION) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
-  ARITH_TAC);;
-
-(* L1_QHAT_ID (PROVEN 2026-07-30): ((2^64+w)*h)DIV2^64 = (w*h)DIV2^64 + h.  Bridges the QSETUP qhat form
-   (w*hwin)DIV2^64+hwin to the KI/BLOCK_VALUE form ((2^64+w)*hwin)DIV2^64 used by KI_LOWER_FROM_RECIPB. *)
-let L1_QHAT_ID = prove
- (`!w h. ((2 EXP 64 + w) * h) DIV 2 EXP 64 = (w * h) DIV 2 EXP 64 + h`,
-  REPEAT GEN_TAC THEN REWRITE_TAC[RIGHT_ADD_DISTRIB] THEN
-  SUBGOAL_THEN `2 EXP 64 * h + w * h = w * h + h * 2 EXP 64` SUBST1_TAC THENL
-   [ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `w * h + h * 2 EXP 64 = h * 2 EXP 64 + w * h` SUBST1_TAC THENL
-   [ARITH_TAC; ALL_TAC] THEN
-  SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
-
-(* L1_FUNNEL_DECODE (PROVEN 2026-07-30): decodes the two tail stores z0=funnel(A,cwin), z1=ushr(word A)3
-   into the 2-word value:  val z0 + 2^64*val z1 = 2^61*(val(word A) MOD8) + val(word cwin)DIV8 +
-   2^64*(val(word A)DIV8).  Combined with L1_FUNNEL_TELESCOPE => = 2^61*(A mod 2^64) + (cwin DIV8).
-   NB: `extr c,ss,c,#(64-BLOCKSIZE=3)` is the 61-bit SHIFT funnel (bignum_shl_small), NOT a truncation --
-   the value spans z0,z1 correctly; VALUE_GROW_STEP (proven) encodes the full funnel algebra. *)
-let L1_FUNNEL_DECODE = prove
- (`!A cwin. val(word A:int64) < 2 EXP 64 /\ val(word cwin:int64) < 2 EXP 64
-   ==> val(word_subword (word_join (word A:int64) (word cwin:int64):int128) (3,64):int64) +
-       2 EXP 64 * val(word_ushr (word A:int64) 3) =
-       2 EXP 61 * (val(word A:int64) MOD 8) + val(word cwin:int64) DIV 8 + 2 EXP 64 * (val(word A:int64) DIV 8)`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[EXTR_FUNNEL_VAL; VAL_WORD_USHR] THEN ARITH_TAC);;
-
-(* L1_HWIN_BOUND (PROVEN 2026-07-30): hwin*2^p <= zv (hwin=(zv DIV2^p)MOD2^64, zv<2^64).  Feeds KI_LOWER. *)
-let L1_HWIN_BOUND = prove
- (`!zv p. zv < 2 EXP 64 ==> ((zv DIV 2 EXP p) MOD 2 EXP 64) * 2 EXP p <= zv`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `(zv DIV 2 EXP p) MOD 2 EXP 64 = zv DIV 2 EXP p` SUBST1_TAC THENL
-   [MATCH_MP_TAC MOD_LT THEN TRANS_TAC LET_TRANS `zv:num` THEN ASM_REWRITE_TAC[DIV_LE]; ALL_TAC] THEN
-  MP_TAC(SPECL [`zv:num`; `2 EXP p`] DIVISION) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
-
-(* L1_NOUNDERFLOW (PROVEN 2026-07-30): qhat*b<=zv from (RECIP_B) (2^64+w)*b<=2^(p+64) + hwin*2^p<=zv, via
-   KI_LOWER_FROM_RECIPB + L1_QHAT_ID.  NB: (RECIP_B) is itself unproven-but-tested (ki_lower.ml) -- so in
-   the l=1 BLOCK, the no-underflow qhat*b<=zv is taken as a HYPOTHESIS (threaded from MAINLOOP, Option B),
-   EXACTLY as the DDK block takes its no-borrow hyp [21].  This lemma is kept for when RECIP_B is discharged. *)
-let L1_NOUNDERFLOW = prove
- (`!w hwin zv b p. (2 EXP 64 + w) * b <= 2 EXP (p + 64) /\ hwin * 2 EXP p <= zv
-   ==> ((w * hwin) DIV 2 EXP 64 + hwin) * b <= zv`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(ISPECL [`b:num`; `p:num`; `zv:num`; `hwin:num`; `w:num`] KI_LOWER_FROM_RECIPB) THEN
-  ASM_REWRITE_TAC[] THEN REWRITE_TAC[GSYM L1_QHAT_ID] THEN
-  DISCH_THEN MATCH_MP_TAC THEN ASM_REWRITE_TAC[]);;
-
-(* L1_SUBID (PROVEN 2026-07-30): q + q*(2^64-1-b) = q*(2^64-b) given b+1<=2^64.  Nat-subtraction helper
-   for the funnel accumulator A = zv + q + q*(2^64-1-b0) = zv + q*(2^64-b0). *)
-let L1_SUBID = prove
- (`!q b. b + 1 <= 2 EXP 64 ==> q + q * (2 EXP 64 - 1 - b) = q * (2 EXP 64 - b)`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `2 EXP 64 - 1 - b = (2 EXP 64 - b) - 1` SUBST1_TAC THENL
-   [ASM_ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `1 <= 2 EXP 64 - b` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `q <= q * (2 EXP 64 - b)` MP_TAC THENL
-   [GEN_REWRITE_TAC LAND_CONV [ARITH_RULE `q = q * 1`] THEN
-    REWRITE_TAC[LE_MULT_LCANCEL] THEN ASM_ARITH_TAC; ALL_TAC] THEN
-  REWRITE_TAC[LEFT_SUB_DISTRIB; MULT_CLAUSES] THEN ARITH_TAC);;
-
-(* L1_VALUE_BRIDGE (PROVEN 2026-07-30): the COMPLETE l=1 tail value assembly.  From the two tail stores
-   z0 = funnel(word A, word cwin), z1 = ushr(word A)3 where A = zv + q + q*(2^64-1-b) (the word-0 funnel
-   accumulator with hi=q), GIVEN no-underflow q*b<=zv, zv<2^64, b<2^64 (p<61 corner; b0=b), val cwin DIV8=block:
-     val z0 + 2^64*val z1 = 2^61*(zv - q*b) + block   [= the reduced value Zf'].
-   Chain: L1_FUNNEL_DECODE (2-word decode) + L1_FUNNEL_TELESCOPE (regroup to 2^61*(A mod 2^64)) + L1_SUBID
-   (A = zv+q*(2^64-b)) + L1_MODSUB (A mod 2^64 = zv - q*b, needs no-underflow).
-   Combined with L1_ZK_ASSEMBLE gives bignum(z,k)s' = 2^61*(zv-q*b)+block = Zf'; then Zf'+2^61*q*b=2^61*zv+block
-   (nat eqn, q*b<=zv) feeds BLOCK_VALUE_TIGHT for cong + Zf'<b*2^64. *)
-let L1_VALUE_BRIDGE = prove
- (`!zv q b block cwin.
-    q * b <= zv /\ zv < 2 EXP 64 /\ b < 2 EXP 64 /\ val(word cwin:int64) DIV 8 = block
-    ==> val(word_subword (word_join (word (zv + q + q * (2 EXP 64 - 1 - b)):int64) (word cwin:int64):int128) (3,64):int64) +
-        2 EXP 64 * val(word_ushr (word (zv + q + q * (2 EXP 64 - 1 - b)):int64) 3) =
-        2 EXP 61 * (zv - q * b) + block`,
-  REPEAT STRIP_TAC THEN
-  ABBREV_TAC `A = zv + q + q * (2 EXP 64 - 1 - b)` THEN
-  MP_TAC(ISPECL [`A:num`; `cwin:num`] L1_FUNNEL_DECODE) THEN
-  REWRITE_TAC[VAL_BOUND_64] THEN DISCH_THEN SUBST1_TAC THEN
-  SUBGOAL_THEN `val(word A:int64) = A MOD 2 EXP 64` SUBST1_TAC THENL
-   [REWRITE_TAC[VAL_WORD; DIMINDEX_64]; ALL_TAC] THEN
-  SUBGOAL_THEN
-   `2 EXP 61 * ((A MOD 2 EXP 64) MOD 8) + val(word cwin:int64) DIV 8 + 2 EXP 64 * ((A MOD 2 EXP 64) DIV 8) =
-    2 EXP 61 * (A MOD 2 EXP 64) + val(word cwin:int64) DIV 8`
-   SUBST1_TAC THENL
-   [MP_TAC(ISPEC `A MOD 2 EXP 64` L1_FUNNEL_TELESCOPE) THEN
-    REWRITE_TAC[MOD_MOD_REFL] THEN ARITH_TAC; ALL_TAC] THEN
-  ASM_REWRITE_TAC[] THEN
-  SUBGOAL_THEN `A MOD 2 EXP 64 = zv - q * b` SUBST1_TAC THENL
-   [EXPAND_TAC "A" THEN
-    SUBGOAL_THEN `zv + q + q * (2 EXP 64 - 1 - b) = zv + q * (2 EXP 64 - b)` SUBST1_TAC THENL
-     [MP_TAC(ISPECL [`q:num`; `b:num`] L1_SUBID) THEN ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
-      DISCH_THEN(fun th -> REWRITE_TAC[GSYM th]) THEN ARITH_TAC;
-      MATCH_MP_TAC L1_MODSUB THEN ASM_REWRITE_TAC[]]; ALL_TAC] THEN
-  REFL_TAC);;
-
-(* L1_VALUE_BRIDGE_GEN (PROVEN 2026-07-30): the tail's ACTUAL store-word form value bridge, valid for
-   ALL b (incl b>=2^64).  The tail-B store word is word(bigdigit zv 0 + q + q*(2^64-1-bigdigit b 0));
-   this bridges it to 2^61*(zv-q*b)+block, taking the disjunction (q=0 \/ highdigits b 1=0) [from
-   L1_TAILMUL_DISJ] instead of b<2^64.
-     - q=0 branch: funnel arg = word(bigdigit zv 0)=word zv; L1_FUNNEL_DECODE + telescope give 2^61*zv+block
-       = 2^61*(zv-0)+block.  (This is the LARGE-b case: b>=2^64 => highdigits b 1!=0 => q=0.)
-     - highdigits b 1=0 branch: b<2^64, bigdigit b 0=b, reduce to L1_VALUE_BRIDGE.
-   *** GOTCHA: open with DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC), NOT REPEAT STRIP_TAC --
-   STRIP_TAC CASE-SPLITS the disjunctive antecedent conjunct (q=0 \/ ...) into 2 goals, desyncing every
-   downstream THENL.  CONJUNCTS_THEN keeps the disjunction as ONE whole hypothesis; then ASM_CASES `q=0`
-   splits it deliberately where wanted.  (Same STRIP-splits-a-connective class as L1_VALUE_CLOSE cont50.) *)
-let L1_VALUE_BRIDGE_GEN = prove
- (`!zv q b block cwin.
-    q * b <= zv /\ zv < 2 EXP 64 /\ (q = 0 \/ highdigits b 1 = 0) /\ val(word cwin:int64) DIV 8 = block
-    ==> val(word_subword (word_join (word (bigdigit zv 0 + q + q * (2 EXP 64 - 1 - bigdigit b 0)):int64) (word cwin:int64):int128) (3,64):int64) +
-        2 EXP 64 * val(word_ushr (word (bigdigit zv 0 + q + q * (2 EXP 64 - 1 - bigdigit b 0)):int64) 3) =
-        2 EXP 61 * (zv - q * b) + block`,
-  REPEAT GEN_TAC THEN
-  DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
-  SUBGOAL_THEN `bigdigit zv 0 = zv` SUBST1_TAC THENL
-   [REWRITE_TAC[bigdigit; MULT_CLAUSES; EXP; DIV_1] THEN MATCH_MP_TAC MOD_LT THEN FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
-  ASM_CASES_TAC `q = 0` THENL
-   [ASM_REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES; SUB_0] THEN
-    MP_TAC(ISPECL [`zv:num`; `cwin:num`] L1_FUNNEL_DECODE) THEN
-    REWRITE_TAC[VAL_BOUND_64] THEN DISCH_THEN SUBST1_TAC THEN
-    SUBGOAL_THEN `val(word zv:int64) = zv` SUBST1_TAC THENL
-     [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
-    ASM_REWRITE_TAC[] THEN
-    MP_TAC(ISPEC `zv:num` L1_FUNNEL_TELESCOPE) THEN
-    SUBGOAL_THEN `zv MOD 2 EXP 64 = zv` SUBST1_TAC THENL
-     [MATCH_MP_TAC MOD_LT THEN FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
-    REWRITE_TAC[ARITH_RULE `8 = 2 EXP 3`] THEN DISCH_THEN(fun th -> MP_TAC th) THEN ARITH_TAC;
-    SUBGOAL_THEN `highdigits b 1 = 0` ASSUME_TAC THENL
-     [FIRST_X_ASSUM(fun th -> if concl th = `q = 0 \/ highdigits b 1 = 0`
-                              then MP_TAC th else NO_TAC) THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    SUBGOAL_THEN `b < 2 EXP 64` ASSUME_TAC THENL
-     [UNDISCH_TAC `highdigits b 1 = 0` THEN
-      REWRITE_TAC[highdigits; ARITH_RULE `64 * 1 = 64`; EXP_1] THEN
-      SIMP_TAC[DIV_EQ_0; EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
-    SUBGOAL_THEN `bigdigit b 0 = b` SUBST1_TAC THENL
-     [REWRITE_TAC[bigdigit; MULT_CLAUSES; EXP; DIV_1] THEN MATCH_MP_TAC MOD_LT THEN FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
-    MP_TAC(ISPECL [`zv:num`; `q:num`; `b:num`; `block:num`; `cwin:num`] L1_VALUE_BRIDGE) THEN
-    ASM_REWRITE_TAC[]]);;
-
-(* L1_RELQ (PROVEN 2026-07-30): the reduced-value relation.  From no-underflow q*b<=zv and the reduced
-   value Zfp = 2^61*(zv-q*b)+block, recover Zfp + 2^61*q*b = 2^61*zv+block (feeds CONG_HALF).  Nat
-   subtraction is distributed via LEFT_SUB_DISTRIB after SUBST'ing 2^61*(q*b), then closed by ARITH_TAC
-   under the 2^61*(q*b) <= 2^61*zv guard. *)
-let L1_RELQ = prove
- (`!zv q b block Zfp.
-    q * b <= zv /\ Zfp = 2 EXP 61 * (zv - q * b) + block
-    ==> Zfp + 2 EXP 61 * q * b = 2 EXP 61 * zv + block`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  FIRST_X_ASSUM(fun th -> if concl th = `Zfp = 2 EXP 61 * (zv - q * b) + block`
-                          then SUBST1_TAC th else NO_TAC) THEN
-  SUBGOAL_THEN `2 EXP 61 * q * b = 2 EXP 61 * (q * b)` SUBST1_TAC THENL
-   [REWRITE_TAC[MULT_ASSOC]; ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP 61 * (zv - q * b) = 2 EXP 61 * zv - 2 EXP 61 * (q * b)` SUBST1_TAC THENL
-   [REWRITE_TAC[LEFT_SUB_DISTRIB]; ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP 61 * (q * b) <= 2 EXP 61 * zv` MP_TAC THENL
-   [ASM_REWRITE_TAC[LE_MULT_LCANCEL]; ALL_TAC] THEN
-  ARITH_TAC);;
-
-(* L1_VALUE_CLOSE (PROVEN 2026-07-30): the COMPLETE l=1 value close.  From the DDK-style recip-bracket
-   cluster + no-underflow (q*b<=zv) + Zfp = 2^61*(zv-q*b)+block (the reduced value), derives
-   cong (CONG_HALF via the relation Zfp+2^61*q*b=2^61*zv+block) + tight bound Zfp<b*2^64 (BLOCK_VALUE_TIGHT,
-   its relation ANTS = Zfp+2^61*((2^64+w)*hwin)DIV2^64*b=2^61*zv+block via L1_QHAT_ID) + INV2 Zfp<2^128
-   (from Zfp<b*2^64 & b<2^64).  The 2^(64k)*0 terms are the X23'=0 (growing) framing.
-   *** no-underflow q*b<=zv is a HYPOTHESIS (threaded from MAINLOOP, like DDK block's [21]; (RECIP_B) open). *)
-let L1_VALUE_CLOSE = prove
- (`!a b ii p w hwin zv q block Zfp t0 s zr k.
-    (zv == a DIV 2 EXP (61 * (ii + 1))) (mod b) /\
-    block = (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61 /\ block < 2 EXP 61 /\
-    b < 2 EXP p /\ zv < 2 EXP 64 /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
-    t0 < 2 EXP 64 /\ 0 < t0 /\ hwin < 2 EXP 64 /\
-    b * 2 EXP 64 = t0 * 2 EXP p + s /\ zv = hwin * 2 EXP p + zr /\ zr < 2 EXP p /\
-    &2 pow 128 <= (&2 pow 64 + &w + &1) * &t0 /\ (&2 pow 64 + &w) * &t0 <= &2 pow 128 /\
-    q = (w * hwin) DIV 2 EXP 64 + hwin /\ q * b <= zv /\
-    Zfp = 2 EXP 61 * (zv - q * b) + block
-    ==> (2 EXP (64 * k) * 0 + Zfp == a DIV 2 EXP (61 * ii)) (mod b) /\
-        2 EXP (64 * k) * 0 + Zfp < b * 2 EXP 64 /\
-        2 EXP (64 * k) * 0 + Zfp < 2 EXP (64 * 2)`,
-  (* *** single STRIP_TAC (REPEAT GEN_TAC THEN STRIP_TAC): do NOT let REPEAT STRIP_TAC split the
-     conclusion A/\B/\C into 3 goals -- that desyncs the closing REPEAT CONJ_TAC THENL count.
-     Establish RELq (L1_RELQ), the QH-form relation (L1_QHAT_ID), cong (CONG_HALF) and Zfp<b*2^64
-     (BLOCK_VALUE_TIGHT) as separate ASSUME_TAC subgoals, THEN split the intact conclusion 3-way.
-     *** INV2 (Zfp<2^128) derived from zv<2^64 (ALWAYS true at l=1: zv is a 61-bit block), NOT from
-     b<2^64 -- so this close is valid for LARGE b>=2^64 too (then p>=65 => hwin=0 => q=0). *)
-  REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES] THEN
-  SUBGOAL_THEN `Zfp + 2 EXP 61 * q * b = 2 EXP 61 * zv + block` ASSUME_TAC THENL
-   [MATCH_MP_TAC L1_RELQ THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  SUBGOAL_THEN
-   `Zfp + 2 EXP 61 * ((2 EXP 64 + w) * hwin) DIV 2 EXP 64 * b = 2 EXP 61 * zv + block`
-   ASSUME_TAC THENL
-   [REWRITE_TAC[L1_QHAT_ID] THEN
-    FIRST_X_ASSUM(fun th -> if concl th = `q = (w * hwin) DIV 2 EXP 64 + hwin`
-                            then SUBST1_TAC(SYM th) else NO_TAC) THEN
-    FIRST_X_ASSUM ACCEPT_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `(Zfp == a DIV 2 EXP (61 * ii)) (mod b)` ASSUME_TAC THENL
-   [MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `zv:num`; `Zfp:num`; `q:num`; `block:num`]
-                  CONG_HALF) THEN
-    ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_THEN ACCEPT_TAC]; ALL_TAC] THEN
-  SUBGOAL_THEN `Zfp < b * 2 EXP 64` ASSUME_TAC THENL
-   [MP_TAC(ISPECL [`a:num`; `b:num`; `ii:num`; `p:num`; `t0:num`; `zv:num`; `Zfp:num`;
-                   `w:num`; `block:num`; `s:num`; `zr:num`; `hwin:num`; `0`]
-                  BLOCK_VALUE_TIGHT) THEN
-    ANTS_TAC THENL
-     [ASM_REWRITE_TAC[ARITH_RULE `0 < 2 EXP 64`]; DISCH_THEN(ACCEPT_TAC o CONJUNCT2)];
-    ALL_TAC] THEN
-  REWRITE_TAC[ARITH_RULE `64 * 2 = 128`] THEN REPEAT CONJ_TAC THENL
-   [FIRST_ASSUM ACCEPT_TAC;
-    FIRST_ASSUM ACCEPT_TAC;
-    FIRST_X_ASSUM(fun th -> if concl th = `Zfp = 2 EXP 61 * (zv - q * b) + block`
-                            then SUBST1_TAC th else NO_TAC) THEN
-    TRANS_TAC LET_TRANS `2 EXP 61 * zv + block` THEN CONJ_TAC THENL
-     [MATCH_MP_TAC(ARITH_RULE `a <= b ==> 2 EXP 61 * a + c <= 2 EXP 61 * b + c`) THEN ARITH_TAC;
-      MAP_EVERY UNDISCH_TAC [`zv < 2 EXP 64`; `block < 2 EXP 61`] THEN ARITH_TAC]]);;
-
-(* BIGNUM_MOD_L1_SEGC (PROVEN 2026-07-30): the l=1 seg-C 0x2e8->0x304, value abstract.  Mirrors
-   BIGNUM_MOD_DDK_SEGC's role: takes the recip-bracket cluster + no-underflow qhat*b<=zv, produces the
-   full close (cong + tight bound + INV2<2^(64*2) + window X15) via FIELDSEL_CLOSE_L1 + L1_VALUE_CLOSE.
-   The reduced value Zfp = 2^61*(zv - qhat*b) + block is fixed to the qhat/block concrete forms so the
-   FIELDSEL pre X13/X14/zk lines match the seg-B tail's finalized-digit output verbatim.
-   *** GOTCHA: L1_VALUE_CLOSE's `zv = hwin*2^p + zr` antecedent (hwin=(zv DIV2^p)MOD2^64) needs the
-   zv-decomposition ESTABLISHED FIRST as a hyp (via MOD_LT [zv DIV2^p < zv < 2^64] + DIVISION), then
-   FIRST_ASSUM ACCEPT_TAC closes it inside the ANTS -- ASM_REWRITE alone does NOT (it is not a rewrite). *)
 let BIGNUM_MOD_L1_SEGC = prove
  (`!k z m x n a b pc p ii w d zv X17v.
     2 EXP (p - 1) <= b /\ 1 <= p /\ p < 2 EXP 64 /\ zv < 2 EXP 64 /\ ~(b = 0) /\
@@ -15011,10 +12994,6 @@ let BIGNUM_MOD_BLOCK_L1_304_WIN = prove
                    `ii:num`;`w:num`;`d:num`;`zv:num`;`X17v:num`] BIGNUM_MOD_L1_SEGC) THEN
     ASM_REWRITE_TAC[SOME_FLAGS] THEN DISCH_THEN ACCEPT_TAC]);;
 
-Printf.printf "\n=== block_l1_304_win.wip: l=1-B FULL BLOCK proven: BIGNUM_MOD_BLOCK_L1_304_WIN (+ L1_QSETUP_SKIP_X13, L1_BLOCKLOAD_X13) ===\n%!";;
-
-
-(* ======== inlined: block_l1k1_304_win.ml ======== *)
 (* ============================================================================
    Stage 3f: BIGNUM_MOD_BLOCK_L1K1_304_WIN -- the k=1 saturated l=1 variant main-loop block,
    0x1a4->0x304.  This is the l=1 base case (first iteration, dd=0, general window/qhat) at k=1,
@@ -15398,10 +13377,6 @@ let BIGNUM_MOD_BLOCK_L1K1_304_WIN = prove
       ALL_TAC] THEN
     DISCH_THEN ACCEPT_TAC]);;
 
-Printf.printf "\n=== block_l1k1_304_win.ml: BIGNUM_MOD_BLOCK_L1K1_304_WIN (k=1 saturated l=1 block) ===\n%!";;
-
-
-(* ======== inlined: block_cgen_304_win.ml ======== *)
 (* ============================================================================
    Stage 3f: BIGNUM_MOD_BLOCK_CGEN_304_WIN -- the GENERAL-qhat C-position block, 0x1a4->0x304.
    ----------------------------------------------------------------------------
@@ -15423,9 +13398,6 @@ Printf.printf "\n=== block_l1k1_304_win.ml: BIGNUM_MOD_BLOCK_L1K1_304_WIN (k=1 s
    ============================================================================ *)
 
 (* C_TOP_FUNNEL_GEN is now defined in cgen_helpers.ml (loaded before this file). *)
-
-let cgen_qh = `(w * (zv DIV 2 EXP p) MOD 2 EXP 64) DIV 2 EXP 64 + (zv DIV 2 EXP p) MOD 2 EXP 64`;;
-let cgen_Zf = `2 EXP 61 * (zv - ((w * (zv DIV 2 EXP p) MOD 2 EXP 64) DIV 2 EXP 64 + (zv DIV 2 EXP p) MOD 2 EXP 64) * b) + (a DIV 2 EXP (61 * ii)) MOD 2 EXP 61`;;
 
 let BIGNUM_MOD_BLOCK_CGEN_304_WIN = prove
  (`!k z m x n a b pc p ii w d Zt zv X17v lfv hfv.
@@ -15895,10 +13867,6 @@ let BIGNUM_MOD_BLOCK_CGEN_304_WIN = prove
     REWRITE_TAC[WORD_VAL]] THEN
   REWRITE_TAC[ARITH_RULE `(p DIV 64 + 1) - 1 = p DIV 64`]);;
 
-Printf.printf "\n=== block_cgen_304_win.ml: BIGNUM_MOD_BLOCK_CGEN_304_WIN (general-q C-position block) ===\n%!";;
-
-
-(* ======== inlined: block_bgen_304_win.ml ======== *)
 (* ============================================================================
    Stage 3f: BIGNUM_MOD_BLOCK_BGEN_304_WIN -- the GENERAL-qhat growing regime-B block, 0x1a4->0x304.
    ----------------------------------------------------------------------------
@@ -16272,10 +14240,6 @@ let BIGNUM_MOD_BLOCK_BGEN_304_WIN = prove
   ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
   DISCH_THEN(fun th -> USE_THEN "frame" (MP_TAC o MATCH_MP th)) THEN ASM_REWRITE_TAC[]);;
 
-Printf.printf "\n=== block_bgen_304_win.ml: BIGNUM_MOD_BLOCK_BGEN_304_WIN (general-qhat growing regime-B block, 2<=l<k, window!=0) ===\n%!";;
-
-
-(* ======== inlined: block_dispatch.ml ======== *)
 (* ============================================================================
    Stage 3f: BIGNUM_MOD_BODY_DISPATCH -- the FULL regime dispatch for ONE main-loop iteration
    (0x1a4 -> 0x304), keyed on l = MIN(k+1)((X17v+63)DIV64), covering ALL regimes incl FLAT.
@@ -16545,10 +14509,6 @@ let BIGNUM_MOD_BODY_DISPATCH = prove
            [REPEAT CONJ_TAC THEN TRY(FIRST_ASSUM ACCEPT_TAC) THEN ASM_REWRITE_TAC[];
             DISCH_THEN ACCEPT_TAC]]]]]);;
 
-Printf.printf "\n=== block_dispatch.ml: BIGNUM_MOD_BODY_DISPATCH (FULL 9-leaf, jj-bound, RAW2_STEP flat/grow) ===\n%!";;
-
-
-(* ======== inlined: mainloop_wrap.ml ======== *)
 (* ============================================================================
    Stage 3f: BIGNUM_MOD_MAINLOOP -- the full main division loop (pc+0x1a4 -> pc+0x304),
    wrapping BIGNUM_MOD_BODY_DISPATCH over the 61-bit-block countdown via ENSURES_WHILE_PDOWN_TAC.
@@ -16796,10 +14756,6 @@ let BIGNUM_MOD_MAINLOOP = prove
     REWRITE_TAC[MULT_CLAUSES; EXP; DIV_1; SUB_0] THEN
     ARM_SIM_TAC BIGNUM_MOD_EXEC (1--1)]);;
 
-Printf.printf "\n=== mainloop_wrap.ml: BIGNUM_MOD_MAINLOOP (PDOWN wrap of BODY_DISPATCH) ===\n%!";;
-
-
-(* ======== inlined: winup_d.ml ======== *)
 (* ============================================================================
    winup_d.ml (cont108) -- BIGNUM_MOD_WINUP_D.
    Strengthened BIGNUM_MOD_WINUP (bignum_mod.ml:1978): same 0x68->0x98 window+roundup
@@ -17009,10 +14965,6 @@ let BIGNUM_MOD_WINUP_D = prove
                  ROUNDUP_VAL_DISJ) THEN
     ASM_REWRITE_TAC[]]);;
 
-Printf.printf "\n=== winup_d.ml: BIGNUM_MOD_WINUP_D (WINUP + roundup disjunction at 0x98) ===\n%!";;
-
-
-(* ======== inlined: splice_68_308_dev.ml ======== *)
 (* ============================================================================
    splice_68_308_dev.ml (cont108) -- BIGNUM_MOD_68_TO_308.
    The COMPLETE end-to-end DEV composition that mirrors EXACTLY what the CORRECT
@@ -17205,10 +15157,6 @@ let BIGNUM_MOD_68_TO_308 = prove
      [BETA_TAC THEN GEN_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[];
       ACCEPT_TAC dth]));;
 
-Printf.printf "\n=== splice_68_308_dev.ml: BIGNUM_MOD_68_TO_308 (WINUP_D;;RECIP_WIDE;;PREHEADER;;MAINLOOP) ===\n%!";;
-
-
-(* ======== inlined: negadd1_helpers.ml ======== *)
 (* ============================================================================
    negadd1_helpers.ml (cont108) -- arithmetic helpers for Stage 4a (negaddloop1).
    negaddloop1 (bignum_mod.S:438-456, pc 0x32c..0x368) is the FIRST correction pass:
@@ -17226,245 +15174,6 @@ Printf.printf "\n=== splice_68_308_dev.ml: BIGNUM_MOD_68_TO_308 (WINUP_D;;RECIP_
      V1 = 2^(64k)*zt' + bignum(z,k) = 2^(64k)*zt + zorig - q*b = V - q*b.   (NEGADD1_EXIT_VAL)
 
    Deps: none beyond core arith.  Standalone.
-   ============================================================================ *)
-
-let NEGADD1_ADVANCE = prove
- (`!q Zi LZi LBi hh hh' ss zdig bdig i.
-      Zi + 2 EXP (64 * i) * hh + q * LBi = LZi + q * 2 EXP (64 * i) /\
-      2 EXP 64 * hh' + ss = zdig + hh + q * (2 EXP 64 - 1 - bdig) /\
-      bdig < 2 EXP 64
-      ==> (Zi + 2 EXP (64 * i) * ss) + 2 EXP (64 * (i + 1)) * hh' +
-          q * (LBi + 2 EXP (64 * i) * bdig) =
-          (LZi + 2 EXP (64 * i) * zdig) + q * 2 EXP (64 * (i + 1))`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `q * (2 EXP 64 - 1 - bdig) = q * (2 EXP 64 - 1) - q * bdig` SUBST_ALL_TAC THENL
-   [REWRITE_TAC[GSYM LEFT_SUB_DISTRIB] THEN AP_TERM_TAC THEN
-    UNDISCH_TAC `bdig < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `q * bdig <= q * (2 EXP 64 - 1)` ASSUME_TAC THENL
-   [MATCH_MP_TAC LE_MULT2 THEN UNDISCH_TAC `bdig < 2 EXP 64` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `2 EXP 64 * hh' + ss + q * bdig = zdig + hh + q * (2 EXP 64 - 1)` ASSUME_TAC THENL
-   [UNDISCH_TAC `2 EXP 64 * hh' + ss = zdig + hh + (q * (2 EXP 64 - 1) - q * bdig)` THEN
-    UNDISCH_TAC `q * bdig <= q * (2 EXP 64 - 1)` THEN ARITH_TAC; ALL_TAC] THEN
-  FIRST_X_ASSUM(fun th -> if concl th = `2 EXP 64 * hh' + ss + q * bdig = zdig + hh + q * (2 EXP 64 - 1)`
-    then MP_TAC(AP_TERM `( * ) (2 EXP (64 * i))` th) else NO_TAC) THEN
-  REWRITE_TAC[LEFT_ADD_DISTRIB; MULT_ASSOC] THEN
-  REWRITE_TAC[GSYM EXP_ADD; ARITH_RULE `64 * i + 64 = 64 * (i + 1)`] THEN
-  UNDISCH_TAC `Zi + 2 EXP (64 * i) * hh + q * LBi = LZi + q * 2 EXP (64 * i)` THEN
-  REWRITE_TAC[ARITH_RULE `64 * (i+1) = 64*i + 64`; EXP_ADD] THEN ARITH_TAC);;
-
-Printf.printf "\n=== negadd1_helpers.ml: NEGADD1_ADVANCE ===\n%!";;
-
-(* FIELDSEL_GEN -- generalized field-select closer.  Reduces the machine csel funnel
-     if val(word_sub (word s)(word 0))=0 then word_jushr lo (word s)
-     else word_or (word_jshl hi (word_sub(word 0)(word s))) (word_jushr lo (word s))
-   (for ANY int64 hi,lo and s<64) to  word((2^64*val hi + val lo) DIV 2^s MOD 2^64).
-   More general than BIGNUM_MOD_FIELDSEL (arbitrary hi/lo words, not just plain lf/hf); used to
-   close the negaddtail1 field-select (0x36c->0x3a4) where hi/lo are the ii=k csel conditionals.
-   Deps: CSEL_BLOCK_VAL' (stage3_workspace). *)
-let FIELDSEL_GEN = prove
- (`!hi lo s. s < 64
-      ==> (if val(word_sub (word s:int64) (word 0)) = 0
-           then word_jushr (lo:int64) (word s:int64)
-           else word_or (word_jshl (hi:int64) (word_sub (word 0) (word s:int64)))
-                (word_jushr lo (word s:int64))) =
-          word ((2 EXP 64 * val hi + val lo) DIV 2 EXP s MOD 2 EXP 64)`,
-  REPEAT STRIP_TAC THEN REWRITE_TAC[WORD_SUB_0] THEN
-  SUBGOAL_THEN `hi:int64 = word(val hi) /\ lo:int64 = word(val lo)` MP_TAC THENL
-   [REWRITE_TAC[WORD_VAL]; ALL_TAC] THEN
-  DISCH_THEN(CONJUNCTS_THEN(fun th -> GEN_REWRITE_TAC
-     (LAND_CONV o ONCE_DEPTH_CONV) [th])) THEN
-  MP_TAC(SPECL [`val(hi:int64)`; `val(lo:int64)`; `s:num`] CSEL_BLOCK_VAL') THEN
-  ASM_REWRITE_TAC[VAL_BOUND_64] THEN
-  DISCH_THEN(fun th -> GEN_REWRITE_TAC I [GSYM VAL_EQ] THEN REWRITE_TAC[th]) THEN
-  REWRITE_TAC[VAL_WORD; DIMINDEX_64; MOD_MOD_REFL]);;
-
-Printf.printf "\n=== negadd1_helpers.ml: FIELDSEL_GEN ===\n%!";;
-
-(* NEGADD1_TOPFOLD -- the negaddtail1 top-word value fold, as an additive congruence mod 2^(64(k+1)).
-   From the negaddloop1 exit value eqn (Zk + 2^(64k)*val hh + q*b = zorig + q*2^(64k)) and the tail's
-   top word X23' = word_add Ztv (word_sub hh (word q)):
-     2^(64k)*val(X23') + Zk + q*b  ==  2^(64k)*val Ztv + zorig  (mod 2^(64(k+1))).
-   I.e. V1 + q*b == V (mod 2^(64(k+1))) where V1 = 2^(64k)*val(X23')+Zk, V = 2^(64k)*val Ztv + zorig.
-   With the bounds V1 < 2^(64(k+1)) and 0 <= V - q*b (from qh*b<=V), this pins V1 = V - q*b EXACTLY
-   at the composition step.  Key: val(X23')+q == val Ztv + val hh (mod 2^64) [the +2^64-q from
-   word_sub cancels mod 2^64]; scale by 2^(64k); NUMBER_RULE with the loop eqn.  Deps: none. *)
-let NEGADD1_TOPFOLD = prove
- (`!Ztv hh q Zk zorig b k.
-    Zk + 2 EXP (64 * k) * val(hh:int64) + q * b = zorig + q * 2 EXP (64 * k) /\
-    q < 2 EXP 64
-    ==> ((2 EXP (64 * k) * val(word_add Ztv (word_sub hh (word q)):int64) + Zk) + q * b ==
-         2 EXP (64 * k) * val(Ztv:int64) + zorig) (mod (2 EXP (64 * (k + 1))))`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN
-   `(val(word_add Ztv (word_sub hh (word q)):int64) + q ==
-     val(Ztv:int64) + val(hh:int64)) (mod (2 EXP 64))` ASSUME_TAC THENL
-   [REWRITE_TAC[VAL_WORD_ADD; VAL_WORD_SUB; VAL_WORD; DIMINDEX_64] THEN
-    SUBGOAL_THEN `q MOD 2 EXP 64 = q` ASSUME_TAC THENL
-     [MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    ASM_REWRITE_TAC[CONG] THEN CONV_TAC MOD_DOWN_CONV THEN
-    SUBGOAL_THEN `(val(Ztv:int64) + val(hh:int64) + 2 EXP 64 - q) + q =
-                  (val Ztv + val hh) + 1 * 2 EXP 64` SUBST1_TAC THENL
-     [MP_TAC(SPEC `hh:int64` VAL_BOUND_64) THEN UNDISCH_TAC `q < 2 EXP 64` THEN ARITH_TAC;
-      REWRITE_TAC[MOD_MULT_ADD]];
-    ALL_TAC] THEN
-  FIRST_X_ASSUM(MP_TAC o SPEC `2 EXP (64 * k)` o MATCH_MP (NUMBER_RULE
-    `!c:num. (a == d) (mod n) ==> (c * a == c * d) (mod (c * n))`)) THEN
-  REWRITE_TAC[GSYM EXP_ADD; ARITH_RULE `64 * k + 64 = 64 * (k + 1)`] THEN
-  REWRITE_TAC[LEFT_ADD_DISTRIB] THEN
-  UNDISCH_TAC `Zk + 2 EXP (64 * k) * val(hh:int64) + q * b = zorig + q * 2 EXP (64 * k)` THEN
-  CONV_TAC NUMBER_RULE);;
-
-Printf.printf "\n=== negadd1_helpers.ml: NEGADD1_TOPFOLD ===\n%!";;
-
-(* Window-index bridges for the negaddtail1 field-select (p_new=p+3, but window is bit p-61):
-   the field-select shift is (p+3)MOD64 and the logged word indices are around (p+3)DIV64, but
-   these coincide with the bit-(p-61) window since (p+3) = (p-61) + 64.  Used to invoke
-   WINDOW_FROM_LOGGED with r := p-61, giving h = (V1 DIV 2^(p-61)) MOD 2^64 (matches .S comment
-   bignum_bitfield(...,p-BLOCKSIZE,64), BLOCKSIZE=61, p=ORIGINAL bitsize). Need p>=61. *)
-let NEGADD1_PCODE_BRIDGE = prove
- (`!p. 61 <= p ==> (p + 3) DIV 64 = (p - 61) DIV 64 + 1`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `p + 3 = (p - 61) + 64` SUBST1_TAC THENL
-   [UNDISCH_TAC `61 <= p` THEN ARITH_TAC; ALL_TAC] THEN
-  REWRITE_TAC[ARITH_RULE `((p - 61) + 64) DIV 64 = (p - 61) DIV 64 + 1`]);;
-
-let NEGADD1_SHIFT_BRIDGE = prove
- (`!p. 61 <= p ==> (p + 3) MOD 64 = (p - 61) MOD 64`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `p + 3 = (p - 61) + 1 * 64` SUBST1_TAC THENL
-   [UNDISCH_TAC `61 <= p` THEN ARITH_TAC; ALL_TAC] THEN
-  REWRITE_TAC[MOD_MULT_ADD]);;
-
-Printf.printf "\n=== negadd1_helpers.ml: NEGADD1_PCODE_BRIDGE, NEGADD1_SHIFT_BRIDGE ===\n%!";;
-
-(* BIGDIGIT_TOP -- the top digit of a (k+1)-word value a + 2^(64k)*b (a<2^(64k), b<2^64) is b.
-   For V1 = bignum(z,k) + 2^(64k)*val(zt'): bigdigit V1 k = val(zt'), and (via BIGDIGIT_ADD_LEFT)
-   bigdigit V1 j = bigdigit(bignum(z,k)) j for j<k.  Used in the LOGGED_FIELD reconciliation
-   (LO=z[pcode-1], HI=z[pcode] or zt' when pcode=k). *)
-let BIGDIGIT_TOP = prove
- (`!a b k. a < 2 EXP (64 * k) /\ b < 2 EXP 64
-           ==> bigdigit (a + 2 EXP (64 * k) * b) k = b`,
-  REPEAT STRIP_TAC THEN
-  REWRITE_TAC[bigdigit] THEN
-  SUBGOAL_THEN `(a + 2 EXP (64 * k) * b) DIV 2 EXP (64 * k) = b` SUBST1_TAC THENL
-   [ONCE_REWRITE_TAC[ADD_SYM] THEN
-    ASM_SIMP_TAC[DIV_MULT_ADD; EXP_EQ_0; ARITH_EQ] THEN
-    ASM_SIMP_TAC[DIV_LT; ADD_CLAUSES];
-    ASM_SIMP_TAC[MOD_LT]]);;
-
-Printf.printf "\n=== negadd1_helpers.ml: BIGDIGIT_TOP ===\n%!";;
-
-(* CONG_BOUND_PIN -- pin a congruence to an equality using bounds.  From V1+qb == V (mod K),
-   V1 < K, qb <= V, V-qb < K  conclude  V1 = V - qb.  Used at the NEGADD1 compose to turn
-   NEGADD1_TOPFOLD's congruence (V1+q*b == V mod 2^(64(k+1))) into the exact V1 = V - q*b,
-   given V1 < 2^(64(k+1)) (BIGNUM bound on k+1 words) and q*b <= V (RED_LEMMA_D). *)
-let CONG_BOUND_PIN = prove
- (`!V1 V qb K. (V1 + qb == V) (mod K) /\ V1 < K /\ qb <= V /\ V - qb < K
-               ==> V1 = V - qb`,
-  REPEAT STRIP_TAC THEN
-  MATCH_MP_TAC CONG_IMP_EQ THEN EXISTS_TAC `K:num` THEN
-  ASM_REWRITE_TAC[] THEN
-  SUBGOAL_THEN `(V1 == V - qb) (mod K)` (fun th -> ACCEPT_TAC th) THEN
-  UNDISCH_TAC `(V1 + qb == V) (mod K)` THEN
-  REWRITE_TAC[num_congruent] THEN
-  ASM_SIMP_TAC[GSYM INT_OF_NUM_SUB] THEN
-  REWRITE_TAC[GSYM INT_OF_NUM_CLAUSES] THEN
-  CONV_TAC INTEGER_RULE);;
-
-Printf.printf "\n=== negadd1_helpers.ml: CONG_BOUND_PIN ===\n%!";;
-
-(* TWOPART_BOUND -- a (k+1)-word value 2^(64k)*t + c (t<2^64, c<2^(64k)) is < 2^(64(k+1)).
-   The V1<2^(64(k+1)) bound for the CONG_BOUND_PIN value pin. *)
-let TWOPART_BOUND = prove
- (`!t c k. t < 2 EXP 64 /\ c < 2 EXP (64 * k)
-           ==> 2 EXP (64 * k) * t + c < 2 EXP (64 * (k + 1))`,
-  REPEAT STRIP_TAC THEN
-  REWRITE_TAC[ARITH_RULE `64 * (k + 1) = 64 * k + 64`; EXP_ADD] THEN
-  TRANS_TAC LTE_TRANS `2 EXP (64 * k) * t + 2 EXP (64 * k)` THEN CONJ_TAC THENL
-   [ASM_REWRITE_TAC[LT_ADD_LCANCEL];
-    REWRITE_TAC[ARITH_RULE `2 EXP (64*k) * t + 2 EXP (64*k) = 2 EXP (64*k) * (t + 1)`] THEN
-    REWRITE_TAC[LE_MULT_LCANCEL] THEN DISJ2_TAC THEN
-    UNDISCH_TAC `t < 2 EXP 64` THEN ARITH_TAC]);;
-
-Printf.printf "\n=== negadd1_helpers.ml: TWOPART_BOUND ===\n%!";;
-
-(* LOGGED_FIELD_WINDOW -- the field-select output = the bit-(p-61) window of V1, given the logged
-   LO/HI are bigdigit V1 (pcode-1) / bigdigit V1 pcode (pcode=(p+3)DIV64), 61<=p.  Combines the
-   PCODE/SHIFT bridges with WINDOW_FROM_LOGGED(r:=p-61).  Used to give NEGADD1's field-select POST
-   X15 = word((V1 DIV 2^(p-61)) MOD 2^64) for Stage 4b.  Deps: NEGADD1_PCODE_BRIDGE,
-   NEGADD1_SHIFT_BRIDGE, WINDOW_FROM_LOGGED. *)
-let LOGGED_FIELD_WINDOW = prove
- (`!V1 p. 61 <= p
-   ==> (2 EXP 64 * bigdigit V1 ((p + 3) DIV 64) + bigdigit V1 ((p + 3) DIV 64 - 1))
-       DIV 2 EXP ((p + 3) MOD 64) MOD 2 EXP 64
-       = (V1 DIV 2 EXP (p - 61)) MOD 2 EXP 64`,
-  REPEAT STRIP_TAC THEN
-  ASM_SIMP_TAC[NEGADD1_PCODE_BRIDGE; NEGADD1_SHIFT_BRIDGE] THEN
-  REWRITE_TAC[ARITH_RULE `((p - 61) DIV 64 + 1) - 1 = (p - 61) DIV 64`] THEN
-  REWRITE_TAC[WINDOW_FROM_LOGGED]);;
-
-Printf.printf "\n=== negadd1_helpers.ml: LOGGED_FIELD_WINDOW ===\n%!";;
-
-(* LOGGED_FIELD_RECONCILE -- reconcile the negaddtail1 machine field-select (whose top/low words are
-   the ii=k csel conditionals over the LOOP_LOG-logged lf/hf and the new top word zt') to the
-   bit-(p-61) window of V1 = zc + 2^(64k)*val zt'.  Given (from LOOP_LOG's post + bigdigit facts):
-     val hf = bigdigit zc pcode   (only needed when pcode<k),  val lf = bigdigit zc (pcode-1),
-   with pcode=(p+3)DIV64, and p<=64k (so pcode<=k, the low term is always lf, k<pcode is false).
-   Case k=pcode: top word is zt'=bigdigit V1 k (BIGDIGIT_TOP).  Case pcode<k: top word is
-   hf=bigdigit zc pcode=bigdigit V1 pcode (BIGDIGIT_ADD_LEFT).  Then LOGGED_FIELD_WINDOW closes.
-   This is the field-h enrichment for NEGADD1_LOG (X15 = word((V1 DIV 2^(p-61)) MOD 2^64)), for
-   Stage 4b.  Deps: LOGGED_FIELD_WINDOW, BIGDIGIT_ADD_LEFT, BIGDIGIT_TOP, LE_LDIV_EQ. *)
-let LOGGED_FIELD_RECONCILE = prove
- (`!zt' hf lf zc p k.
-    zc < 2 EXP (64 * k) /\ val(zt':int64) < 2 EXP 64 /\
-    61 <= p /\ p <= 64 * k /\ 1 <= k /\
-    ((p + 3) DIV 64 < k ==> val(hf:int64) = bigdigit zc ((p + 3) DIV 64)) /\
-    val(lf:int64) = bigdigit zc ((p + 3) DIV 64 - 1)
-    ==> (2 EXP 64 * val(if k = (p + 3) DIV 64 then zt' else hf) +
-         val(if k < (p + 3) DIV 64 then zt' else lf))
-        DIV 2 EXP ((p + 3) MOD 64) MOD 2 EXP 64 =
-        ((zc + 2 EXP (64 * k) * val(zt':int64)) DIV 2 EXP (p - 61)) MOD 2 EXP 64`,
-  REPEAT STRIP_TAC THEN
-  SUBGOAL_THEN `(p + 3) DIV 64 <= k` ASSUME_TAC THENL
-   [SIMP_TAC[LE_LDIV_EQ; ARITH_EQ] THEN UNDISCH_TAC `p <= 64 * k` THEN ARITH_TAC; ALL_TAC] THEN
-  ABBREV_TAC `V1 = zc + 2 EXP (64 * k) * val(zt':int64)` THEN
-  SUBGOAL_THEN `~(k < (p + 3) DIV 64)` (fun th -> REWRITE_TAC[th]) THENL
-   [ASM_REWRITE_TAC[NOT_LT]; ALL_TAC] THEN
-  MP_TAC(SPECL [`V1:num`; `p:num`] LOGGED_FIELD_WINDOW) THEN
-  ASM_REWRITE_TAC[] THEN DISCH_THEN(SUBST1_TAC o SYM) THEN
-  SUBGOAL_THEN `(p + 3) DIV 64 - 1 < k` ASSUME_TAC THENL
-   [UNDISCH_TAC `(p + 3) DIV 64 <= k` THEN UNDISCH_TAC `1 <= k` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `bigdigit V1 ((p + 3) DIV 64 - 1) = bigdigit zc ((p + 3) DIV 64 - 1)`
-    SUBST1_TAC THENL
-   [EXPAND_TAC "V1" THEN MATCH_MP_TAC BIGDIGIT_ADD_LEFT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  ASM_CASES_TAC `k = (p + 3) DIV 64` THEN ASM_REWRITE_TAC[] THENL
-   [SUBGOAL_THEN `bigdigit V1 ((p + 3) DIV 64) = val(zt':int64)` (fun th -> REWRITE_TAC[th]) THEN
-    FIRST_ASSUM(SUBST1_TAC o SYM o check (fun th -> concl th = `k = (p + 3) DIV 64`)) THEN
-    EXPAND_TAC "V1" THEN MATCH_MP_TAC BIGDIGIT_TOP THEN ASM_REWRITE_TAC[];
-    SUBGOAL_THEN `(p + 3) DIV 64 < k` ASSUME_TAC THENL
-     [UNDISCH_TAC `(p + 3) DIV 64 <= k` THEN UNDISCH_TAC `~(k = (p + 3) DIV 64)` THEN ARITH_TAC;
-      ALL_TAC] THEN
-    SUBGOAL_THEN `bigdigit V1 ((p + 3) DIV 64) = bigdigit zc ((p + 3) DIV 64)` SUBST1_TAC THENL
-     [EXPAND_TAC "V1" THEN MATCH_MP_TAC BIGDIGIT_ADD_LEFT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    ASM_SIMP_TAC[]]);;
-
-Printf.printf "\n=== negadd1_helpers.ml: LOGGED_FIELD_RECONCILE ===\n%!";;
-
-
-(* ======== inlined: negadd1_loop.ml ======== *)
-(* ============================================================================
-   negadd1_loop.ml (cont108) -- BIGNUM_MOD_NEGADD1_LOOP.
-   The negaddloop1 loop core (pc 0x32c -> 0x36c), the FIRST correction pass over all
-   k words: plain (non-shl) cmnegadd  z := z - q*m  done as  z + q*~m + q, carry in X5.
-   Value equation at exit: bignum(z,k) + 2^(64k)*val(X5) + q*b = zorig + q*2^(64k).
-   (=> with the negaddtail1 top-word fold, V1 = V - q*b; see STAGE456_ONPAPER.md.)
-
-   Loop invariant (additive): bignum(z,i) + 2^(64i)*val(X5) + q*lowdigits b i
-                              = lowdigits zorig i + q*2^(64i);  entry X5=hh=q.
-   Per-word: NEGADD_STEP; advance: NEGADD1_ADVANCE (negadd1_helpers.ml).
-   lf/hf (X13/X14) logging is in the MAYCHANGE frame but NOT tracked in the value eqn
-   (the field-select that consumes lf/hf is the straight-line negaddtail1 tail, proven
-   separately).  Deps: NEGADD_STEP (stage3_workspace), NEGADD1_ADVANCE (negadd1_helpers).
    ============================================================================ *)
 
 let BIGNUM_MOD_NEGADD1_LOOP = prove
@@ -17642,8 +15351,6 @@ let BIGNUM_MOD_NEGADD1_LOOP = prove
     SUBGOAL_THEN `lowdigits zorig k = zorig` SUBST_ALL_TAC THENL
      [MATCH_MP_TAC LOWDIGITS_SELF THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
     ASM_REWRITE_TAC[]]);;
-
-Printf.printf "\n=== negadd1_loop.ml: BIGNUM_MOD_NEGADD1_LOOP (negaddloop1 core 0x32c->0x36c) ===\n%!";;
 
 (* ============================================================================
    BIGNUM_MOD_NEGADD1_LOOP_LOG -- negaddloop1 core + lf/hf LOGGING (X13/X14).
@@ -17874,8 +15581,6 @@ let BIGNUM_MOD_NEGADD1_LOOP_LOG = prove
       DISCH_TAC THEN FIRST_X_ASSUM MATCH_MP_TAC THEN
       UNDISCH_TAC `k <= pcode` THEN ARITH_TAC]]);;
 
-Printf.printf "\n=== negadd1_loop.ml: BIGNUM_MOD_NEGADD1_LOOP_LOG (negaddloop1 + lf/hf logging) ===\n%!";;
-
 (* ============================================================================
    BIGNUM_MOD_NEGADD1_PREFIX (pc 0x308 -> 0x32c) -- the Stage-4 quotient setup:
      umulh t0,w,h; add q,t0,h  (q = multop(w,h)+h into X15);  mov hh(X5),q;  mov ii(X8),0;
@@ -17947,10 +15652,6 @@ let BIGNUM_MOD_NEGADD1_PREFIX = prove
     REWRITE_TAC[ASSIGNS_SEQ; ASSIGNS_THM; LEFT_IMP_EXISTS_THM] THEN
     REPEAT GEN_TAC THEN DISCH_THEN(SUBST1_TAC o SYM) THEN READ_OVER_WRITE_ORTHOGONAL_TAC]);;
 
-Printf.printf "\n=== negadd1_loop.ml: BIGNUM_MOD_NEGADD1_PREFIX (0x308->0x32c quotient setup) ===\n%!";;
-
-
-(* ======== inlined: negadd1_loop_small.ml ======== *)
 (* ============================================================================
    negadd1_loop_small.ml (cont108aw) -- BIGNUM_MOD_NEGADD1_LOOP_LOG_SMALL.
    The pcode=0 (p<61 single-word modulus) variant of BIGNUM_MOD_NEGADD1_LOOP_LOG.
@@ -18175,10 +15876,6 @@ let BIGNUM_MOD_NEGADD1_LOOP_LOG_SMALL = prove
       then STRIP_ASSUME_TAC(MP th (ASSUME `1 <= k`)) else NO_TAC) THEN
     ASM_REWRITE_TAC[WORD_ADD_0]]);;
 
-Printf.printf "\n=== negadd1_loop_small.ml: BIGNUM_MOD_NEGADD1_LOOP_LOG_SMALL ===\n%!";;
-
-
-(* ======== inlined: negadd1_tail.ml ======== *)
 (* ============================================================================
    negadd1_tail.ml (cont108) -- BIGNUM_MOD_NEGADD1_TAIL (pc 0x36c -> 0x3a4).
    The negaddtail1 top-word fold + field-select, straight-line (14 instrs):
@@ -18264,10 +15961,6 @@ let BIGNUM_MOD_NEGADD1_TAIL = prove
      REWRITE_TAC[ASSIGNS_SEQ; ASSIGNS_THM; LEFT_IMP_EXISTS_THM] THEN
      REPEAT GEN_TAC THEN DISCH_THEN(SUBST1_TAC o SYM) THEN READ_OVER_WRITE_ORTHOGONAL_TAC)]);;
 
-Printf.printf "\n=== negadd1_tail.ml: BIGNUM_MOD_NEGADD1_TAIL (0x36c->0x3a4 tail + field-select) ===\n%!";;
-
-
-(* ======== inlined: negadd1.ml ======== *)
 (* ============================================================================
    negadd1.ml (cont108) -- BIGNUM_MOD_NEGADD1 (pc 0x308 -> 0x3a4), VALUE-LEVEL.
    The full FIRST correction pass composed: PREFIX ;; LOOP ;; TAIL.
@@ -18387,10 +16080,6 @@ let BIGNUM_MOD_NEGADD1 = prove
     MATCH_MP_TAC(ARITH_RULE `V < K ==> V - qb < K`) THEN
     MATCH_MP_TAC TWOPART_BOUND THEN ASM_REWRITE_TAC[]]);;
 
-Printf.printf "\n=== negadd1.ml: BIGNUM_MOD_NEGADD1 (0x308->0x3a4, value-level, V1=V-q*b) ===\n%!";;
-
-
-(* ======== inlined: negadd1_log.ml ======== *)
 (* ============================================================================
    negadd1_log.ml (cont108) -- BIGNUM_MOD_NEGADD1_LOG (pc 0x308 -> 0x3a4).
    The field-h-ENRICHED first correction pass: same as BIGNUM_MOD_NEGADD1 (value-level
@@ -18593,10 +16282,6 @@ let BIGNUM_MOD_NEGADD1_LOG = prove
     ASM_REWRITE_TAC[] THEN DISCH_THEN(SUBST1_TAC o SYM) THEN
     REWRITE_TAC[VAL_WORD_BIGDIGIT]]);;
 
-Printf.printf "\n=== negadd1_log.ml: BIGNUM_MOD_NEGADD1_LOG (0x308->0x3a4, value + field-h) ===\n%!";;
-
-
-(* ======== inlined: negadd1_log_small.ml ======== *)
 (* ============================================================================
    negadd1_log_small.ml (cont108aw) -- BIGNUM_MOD_NEGADD1_LOG_SMALL (pc 0x308 -> 0x3a4, p<61).
    The p<61 (single-word small modulus) analog of BIGNUM_MOD_NEGADD1_LOG.  Same value-level
@@ -18620,22 +16305,6 @@ Printf.printf "\n=== negadd1_log.ml: BIGNUM_MOD_NEGADD1_LOG (0x308->0x3a4, value
 (* LOGGED_FIELD_WINDOW_SMALL: at pcode=0 (p<61), the negaddtail1 funnel over lf=word 0,
    hf=word(bigdigit V1 0) equals (V1 * 2^(61-p)) MOD 2^64, given V1 < 2^(p+2), p < 61.
    (V1 MOD 2^64 = V1 since V1 < 2^63; z[0] = bigdigit V1 0 = V1 MOD 2^64.) *)
-let LOGGED_FIELD_WINDOW_SMALL = prove
- (`!V1 p. V1 < 2 EXP (p + 2) /\ p < 61
-   ==> (2 EXP 64 * bigdigit V1 0 + 0) DIV 2 EXP (p + 3) MOD 2 EXP 64
-       = (V1 * 2 EXP (61 - p)) MOD 2 EXP 64`,
-  REPEAT STRIP_TAC THEN
-  REWRITE_TAC[ADD_CLAUSES] THEN
-  SUBGOAL_THEN `bigdigit V1 0 = V1` SUBST1_TAC THENL
-   [REWRITE_TAC[bigdigit; MULT_CLAUSES; EXP; DIV_1] THEN MATCH_MP_TAC MOD_LT THEN
-    TRANS_TAC LT_TRANS `2 EXP (p + 2)` THEN ASM_REWRITE_TAC[LT_EXP] THEN
-    UNDISCH_TAC `p < 61` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `(2 EXP 64 * V1) DIV 2 EXP (p + 3) = V1 * 2 EXP (61 - p)` SUBST1_TAC THENL
-   [MATCH_MP_TAC FUNNEL_SMALL THEN UNDISCH_TAC `p < 61` THEN ARITH_TAC; ALL_TAC] THEN
-  REFL_TAC);;
-
-Printf.printf "\n=== negadd1_log_small.ml: LOGGED_FIELD_WINDOW_SMALL ===\n%!";;
-
 let BIGNUM_MOD_NEGADD1_LOG_SMALL = prove
  (`!k z m w h p b Ztv zk pc.
       ~(k = 0) /\ k < 2 EXP 58 /\ 1 <= p /\ p < 61 /\ p + 3 < 2 EXP 64 /\ p <= 64 * k /\
@@ -18795,10 +16464,6 @@ let BIGNUM_MOD_NEGADD1_LOG_SMALL = prove
   ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
   DISCH_THEN(fun th -> ACCEPT_TAC th));;
 
-Printf.printf "\n=== negadd1_log_small.ml: BIGNUM_MOD_NEGADD1_LOG_SMALL (0x308->0x3a4, p<61) ===\n%!";;
-
-
-(* ======== inlined: negadd2_helpers.ml ======== *)
 (* ============================================================================
    negadd2_helpers.ml (cont108) -- arithmetic helpers for Stage 4b (negaddloop2).
    negaddloop2 (bignum_mod.S:497-509, pc 0x3c0..0x3ec) is the SECOND correction pass:
@@ -18833,49 +16498,6 @@ Printf.printf "\n=== negadd1_log_small.ml: BIGNUM_MOD_NEGADD1_LOG_SMALL (0x308->
    (2^64*cfout + sb = sa + mullo), and the mul/umulh split (2^64*mulhi + mullo = q*nm):
      2^64*(hh' + cfout) + sb = zi + (hh + cfin) + q*nm.
    Pure linear arithmetic (no bounds).  Feeds NEGADD1_ADVANCE with combined carry hhc:=hh+cfin. *)
-let NEGADD2_STEP = prove
- (`!zi hh cfin q nm sa sb hh' c1 c2 cfout mullo mulhi.
-      2 EXP 64 * c1 + sa = zi + hh + cfin /\
-      2 EXP 64 * c2 + hh' = mulhi + c1 /\
-      2 EXP 64 * cfout + sb = sa + mullo /\
-      2 EXP 64 * mulhi + mullo = q * nm /\
-      mulhi + c1 < 2 EXP 64
-      ==> 2 EXP 64 * (hh' + cfout) + sb = zi + (hh + cfin) + q * nm`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `c2 = 0` SUBST_ALL_TAC THENL
-   [FIRST_X_ASSUM(MP_TAC o check (fun th -> concl th = `2 EXP 64 * c2 + hh' = mulhi + c1`)) THEN
-    UNDISCH_TAC `mulhi + c1 < 2 EXP 64` THEN ARITH_TAC;
-    ALL_TAC] THEN
-  REPEAT(FIRST_X_ASSUM(MP_TAC)) THEN ARITH_TAC);;
-
-Printf.printf "\n=== negadd2_helpers.ml: NEGADD2_STEP ===\n%!";;
-
-(* NEGADD2_MASK -- the csetm sign-mask normalisation.  csetm mm,cc produces
-   (if CF then word 0 else word 18446744073709551615) with CF = (q2 <= ss); rewrite to the
-   value form word(if ss < q2 then 2^64-1 else 0).  Used to close negaddtail2's X9 output. *)
-let NEGADD2_MASK = prove
- (`!x q2:num.
-      (if q2 <= x then (word 0:int64) else word 18446744073709551615) =
-      word (if x < q2 then 2 EXP 64 - 1 else 0)`,
-  REPEAT GEN_TAC THEN ASM_CASES_TAC `x < q2` THENL
-   [ASM_SIMP_TAC[ARITH_RULE `x < q2 ==> ~(q2 <= x)`] THEN CONV_TAC NUM_REDUCE_CONV;
-    ASM_SIMP_TAC[GSYM NOT_LT]]);;
-
-Printf.printf "\n=== negadd2_helpers.ml: NEGADD2_MASK ===\n%!";;
-
-
-(* ======== inlined: negadd2_loop.ml ======== *)
-(* ============================================================================
-   negadd2_loop.ml (cont108) -- BIGNUM_MOD_NEGADD2_LOOP (negaddloop2 core, pc 0x3bc->0x3f0).
-   The SECOND-correction cmnegadd loop (adcs/adc/adds two-carry-chain variant), z := z - q2*m.
-   Invariant uses the COMBINED carry accumulator (val X5 + bitval CF), entry q2 (X5=q2, CF=0):
-     INV(i): bignum(z,i) + 2^(64i)*(val X5 + bitval CF) + q2*lowdigits(b,i)
-             = lowdigits(zorig,i) + q2*2^(64i).
-   Per-word: NEGADD2_STEP (2-chain accumulator identity) => NEGADD1_ADVANCE (combined carry).
-   Span 0x3bc (cbz) -> 0x3f0 (fall-through after cbnz).  Spectators r15/r20/r21/r23 threaded.
-   Deps: NEGADD2_STEP (negadd2_helpers), NEGADD1_ADVANCE (negadd1_helpers), BIGNUM_MOD_EXEC.
-   ============================================================================ *)
-
 let BIGNUM_MOD_NEGADD2_LOOP = prove
  (`!k z m q2 zorig b r20 r21 r23 pc.
       nonoverlapping (word pc,0x438) (z,8 * k) /\
@@ -19117,10 +16739,6 @@ let BIGNUM_MOD_NEGADD2_LOOP = prove
      [MATCH_MP_TAC LOWDIGITS_SELF THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
     ASM_REWRITE_TAC[]]);;
 
-Printf.printf "\n=== negadd2_loop.ml: BIGNUM_MOD_NEGADD2_LOOP (negaddloop2 core 0x3bc->0x3f0) ===\n%!";;
-
-
-(* ======== inlined: negadd2_prefix.ml ======== *)
 (* ============================================================================
    negadd2_prefix.ml (cont108) -- BIGNUM_MOD_NEGADD2_PREFIX (pc 0x3a4 -> 0x3bc).
    The 2nd-pass quotient setup (6 instrs, straight-line):
@@ -19194,10 +16812,6 @@ let BIGNUM_MOD_NEGADD2_PREFIX = prove
     REWRITE_TAC[ASSIGNS_SEQ; ASSIGNS_THM; LEFT_IMP_EXISTS_THM] THEN
     REPEAT GEN_TAC THEN DISCH_THEN(SUBST1_TAC o SYM) THEN READ_OVER_WRITE_ORTHOGONAL_TAC]);;
 
-Printf.printf "\n=== negadd2_prefix.ml: BIGNUM_MOD_NEGADD2_PREFIX (0x3a4->0x3bc q2 setup) ===\n%!";;
-
-
-(* ======== inlined: negadd2_tail.ml ======== *)
 (* ============================================================================
    negadd2_tail.ml (cont108) -- BIGNUM_MOD_NEGADD2_TAIL (pc 0x3f0 -> 0x400).
    The negaddtail2 top-word fold + sign-mask (4 instrs, straight-line):
@@ -19273,10 +16887,6 @@ let BIGNUM_MOD_NEGADD2_TAIL = prove
     REWRITE_TAC[ASSIGNS_SEQ; ASSIGNS_THM; LEFT_IMP_EXISTS_THM] THEN
     REPEAT GEN_TAC THEN DISCH_THEN(SUBST1_TAC o SYM) THEN READ_OVER_WRITE_ORTHOGONAL_TAC]);;
 
-Printf.printf "\n=== negadd2_tail.ml: BIGNUM_MOD_NEGADD2_TAIL (0x3f0->0x400 tail + sign mask) ===\n%!";;
-
-
-(* ======== inlined: negadd2.ml ======== *)
 (* ============================================================================
    negadd2.ml (cont108) -- BIGNUM_MOD_NEGADD2 (pc 0x3a4 -> 0x400), the full 2nd correction pass.
    Composes PREFIX2 ;; LOOP ;; TAIL2 via ENSURES_SEQUENCE.  q2 = ((multop(w,h2)+h2)>>61)+1.
@@ -19396,10 +17006,6 @@ let BIGNUM_MOD_NEGADD2 = prove
     EXISTS_TAC `val(hh5:int64)` THEN EXISTS_TAC `cf5:bool` THEN
     ASM_REWRITE_TAC[VAL_BOUND_64]]);;
 
-Printf.printf "\n=== negadd2.ml: BIGNUM_MOD_NEGADD2 (0x3a4->0x400, full 2nd correction) ===\n%!";;
-
-
-(* ======== inlined: optadd.ml ======== *)
 (* ============================================================================
    optadd.ml (cont108) -- BIGNUM_MOD_OPTADD (optaddloop, pc 0x400 -> 0x428).
    Stage 4c: the conditional add-back  z := z + (mask AND m)  where mask X9 = all-ones/0.
@@ -19608,10 +17214,6 @@ let BIGNUM_MOD_OPTADD = prove
     ONCE_REWRITE_TAC[ADD_SYM] THEN REWRITE_TAC[MOD_MULT_ADD] THEN
     CONV_TAC SYM_CONV THEN MATCH_MP_TAC MOD_LT THEN REWRITE_TAC[BIGNUM_FROM_MEMORY_BOUND]]);;
 
-Printf.printf "\n=== optadd.ml: BIGNUM_MOD_OPTADD (0x400->0x428 conditional add-back) ===\n%!";;
-
-
-(* ======== inlined: accuracy_close.ml ======== *)
 (* ============================================================================
    accuracy_close.ml (cont108) -- the accuracy-bridge helpers that connect the reciprocal
    reduction lemmas (RED_LEMMA_D / RED2) to the machine-level NEGADD interface, for the
@@ -19634,290 +17236,6 @@ Printf.printf "\n=== optadd.ml: BIGNUM_MOD_OPTADD (0x400->0x428 conditional add-
    ============================================================================ *)
 
 (* the 2nd window does not wrap: V1 < 2^(p+2), 61<=p  =>  V1 DIV 2^(p-61) < 2^63 and the MOD is id. *)
-let WINDOW2_SMALL = prove
- (`!V1 p. V1 < 2 EXP (p + 2) /\ 61 <= p
-          ==> V1 DIV 2 EXP (p - 61) < 2 EXP 63 /\
-              (V1 DIV 2 EXP (p - 61)) MOD 2 EXP 64 = V1 DIV 2 EXP (p - 61)`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `V1 DIV 2 EXP (p - 61) < 2 EXP 63` ASSUME_TAC THENL
-   [SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
-    REWRITE_TAC[GSYM EXP_ADD] THEN
-    TRANS_TAC LTE_TRANS `2 EXP (p + 2)` THEN ASM_REWRITE_TAC[LE_EXP; ARITH_EQ] THEN
-    UNDISCH_TAC `61 <= p` THEN ARITH_TAC;
-    ASM_REWRITE_TAC[] THEN MATCH_MP_TAC MOD_LT THEN
-    TRANS_TAC LT_TRANS `2 EXP 63` THEN ASM_REWRITE_TAC[LT_EXP] THEN ARITH_TAC]);;
-
-Printf.printf "\n=== accuracy_close.ml: WINDOW2_SMALL ===\n%!";;
-
-(* the multop-plus-window fits a word: h2 < 2^63 (val w < 2^64 automatic) => q2 setup < 2^64. *)
-let MULTOP_FITS = prove
- (`!w:int64. !h2. h2 < 2 EXP 63 ==> (val w * h2) DIV 2 EXP 64 + h2 < 2 EXP 64`,
-  REPEAT STRIP_TAC THEN
-  MATCH_MP_TAC(ARITH_RULE `a < 2 EXP 63 /\ h2 < 2 EXP 63 ==> a + h2 < 2 EXP 64`) THEN
-  ASM_REWRITE_TAC[] THEN
-  SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
-  REWRITE_TAC[GSYM EXP_ADD] THEN
-  TRANS_TAC LTE_TRANS `2 EXP 64 * 2 EXP 63` THEN CONJ_TAC THENL
-   [MATCH_MP_TAC LT_MULT2 THEN ASM_REWRITE_TAC[VAL_BOUND_64];
-    REWRITE_TAC[GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN ARITH_TAC]);;
-
-Printf.printf "\n=== accuracy_close.ml: MULTOP_FITS ===\n%!";;
-
-(* pass-1 reduction accuracy in machine multop form: q1*b <= V (exact) and V1 = V-q1*b < 2^(p+2).
-   RED_LEMMA_D on V (window h1), q phrased as (val w * h1) DIV 2^64 + h1 via QHAT_ID. *)
-let PASS1_RED = prove
- (`!b p w d h1 V.
-      ~(b = 0) /\ b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 61 <= p /\
-      d < 2 EXP 64 /\
-      (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
-       ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
-      (2 EXP 64 + val(w:int64)) * d <= 2 EXP 128 /\
-      2 EXP 128 <= (2 EXP 64 + val(w:int64) + 1) * d /\
-      V < b * 2 EXP 64 /\
-      h1 = (V DIV 2 EXP p) MOD 2 EXP 64
-      ==> ((val(w:int64) * h1) DIV 2 EXP 64 + h1) * b <= V /\
-          V - ((val(w:int64) * h1) DIV 2 EXP 64 + h1) * b < 2 EXP (p + 2)`,
-  REPEAT GEN_TAC THEN
-  INTRO_TAC "hb0 hblt hpb hp hd hdisj hup hlo hv hh1" THEN
-  MP_TAC(SPECL [`b:num`; `p:num`; `val(w:int64)`; `d:num`; `h1:num`; `V MOD 2 EXP p`; `V:num`]
-    RED_LEMMA_D) THEN
-  ANTS_TAC THENL
-   [SUBGOAL_THEN `V DIV 2 EXP p < 2 EXP 64` ASSUME_TAC THENL
-     [SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
-      TRANS_TAC LTE_TRANS `b * 2 EXP 64` THEN ASM_REWRITE_TAC[] THEN
-      ONCE_REWRITE_TAC[MULT_SYM] THEN REWRITE_TAC[LE_MULT_LCANCEL] THEN
-      DISJ2_TAC THEN MATCH_MP_TAC LT_IMP_LE THEN ASM_REWRITE_TAC[];
-      ALL_TAC] THEN
-    SUBGOAL_THEN `h1 = V DIV 2 EXP p` ASSUME_TAC THENL
-     [ASM_REWRITE_TAC[] THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    ASM_REWRITE_TAC[] THEN
-    SUBGOAL_THEN `1 <= p` (fun th -> REWRITE_TAC[th]) THENL
-     [UNDISCH_TAC `61 <= p` THEN ARITH_TAC; ALL_TAC] THEN
-    SUBGOAL_THEN `(V DIV 2 EXP p) MOD 2 EXP 64 = V DIV 2 EXP p` SUBST1_TAC THENL
-     [MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    MP_TAC(SPECL [`V:num`; `2 EXP p`] DIVISION) THEN
-    REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
-    DISCH_THEN(fun th -> REWRITE_TAC[CONJUNCT2 th] THEN
-      GEN_REWRITE_TAC (LAND_CONV o LAND_CONV) [CONJUNCT1 th]);
-    ALL_TAC] THEN
-  REWRITE_TAC[GSYM QHAT_ID] THEN STRIP_TAC THEN
-  CONJ_TAC THENL
-   [ASM_REWRITE_TAC[];
-    MATCH_MP_TAC(ARITH_RULE `q <= V /\ V < q + e ==> V - q < e`) THEN ASM_REWRITE_TAC[]]);;
-
-Printf.printf "\n=== accuracy_close.ml: PASS1_RED ===\n%!";;
-
-(* a quotient q with q*b <= V < b*2^64 fits a word (b=0 case vacuous since V<0 impossible).
-   Used for q1 < 2^64 (NEGADD1_LOG loop bound) and q2 < 2^64 (OPTADD/NEGADD2). *)
-let QLE_FIT = prove
- (`!q b V. q * b <= V /\ V < b * 2 EXP 64 ==> q < 2 EXP 64`,
-  REPEAT STRIP_TAC THEN ASM_CASES_TAC `b = 0` THENL
-   [UNDISCH_TAC `V < b * 2 EXP 64` THEN ASM_REWRITE_TAC[MULT_CLAUSES; LT]; ALL_TAC] THEN
-  SUBGOAL_THEN `q * b < b * 2 EXP 64` MP_TAC THENL
-   [TRANS_TAC LET_TRANS `V:num` THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  ONCE_REWRITE_TAC[MULT_SYM] THEN
-  GEN_REWRITE_TAC (LAND_CONV o RAND_CONV) [MULT_SYM] THEN
-  ASM_SIMP_TAC[LT_MULT_LCANCEL]);;
-
-Printf.printf "\n=== accuracy_close.ml: QLE_FIT ===\n%!";;
-
-
-(* ======== inlined: modclose_helpers.ml ======== *)
-(* ============================================================================
-   modclose_helpers.ml (cont108) -- Stage 4d MOD-close arithmetic helpers.
-   After MAINLOOP (V in [0,b*2^64), V==a mod b) + NEGADD1 (V1=V-q1*b) + NEGADD2 (signed V1-q2*b
-   + sign mask) + OPTADD (conditional +b), the final k-word result z = a MOD b.
-   ============================================================================ *)
-
-(* MOD_CLOSE_CORE -- z = a MOD b from: z==V (mod b), z<b, V==a (mod b), ~(b=0). *)
-let MOD_CLOSE_CORE = prove
- (`!z V a b:num.
-      (z == V) (mod b) /\ z < b /\ (V == a) (mod b) /\ ~(b = 0)
-      ==> z = a MOD b`,
-  REPEAT STRIP_TAC THEN
-  MATCH_MP_TAC CONG_IMP_EQ THEN EXISTS_TAC `b:num` THEN
-  REPEAT CONJ_TAC THENL
-   [ASM_REWRITE_TAC[];
-    ASM_SIMP_TAC[MOD_LT_EQ];
-    MP_TAC(SPECL [`a:num`; `b:num`]
-      (prove(`!a b:num. (a == a MOD b)(mod b)`,
-             REPEAT GEN_TAC THEN ONCE_REWRITE_TAC[CONG_SYM] THEN
-             REWRITE_TAC[CONG_LMOD; CONG_REFL]))) THEN
-    MATCH_MP_TAC(NUMBER_RULE
-      `(z == V)(mod b) /\ (V == a)(mod b)
-       ==> (a == a MOD b)(mod b) ==> (z == a MOD b)(mod b)`) THEN
-    ASM_REWRITE_TAC[]]);;
-
-Printf.printf "\n=== modclose_helpers.ml: MOD_CLOSE_CORE ===\n%!";;
-
-(* ---- congruence micro-lemmas (top-level so NUMBER_RULE runs cleanly) ---- *)
-let CONG_ADD_MULB = prove
- (`!zk2 q2 V b:num. zk2 + q2 * b = V ==> (zk2 == V)(mod b)`,
-  CONV_TAC NUMBER_RULE);;
-
-let CONG_SPLIT_CLOSE = prove
- (`!r qbV b V q2:num. r + qbV = b /\ qbV + V = q2 * b ==> (r == V)(mod b)`,
-  CONV_TAC NUMBER_RULE);;
-
-(* NEGADD2_OPTADD_VALUE -- value-chain reconstruction for pass2 + optadd (TWO-SIDED).
-   V = 2^(64k)*zt1v + zk1 (pre-pass2); NEGADD2 eqn (zk2 = new z-mem, hh/cf loop-final acc/carry);
-   sign mask msk = (Tv MOD 2^64 < q2), Tv = zt1v+hh+bitval cf; OPTADD result
-   zfin = (zk2 + bitval msk * b) MOD 2^(64k).  ACCURACY BRACKET (two-sided):
-     q2*b <= V+b  /\  V < q2*b+b     (i.e. V2 = V - q2*b in [-b, b)); mask fires iff V < q2*b.
-   Both branches (q2=Tv: V2 in [0,b), mask F; q2=Tv+1: V2 in [-b,0), mask T) give zfin in [0,b),
-   zfin == V (mod b).  NB the "<=" on q2*b (not "<") admits V2=-b exactly (q2 = floor(V/b)+1 with
-   V a multiple of b): OPTADD's add-back then yields 0.
-   Deep 2nd-pass accuracy (RED2) must deliver this bracket; carried as hyp here.  Type-annotate
-   the ABBREV vars (e,Tv,r):num in all quotations (monolithic prove parses them eagerly with fresh
-   type vars -> "inventing type variables" + tryfind otherwise).  Deps: CONG_ADD_MULB, CONG_SPLIT_CLOSE. *)
-let NEGADD2_OPTADD_VALUE = prove
- (`!k zt1v zk1 zk2 hh cf q2 b V.
-      ~(b = 0) /\ q2 < 2 EXP 64 /\
-      zt1v < 2 EXP 64 /\ zk1 < 2 EXP (64 * k) /\ zk2 < 2 EXP (64 * k) /\
-      hh < 2 EXP 64 /\ b < 2 EXP (64 * k) /\
-      zk2 + 2 EXP (64 * k) * (hh + bitval cf) + q2 * b = zk1 + q2 * 2 EXP (64 * k) /\
-      2 EXP (64 * k) * zt1v + zk1 = V /\
-      q2 * b <= V + b /\ V < q2 * b + b
-      ==> (zk2 + bitval((zt1v + hh + bitval cf) MOD 2 EXP 64 < q2) * b) MOD 2 EXP (64 * k) < b /\
-          ((zk2 + bitval((zt1v + hh + bitval cf) MOD 2 EXP 64 < q2) * b) MOD 2 EXP (64 * k) == V)
-            (mod b)`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  ABBREV_TAC `e:num = 2 EXP (64 * k)` THEN
-  ABBREV_TAC `Tv:num = zt1v + hh + bitval cf` THEN
-  SUBGOAL_THEN `V + (e:num) * q2 = (zk2 + q2 * b) + (e:num) * (Tv:num)` ASSUME_TAC THENL
-   [MAP_EVERY (fun t -> UNDISCH_TAC t)
-     [`zk2 + (e:num) * (hh + bitval cf) + q2 * b = zk1 + q2 * (e:num)`;
-      `(e:num) * zt1v + zk1 = V`; `zt1v + hh + bitval cf = (Tv:num)`] THEN
-    CONV_TAC NUM_RING;
-    ALL_TAC] THEN
-  SUBGOAL_THEN `1 <= (e:num)` ASSUME_TAC THENL
-   [EXPAND_TAC "e" THEN REWRITE_TAC[ARITH_RULE `1 <= n <=> ~(n = 0)`; EXP_EQ_0; ARITH_EQ];
-    ALL_TAC] THEN
-  (* Tv <= q2 : STRICT side, uses V < q2*b+b (strict) *)
-  SUBGOAL_THEN `(e:num) * (Tv:num) < (e:num) * (q2 + 1)` MP_TAC THENL
-   [MP_TAC(ASSUME `V + (e:num) * q2 = (zk2 + q2 * b) + (e:num) * (Tv:num)`) THEN
-    UNDISCH_TAC `V < q2 * b + b` THEN UNDISCH_TAC `b < (e:num)` THEN ARITH_TAC;
-    REWRITE_TAC[LT_MULT_LCANCEL] THEN
-    ASM_SIMP_TAC[ARITH_RULE `1 <= e ==> ~(e = 0)`] THEN DISCH_TAC] THEN
-  SUBGOAL_THEN `(Tv:num) <= q2` ASSUME_TAC THENL
-   [UNDISCH_TAC `(Tv:num) < q2 + 1` THEN ARITH_TAC; ALL_TAC] THEN
-  (* q2 <= Tv+1 : uses the <= bracket q2*b <= V+b *)
-  SUBGOAL_THEN `(e:num) * q2 < (e:num) * ((Tv:num) + 2)` MP_TAC THENL
-   [MP_TAC(ASSUME `V + (e:num) * q2 = (zk2 + q2 * b) + (e:num) * (Tv:num)`) THEN
-    UNDISCH_TAC `q2 * b <= V + b` THEN UNDISCH_TAC `b < (e:num)` THEN
-    UNDISCH_TAC `zk2 < (e:num)` THEN ARITH_TAC;
-    REWRITE_TAC[LT_MULT_LCANCEL] THEN
-    ASM_SIMP_TAC[ARITH_RULE `1 <= e ==> ~(e = 0)`] THEN DISCH_TAC] THEN
-  SUBGOAL_THEN `q2 = (Tv:num) \/ q2 = (Tv:num) + 1` MP_TAC THENL
-   [UNDISCH_TAC `q2 < (Tv:num) + 2` THEN UNDISCH_TAC `(Tv:num) <= q2` THEN ARITH_TAC; ALL_TAC] THEN
-  SUBGOAL_THEN `(Tv:num) MOD 2 EXP 64 = (Tv:num)` SUBST1_TAC THENL
-   [MATCH_MP_TAC MOD_LT THEN
-    UNDISCH_TAC `(Tv:num) <= q2` THEN UNDISCH_TAC `q2 < 2 EXP 64` THEN ARITH_TAC;
-    ALL_TAC] THEN
-  DISCH_THEN DISJ_CASES_TAC THENL
-   [(* q2 = Tv: mask F; zk2 = V - q2*b in [0,b) *)
-    SUBGOAL_THEN `~((Tv:num) < q2)` (fun th -> REWRITE_TAC[th]) THENL
-     [ASM_REWRITE_TAC[LT_REFL]; ALL_TAC] THEN
-    REWRITE_TAC[BITVAL_CLAUSES; MULT_CLAUSES; ADD_CLAUSES] THEN
-    SUBGOAL_THEN `zk2 + q2 * b = V` ASSUME_TAC THENL
-     [FIRST_X_ASSUM(fun th -> if concl th = `q2 = (Tv:num)` then SUBST_ALL_TAC th else NO_TAC) THEN
-      UNDISCH_TAC `V + (e:num) * (Tv:num) = (zk2 + (Tv:num) * b) + (e:num) * (Tv:num)` THEN
-      CONV_TAC NUM_RING; ALL_TAC] THEN
-    SUBGOAL_THEN `zk2 < b` ASSUME_TAC THENL
-     [ASM_MESON_TAC[ARITH_RULE `zk2 + q2 * b = V /\ V < q2 * b + b ==> zk2 < b`]; ALL_TAC] THEN
-    SUBGOAL_THEN `zk2 MOD (e:num) = zk2` SUBST1_TAC THENL
-     [MATCH_MP_TAC MOD_LT THEN TRANS_TAC LTE_TRANS `b:num` THEN
-      ASM_REWRITE_TAC[] THEN ASM_MESON_TAC[LT_IMP_LE]; ALL_TAC] THEN
-    ASM_REWRITE_TAC[] THEN
-    MATCH_MP_TAC CONG_ADD_MULB THEN EXISTS_TAC `q2:num` THEN ASM_REWRITE_TAC[];
-    (* q2 = Tv + 1: mask T; kill e*Tv (SUBST q2=Tv+1 + NUM_RING) => zk2 + q2*b = V + e;
-       then pure nat arith via ASM_MESON (UNDISCH_TAC flaky here -- ASM_MESON+ARITH_RULE robust). *)
-    SUBGOAL_THEN `zk2 + q2 * b = V + (e:num)` ASSUME_TAC THENL
-     [FIRST_X_ASSUM(fun th -> if concl th = `q2 = (Tv:num) + 1` then SUBST_ALL_TAC th else NO_TAC) THEN
-      UNDISCH_TAC `V + (e:num) * ((Tv:num) + 1) = (zk2 + ((Tv:num) + 1) * b) + (e:num) * (Tv:num)` THEN
-      CONV_TAC NUM_RING; ALL_TAC] THEN
-    SUBGOAL_THEN `(Tv:num) < q2` (fun th -> REWRITE_TAC[th]) THENL
-     [ASM_MESON_TAC[ARITH_RULE `q2 = (Tv:num) + 1 ==> (Tv:num) < q2`]; ALL_TAC] THEN
-    REWRITE_TAC[BITVAL_CLAUSES; MULT_CLAUSES] THEN
-    SUBGOAL_THEN `q2 * b - V <= b /\ 0 < q2 * b - V` STRIP_ASSUME_TAC THENL
-     [ASM_MESON_TAC[ARITH_RULE
-        `zk2 + q2 * b = V + (e:num) /\ zk2 < (e:num) /\ q2 * b <= V + b /\ V < q2 * b + b
-         ==> q2 * b - V <= b /\ 0 < q2 * b - V`];
-      ALL_TAC] THEN
-    SUBGOAL_THEN `zk2 + b = (e:num) + (b - (q2 * b - V))` ASSUME_TAC THENL
-     [ASM_MESON_TAC[ARITH_RULE
-        `zk2 + q2 * b = V + (e:num) /\ q2 * b - V <= b /\ 0 < q2 * b - V /\ b < (e:num)
-         ==> zk2 + b = (e:num) + (b - (q2 * b - V))`];
-      ALL_TAC] THEN
-    ABBREV_TAC `r:num = b - (q2 * b - V)` THEN
-    SUBGOAL_THEN `(r:num) < b` ASSUME_TAC THENL
-     [ASM_MESON_TAC[ARITH_RULE
-        `(r:num) = b - (q2 * b - V) /\ 0 < q2 * b - V /\ q2 * b - V <= b ==> (r:num) < b`];
-      ALL_TAC] THEN
-    ASM_REWRITE_TAC[] THEN
-    SUBGOAL_THEN `((e:num) + (r:num)) MOD (e:num) = (r:num)` SUBST1_TAC THENL
-     [SUBGOAL_THEN `(e:num) + (r:num) = (r:num) + 1 * (e:num)` SUBST1_TAC THENL [ARITH_TAC; ALL_TAC] THEN
-      REWRITE_TAC[MOD_MULT_ADD] THEN MATCH_MP_TAC MOD_LT THEN
-      TRANS_TAC LTE_TRANS `b:num` THEN ASM_REWRITE_TAC[] THEN ASM_MESON_TAC[LT_IMP_LE];
-      ALL_TAC] THEN
-    ASM_REWRITE_TAC[] THEN
-    MATCH_MP_TAC CONG_SPLIT_CLOSE THEN
-    MAP_EVERY EXISTS_TAC [`q2 * b - V`; `q2:num`] THEN
-    CONJ_TAC THENL
-     [ASM_MESON_TAC[ARITH_RULE `(r:num) = b - (q2 * b - V) /\ q2 * b - V <= b ==> (r:num) + (q2 * b - V) = b`];
-      ASM_MESON_TAC[ARITH_RULE `0 < q2 * b - V /\ q2 * b <= V + b ==> (q2 * b - V) + V = q2 * b`]]]);;
-
-Printf.printf "\n=== modclose_helpers.ml: NEGADD2_OPTADD_VALUE (two-sided) ===\n%!";;
-
-(* NEGADD_PASSES_CLOSE -- the FULL MOD-close: NEGADD2_OPTADD_VALUE (zfin<b /\ zfin==V1) chained with
-   MOD_CLOSE_CORE (V1==a mod b, ~(b=0)) gives the final k-word OPTADD result = a MOD b.
-   V1 = value entering pass2 = V - q1*b (post-NEGADD1); V1 == a (mod b) since V == a and each pass
-   subtracts a multiple of b.  Applied by the machine splice at 0x428 to close CORRECT.
-   Deps: NEGADD2_OPTADD_VALUE, MOD_CLOSE_CORE. *)
-let NEGADD_PASSES_CLOSE = prove
- (`!k zt1v zk1 zk2 hh cf q2 b V1 a.
-      ~(b = 0) /\ q2 < 2 EXP 64 /\
-      zt1v < 2 EXP 64 /\ zk1 < 2 EXP (64 * k) /\ zk2 < 2 EXP (64 * k) /\
-      hh < 2 EXP 64 /\ b < 2 EXP (64 * k) /\
-      zk2 + 2 EXP (64 * k) * (hh + bitval cf) + q2 * b = zk1 + q2 * 2 EXP (64 * k) /\
-      2 EXP (64 * k) * zt1v + zk1 = V1 /\
-      q2 * b <= V1 + b /\ V1 < q2 * b + b /\
-      (V1 == a) (mod b)
-      ==> (zk2 + bitval((zt1v + hh + bitval cf) MOD 2 EXP 64 < q2) * b) MOD 2 EXP (64 * k) =
-          a MOD b`,
-  REPEAT STRIP_TAC THEN
-  MP_TAC(ISPECL [`k:num`;`zt1v:num`;`zk1:num`;`zk2:num`;`hh:num`;`cf:bool`;`q2:num`;`b:num`;`V1:num`]
-    NEGADD2_OPTADD_VALUE) THEN
-  ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
-  MATCH_MP_TAC MOD_CLOSE_CORE THEN
-  EXISTS_TAC `V1:num` THEN ASM_REWRITE_TAC[]);;
-
-Printf.printf "\n=== modclose_helpers.ml: NEGADD_PASSES_CLOSE ===\n%!";;
-
-
-(* ======== inlined: splice_308_428_dev.ml ======== *)
-(* ============================================================================
-   splice_308_428_dev.ml (cont108) -- Stage 4 splice building blocks (0x308 -> 0x428).
-   NOT loaded into CI.  Segment lemmas + accuracy setup for BIGNUM_MOD_308_TO_428.
-
-     0x308 -> 0x3a4  NEGADD1_SEG  (from BIGNUM_MOD_NEGADD1_LOG: V1 = V - q1*b; X15 = word h2)
-     0x3a4 -> 0x400  NEGADD2_SEG  (from BIGNUM_MOD_NEGADD2:     signed V1 - q2*b + sign mask)
-     0x400 -> 0x428  BIGNUM_MOD_OPTADD                          (conditional add-back)
-   + accuracy (PASS1_RED/WINDOW2_SMALL/MULTOP_FITS/QLE_FIT/RED2) + NEGADD_PASSES_CLOSE.
-
-   Composition idiom (validated): each segment's POST is written to EXACTLY match the block
-   POST (ENSURES_SEQUENCE_TAC adds aligned+PC), then discharged by
-     MATCH_MP_TAC(REWRITE_RULE[TAUT `(a==>b==>c) <=> (a/\b==>c)`]
-       (DISCH_ALL(DISCH_ALL(UNDISCH(SPEC_ALL ENSURES_POSTCONDITION_THM)))))
-   which weakens the block-POST onto the (identical) sequenced intermediate.
-
-   Deps: BIGNUM_MOD_NEGADD1_LOG, _NEGADD2, _OPTADD, NEGADD_PASSES_CLOSE,
-   accuracy_close.ml (WINDOW2_SMALL/MULTOP_FITS/PASS1_RED/QLE_FIT), red2.ml (RED2), QHAT_ID.
-   ============================================================================ *)
-
-(* NEGADD1 as a segment lemma: entry X15=word h1 / value V=2^(64k)Ztv+zk, exit X15=word h2 /
-   value V1=V-q1*b (q1 = multop(w,h1)+h1).  Just BIGNUM_MOD_NEGADD1_LOG re-abstracted with
-   h2 and V1 as named outputs, discharged by the POST-match idiom. *)
 let NEGADD1_SEG = prove
  (`!k z m w h1 h2 p b Ztv zk pc V1.
       ~(k = 0) /\ k < 2 EXP 58 /\ 61 <= p /\ p + 3 < 2 EXP 64 /\ p <= 64 * k /\
@@ -19949,8 +17267,6 @@ let NEGADD1_SEG = prove
   MATCH_MP_TAC(REWRITE_RULE[TAUT `(a==>b==>c) <=> (a/\b==>c)`]
     (DISCH_ALL(DISCH_ALL(UNDISCH(SPEC_ALL ENSURES_POSTCONDITION_THM))))));;
 
-Printf.printf "\n=== splice_308_428_dev.ml: NEGADD1_SEG ===\n%!";;
-
 (* NEGADD2 as a segment lemma (= BIGNUM_MOD_NEGADD2 verbatim; interfaces already match). *)
 let NEGADD2_SEG = prove
  (`!k z m w h2 q2 zt1w zk b p pc.
@@ -19978,16 +17294,12 @@ let NEGADD2_SEG = prove
         MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events] ,, MAYCHANGE [memory :> bignum(z,k)])`,
   REPEAT STRIP_TAC THEN MATCH_MP_TAC BIGNUM_MOD_NEGADD2 THEN ASM_REWRITE_TAC[]);;
 
-Printf.printf "\n=== splice_308_428_dev.ml: NEGADD2_SEG ===\n%!";;
-
 (* peel an existential precondition: prove (!x. ensures ...(P x)...) to get ensures ...(?x.P x)... *)
 let ENSURES_EXISTS_PRE = prove
  (`!step (P:A->armstate->bool) Q C.
       (!x. ensures step (\s. P x s) Q C) ==> ensures step (\s. ?x. P x s) Q C`,
   REPEAT GEN_TAC THEN REWRITE_TAC[ensures] THEN
   DISCH_TAC THEN GEN_TAC THEN REWRITE_TAC[LEFT_IMP_EXISTS_THM] THEN ASM_MESON_TAC[]);;
-
-Printf.printf "\n=== splice_308_428_dev.ml: ENSURES_EXISTS_PRE ===\n%!";;
 
 (* OPTADD + MOD-close as one segment (0x400 -> 0x428).  Flat PRE (hh,cf,zk2 concrete): X9=sign mask,
    z-mem=zk2, value eqn zk2 + 2^(64k)(hh+cf) + q2*b = zk + q2*2^(64k), + the two-sided accuracy
@@ -20041,15 +17353,11 @@ let OPTADD_CLOSE_SEG = prove
          CONJ_TAC THENL [BETA_TAC THEN GEN_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[]; ACCEPT_TAC th]
     else NO_TAC));;
 
-Printf.printf "\n=== splice_308_428_dev.ml: OPTADD_CLOSE_SEG ===\n%!";;
-
 (* pull an s-independent conjunct c out of the precondition into an implication *)
 let ENSURES_PRE_DISCH = prove
  (`!step P (c:bool) Q C.
       (c ==> ensures step (\s. P s) Q C) ==> ensures step (\s. P s /\ c) Q C`,
   REPEAT GEN_TAC THEN REWRITE_TAC[ensures] THEN MESON_TAC[]);;
-
-Printf.printf "\n=== splice_308_428_dev.ml: ENSURES_PRE_DISCH ===\n%!";;
 
 (* ---- the full Stage-4 splice ---- *)
 let BIGNUM_MOD_308_TO_428 = prove
@@ -20238,8 +17546,6 @@ let BIGNUM_MOD_308_TO_428 = prove
       EXISTS_TAC (rand(rator(rator(concl th)))) THEN
       CONJ_TAC THENL [BETA_TAC THEN GEN_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[]; ACCEPT_TAC th])]);;
 
-Printf.printf "\n=== splice_308_428_dev.ml: BIGNUM_MOD_308_TO_428 (full Stage-4 splice) ===\n%!";;
-
 (* ---- the WHOLE CHEAT region 0x1a4->0x428 = MAINLOOP ;; 308_TO_428.
    NB requires mainloop_wrap.ml's MAINLOOP POST to carry aligned_bytes_loaded (added cont108ar).
    MAINLOOP discharge: MP + ASM_REWRITE (discharges all precond EXCEPT the DIVISION identity whose
@@ -20339,8 +17645,6 @@ let BIGNUM_MOD_1A4_TO_428 = prove
     EXISTS_TAC (rand(rator(rator(concl th)))) THEN
     CONJ_TAC THENL [BETA_TAC THEN GEN_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[]; ACCEPT_TAC th]));;
 
-Printf.printf "\n=== splice_308_428_dev.ml: BIGNUM_MOD_1A4_TO_428 (WHOLE CHEAT region) ===\n%!";;
-
 (* FINAL ASSEMBLY (cont108ap-aq): BIGNUM_MOD_308_TO_428.  Structure PROVEN piecewise:
    accuracy setup (all facts land in one block) ;; ENSURES_SEQUENCE[0x3a4] NEGADD1_SEG (discharged
    via MP + POST-weaken idiom + ENSURES_PRECONDITION reconcile for X23/X15 order) ;; then 0x3a4->0x428.
@@ -20382,8 +17686,6 @@ Printf.printf "\n=== splice_308_428_dev.ml: BIGNUM_MOD_1A4_TO_428 (WHOLE CHEAT r
    The value-eqn/hh<2^64 become context hyps at step 5 because ENSURES_EXISTS_PRE+GEN lifts hh,cf to
    schematic vars and the subsequent ENSURES_PRECONDITION strengthen's GEN+STRIP exposes the flat body. *)
 
-
-(* ======== inlined: negadd_small.ml ======== *)
 (* ============================================================================
    negadd_small.ml (cont108ay) -- the p<61 (small single-word modulus) Stage-4 splice.
    Mirrors splice_308_428_dev.ml's BIGNUM_MOD_308_TO_428 with the p<61 substitutions:
@@ -20402,61 +17704,6 @@ Printf.printf "\n=== splice_308_428_dev.ml: BIGNUM_MOD_1A4_TO_428 (WHOLE CHEAT r
    ============================================================================ *)
 
 (* h2 = (V1*2^(61-p)) MOD 2^64 has no wrap and h2 < 2^63, for V1<2^(p+2), p<=61. *)
-let WINDOW2_SMALL_P = prove
- (`!V1 p. V1 < 2 EXP (p + 2) /\ p <= 61
-          ==> (V1 * 2 EXP (61 - p)) MOD 2 EXP 64 = V1 * 2 EXP (61 - p) /\
-              V1 * 2 EXP (61 - p) < 2 EXP 63`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  SUBGOAL_THEN `V1 * 2 EXP (61 - p) < 2 EXP 63` ASSUME_TAC THENL
-   [TRANS_TAC LTE_TRANS `2 EXP (p + 2) * 2 EXP (61 - p)` THEN CONJ_TAC THENL
-     [ASM_REWRITE_TAC[LT_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ];
-      REWRITE_TAC[GSYM EXP_ADD; LE_EXP; ARITH_EQ] THEN UNDISCH_TAC `p <= 61` THEN ARITH_TAC];
-    ASM_REWRITE_TAC[] THEN MATCH_MP_TAC MOD_LT THEN
-    TRANS_TAC LT_TRANS `2 EXP 63` THEN ASM_REWRITE_TAC[LT_EXP] THEN ARITH_TAC]);;
-
-Printf.printf "\n=== negadd_small.ml: WINDOW2_SMALL_P ===\n%!";;
-
-(* PASS1_RED_GEN: PASS1_RED with 1<=p (the `61<=p` in PASS1_RED is spurious -- its proof only
-   uses it to get 1<=p; the pass-1 accuracy is RED_LEMMA_D on V, window h1=V DIV 2^p, p-general). *)
-let PASS1_RED_GEN = prove
- (`!b p w d h1 V.
-      ~(b = 0) /\ b < 2 EXP p /\ 2 EXP (p - 1) <= b /\ 1 <= p /\
-      d < 2 EXP 64 /\
-      (d = (b * 2 EXP 64) DIV 2 EXP p + 1 \/
-       ((b * 2 EXP 64) DIV 2 EXP p = 2 EXP 64 - 1 /\ d = 2 EXP 64 - 1)) /\
-      (2 EXP 64 + val(w:int64)) * d <= 2 EXP 128 /\
-      2 EXP 128 <= (2 EXP 64 + val(w:int64) + 1) * d /\
-      V < b * 2 EXP 64 /\
-      h1 = (V DIV 2 EXP p) MOD 2 EXP 64
-      ==> ((val(w:int64) * h1) DIV 2 EXP 64 + h1) * b <= V /\
-          V - ((val(w:int64) * h1) DIV 2 EXP 64 + h1) * b < 2 EXP (p + 2)`,
-  REPEAT GEN_TAC THEN
-  INTRO_TAC "hb0 hblt hpb hp hd hdisj hup hlo hv hh1" THEN
-  MP_TAC(SPECL [`b:num`; `p:num`; `val(w:int64)`; `d:num`; `h1:num`; `V MOD 2 EXP p`; `V:num`] RED_LEMMA_D) THEN
-  ANTS_TAC THENL
-   [SUBGOAL_THEN `V DIV 2 EXP p < 2 EXP 64` ASSUME_TAC THENL
-     [SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
-      TRANS_TAC LTE_TRANS `b * 2 EXP 64` THEN ASM_REWRITE_TAC[] THEN
-      ONCE_REWRITE_TAC[MULT_SYM] THEN REWRITE_TAC[LE_MULT_LCANCEL] THEN
-      DISJ2_TAC THEN MATCH_MP_TAC LT_IMP_LE THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    SUBGOAL_THEN `h1 = V DIV 2 EXP p` ASSUME_TAC THENL
-     [ASM_REWRITE_TAC[] THEN MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    ASM_REWRITE_TAC[] THEN
-    SUBGOAL_THEN `(V DIV 2 EXP p) MOD 2 EXP 64 = V DIV 2 EXP p` SUBST1_TAC THENL
-     [MATCH_MP_TAC MOD_LT THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    MP_TAC(SPECL [`V:num`; `2 EXP p`] DIVISION) THEN
-    REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN
-    DISCH_THEN(fun th -> REWRITE_TAC[CONJUNCT2 th] THEN GEN_REWRITE_TAC (LAND_CONV o LAND_CONV) [CONJUNCT1 th]);
-    ALL_TAC] THEN
-  REWRITE_TAC[GSYM QHAT_ID] THEN STRIP_TAC THEN
-  CONJ_TAC THENL
-   [ASM_REWRITE_TAC[];
-    MATCH_MP_TAC(ARITH_RULE `q <= V /\ V < q + e ==> V - q < e`) THEN ASM_REWRITE_TAC[]]);;
-
-Printf.printf "\n=== negadd_small.ml: PASS1_RED_GEN ===\n%!";;
-
-(* NEGADD1_SEG_SMALL: wrapper over BIGNUM_MOD_NEGADD1_LOG_SMALL, POST X15 = word h2
-   (h2 = (V1 * 2^(61-p)) MOD 2^64), value 2^(64k)*X23 + z = V1.  Extra precond V1 < 2^(p+2). *)
 let NEGADD1_SEG_SMALL = prove
  (`!k z m w h1 h2 p b Ztv zk pc V1.
       ~(k = 0) /\ k < 2 EXP 58 /\ 1 <= p /\ p < 61 /\ p + 3 < 2 EXP 64 /\ p <= 64 * k /\
@@ -20495,8 +17742,6 @@ let NEGADD1_SEG_SMALL = prove
   BETA_TAC THEN GEN_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[] THEN
   UNDISCH_TAC `V1 = (2 EXP (64 * k) * Ztv + zk) - ((val(w:int64) * h1) DIV 2 EXP 64 + h1) * b` THEN
   DISCH_THEN(SUBST1_TAC o SYM) THEN ASM_REWRITE_TAC[]);;
-
-Printf.printf "\n=== negadd_small.ml: NEGADD1_SEG_SMALL ===\n%!";;
 
 (* BIGNUM_MOD_308_TO_428_SMALL : the p<61 Stage-4 splice 0x308->0x428.  Same shape as
    BIGNUM_MOD_308_TO_428 but 1<=p/\p<61, left-shift window, RED2_SMALL, NEGADD1_SEG_SMALL. *)
@@ -20681,8 +17926,6 @@ let BIGNUM_MOD_308_TO_428_SMALL = prove
       EXISTS_TAC (rand(rator(rator(concl th)))) THEN
       CONJ_TAC THENL [BETA_TAC THEN GEN_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[]; ACCEPT_TAC th])]);;
 
-Printf.printf "\n=== negadd_small.ml: BIGNUM_MOD_308_TO_428_SMALL (p<61 Stage-4 splice) ===\n%!";;
-
 (* ============================================================================
    BIGNUM_MOD_1A4_TO_428_SMALL : the whole p<61 CHEAT region 0x1a4->0x428 =
    MAINLOOP ;; 308_TO_428_SMALL.  Identical to BIGNUM_MOD_1A4_TO_428 (splice_308_428_dev.ml)
@@ -20775,10 +18018,6 @@ let BIGNUM_MOD_1A4_TO_428_SMALL = prove
     EXISTS_TAC (rand(rator(rator(concl th)))) THEN
     CONJ_TAC THENL [BETA_TAC THEN GEN_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[]; ACCEPT_TAC th]));;
 
-Printf.printf "\n=== negadd_small.ml: BIGNUM_MOD_1A4_TO_428_SMALL (whole p<61 CHEAT region) ===\n%!";;
-
-
-(* ======== inlined: splice_68_428_dev.ml ======== *)
 (* ============================================================================
    splice_68_428_dev.ml (cont108av) -- BIGNUM_MOD_68_TO_428.
    The COMPLETE end-to-end DEV composition pc+0x68 (finder POST) -> pc+0x428
@@ -20984,9 +18223,6 @@ let BIGNUM_MOD_68_TO_428 = prove
            CONJ_TAC THENL [BETA_TAC THEN GEN_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[]; ACCEPT_TAC dth]
       else NO_TAC)]);;
 
-Printf.printf "\n=== splice_68_428_dev.ml: BIGNUM_MOD_68_TO_428 (WINUP_D;;RECIP_WIDE;;PREHEADER;;1A4_TO_428) ===\n%!";;
-
-
 (* ======== final theorems: BIGNUM_MOD_CORRECT + SUBROUTINE_CORRECT ======== *)
 (* ============================================================================
    ci_correct_edit.ml (cont109) -- the VALIDATED replacement for BIGNUM_MOD_CORRECT
@@ -21112,8 +18348,6 @@ let BIGNUM_MOD_CORRECT = prove
            ACCEPT_TAC dth]
     else NO_TAC));;
 
-Printf.printf "\n=== ci_correct_edit.ml: BIGNUM_MOD_CORRECT (strengthened precond, 68_TO_428 splice) ===\n%!";;
-
 (* SUBROUTINE_CORRECT: same recipe as the CI original, matching strengthened precond
    (pc-x, pc-m, ~(b=0), n<2^58-1 added).  Proven 0-hyp warm this session. *)
 let BIGNUM_MOD_SUBROUTINE_CORRECT = prove
@@ -21143,4 +18377,3 @@ let BIGNUM_MOD_SUBROUTINE_CORRECT = prove
   ARM_ADD_RETURN_STACK_TAC BIGNUM_MOD_EXEC BIGNUM_MOD_CORRECT
     `[X19;X20;X21;X22;X23;X24]` 48);;
 
-Printf.printf "\n=== ci_correct_edit.ml: BIGNUM_MOD_SUBROUTINE_CORRECT ===\n%!";;
