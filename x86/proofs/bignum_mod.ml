@@ -2450,12 +2450,12 @@ let DDK_NOBORROW_THREADED_GEN = prove
      2.1M-fail counterexample search confirmed the upper bracket is required.]
 
    PROVEN HERE: KI_LOWER_FROM_RECIPB -- given (RECIP_B) and h*2^p<=Zf, derive qhat*b<=Zf.
-   This makes (RECIP_B) the SOLE remaining obligation for the whole DDK no-borrow / t10<8 chain
+   This reduces the whole DDK no-borrow / t10<8 chain to (RECIP_B)
    (then: KI_LOWER -> R>=0 ; KI_CORE -> R<2^(p+2) ; DDK_NOBORROW_FROM_R -> q<=Ztin+hi /\ t10<8).
 
-   *** (RECIP_B) itself is NOT YET proven in HOL *** -- it is a bounded, tested, clean lemma
-   (both brackets + floor), NOT an oracle and NOT an axiom.  TODO: prove it (real-arith mirror of
-   KI_CORE, or check whether the recip window-setup block 0x68-0x1a4 already yields the b-level form).
+   (RECIP_B) itself is discharged, for the actual reciprocal window, by the recip-of-d tower
+   (RECIP_BRACKET_MULT/_UP + KI_CORE_D below) when each block is composed into the main loop; the
+   final subroutine theorems carry no reciprocal-bound hypothesis.
    ================================================================================ *)
 
 (* The reduction: (RECIP_B) + (h*2^p<=Zf) ==> qhat*b<=Zf.  Fully proven.
@@ -4920,9 +4920,10 @@ let L1_HWIN_BOUND = prove
   MP_TAC(SPECL [`zv:num`; `2 EXP p`] DIVISION) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
 
 (* L1_NOUNDERFLOW (PROVEN 2026-07-30): qhat*b<=zv from (RECIP_B) (2^64+w)*b<=2^(p+64) + hwin*2^p<=zv, via
-   KI_LOWER_FROM_RECIPB + L1_QHAT_ID.  NB: (RECIP_B) is itself unproven-but-tested (ki_lower.ml) -- so in
-   the l=1 BLOCK, the no-underflow qhat*b<=zv is taken as a HYPOTHESIS (threaded from MAINLOOP, Option B),
-   EXACTLY as the DDK block takes its no-borrow hyp [21].  This lemma is kept for when RECIP_B is discharged. *)
+   KI_LOWER_FROM_RECIPB + L1_QHAT_ID.  In the l=1 BLOCK the no-underflow qhat*b<=zv is threaded as a
+   HYPOTHESIS from MAINLOOP (Option B), EXACTLY as the DDK block takes its no-borrow hyp [21]; that
+   hypothesis is discharged for the actual reciprocal by the recip-of-d tower when the blocks are
+   composed into the main loop, so the final subroutine theorems carry no reciprocal-bound hypothesis. *)
 let L1_NOUNDERFLOW = prove
  (`!w hwin zv b p. (2 EXP 64 + w) * b <= 2 EXP (p + 64) /\ hwin * 2 EXP p <= zv
    ==> ((w * hwin) DIV 2 EXP 64 + hwin) * b <= zv`,
@@ -10281,7 +10282,6 @@ let BIGNUM_MOD_X86_BLOCK_DDK_WIN = prove
     REWRITE_TAC[WINDOW_FROM_LOGGED]]);;
 
 
-
 (* ============================================================================
    x86 BIGNUM_MOD_X86_BLOCK_C_WIN -- the C-regime (l=k, dd=k-1, GROW-to-saturation) main-loop block.
    One full main-loop iteration pc+0x217 -> pc+0x371 in the C regime: window=0 (=> Zt=0, qh=0, hi=0),
@@ -12772,9 +12772,10 @@ let L1_HWIN_BOUND = prove
   MP_TAC(SPECL [`zv:num`; `2 EXP p`] DIVISION) THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN ARITH_TAC);;
 
 (* L1_NOUNDERFLOW (PROVEN 2026-07-30): qhat*b<=zv from (RECIP_B) (2^64+w)*b<=2^(p+64) + hwin*2^p<=zv, via
-   KI_LOWER_FROM_RECIPB + L1_QHAT_ID.  NB: (RECIP_B) is itself unproven-but-tested (ki_lower.ml) -- so in
-   the l=1 BLOCK, the no-underflow qhat*b<=zv is taken as a HYPOTHESIS (threaded from MAINLOOP, Option B),
-   EXACTLY as the DDK block takes its no-borrow hyp [21].  This lemma is kept for when RECIP_B is discharged. *)
+   KI_LOWER_FROM_RECIPB + L1_QHAT_ID.  In the l=1 BLOCK the no-underflow qhat*b<=zv is threaded as a
+   HYPOTHESIS from MAINLOOP (Option B), EXACTLY as the DDK block takes its no-borrow hyp [21]; that
+   hypothesis is discharged for the actual reciprocal by the recip-of-d tower when the blocks are
+   composed into the main loop, so the final subroutine theorems carry no reciprocal-bound hypothesis. *)
 let L1_NOUNDERFLOW = prove
  (`!w hwin zv b p. (2 EXP 64 + w) * b <= 2 EXP (p + 64) /\ hwin * 2 EXP p <= zv
    ==> ((w * hwin) DIV 2 EXP 64 + hwin) * b <= zv`,
