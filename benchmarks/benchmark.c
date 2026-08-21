@@ -1437,7 +1437,15 @@ void call_sm2_montjscalarmul_alt(void) repeatfewer(10,sm2_montjscalarmul_alt(b1,
   _(x4_scalar_iv_mem2_late_tag)                                \
   _(x4_scalar_iv_mem2_late_tag_fast_tail)                      \
   _(x4_scalar_iv_mem_late_tag)                                 \
-  _(x4_scalar_iv_mem_late_tag_keep_htable)
+  _(x4_scalar_iv_mem_late_tag_keep_htable)                     \
+  _(x4_basic_swp)                                              \
+  _(x4_fast_tail_swp)                                          \
+  _(x4_keep_htable_swp)                                        \
+  _(x4_scalar_iv_mem2_swp)                                     \
+  _(x4_scalar_iv_mem2_late_tag_swp)                            \
+  _(x4_scalar_iv_mem2_late_tag_fast_tail_swp)                  \
+  _(x4_scalar_iv_mem_late_tag_swp)                             \
+  _(x4_scalar_iv_mem_late_tag_keep_htable_swp)
 
 #ifdef __x86_64__
 

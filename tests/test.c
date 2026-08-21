@@ -17267,7 +17267,15 @@ static int test_one_aes_gcm_dec(const char *name, aes_gcm_dec_fn fn)
   _(x4_scalar_iv_mem2_late_tag)                                \
   _(x4_scalar_iv_mem2_late_tag_fast_tail)                      \
   _(x4_scalar_iv_mem_late_tag)                                 \
-  _(x4_scalar_iv_mem_late_tag_keep_htable)
+  _(x4_scalar_iv_mem_late_tag_keep_htable)                     \
+  _(x4_basic_swp)                                              \
+  _(x4_fast_tail_swp)                                          \
+  _(x4_keep_htable_swp)                                        \
+  _(x4_scalar_iv_mem2_swp)                                     \
+  _(x4_scalar_iv_mem2_late_tag_swp)                            \
+  _(x4_scalar_iv_mem2_late_tag_fast_tail_swp)                  \
+  _(x4_scalar_iv_mem_late_tag_swp)                             \
+  _(x4_scalar_iv_mem_late_tag_keep_htable_swp)
 
 #ifndef __x86_64__
 #define GCM_DEC_TEST_DEFN(tag)                                          \
