@@ -1428,6 +1428,17 @@ void call_sm2_montjscalarmul_alt(void) repeatfewer(10,sm2_montjscalarmul_alt(b1,
   _(x4_scalar_iv_mem_late_tag_scalar_rk_swp_alt7)              \
   _(x4_scalar_iv_mem_late_tag_scalar_rk_swp_alt8)
 
+// The 8 clean AES-GCM-128 decrypt variants.
+#define GCM_DEC_VARIANTS(_)                                    \
+  _(x4_basic)                                                  \
+  _(x4_fast_tail)                                              \
+  _(x4_keep_htable)                                            \
+  _(x4_scalar_iv_mem2)                                         \
+  _(x4_scalar_iv_mem2_late_tag)                                \
+  _(x4_scalar_iv_mem2_late_tag_fast_tail)                      \
+  _(x4_scalar_iv_mem_late_tag)                                 \
+  _(x4_scalar_iv_mem_late_tag_keep_htable)
+
 #ifdef __x86_64__
 
 static int32_t __attribute__((aligned(32))) mldsa_avx2_qdata[16] = {
@@ -1490,6 +1501,13 @@ void call_aes_xts_decrypt_512(void) {}
   void call_aes_gcm_enc_kernel_##tag##_1024(void) {} \
   void call_aes_gcm_enc_kernel_##tag##_4096(void) {}
 GCM_ENC_VARIANTS(GCM_ENC_BENCH_STUB)
+#define GCM_DEC_BENCH_STUB(tag)                    \
+  void call_aes_gcm_dec_kernel_##tag##_16(void) {} \
+  void call_aes_gcm_dec_kernel_##tag##_64(void) {} \
+  void call_aes_gcm_dec_kernel_##tag##_256(void) {} \
+  void call_aes_gcm_dec_kernel_##tag##_1024(void) {} \
+  void call_aes_gcm_dec_kernel_##tag##_4096(void) {}
+GCM_DEC_VARIANTS(GCM_DEC_BENCH_STUB)
 
 #else
 
@@ -1613,6 +1631,24 @@ static void aes_gcm_enc_kernel_setup(void)
   void call_aes_gcm_enc_kernel_##tag##_4096(void)                           \
     { repeatfewer(40,aes_gcm_enc_kernel_##tag##_helper(4096)); }
 GCM_ENC_VARIANTS(GCM_ENC_BENCH_ONE)
+
+// Decrypt variants: same setup/helper shape as encrypt (shared aes_gcm_key/iv).
+#define GCM_DEC_BENCH_ONE(tag)                                              \
+  static void aes_gcm_dec_kernel_##tag##_helper(size_t len)                 \
+  { aes_gcm_enc_kernel_setup();                                             \
+    aes_gcm_dec_kernel_##tag((uint8_t*)b0, (uint64_t)len * 8, (uint8_t*)b2, \
+                             (uint64_t*)b3, aes_iv, &aes_gcm_key, bb[0]); }  \
+  void call_aes_gcm_dec_kernel_##tag##_16(void)                             \
+    { repeat(aes_gcm_dec_kernel_##tag##_helper(16)); }                      \
+  void call_aes_gcm_dec_kernel_##tag##_64(void)                            \
+    { repeat(aes_gcm_dec_kernel_##tag##_helper(64)); }                      \
+  void call_aes_gcm_dec_kernel_##tag##_256(void)                            \
+    { repeat(aes_gcm_dec_kernel_##tag##_helper(256)); }                     \
+  void call_aes_gcm_dec_kernel_##tag##_1024(void)                           \
+    { repeatfewer(10,aes_gcm_dec_kernel_##tag##_helper(1024)); }            \
+  void call_aes_gcm_dec_kernel_##tag##_4096(void)                           \
+    { repeatfewer(40,aes_gcm_dec_kernel_##tag##_helper(4096)); }
+GCM_DEC_VARIANTS(GCM_DEC_BENCH_ONE)
 
 #endif
 
@@ -2108,6 +2144,13 @@ int main(int argc, char *argv[])
   timingtest(aes,"aes_gcm_enc_kernel_" #tag " (1024 bytes)",call_aes_gcm_enc_kernel_##tag##_1024);    \
   timingtest(aes,"aes_gcm_enc_kernel_" #tag " (4096 bytes)",call_aes_gcm_enc_kernel_##tag##_4096);
   GCM_ENC_VARIANTS(GCM_ENC_BENCH_REG)
+#define GCM_DEC_BENCH_REG(tag)                                                                        \
+  timingtest(aes,"aes_gcm_dec_kernel_" #tag " (16 bytes)",call_aes_gcm_dec_kernel_##tag##_16);        \
+  timingtest(aes,"aes_gcm_dec_kernel_" #tag " (64 bytes)",call_aes_gcm_dec_kernel_##tag##_64);        \
+  timingtest(aes,"aes_gcm_dec_kernel_" #tag " (256 bytes)",call_aes_gcm_dec_kernel_##tag##_256);      \
+  timingtest(aes,"aes_gcm_dec_kernel_" #tag " (1024 bytes)",call_aes_gcm_dec_kernel_##tag##_1024);    \
+  timingtest(aes,"aes_gcm_dec_kernel_" #tag " (4096 bytes)",call_aes_gcm_dec_kernel_##tag##_4096);
+  GCM_DEC_VARIANTS(GCM_DEC_BENCH_REG)
 
   // Summarize performance in arithmetic and geometric means
 

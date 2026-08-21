@@ -17184,6 +17184,102 @@ static int test_one_aes_gcm_enc(const char *name, aes_gcm_enc_fn fn)
 #endif
 GCM_ENC_VARIANTS(GCM_ENC_TEST_DEFN)
 
+// The aes_gcm_dec_kernel_* variants (imported from the SLOTHY clean/dec
+// sources) share the identical ABI with the encrypt kernels. They CTR-decrypt
+// the input to form the plaintext output, but fold the INPUT (ciphertext) into
+// the GHASH accumulator "tag" (in decryption the authenticated data is the
+// ciphertext being read). We compare each variant against the decrypt
+// reference (tests/ref_aes_gcm.c) over the plaintext, the updated tag, and the
+// updated counter block, with the same random-case generator as the encrypt
+// tests.
+typedef uint64_t (*aes_gcm_dec_fn)(const uint8_t *in, uint64_t len_bits,
+                                   uint8_t *out, uint64_t *tag,
+                                   const uint8_t *ivec,
+                                   const s2n_bignum_AES_KEY *key,
+                                   const uint64_t *Htable);
+
+static int test_one_aes_gcm_dec(const char *name, aes_gcm_dec_fn fn)
+{
+#ifdef __x86_64__
+  (void)name; (void)fn;
+  return 1;
+#else
+  uint64_t t;
+  uint8_t key[16], h[16], zero[16], Htable[192];
+  uint8_t iv_asm[16], iv_ref[16], tag_asm[16], tag_ref[16];
+  s2n_bignum_AES_KEY ek;
+  size_t len, nblocks;
+
+  printf("Testing %s against reference with %d cases\n", name, tests);
+
+  for (t = 0; t < (uint64_t)tests; ++t)
+   { random_bytes_density(key, 16);
+     ref_aes128_expand_key(key, &ek);
+     memset(zero, 0, 16);
+     ref_aes128_encrypt_block(zero, h, &ek);
+     ref_gcm_init_htable(Htable, h);
+
+     nblocks = 1 + (rand() % 256);
+     if ((rand() & 3) == 0) nblocks = 1 + (rand() % 8); // exercise x4 boundary
+     len = 16 * nblocks;
+
+     random_bytes_density(iv_asm, 16);
+     memcpy(iv_ref, iv_asm, 16);
+     random_bytes_density(tag_asm, 16);
+     memcpy(tag_ref, tag_asm, 16);
+     random_bytes_density(bb1, len);   // bb1 = ciphertext input
+     memset(bb2, 0, len);
+     memset(bb3, 0, len);
+
+     fn(bb1, (uint64_t)len * 8, bb2,
+        (uint64_t *)tag_asm, iv_asm, &ek, (uint64_t *)Htable);
+
+     ref_aes_gcm_dec_kernel(bb1, (uint64_t)len * 8, bb3, tag_ref, iv_ref, &ek);
+
+     if (memcmp(bb2, bb3, len) != 0 ||
+         memcmp(tag_asm, tag_ref, 16) != 0 ||
+         memcmp(iv_asm, iv_ref, 16) != 0)
+      { printf("### Disparity: %s len=%zu\n", name, len);
+        printf("    key=");
+        for (int i = 0; i < 16; ++i) printf("%02x", key[i]);
+        printf("\n    ptxt %s, tag %s, ctr %s\n",
+               memcmp(bb2, bb3, len) ? "DIFF" : "ok",
+               memcmp(tag_asm, tag_ref, 16) ? "DIFF" : "ok",
+               memcmp(iv_asm, iv_ref, 16) ? "DIFF" : "ok");
+        return 1;
+      }
+     else if (VERBOSE)
+      { printf("OK: %s len=%zu\n", name, len);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
+// The X-macro list GCM_DEC_VARIANTS is the single source of truth for the
+// decrypt variants (the 8 clean AES-GCM-128 decrypt kernels).
+#define GCM_DEC_VARIANTS(_)                                    \
+  _(x4_basic)                                                  \
+  _(x4_fast_tail)                                              \
+  _(x4_keep_htable)                                            \
+  _(x4_scalar_iv_mem2)                                         \
+  _(x4_scalar_iv_mem2_late_tag)                                \
+  _(x4_scalar_iv_mem2_late_tag_fast_tail)                      \
+  _(x4_scalar_iv_mem_late_tag)                                 \
+  _(x4_scalar_iv_mem_late_tag_keep_htable)
+
+#ifndef __x86_64__
+#define GCM_DEC_TEST_DEFN(tag)                                          \
+  int test_aes_gcm_dec_kernel_##tag(void)                               \
+  { return test_one_aes_gcm_dec("aes_gcm_dec_kernel_" #tag,             \
+                                aes_gcm_dec_kernel_##tag); }
+#else
+#define GCM_DEC_TEST_DEFN(tag)                                          \
+  int test_aes_gcm_dec_kernel_##tag(void) { return 1; }
+#endif
+GCM_DEC_VARIANTS(GCM_DEC_TEST_DEFN)
+
 // ****************************************************************************
 // Analogous testing of relevant functions against TweetNaCl as reference
 //
@@ -18117,6 +18213,9 @@ int main(int argc, char *argv[])
 #define GCM_ENC_TEST_REG(tag) \
     functionaltest(aes,"aes_gcm_enc_kernel_" #tag,test_aes_gcm_enc_kernel_##tag);
     GCM_ENC_VARIANTS(GCM_ENC_TEST_REG)
+#define GCM_DEC_TEST_REG(tag) \
+    functionaltest(aes,"aes_gcm_dec_kernel_" #tag,test_aes_gcm_dec_kernel_##tag);
+    GCM_DEC_VARIANTS(GCM_DEC_TEST_REG)
     functionaltest(aes,"aes_xts_encrypt",test_aes_xts_encrypt);
     functionaltest(aes,"aes_xts_decrypt",test_aes_xts_decrypt);
     functionaltest(aes,"aes_xts_roundtrip",test_aes_xts_roundtrip);

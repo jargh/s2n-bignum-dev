@@ -238,6 +238,38 @@ static void ref_aes_gcm_enc_kernel(const uint8_t *in, uint64_t len_bits,
    }
 }
 
+// Reference for the AES-GCM DECRYPT kernels. Identical to the encrypt kernel
+// above except that GHASH folds the INPUT (ciphertext) block rather than the
+// output (plaintext): in decryption the authenticated data is the ciphertext,
+// which is what the kernel reads. The CTR keystream and counter handling are
+// unchanged (CTR mode is symmetric).
+static void ref_aes_gcm_dec_kernel(const uint8_t *in, uint64_t len_bits,
+                                   uint8_t *out, uint8_t tag[16],
+                                   uint8_t ivec[16],
+                                   const s2n_bignum_AES_KEY *ek)
+{ uint8_t h[16], zero[16], ks[16];
+  uint64_t byte_len = len_bits >> 3;
+  uint64_t nblocks  = byte_len >> 4;
+  uint64_t b;
+  int j;
+
+  // H = AES_K(0^128)
+  memset(zero, 0, 16);
+  ref_aes128_encrypt_block(zero, h, ek);
+
+  for (b = 0; b < nblocks; ++b)
+   { // Fold the ciphertext (input) block into the GHASH accumulator
+     for (j = 0; j < 16; ++j) tag[j] ^= in[16*b + j];
+     ref_ghash_mul(tag, tag, h);
+
+     // CTR-decrypt: plaintext = ciphertext XOR AES_K(counter)
+     ref_aes128_encrypt_block(ivec, ks, ek);
+     for (j = 0; j < 16; ++j) out[16*b + j] = in[16*b + j] ^ ks[j];
+
+     ref_gcm_inc32(ivec);
+   }
+}
+
 // ***************************************************************************
 // Htable construction: feeds the assembly kernel's "Htable" argument
 // ***************************************************************************
