@@ -2242,3 +2242,21 @@ let BIGNUM_MONTSQR_P521_SUBROUTINE_CORRECT = time prove
   ARM_ADD_RETURN_STACK_TAC
    BIGNUM_MONTSQR_P521_EXEC th
    `[X19;X20;X21;X22;X23;X24]` 48);;
+
+(* ------------------------------------------------------------------------- *)
+(* Constant-time and memory safety proof.                                    *)
+(* ------------------------------------------------------------------------- *)
+
+needs "arm/proofs/consttime.ml";;
+needs "arm/proofs/subroutine_signatures.ml";;
+
+let full_spec,public_vars = mk_safety_spec
+    ~keep_maychanges:false
+    (assoc "bignum_montsqr_p521" subroutine_signatures)
+    BIGNUM_MONTSQR_P521_SUBROUTINE_CORRECT
+    BIGNUM_MONTSQR_P521_EXEC;;
+
+let BIGNUM_MONTSQR_P521_SUBROUTINE_SAFE = time prove
+ (full_spec,
+  ASSERT_CONCL_TAC full_spec THEN
+  PROVE_SAFETY_SPEC_TAC ~public_vars:public_vars BIGNUM_MONTSQR_P521_EXEC);;
