@@ -65,3 +65,62 @@ let BIGNUM_EVEN_SUBROUTINE_CORRECT = prove
                C_RETURN s = if EVEN x then word 1 else word 0)
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI)`,
   ARM_ADD_RETURN_NOSTACK_TAC BIGNUM_EVEN_EXEC BIGNUM_EVEN_CORRECT);;
+
+(* ------------------------------------------------------------------------- *)
+(* Constant-time and memory safety proof.                                    *)
+(* ------------------------------------------------------------------------- *)
+
+needs "arm/proofs/consttime.ml";;
+needs "arm/proofs/subroutine_signatures.ml";;
+
+let full_spec,public_vars = mk_safety_spec
+    ~keep_maychanges:false
+    (assoc "bignum_even" subroutine_signatures)
+    BIGNUM_EVEN_SUBROUTINE_CORRECT
+    BIGNUM_EVEN_EXEC;;
+
+(* bignum_even branches on k (the length, a public value), so the end-to-end
+   PROVE_SAFETY_SPEC_TAC does not apply; instead scaffold f_events with the
+   'if val k = 0' shortcut following the correctness proof's case split. The
+   automatic memory-safety discharge cannot close the k<>0 read range [a,val k*8]
+   without the k<>0 hypothesis, so that final memaccess_inbounds goal is closed
+   manually. *)
+
+let BIGNUM_EVEN_SUBROUTINE_SAFE = time prove
+ (`exists f_events.
+       forall e k a pc returnaddress.
+           ensures arm
+           (\s.
+                aligned_bytes_loaded s (word pc) bignum_even_mc /\
+                read PC s = word pc /\
+                read X30 s = returnaddress /\
+                C_ARGUMENTS [k; a] s /\
+                read events s = e)
+           (\s.
+                read PC s = returnaddress /\
+                (exists e2.
+                     read events s = APPEND e2 e /\
+                     e2 = f_events a k pc returnaddress /\
+                     memaccess_inbounds e2 [a,val k * 8] []))
+           (\s s'. true)`,
+  ASSERT_CONCL_TAC full_spec THEN
+  CONCRETIZE_F_EVENTS_TAC
+   `\(a:int64) (k:int64) (pc:num) (returnaddress:int64).
+      if val k = 0 then f_ev_k0 a k pc returnaddress
+      else f_ev_pos a k pc returnaddress:(uarch_event) list` THEN
+  REPEAT META_EXISTS_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[C_ARGUMENTS] THEN REPEAT STRIP_TAC THEN
+  ASM_CASES_TAC `val(k:int64) = 0` THEN ASM_REWRITE_TAC[] THENL
+   [ ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
+       ~canonicalize_pc_diff:false BIGNUM_EVEN_EXEC (1--3) THEN
+     DISCHARGE_SAFETY_PROPERTY_TAC;
+     ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
+       ~canonicalize_pc_diff:false BIGNUM_EVEN_EXEC (1--5) THEN
+     SAFE_META_EXISTS_TAC allowed_vars_e THEN
+     CONJ_TAC THENL [ EXISTS_E2_TAC allowed_vars_e; ALL_TAC ] THEN
+     W (fun (asl,w) ->
+       (if is_conj w then (CONJ_TAC THENL [ FULL_UNIFY_F_EVENTS_TAC; ALL_TAC ])
+        else ALL_TAC)) THEN
+     REWRITE_TAC[memaccess_inbounds; ALL; EX; FST; SND; contained_modulo] THEN
+     REPEAT STRIP_TAC THEN EXISTS_TAC `i:num` THEN
+     ASM_REWRITE_TAC[CONG_REFL] THEN ASM_ARITH_TAC ]);;
