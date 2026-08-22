@@ -172,3 +172,45 @@ let BIGNUM_SQR_6_12_ALT_SUBROUTINE_CORRECT = time prove
   ARM_ADD_RETURN_STACK_TAC
     BIGNUM_SQR_6_12_ALT_EXEC BIGNUM_SQR_6_12_ALT_CORRECT
     `[X19;X20]` 16);;
+
+(* ------------------------------------------------------------------------- *)
+(* Constant-time and memory safety proof.                                    *)
+(* ------------------------------------------------------------------------- *)
+
+needs "arm/proofs/consttime.ml";;
+needs "arm/proofs/subroutine_signatures.ml";;
+
+let full_spec,public_vars = mk_safety_spec
+    ~keep_maychanges:false
+    (assoc "bignum_sqr_6_12_alt" subroutine_signatures)
+    BIGNUM_SQR_6_12_ALT_SUBROUTINE_CORRECT
+    BIGNUM_SQR_6_12_ALT_EXEC;;
+
+let BIGNUM_SQR_6_12_ALT_SUBROUTINE_SAFE = time prove
+ (`exists f_events.
+     forall e z x pc stackpointer returnaddress.
+         aligned 16 stackpointer /\
+         ALL (nonoverlapping (word_sub stackpointer (word 16),16))
+         [word pc,408; z,8 * 12; x,8 * 6] /\
+         nonoverlapping (word pc,408) (z,8 * 12)
+         ==> ensures arm
+             (\s.
+                  aligned_bytes_loaded s (word pc) bignum_sqr_6_12_alt_mc /\
+                  read PC s = word pc /\
+                  read SP s = stackpointer /\
+                  read X30 s = returnaddress /\
+                  C_ARGUMENTS [z; x] s /\
+                  read events s = e)
+             (\s.
+                  read PC s = returnaddress /\
+                  (exists e2.
+                       read events s = APPEND e2 e /\
+                       e2 =
+                       f_events x z pc (word_sub stackpointer (word 16))
+                       returnaddress /\
+                       memaccess_inbounds e2
+                       [x,48; z,96; word_sub stackpointer (word 16),16]
+                       [z,96; word_sub stackpointer (word 16),16]))
+             (\s s'. true)`,
+  ASSERT_CONCL_TAC full_spec THEN
+  PROVE_SAFETY_SPEC_TAC ~public_vars:public_vars BIGNUM_SQR_6_12_ALT_EXEC);;
