@@ -2831,3 +2831,21 @@ let BIGNUM_MONTMUL_P521_SUBROUTINE_CORRECT = prove
   ARM_ADD_RETURN_STACK_TAC
    BIGNUM_MONTMUL_P521_EXEC th
    `[X19;X20;X21;X22;X23;X24;X25;X26]` 144);;
+
+(* ------------------------------------------------------------------------- *)
+(* Constant-time and memory safety proof.                                    *)
+(* ------------------------------------------------------------------------- *)
+
+needs "arm/proofs/consttime.ml";;
+needs "arm/proofs/subroutine_signatures.ml";;
+
+let full_spec,public_vars = mk_safety_spec
+    ~keep_maychanges:false
+    (assoc "bignum_montmul_p521" subroutine_signatures)
+    BIGNUM_MONTMUL_P521_SUBROUTINE_CORRECT
+    BIGNUM_MONTMUL_P521_EXEC;;
+
+let BIGNUM_MONTMUL_P521_SUBROUTINE_SAFE = time prove
+ (full_spec,
+  ASSERT_CONCL_TAC full_spec THEN
+  PROVE_SAFETY_SPEC_TAC ~public_vars:public_vars BIGNUM_MONTMUL_P521_EXEC);;
