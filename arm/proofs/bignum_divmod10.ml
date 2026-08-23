@@ -219,3 +219,105 @@ let BIGNUM_DIVMOD10_SUBROUTINE_CORRECT = time prove
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
            MAYCHANGE [memory :> bignum(z,val k)])`,
   ARM_ADD_RETURN_NOSTACK_TAC BIGNUM_DIVMOD10_EXEC BIGNUM_DIVMOD10_CORRECT);;
+
+(* ------------------------------------------------------------------------- *)
+(* Constant-time and memory safety proof.                                    *)
+(* ------------------------------------------------------------------------- *)
+
+needs "arm/proofs/consttime.ml";;
+needs "arm/proofs/subroutine_signatures.ml";;
+
+let full_spec,public_vars = mk_safety_spec
+    ~keep_maychanges:false
+    (assoc "bignum_divmod10" subroutine_signatures)
+    BIGNUM_DIVMOD10_SUBROUTINE_CORRECT
+    BIGNUM_DIVMOD10_EXEC;;
+
+(* The per-iteration load/store z[k-(i+1)] stays within the buffer, hence
+   disjoint from the (nonoverlapping) code region. *)
+let BIGNUM_DIVMOD10_STORE_NONOV = prove
+ (`!(pc:num) (z:int64) (k:num) (i:num).
+     nonoverlapping (word pc,76) (z,8 * k) /\ i < k
+     ==> nonoverlapping (word pc,76) (word_add z (word(8 * (k - (i + 1)))),8)`,
+  REPEAT STRIP_TAC THEN NONOVERLAPPING_TAC);;
+
+let BIGNUM_DIVMOD10_SUBROUTINE_SAFE = time prove
+ (`exists f_events.
+       forall e k z pc returnaddress.
+           nonoverlapping (word pc,76) (z,8 * val k)
+           ==> ensures arm
+               (\s.
+                    aligned_bytes_loaded s (word pc) bignum_divmod10_mc /\
+                    read PC s = word pc /\
+                    read X30 s = returnaddress /\
+                    C_ARGUMENTS [k; z] s /\
+                    read events s = e)
+               (\s.
+                    read PC s = returnaddress /\
+                    (exists e2.
+                         read events s = APPEND e2 e /\
+                         e2 = f_events z k pc returnaddress /\
+                         memaccess_inbounds e2 [z,val k * 8] [z,val k * 8]))
+               (\s s'. true)`,
+  ASSERT_CONCL_TAC full_spec THEN
+  CONCRETIZE_F_EVENTS_TAC
+    `\(z:int64) (k:int64) (pc:num) (returnaddress:int64).
+      if val k = 0 then (f_ev_k0 z k pc returnaddress)
+      else
+        (APPEND
+          (f_ev_loop_post z k pc returnaddress)
+          (APPEND
+            (ENUMERATEL (val k) (f_ev_loop z k pc returnaddress))
+            (f_ev_loop_pre z k pc returnaddress)))
+      :(uarch_event) list` THEN
+  REPEAT META_EXISTS_TAC THEN
+  STRIP_TAC (* event e *) THEN
+  W64_GEN_TAC `k:num` THEN
+  MAP_EVERY X_GEN_TAC [`z:int64`; `pc:num`] THEN
+  GEN_TAC THEN
+  REWRITE_TAC[C_ARGUMENTS; C_RETURN; SOME_FLAGS] THEN
+  DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
+  ASM_CASES_TAC `k = 0` THENL
+   [ASM_REWRITE_TAC[] THEN
+    ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
+        ~canonicalize_pc_diff:false BIGNUM_DIVMOD10_EXEC (1--2) THEN
+    DISCHARGE_SAFETY_PROPERTY_TAC;
+    ALL_TAC] THEN
+  ASM_REWRITE_TAC[ASSUME `val(word k:int64) = k`] THEN
+
+  ENSURES_EVENTS_WHILE_UP2_TAC `k:num` `pc + 0x14` `pc + 0x44`
+   `\i s. read X1 s = z /\
+          read X0 s = word(k - i) /\
+          read X30 s = returnaddress` THEN
+  ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL [
+    (* pre *)
+    ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
+        ~canonicalize_pc_diff:false BIGNUM_DIVMOD10_EXEC (1--5) THEN
+    ASM_REWRITE_TAC[SUB_0] THEN DISCHARGE_SAFETY_PROPERTY_TAC;
+
+    (* main loop *)
+    ALL_TAC;
+
+    (* post *)
+    REWRITE_TAC[] THEN
+    ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
+        ~canonicalize_pc_diff:false BIGNUM_DIVMOD10_EXEC (1--2) THEN
+    DISCHARGE_SAFETY_PROPERTY_TAC
+  ] THEN
+
+  X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
+  SUBGOAL_THEN `word_sub (word(k - i)) (word 1):int64 = word(k - (i+1))` ASSUME_TAC THENL
+   [ IMP_REWRITE_TAC[WORD_SUB2] THEN CONJ_TAC THENL
+      [ AP_TERM_TAC THEN SIMPLE_ARITH_TAC; SIMPLE_ARITH_TAC ]; ALL_TAC ] THEN
+  MP_TAC(ISPECL [`pc:num`; `z:int64`; `k:num`; `i:num`] BIGNUM_DIVMOD10_STORE_NONOV) THEN
+  ANTS_TAC THENL [ ASM_REWRITE_TAC[]; DISCH_TAC ] THEN
+  REWRITE_TAC[] THEN
+  ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
+      ~canonicalize_pc_diff:false BIGNUM_DIVMOD10_EXEC (1--12) THEN
+  SUBGOAL_THEN `val(word(k - (i+1)):int64) = k - (i+1)` ASSUME_TAC THENL
+   [ MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+  ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN `(~(k - (i + 1) = 0)) <=> i + 1 < k` SUBST1_TAC THENL
+   [ SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+  CONJ_TAC THENL [ COND_CASES_TAC THEN REWRITE_TAC[]; ALL_TAC ] THEN
+  DISCHARGE_SAFETY_PROPERTY_TAC);;
