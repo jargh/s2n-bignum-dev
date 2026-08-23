@@ -258,3 +258,74 @@ let BIGNUM_BITFIELD_SUBROUTINE_CORRECT = prove
          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI)`,
   ARM_ADD_RETURN_NOSTACK_TAC
     BIGNUM_BITFIELD_EXEC BIGNUM_BITFIELD_CORRECT);;
+
+(* ------------------------------------------------------------------------- *)
+(* Constant-time and memory safety proof.                                    *)
+(* ------------------------------------------------------------------------- *)
+
+needs "arm/proofs/consttime.ml";;
+needs "arm/proofs/subroutine_signatures.ml";;
+
+let full_spec,public_vars = mk_safety_spec
+    ~keep_maychanges:false
+    (assoc "bignum_bitfield" subroutine_signatures)
+    BIGNUM_BITFIELD_SUBROUTINE_CORRECT
+    BIGNUM_BITFIELD_EXEC;;
+
+let BIGNUM_BITFIELD_SUBROUTINE_SAFE = time prove
+ (`exists f_events.
+       forall e k x n l pc returnaddress.
+           ensures arm
+           (\s.
+                aligned_bytes_loaded s (word pc) bignum_bitfield_mc /\
+                read PC s = word pc /\
+                read X30 s = returnaddress /\
+                C_ARGUMENTS [k; x; n; l] s /\
+                read events s = e)
+           (\s.
+                read PC s = returnaddress /\
+                (exists e2.
+                     read events s = APPEND e2 e /\
+                     e2 = f_events x k pc returnaddress /\
+                     memaccess_inbounds e2 [x,val k * 8] []))
+           (\s s'. true)`,
+  ASSERT_CONCL_TAC full_spec THEN
+  CONCRETIZE_F_EVENTS_TAC
+   `\(x:int64) (k:int64) (pc:num) (returnaddress:int64).
+      if val k = 0 then f_ev_k0 x k pc returnaddress
+      else APPEND (f_ev_post x k pc returnaddress)
+             (APPEND (ENUMERATEL (val k) (f_ev_loop x k pc returnaddress))
+                     (f_ev_pre x k pc returnaddress)):(uarch_event) list` THEN
+  REPEAT META_EXISTS_TAC THEN STRIP_TAC THEN
+  W64_GEN_TAC `k:num` THEN
+  MAP_EVERY X_GEN_TAC [`x:int64`; `n:int64`; `l:int64`; `pc:num`] THEN GEN_TAC THEN
+  REWRITE_TAC[C_ARGUMENTS; C_RETURN; SOME_FLAGS] THEN
+  ASM_CASES_TAC `k = 0` THENL
+   [ ASM_REWRITE_TAC[] THEN
+     ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC) ~canonicalize_pc_diff:false
+       BIGNUM_BITFIELD_EXEC (1--2) THEN DISCHARGE_SAFETY_PROPERTY_TAC;
+     ALL_TAC ] THEN
+  ASM_REWRITE_TAC[ASSUME `val(word k:int64) = k`] THEN
+  ENSURES_EVENTS_WHILE_UP2_TAC `k:num` `pc + 0x18` `pc + 0x34`
+   `\i s. read X0 s = word k /\ read X1 s = x /\ read X6 s = word i /\ read X30 s = returnaddress` THEN
+  ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
+   [ ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC) ~canonicalize_pc_diff:false
+       BIGNUM_BITFIELD_EXEC (1--6) THEN DISCHARGE_SAFETY_PROPERTY_TAC;
+
+     ALL_TAC;
+
+     REWRITE_TAC[] THEN
+     ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC) ~canonicalize_pc_diff:false
+       BIGNUM_BITFIELD_EXEC (1--14) THEN DISCHARGE_SAFETY_PROPERTY_TAC ] THEN
+  X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN REWRITE_TAC[] THEN
+  ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC) ~canonicalize_pc_diff:false
+    BIGNUM_BITFIELD_EXEC (1--7) THEN
+  SUBGOAL_THEN `word_add (word i) (word 1):int64 = word(i+1)` ASSUME_TAC THENL
+   [ CONV_TAC WORD_RULE; ALL_TAC ] THEN
+  SUBGOAL_THEN `val(word(i+1):int64) = i + 1` ASSUME_TAC THENL
+   [ MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
+     SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+  ASM_REWRITE_TAC[] THEN
+  CONJ_TAC THENL [ COND_CASES_TAC THEN REWRITE_TAC[]; ALL_TAC ] THEN
+  SUBGOAL_THEN `i < k` ASSUME_TAC THENL [ SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+  DISCHARGE_SAFETY_PROPERTY_TAC);;
