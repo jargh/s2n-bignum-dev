@@ -612,4 +612,3 @@ exists f_events.
              [memory :> bytes (z,8 * 4);
               memory :> bytes (word_sub stackpointer (word 56),56)])`,
   MATCH_ACCEPT_TAC(ADD_IBT_RULE BIGNUM_MONTMUL_P256K1_ALT_NOIBT_WINDOWS_SUBROUTINE_SAFE));;
-

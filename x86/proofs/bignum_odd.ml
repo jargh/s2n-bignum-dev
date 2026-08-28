@@ -292,4 +292,3 @@ exists f_events.
              WINDOWS_MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
              MAYCHANGE [memory :> bytes (word_sub stackpointer (word 16),16)])`,
   MATCH_ACCEPT_TAC(ADD_IBT_RULE BIGNUM_ODD_NOIBT_WINDOWS_SUBROUTINE_SAFE));;
-
