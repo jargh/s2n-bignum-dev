@@ -1889,3 +1889,52 @@ let EDWARDS25519_EPADD_ALT_SUBROUTINE_CORRECT = time prove
                       memory :> bytes(word_sub stackpointer (word 208),208)])`,
   ARM_ADD_RETURN_STACK_TAC EDWARDS25519_EPADD_ALT_EXEC
     EDWARDS25519_EPADD_ALT_CORRECT `[X19; X20]` 208);;
+
+(* ------------------------------------------------------------------------- *)
+(* Constant-time / memory-safety property.                                   *)
+(* ------------------------------------------------------------------------- *)
+
+needs "arm/proofs/consttime.ml";;
+needs "arm/proofs/subroutine_signatures.ml";;
+
+let full_spec,public_vars = mk_safety_spec
+    ~keep_maychanges:true
+    (assoc "edwards25519_epadd_alt" subroutine_signatures)
+    EDWARDS25519_EPADD_ALT_CORRECT
+    EDWARDS25519_EPADD_ALT_EXEC;;
+
+let EDWARDS25519_EPADD_ALT_SAFE = time prove(full_spec,
+  REWRITE_TAC[MODIFIABLE_SIMD_REGS;SOME_FLAGS] THEN
+  PROVE_SAFETY_SPEC_TAC ~public_vars:public_vars EDWARDS25519_EPADD_ALT_EXEC);;
+
+let EDWARDS25519_EPADD_ALT_SUBROUTINE_SAFE = time prove
+ (`exists f_events.
+       forall e p3 p1 p2 pc stackpointer returnaddress.
+        aligned 16 stackpointer /\
+        ALL (nonoverlapping (word_sub stackpointer (word 208),208))
+            [(word pc,LENGTH edwards25519_epadd_alt_mc); (p1,128); (p2,128); (p3,128)] /\
+        nonoverlapping (p3,128) (word pc,LENGTH edwards25519_epadd_alt_mc)
+        ==> ensures arm
+             (\s. aligned_bytes_loaded s (word pc) edwards25519_epadd_alt_mc /\
+                  read PC s = word pc /\
+                  read SP s = stackpointer /\
+                  read X30 s = returnaddress /\
+                  C_ARGUMENTS [p3; p1; p2] s /\
+                  read events s = e)
+             (\s. read PC s = returnaddress /\
+                  (exists e2.
+                         read events s = APPEND e2 e /\
+                         e2 = f_events p1 p2 p3 pc
+                              (word_sub stackpointer (word 208))
+                              returnaddress /\
+                         memaccess_inbounds e2
+                         [p1,128; p2,128; p3,128; word_sub stackpointer (word 208),208]
+                         [p3,128; word_sub stackpointer (word 208),208]))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(p3,128);
+                      memory :> bytes(word_sub stackpointer (word 208),208)])`,
+  REWRITE_TAC[fst EDWARDS25519_EPADD_ALT_EXEC] THEN
+  ARM_ADD_RETURN_STACK_TAC EDWARDS25519_EPADD_ALT_EXEC
+    (REWRITE_RULE[fst EDWARDS25519_EPADD_ALT_EXEC]EDWARDS25519_EPADD_ALT_SAFE)
+    `[X19; X20]` 208 THEN
+  DISCHARGE_SAFETY_PROPERTY_TAC);;
