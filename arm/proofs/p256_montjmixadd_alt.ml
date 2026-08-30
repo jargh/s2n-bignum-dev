@@ -2126,3 +2126,52 @@ let P256_MONTJMIXADD_ALT_SUBROUTINE_CORRECT = time prove
                       memory :> bytes(word_sub stackpointer (word 192),192)])`,
   ARM_ADD_RETURN_STACK_TAC P256_MONTJMIXADD_ALT_EXEC
    P256_MONTJMIXADD_ALT_CORRECT `[]` 192);;
+
+(* ------------------------------------------------------------------------- *)
+(* Constant-time / memory-safety property.                                   *)
+(* ------------------------------------------------------------------------- *)
+
+needs "arm/proofs/consttime.ml";;
+needs "arm/proofs/subroutine_signatures.ml";;
+
+let full_spec,public_vars = mk_safety_spec
+    ~keep_maychanges:true
+    (assoc "p256_montjmixadd_alt" subroutine_signatures)
+    P256_MONTJMIXADD_ALT_CORRECT
+    P256_MONTJMIXADD_ALT_EXEC;;
+
+let P256_MONTJMIXADD_ALT_SAFE = time prove(full_spec,
+  REWRITE_TAC[MODIFIABLE_SIMD_REGS;SOME_FLAGS] THEN
+  PROVE_SAFETY_SPEC_TAC ~public_vars:public_vars P256_MONTJMIXADD_ALT_EXEC);;
+
+let P256_MONTJMIXADD_ALT_SUBROUTINE_SAFE = time prove
+ (`exists f_events.
+       forall e p3 p1 p2 pc stackpointer returnaddress.
+        aligned 16 stackpointer /\
+        ALL (nonoverlapping (word_sub stackpointer (word 192),192))
+            [(word pc,LENGTH p256_montjmixadd_alt_mc); (p1,96); (p2,64); (p3,96)] /\
+        nonoverlapping (p3,96) (word pc,LENGTH p256_montjmixadd_alt_mc)
+        ==> ensures arm
+             (\s. aligned_bytes_loaded s (word pc) p256_montjmixadd_alt_mc /\
+                  read PC s = word pc /\
+                  read SP s = stackpointer /\
+                  read X30 s = returnaddress /\
+                  C_ARGUMENTS [p3; p1; p2] s /\
+                  read events s = e)
+             (\s. read PC s = returnaddress /\
+                  (exists e2.
+                         read events s = APPEND e2 e /\
+                         e2 = f_events p1 p2 p3 pc
+                              (word_sub stackpointer (word 192))
+                              returnaddress /\
+                         memaccess_inbounds e2
+                         [p1,96; p2,64; p3,96; word_sub stackpointer (word 192),192]
+                         [p3,96; word_sub stackpointer (word 192),192]))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(p3,96);
+                      memory :> bytes(word_sub stackpointer (word 192),192)])`,
+  REWRITE_TAC[fst P256_MONTJMIXADD_ALT_EXEC] THEN
+  ARM_ADD_RETURN_STACK_TAC P256_MONTJMIXADD_ALT_EXEC
+    (REWRITE_RULE[fst P256_MONTJMIXADD_ALT_EXEC]P256_MONTJMIXADD_ALT_SAFE)
+    `[]` 192 THEN
+  DISCHARGE_SAFETY_PROPERTY_TAC);;
