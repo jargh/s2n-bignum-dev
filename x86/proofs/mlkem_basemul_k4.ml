@@ -2838,4 +2838,3 @@ exists f_events.
              [memory :> bytes (word_sub stackpointer (word 176),176)] ,,
              MAYCHANGE [memory :> bytes (dst,512)])`,
   MATCH_ACCEPT_TAC(ADD_IBT_RULE MLKEM_BASEMUL_K4_NOIBT_WINDOWS_SUBROUTINE_SAFE));;
-

@@ -5037,4 +5037,3 @@ exists f_events.
              [memory :> bytes (word_sub stackpointer (word 176),176)] ,,
              MAYCHANGE [memory :> bytes (a,1024)])`,
   MATCH_ACCEPT_TAC(ADD_IBT_RULE MLDSA_INTT_NOIBT_WINDOWS_SUBROUTINE_SAFE));;
-
