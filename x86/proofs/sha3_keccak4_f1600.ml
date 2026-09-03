@@ -1729,5 +1729,3 @@ exists f_events.
              [memory :> bytes (bitstate_in,800);
               memory :> bytes (word_sub stackpointer (word 1071),1071)])`,
   MATCH_ACCEPT_TAC(ADD_IBT_RULE SHA3_KECCAK4_F1600_NOIBT_WINDOWS_SUBROUTINE_SAFE));;
-
-

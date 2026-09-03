@@ -1985,5 +1985,3 @@ exists f_events.
              [memory :> bytes (m,32);
               memory :> bytes (word_sub stackpointer (word 48),48)])`,
   MATCH_ACCEPT_TAC(ADD_IBT_RULE WORD_DIVSTEP59_NOIBT_WINDOWS_SUBROUTINE_SAFE));;
-
-
