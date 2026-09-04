@@ -238,6 +238,39 @@ static void ref_aes_gcm_enc_kernel(const uint8_t *in, uint64_t len_bits,
    }
 }
 
+// Reference for the AES-256-GCM encryption kernels. Identical in structure to
+// the AES-128 kernel above; the ONLY difference is that AES-256 is used for
+// both the CTR keystream and the GHASH subkey H = AES256_K(0^128). The AES-256
+// block cipher and its key schedule are reused verbatim from ref_aes_xts.c
+// (ref_aes256_expand_key / ref_aes256_encrypt_block), which is #included before
+// this file in the test harness. GCM mode, GHASH and counter handling are
+// exactly as for AES-128.
+static void ref_aes_gcm256_enc_kernel(const uint8_t *in, uint64_t len_bits,
+                                      uint8_t *out, uint8_t tag[16],
+                                      uint8_t ivec[16],
+                                      const s2n_bignum_AES_KEY *ek)
+{ uint8_t h[16], zero[16], ks[16];
+  uint64_t byte_len = len_bits >> 3;
+  uint64_t nblocks  = byte_len >> 4;
+  uint64_t b;
+  int j;
+
+  // H = AES256_K(0^128)
+  memset(zero, 0, 16);
+  ref_aes256_encrypt_block(zero, h, ek);
+
+  for (b = 0; b < nblocks; ++b)
+   { ref_aes256_encrypt_block(ivec, ks, ek);
+     for (j = 0; j < 16; ++j) out[16*b + j] = in[16*b + j] ^ ks[j];
+
+     // Fold the ciphertext block into the GHASH accumulator
+     for (j = 0; j < 16; ++j) tag[j] ^= out[16*b + j];
+     ref_ghash_mul(tag, tag, h);
+
+     ref_gcm_inc32(ivec);
+   }
+}
+
 // Reference for the AES-GCM DECRYPT kernels. Identical to the encrypt kernel
 // above except that GHASH folds the INPUT (ciphertext) block rather than the
 // output (plaintext): in decryption the authenticated data is the ciphertext,

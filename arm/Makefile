@@ -471,7 +471,19 @@ AES_GCM_OBJ = aes_gcm/aes_gcm_enc_kernel_x4_basic.o \
               aes_gcm/aes_gcm_dec_kernel_x4_scalar_iv_mem2_late_tag_swp.o \
               aes_gcm/aes_gcm_dec_kernel_x4_scalar_iv_mem2_late_tag_fast_tail_swp.o \
               aes_gcm/aes_gcm_dec_kernel_x4_scalar_iv_mem_late_tag_swp.o \
-              aes_gcm/aes_gcm_dec_kernel_x4_scalar_iv_mem_late_tag_keep_htable_swp.o
+              aes_gcm/aes_gcm_dec_kernel_x4_scalar_iv_mem_late_tag_keep_htable_swp.o \
+              aes_gcm/aes_gcm_enc_kernel_256_x4_basic.o \
+              aes_gcm/aes_gcm_enc_kernel_256_x4_dual_acc.o \
+              aes_gcm/aes_gcm_enc_kernel_256_x4_fast_tail.o \
+              aes_gcm/aes_gcm_enc_kernel_256_x4_reload_round_keys_partial.o \
+              aes_gcm/aes_gcm_enc_kernel_256_x4_scalar_iv_mem2_late_tag.o \
+              aes_gcm/aes_gcm_enc_kernel_256_x4_scalar_iv_mem2_late_tag_fast_tail.o \
+              aes_gcm/aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk.o \
+              aes_gcm/aes_gcm_enc_kernel_256_x4_basic_swp.o \
+              aes_gcm/aes_gcm_enc_kernel_256_x4_dual_acc_swp.o \
+              aes_gcm/aes_gcm_enc_kernel_256_x4_reload_round_keys_partial_swp.o \
+              aes_gcm/aes_gcm_enc_kernel_256_x4_scalar_iv_mem2_late_tag_swp.o \
+              aes_gcm/aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp.o
 
 
 OBJ = $(POINT_OBJ) $(BIGNUM_OBJ) $(AES_XTS_OBJ) $(AES_GCM_OBJ)

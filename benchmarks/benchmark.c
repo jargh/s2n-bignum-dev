@@ -1447,6 +1447,22 @@ void call_sm2_montjscalarmul_alt(void) repeatfewer(10,sm2_montjscalarmul_alt(b1,
   _(x4_scalar_iv_mem_late_tag_swp)                             \
   _(x4_scalar_iv_mem_late_tag_keep_htable_swp)
 
+// AES-256 encrypt variants: 7 body-only-optimized x4 kernels + 7 _swp kernels
+// (main 4x loop software-pipelined, tail body-only rescheduled).
+#define GCM_ENC256_VARIANTS(_)                                 \
+  _(x4_basic)                                                  \
+  _(x4_dual_acc)                                               \
+  _(x4_fast_tail)                                              \
+  _(x4_reload_round_keys_partial)                              \
+  _(x4_scalar_iv_mem2_late_tag)                                \
+  _(x4_scalar_iv_mem2_late_tag_fast_tail)                      \
+  _(x4_scalar_iv_mem_late_tag_scalar_rk)                       \
+  _(x4_basic_swp)                                              \
+  _(x4_dual_acc_swp)                                           \
+  _(x4_reload_round_keys_partial_swp)                          \
+  _(x4_scalar_iv_mem2_late_tag_swp)                            \
+  _(x4_scalar_iv_mem_late_tag_scalar_rk_swp)
+
 #ifdef __x86_64__
 
 static int32_t __attribute__((aligned(32))) mldsa_avx2_qdata[16] = {
@@ -1516,6 +1532,13 @@ GCM_ENC_VARIANTS(GCM_ENC_BENCH_STUB)
   void call_aes_gcm_dec_kernel_##tag##_1024(void) {} \
   void call_aes_gcm_dec_kernel_##tag##_4096(void) {}
 GCM_DEC_VARIANTS(GCM_DEC_BENCH_STUB)
+#define GCM_ENC256_BENCH_STUB(tag)                     \
+  void call_aes_gcm_enc_kernel_256_##tag##_16(void) {} \
+  void call_aes_gcm_enc_kernel_256_##tag##_64(void) {} \
+  void call_aes_gcm_enc_kernel_256_##tag##_256(void) {} \
+  void call_aes_gcm_enc_kernel_256_##tag##_1024(void) {} \
+  void call_aes_gcm_enc_kernel_256_##tag##_4096(void) {}
+GCM_ENC256_VARIANTS(GCM_ENC256_BENCH_STUB)
 
 #else
 
@@ -1657,6 +1680,35 @@ GCM_ENC_VARIANTS(GCM_ENC_BENCH_ONE)
   void call_aes_gcm_dec_kernel_##tag##_4096(void)                           \
     { repeatfewer(40,aes_gcm_dec_kernel_##tag##_helper(4096)); }
 GCM_DEC_VARIANTS(GCM_DEC_BENCH_ONE)
+
+// AES-256 encrypt variants: same ABI/helper shape, but the kernel reads 15
+// AES-256 round keys (240 bytes) and runs 14 rounds. Timing is independent of
+// the key/tag/Htable contents, so we seed a dedicated key struct from buffers
+// and set rounds = 14.
+static s2n_bignum_AES_KEY aes_gcm256_key;
+static void aes_gcm256_enc_kernel_setup(void)
+{
+  int j;
+  for (j = 0; j < 30; ++j) aes_gcm256_key.rd_key[j] = b1[j % BUFFERSIZE];
+  aes_gcm256_key.rounds = 14; // AES-256
+  for (j = 0; j < 16; ++j) aes_iv[j] = (uint8_t)(b3[j] & 0xFF);
+}
+#define GCM_ENC256_BENCH_ONE(tag)                                               \
+  static void aes_gcm_enc_kernel_256_##tag##_helper(size_t len)                 \
+  { aes_gcm256_enc_kernel_setup();                                              \
+    aes_gcm_enc_kernel_256_##tag((uint8_t*)b0, (uint64_t)len * 8, (uint8_t*)b2, \
+                             (uint64_t*)b3, aes_iv, &aes_gcm256_key, bb[0]); }   \
+  void call_aes_gcm_enc_kernel_256_##tag##_16(void)                             \
+    { repeat(aes_gcm_enc_kernel_256_##tag##_helper(16)); }                      \
+  void call_aes_gcm_enc_kernel_256_##tag##_64(void)                             \
+    { repeat(aes_gcm_enc_kernel_256_##tag##_helper(64)); }                      \
+  void call_aes_gcm_enc_kernel_256_##tag##_256(void)                            \
+    { repeat(aes_gcm_enc_kernel_256_##tag##_helper(256)); }                     \
+  void call_aes_gcm_enc_kernel_256_##tag##_1024(void)                           \
+    { repeatfewer(10,aes_gcm_enc_kernel_256_##tag##_helper(1024)); }            \
+  void call_aes_gcm_enc_kernel_256_##tag##_4096(void)                           \
+    { repeatfewer(40,aes_gcm_enc_kernel_256_##tag##_helper(4096)); }
+GCM_ENC256_VARIANTS(GCM_ENC256_BENCH_ONE)
 
 #endif
 
@@ -2159,6 +2211,13 @@ int main(int argc, char *argv[])
   timingtest(aes,"aes_gcm_dec_kernel_" #tag " (1024 bytes)",call_aes_gcm_dec_kernel_##tag##_1024);    \
   timingtest(aes,"aes_gcm_dec_kernel_" #tag " (4096 bytes)",call_aes_gcm_dec_kernel_##tag##_4096);
   GCM_DEC_VARIANTS(GCM_DEC_BENCH_REG)
+#define GCM_ENC256_BENCH_REG(tag)                                                                              \
+  timingtest(aes,"aes_gcm_enc_kernel_256_" #tag " (16 bytes)",call_aes_gcm_enc_kernel_256_##tag##_16);         \
+  timingtest(aes,"aes_gcm_enc_kernel_256_" #tag " (64 bytes)",call_aes_gcm_enc_kernel_256_##tag##_64);         \
+  timingtest(aes,"aes_gcm_enc_kernel_256_" #tag " (256 bytes)",call_aes_gcm_enc_kernel_256_##tag##_256);       \
+  timingtest(aes,"aes_gcm_enc_kernel_256_" #tag " (1024 bytes)",call_aes_gcm_enc_kernel_256_##tag##_1024);     \
+  timingtest(aes,"aes_gcm_enc_kernel_256_" #tag " (4096 bytes)",call_aes_gcm_enc_kernel_256_##tag##_4096);
+  GCM_ENC256_VARIANTS(GCM_ENC256_BENCH_REG)
 
   // Summarize performance in arithmetic and geometric means
 
