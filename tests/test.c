@@ -17394,6 +17394,99 @@ static int test_one_aes_gcm256_enc(const char *name, aes_gcm_enc_fn fn)
 GCM_ENC256_VARIANTS(GCM_ENC256_TEST_DEFN)
 
 // ****************************************************************************
+// Random-input testing of AES-256-GCM decryption kernels against reference
+// ****************************************************************************
+//
+// Same ABI and AES-256 key handling as the AES-256 encrypt kernels; the only
+// difference (as at AES-128) is that GHASH folds the INPUT (ciphertext) block.
+// Compared against ref_aes_gcm256_dec_kernel (tests/ref_aes_gcm.c) over the
+// plaintext, tag and counter.
+static int test_one_aes_gcm256_dec(const char *name, aes_gcm_dec_fn fn)
+{
+#ifdef __x86_64__
+  (void)name; (void)fn;
+  return 1;
+#else
+  uint64_t t;
+  uint8_t key[32], h[16], zero[16], Htable[192];
+  uint8_t iv_asm[16], iv_ref[16], tag_asm[16], tag_ref[16];
+  s2n_bignum_AES_KEY ek;
+  size_t len, nblocks;
+
+  printf("Testing %s against reference with %d cases\n", name, tests);
+
+  for (t = 0; t < (uint64_t)tests; ++t)
+   { random_bytes_density(key, 32);
+     ref_aes256_expand_key(key, &ek);
+     memset(zero, 0, 16);
+     ref_aes256_encrypt_block(zero, h, &ek);
+     ref_gcm_init_htable(Htable, h);
+
+     nblocks = 1 + (rand() % 256);
+     if ((rand() & 3) == 0) nblocks = 1 + (rand() % 8); // exercise x4 boundary
+     len = 16 * nblocks;
+
+     random_bytes_density(iv_asm, 16);
+     memcpy(iv_ref, iv_asm, 16);
+     random_bytes_density(tag_asm, 16);
+     memcpy(tag_ref, tag_asm, 16);
+     random_bytes_density(bb1, len);   // bb1 = ciphertext input
+     memset(bb2, 0, len);
+     memset(bb3, 0, len);
+
+     fn(bb1, (uint64_t)len * 8, bb2,
+        (uint64_t *)tag_asm, iv_asm, &ek, (uint64_t *)Htable);
+
+     ref_aes_gcm256_dec_kernel(bb1, (uint64_t)len * 8, bb3, tag_ref, iv_ref, &ek);
+
+     if (memcmp(bb2, bb3, len) != 0 ||
+         memcmp(tag_asm, tag_ref, 16) != 0 ||
+         memcmp(iv_asm, iv_ref, 16) != 0)
+      { printf("### Disparity: %s len=%zu\n", name, len);
+        printf("    key=");
+        for (int i = 0; i < 32; ++i) printf("%02x", key[i]);
+        printf("\n    ptxt %s, tag %s, ctr %s\n",
+               memcmp(bb2, bb3, len) ? "DIFF" : "ok",
+               memcmp(tag_asm, tag_ref, 16) ? "DIFF" : "ok",
+               memcmp(iv_asm, iv_ref, 16) ? "DIFF" : "ok");
+        return 1;
+      }
+     else if (VERBOSE)
+      { printf("OK: %s len=%zu\n", name, len);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
+// The X-macro list GCM_DEC256_VARIANTS is the single source of truth for the
+// AES-256 decrypt variants: 4 SLOTHY body-only-optimized x4 kernels, plus the
+// SWP kernels that could be produced (the fast_tail-family SWP variants trip the
+// SLOTHY SSA-leak bug; see the SLOTHY bug report). GCM_DEC256_SWP_VARIANTS lists
+// exactly the _swp kernels that were generated SSA-clean.
+#define GCM_DEC256_SWP_VARIANTS(_)                             \
+  _(x4_basic_swp)                                              \
+  _(x4_scalar_iv_mem2_late_tag_swp)
+#define GCM_DEC256_VARIANTS(_)                                 \
+  _(x4_basic)                                                  \
+  _(x4_fast_tail)                                              \
+  _(x4_scalar_iv_mem2_late_tag)                                \
+  _(x4_scalar_iv_mem2_late_tag_fast_tail)                      \
+  GCM_DEC256_SWP_VARIANTS(_)
+
+#ifndef __x86_64__
+#define GCM_DEC256_TEST_DEFN(tag)                                       \
+  int test_aes_gcm_dec_kernel_256_##tag(void)                           \
+  { return test_one_aes_gcm256_dec("aes_gcm_dec_kernel_256_" #tag,      \
+                                   aes_gcm_dec_kernel_256_##tag); }
+#else
+#define GCM_DEC256_TEST_DEFN(tag)                                       \
+  int test_aes_gcm_dec_kernel_256_##tag(void) { return 1; }
+#endif
+GCM_DEC256_VARIANTS(GCM_DEC256_TEST_DEFN)
+
+// ****************************************************************************
 // Analogous testing of relevant functions against TweetNaCl as reference
 //
 // See https://tweetnacl.cr.yp.to/ for more info on TweetNaCl
@@ -18332,6 +18425,9 @@ int main(int argc, char *argv[])
 #define GCM_ENC256_TEST_REG(tag) \
     functionaltest(aes,"aes_gcm_enc_kernel_256_" #tag,test_aes_gcm_enc_kernel_256_##tag);
     GCM_ENC256_VARIANTS(GCM_ENC256_TEST_REG)
+#define GCM_DEC256_TEST_REG(tag) \
+    functionaltest(aes,"aes_gcm_dec_kernel_256_" #tag,test_aes_gcm_dec_kernel_256_##tag);
+    GCM_DEC256_VARIANTS(GCM_DEC256_TEST_REG)
     functionaltest(aes,"aes_xts_encrypt",test_aes_xts_encrypt);
     functionaltest(aes,"aes_xts_decrypt",test_aes_xts_decrypt);
     functionaltest(aes,"aes_xts_roundtrip",test_aes_xts_roundtrip);

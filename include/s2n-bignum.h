@@ -265,6 +265,31 @@ extern uint64_t aes_gcm_enc_kernel_256_x4_scalar_iv_mem2_late_tag_swp(const uint
 extern uint64_t aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp(const uint8_t *in, uint64_t len_bits, uint8_t *out,
         uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
 
+// AES_GCM_DEC_KERNEL (AES-256), SLOTHY-optimized (body-only, no SW pipelining) variant: x4_basic
+// Inputs in[len_bits/8], len_bits, tag[16], ivec[16], key[240], htable[192]; outputs out[len_bits/8], tag[16], ivec[16], function return
+extern uint64_t aes_gcm_dec_kernel_256_x4_basic(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+// AES_GCM_DEC_KERNEL (AES-256), SLOTHY-optimized (body-only, no SW pipelining) variant: x4_fast_tail
+// Inputs in[len_bits/8], len_bits, tag[16], ivec[16], key[240], htable[192]; outputs out[len_bits/8], tag[16], ivec[16], function return
+extern uint64_t aes_gcm_dec_kernel_256_x4_fast_tail(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+// AES_GCM_DEC_KERNEL (AES-256), SLOTHY-optimized (body-only, no SW pipelining) variant: x4_scalar_iv_mem2_late_tag
+// Inputs in[len_bits/8], len_bits, tag[16], ivec[16], key[240], htable[192]; outputs out[len_bits/8], tag[16], ivec[16], function return
+extern uint64_t aes_gcm_dec_kernel_256_x4_scalar_iv_mem2_late_tag(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+// AES_GCM_DEC_KERNEL (AES-256), SLOTHY-optimized (body-only, no SW pipelining) variant: x4_scalar_iv_mem2_late_tag_fast_tail
+// Inputs in[len_bits/8], len_bits, tag[16], ivec[16], key[240], htable[192]; outputs out[len_bits/8], tag[16], ivec[16], function return
+extern uint64_t aes_gcm_dec_kernel_256_x4_scalar_iv_mem2_late_tag_fast_tail(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+// AES_GCM_DEC_KERNEL (AES-256), SLOTHY SWP main loop + body-only tail: x4_basic_swp
+// Inputs in[len_bits/8], len_bits, tag[16], ivec[16], key[240], htable[192]; outputs out[len_bits/8], tag[16], ivec[16], function return
+extern uint64_t aes_gcm_dec_kernel_256_x4_basic_swp(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+// AES_GCM_DEC_KERNEL (AES-256), SLOTHY SWP main loop + body-only tail: x4_scalar_iv_mem2_late_tag_swp
+// Inputs in[len_bits/8], len_bits, tag[16], ivec[16], key[240], htable[192]; outputs out[len_bits/8], tag[16], ivec[16], function return
+extern uint64_t aes_gcm_dec_kernel_256_x4_scalar_iv_mem2_late_tag_swp(const uint8_t *in, uint64_t len_bits, uint8_t *out,
+        uint64_t *tag, const uint8_t *ivec, const s2n_bignum_AES_KEY *key, const uint64_t *Htable);
+
 // AES_XTS_DECRYPT (256-bit)
 // Inputs in[length], length, key1[244], key2[244], iv[16]; output out[length]
 extern void aes_xts_decrypt(const uint8_t *in, uint8_t *out, size_t length,
