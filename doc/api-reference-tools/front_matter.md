@@ -133,12 +133,6 @@ project) do not follow all of the conventions above:
 
 ---
 
-## Alphabetical index
-
-<!-- INDEX -->
-
----
-
 ## Functions
 
 <!-- BODY -->
