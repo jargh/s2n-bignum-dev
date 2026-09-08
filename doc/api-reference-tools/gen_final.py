@@ -159,11 +159,11 @@ ALIAS_OVERRIDE = {
  'mldsa_polyz_unpack_19': "Output `r` must not overlap the packed input `b` or the shuffle table `t`.",
  'mldsa_polyz_unpack_17_arm': "Output `r` must not overlap the packed input `b` or the shuffle table `t`.",
  'mldsa_polyz_unpack_19_arm': "Output `r` must not overlap the packed input `b` or the shuffle table `t`.",
- 'mldsa_rej_uniform_VARIABLE_TIME': "The formal spec only requires the output `r` to be disjoint from the code; it places no disjointness requirement between `r` and `buf` or `table`.",
- 'mldsa_rej_uniform_VARIABLE_TIME_x86': "The formal spec only requires the output `r` to be disjoint from the code; it places no disjointness requirement between `r` and `buf` or `table`.",
- 'mldsa_rej_uniform_eta2_VARIABLE_TIME': "The formal spec only requires the output `r` to be disjoint from the code; it places no disjointness requirement between `r` and `buf`.",
- 'mldsa_rej_uniform_eta4_VARIABLE_TIME': "The formal spec only requires the output `r` to be disjoint from the code; it places no disjointness requirement between `r` and `buf`.",
- 'mlkem_rej_uniform_VARIABLE_TIME': "The formal spec only requires the output `r` to be disjoint from the code; it places no disjointness requirement between `r` and `buf` or `table`.",
+ 'mldsa_rej_uniform_VARIABLE_TIME': "No restrictions (the spec imposes no disjointness between `r` and `buf` or `table`).",
+ 'mldsa_rej_uniform_VARIABLE_TIME_x86': "No restrictions (the spec imposes no disjointness between `r` and `buf` or `table`).",
+ 'mldsa_rej_uniform_eta2_VARIABLE_TIME': "No restrictions (the spec imposes no disjointness between `r` and `buf`).",
+ 'mldsa_rej_uniform_eta4_VARIABLE_TIME': "No restrictions (the spec imposes no disjointness between `r` and `buf`).",
+ 'mlkem_rej_uniform_VARIABLE_TIME': "No restrictions (the spec imposes no disjointness between `r` and `buf` or `table`).",
 }
 
 # Corrections where the auto-deriver mis-maps proof-variable names to C args, or
@@ -197,23 +197,39 @@ def aliasing_text(fn):
     # pure in-place: the only input is the output buffer itself (z read and written)
     if outs==ins and len(outs)==1:
         return f"Operates in place on `{outs[0]}` (read and written in the same buffer)."
+    def joinb(xs): return ', '.join(f"`{x}`" for x in xs)
+    temp_note = (f"Temporary buffer {', '.join('`'+t+'`' for t in temps)} must be "
+                 f"distinct from all other arguments." if temps else "")
+
     segs=[]
+    any_restriction=False
     for O in outs:
         # ignore self-reference (in-place transforms where an arg is both in and out)
         inplace=[I for I in ins if I!=O and verds.get(f'{O}<-{I}')=='INPLACE']
         free=[I for I in ins if I!=O and verds.get(f'{O}<-{I}')=='FREE']
         disj=[I for I in ins if I!=O and verds.get(f'{O}<-{I}')=='DISJOINT']
         clause=[]
-        def joinb(xs): return ', '.join(f"`{x}`" for x in xs)
         if free: clause.append(f"may coincide with or overlap {joinb(free)} arbitrarily")
-        if inplace: clause.append(f"may be the same buffer as {joinb(inplace)} (exact aliasing only — no partial overlap)")
-        if disj: clause.append(f"must not overlap {joinb(disj)}")
+        if inplace:
+            clause.append(f"may be the same buffer as {joinb(inplace)} (exact aliasing only — no partial overlap)")
+            any_restriction=True
+        if disj:
+            clause.append(f"must not overlap {joinb(disj)}")
+            any_restriction=True
         if clause:
             segs.append(f"output `{O}` " + '; '.join(clause))
+
+    # No non-trivial input/output restriction (every pair FREE): say so tersely.
+    # Code/stack disjointness is a global rule that goes without saying at C level.
+    if not any_restriction:
+        if temp_note:
+            return "No restrictions on input/output overlap. " + temp_note
+        return "No restrictions."
+
     txt='. '.join(s[0].upper()+s[1:] for s in segs)
     if txt and not txt.endswith('.'): txt+='.'
-    if temps:
-        txt += f" Temporary buffer {', '.join('`'+t+'`' for t in temps)} must be distinct from all other arguments."
+    if temp_note:
+        txt += " " + temp_note
     return txt or None
 
 def assumptions_text(fn):

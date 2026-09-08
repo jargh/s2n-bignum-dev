@@ -46,26 +46,32 @@ Each entry gives the C prototype followed by some of these fields:
 ### Aliasing legend
 
 Aliasing is the property most easily gotten wrong from the terse headers, so it
-is called out explicitly. For a given output buffer the possibilities are:
+is called out explicitly. The phrasings used are:
 
-* **may coincide with or overlap `x` arbitrarily** — no restriction at all: the
-  output may equal `x`, or partially overlap it, in any way. (Typical of the
-  fixed-size field and elliptic-curve routines, which copy their inputs into a
-  private stack frame before computing.)
+* **No restrictions.** — the output(s) and inputs may coincide, partially
+  overlap, or be disjoint in any combination; nothing is forbidden. (Typical of
+  the fixed-size field and elliptic-curve routines, which read their inputs into
+  registers or a private stack frame before writing any output.)
 * **may be the same buffer as `x` (exact aliasing only — no partial overlap)** —
-  in-place operation is supported (`z` and `x` may be the identical pointer with
-  identical length), but a *partial* overlap, where the buffers share some but not
-  all memory, is forbidden. (Typical of the "linear" generic-size routines like
-  `bignum_add`.)
+  in-place operation is supported (the output and `x` may be the identical
+  pointer with identical length), but a *partial* overlap, where the buffers
+  share some but not all memory, is forbidden. (Typical of the "linear"
+  generic-size routines like `bignum_add`.)
 * **must not overlap `x`** — the output must be entirely disjoint from that
   input; passing overlapping buffers voids the guarantee. (Typical of the
   generic-size multiply/reduce routines that revisit their inputs while writing
   output.)
 
-Unless stated otherwise, output and **temporary** buffers must always be
-disjoint from each other and from the inputs, and *distinct output buffers* must
-be disjoint from each other. Where a function takes a temporary buffer, the
-entry says so explicitly.
+An entry may combine these per buffer (e.g. in-place with one input but disjoint
+from another). Where a function takes a **temporary** buffer, it must always be
+distinct from every other argument, and this is stated explicitly. Distinct
+output buffers must likewise be disjoint from each other.
+
+Two things are *not* spelled out per entry because they hold universally and are
+automatic at the C level: the output and temporary buffers must not overlap the
+function's own machine code, and (on the routines that use one) the stack frame
+below the stack pointer is private to the call. "No restrictions" is about the
+caller-visible input and output buffers.
 
 Two global rules hold for every function and are not repeated per entry:
 
@@ -210,7 +216,7 @@ void aes_xts_decrypt(const uint8_t *in, uint8_t *out, size_t length, const s2n_b
 
 **Assumptions.** len >= 16; len <= 2^24.
 
-**Aliasing.** Output `out` may coincide with or overlap `in`, `key1`, `key2`, `iv` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 96 bytes (below the stack pointer)
 
@@ -228,7 +234,7 @@ void aes_xts_encrypt(const uint8_t *in, uint8_t *out, size_t length, const s2n_b
 
 **Assumptions.** len >= 16; len <= 2^24.
 
-**Aliasing.** Output `out` may coincide with or overlap `in`, `key1`, `key2`, `iv` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 96 bytes (below the stack pointer)
 
@@ -260,7 +266,7 @@ void bignum_add_p25519(uint64_t z[static 4], const uint64_t x[static 4], const u
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -274,7 +280,7 @@ void bignum_add_p256(uint64_t z[static 4], const uint64_t x[static 4], const uin
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -288,7 +294,7 @@ void bignum_add_p256k1(uint64_t z[static 4], const uint64_t x[static 4], const u
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -302,7 +308,7 @@ void bignum_add_p384(uint64_t z[static 6], const uint64_t x[static 6], const uin
 
 **Sizes.** inputs `x`[6], `y`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -316,7 +322,7 @@ void bignum_add_p521(uint64_t z[static 9], const uint64_t x[static 9], const uin
 
 **Sizes.** inputs `x`[9], `y`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 16 bytes (below the stack pointer)
 
@@ -332,7 +338,7 @@ void bignum_add_sm2(uint64_t z[static 4], const uint64_t x[static 4], const uint
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -620,7 +626,7 @@ void bignum_cmul_p25519(uint64_t z[static 4], uint64_t c, const uint64_t x[stati
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -636,7 +642,7 @@ void bignum_cmul_p25519_alt(uint64_t z[static 4], uint64_t c, const uint64_t x[s
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -652,7 +658,7 @@ void bignum_cmul_p256(uint64_t z[static 4], uint64_t c, const uint64_t x[static 
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -668,7 +674,7 @@ void bignum_cmul_p256_alt(uint64_t z[static 4], uint64_t c, const uint64_t x[sta
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -684,7 +690,7 @@ void bignum_cmul_p256k1(uint64_t z[static 4], uint64_t c, const uint64_t x[stati
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -700,7 +706,7 @@ void bignum_cmul_p256k1_alt(uint64_t z[static 4], uint64_t c, const uint64_t x[s
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -716,7 +722,7 @@ void bignum_cmul_p384(uint64_t z[static 6], uint64_t c, const uint64_t x[static 
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 8 bytes (below the stack pointer)
 
@@ -734,7 +740,7 @@ void bignum_cmul_p384_alt(uint64_t z[static 6], uint64_t c, const uint64_t x[sta
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** x86 8 bytes (below the stack pointer)
 
@@ -752,7 +758,7 @@ void bignum_cmul_p521(uint64_t z[static 9], uint64_t c, const uint64_t x[static 
 
 **Sizes.** inputs `x`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 32 bytes (below the stack pointer)
 
@@ -770,7 +776,7 @@ void bignum_cmul_p521_alt(uint64_t z[static 9], uint64_t c, const uint64_t x[sta
 
 **Sizes.** inputs `x`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** x86 32 bytes (below the stack pointer)
 
@@ -788,7 +794,7 @@ void bignum_cmul_sm2(uint64_t z[static 4], uint64_t c, const uint64_t x[static 4
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -804,7 +810,7 @@ void bignum_cmul_sm2_alt(uint64_t z[static 4], uint64_t c, const uint64_t x[stat
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -956,7 +962,7 @@ void bignum_deamont_p256(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 8 bytes (below the stack pointer)
 
@@ -974,7 +980,7 @@ void bignum_deamont_p256_alt(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -990,7 +996,7 @@ void bignum_deamont_p256k1(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -1006,7 +1012,7 @@ void bignum_deamont_p384(uint64_t z[static 6], const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 16 bytes (below the stack pointer)
 
@@ -1024,7 +1030,7 @@ void bignum_deamont_p384_alt(uint64_t z[static 6], const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** x86 16 bytes (below the stack pointer)
 
@@ -1042,7 +1048,7 @@ void bignum_deamont_p521(uint64_t z[static 9], const uint64_t x[static 9]);
 
 **Sizes.** inputs `x`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 32 bytes (below the stack pointer)
 
@@ -1060,7 +1066,7 @@ void bignum_deamont_sm2(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -1094,7 +1100,7 @@ void bignum_demont_p256(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 8 bytes (below the stack pointer)
 
@@ -1112,7 +1118,7 @@ void bignum_demont_p256_alt(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -1128,7 +1134,7 @@ void bignum_demont_p256k1(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -1144,7 +1150,7 @@ void bignum_demont_p384(uint64_t z[static 6], const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 16 bytes (below the stack pointer)
 
@@ -1162,7 +1168,7 @@ void bignum_demont_p384_alt(uint64_t z[static 6], const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** x86 16 bytes (below the stack pointer)
 
@@ -1196,7 +1202,7 @@ void bignum_demont_sm2(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -1258,7 +1264,7 @@ void bignum_double_p25519(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -1272,7 +1278,7 @@ void bignum_double_p256(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -1286,7 +1292,7 @@ void bignum_double_p256k1(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -1300,7 +1306,7 @@ void bignum_double_p384(uint64_t z[static 6], const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -1328,7 +1334,7 @@ void bignum_double_sm2(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -1382,7 +1388,7 @@ uint64_t bignum_emontredc_8n_cdiff(uint64_t k, uint64_t *z, const uint64_t *m, u
 
 **Assumptions.** k is a multiple of 8; k < 2^32; 16 <= k.
 
-**Aliasing.** Output `z` may coincide with or overlap `m` arbitrarily. Temporary buffer `m_precalc` must be distinct from all other arguments.
+**Aliasing.** No restrictions on input/output overlap. Temporary buffer `m_precalc` must be distinct from all other arguments.
 
 **Availability.** ARM only.
 
@@ -1526,7 +1532,7 @@ void bignum_half_p256(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -1540,7 +1546,7 @@ void bignum_half_p256k1(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -1554,7 +1560,7 @@ void bignum_half_p384(uint64_t z[static 6], const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -1582,7 +1588,7 @@ void bignum_half_sm2(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -1596,7 +1602,7 @@ void bignum_inv_p25519(uint64_t z[static 4],const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 160 bytes, x86 256 bytes (below the stack pointer)
 
@@ -1614,7 +1620,7 @@ void bignum_inv_p256(uint64_t z[static 4],const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 208 bytes, x86 288 bytes (below the stack pointer)
 
@@ -1632,7 +1638,7 @@ void bignum_inv_p384(uint64_t z[static 6],const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 304 bytes, x86 384 bytes (below the stack pointer)
 
@@ -1650,7 +1656,7 @@ void bignum_inv_p521(uint64_t z[static 9],const uint64_t x[static 9]);
 
 **Sizes.** inputs `x`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 320 bytes, x86 408 bytes (below the stack pointer)
 
@@ -1668,7 +1674,7 @@ void bignum_inv_sm2(uint64_t z[static 4],const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 208 bytes, x86 288 bytes (below the stack pointer)
 
@@ -1686,7 +1692,7 @@ int64_t bignum_invsqrt_p25519(uint64_t z[static 4],const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 144 bytes, x86 232 bytes (below the stack pointer)
 
@@ -1704,7 +1710,7 @@ int64_t bignum_invsqrt_p25519_alt(uint64_t z[static 4],const uint64_t x[static 4
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 144 bytes, x86 232 bytes (below the stack pointer)
 
@@ -1886,7 +1892,7 @@ void bignum_madd_n25519(uint64_t z[static 4], const uint64_t x[static 4], const 
 
 **Sizes.** inputs `x`[4], `y`[4], `c`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y`, `c` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 16 bytes, x86 48 bytes (below the stack pointer)
 
@@ -1904,7 +1910,7 @@ void bignum_madd_n25519_alt(uint64_t z[static 4], const uint64_t x[static 4], co
 
 **Sizes.** inputs `x`[4], `y`[4], `c`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y`, `c` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 16 bytes, x86 48 bytes (below the stack pointer)
 
@@ -1922,7 +1928,7 @@ void bignum_mod_m25519(uint64_t z[static 4], uint64_t k, const uint64_t *x);
 
 **Sizes.** inputs `x`[k]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 24 bytes (below the stack pointer)
 
@@ -1940,7 +1946,7 @@ void bignum_mod_m25519_4(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -1956,7 +1962,7 @@ void bignum_mod_n25519(uint64_t z[static 4], uint64_t k, const uint64_t *x);
 
 **Sizes.** inputs `x`[k]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 24 bytes (below the stack pointer)
 
@@ -1974,7 +1980,7 @@ void bignum_mod_n25519_4(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -1990,7 +1996,7 @@ void bignum_mod_n256(uint64_t z[static 4], uint64_t k, const uint64_t *x);
 
 **Sizes.** inputs `x`[k]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 16 bytes (below the stack pointer)
 
@@ -2008,7 +2014,7 @@ void bignum_mod_n256_4(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -2024,7 +2030,7 @@ void bignum_mod_n256_alt(uint64_t z[static 4], uint64_t k, const uint64_t *x);
 
 **Sizes.** inputs `x`[k]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** x86 16 bytes (below the stack pointer)
 
@@ -2042,7 +2048,7 @@ void bignum_mod_n256k1(uint64_t z[static 4], uint64_t k, const uint64_t *x);
 
 **Sizes.** inputs `x`[k]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 24 bytes (below the stack pointer)
 
@@ -2060,7 +2066,7 @@ void bignum_mod_n256k1_4(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -2076,7 +2082,7 @@ void bignum_mod_n384(uint64_t z[static 6], uint64_t k, const uint64_t *x);
 
 **Sizes.** inputs `x`[k]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 32 bytes (below the stack pointer)
 
@@ -2094,7 +2100,7 @@ void bignum_mod_n384_6(uint64_t z[static 6], const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -2110,7 +2116,7 @@ void bignum_mod_n384_alt(uint64_t z[static 6], uint64_t k, const uint64_t *x);
 
 **Sizes.** inputs `x`[k]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** x86 40 bytes (below the stack pointer)
 
@@ -2128,7 +2134,7 @@ void bignum_mod_n521_9(uint64_t z[static 9], const uint64_t x[static 9]);
 
 **Sizes.** inputs `x`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -2160,7 +2166,7 @@ void bignum_mod_nsm2(uint64_t z[static 4], uint64_t k, const uint64_t *x);
 
 **Sizes.** inputs `x`[k]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 16 bytes (below the stack pointer)
 
@@ -2178,7 +2184,7 @@ void bignum_mod_nsm2_4(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -2194,7 +2200,7 @@ void bignum_mod_nsm2_alt(uint64_t z[static 4], uint64_t k, const uint64_t *x);
 
 **Sizes.** inputs `x`[k]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** x86 16 bytes (below the stack pointer)
 
@@ -2212,7 +2218,7 @@ void bignum_mod_p25519_4(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -2226,7 +2232,7 @@ void bignum_mod_p256(uint64_t z[static 4], uint64_t k, const uint64_t *x);
 
 **Sizes.** inputs `x`[k]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 16 bytes (below the stack pointer)
 
@@ -2242,7 +2248,7 @@ void bignum_mod_p256_4(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -2256,7 +2262,7 @@ void bignum_mod_p256_alt(uint64_t z[static 4], uint64_t k, const uint64_t *x);
 
 **Sizes.** inputs `x`[k]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** x86 16 bytes (below the stack pointer)
 
@@ -2272,7 +2278,7 @@ void bignum_mod_p256k1(uint64_t z[static 4], uint64_t k, const uint64_t *x);
 
 **Sizes.** inputs `x`[k]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 16 bytes (below the stack pointer)
 
@@ -2288,7 +2294,7 @@ void bignum_mod_p256k1_4(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -2302,7 +2308,7 @@ void bignum_mod_p384(uint64_t z[static 6], uint64_t k, const uint64_t *x);
 
 **Sizes.** inputs `x`[k]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 32 bytes (below the stack pointer)
 
@@ -2318,7 +2324,7 @@ void bignum_mod_p384_6(uint64_t z[static 6], const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -2332,7 +2338,7 @@ void bignum_mod_p384_alt(uint64_t z[static 6], uint64_t k, const uint64_t *x);
 
 **Sizes.** inputs `x`[k]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** x86 32 bytes (below the stack pointer)
 
@@ -2348,7 +2354,7 @@ void bignum_mod_p521_9(uint64_t z[static 9], const uint64_t x[static 9]);
 
 **Sizes.** inputs `x`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 8 bytes (below the stack pointer)
 
@@ -2364,7 +2370,7 @@ void bignum_mod_sm2(uint64_t z[static 4], uint64_t k, const uint64_t *x);
 
 **Sizes.** inputs `x`[k]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 16 bytes (below the stack pointer)
 
@@ -2380,7 +2386,7 @@ void bignum_mod_sm2_4(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -2426,7 +2432,7 @@ void bignum_modexp(uint64_t k,uint64_t *z, const uint64_t *a,const uint64_t *p,c
 
 **Assumptions.** k < 2^58.
 
-**Aliasing.** Output `z` may coincide with or overlap `a`, `p`, `m` arbitrarily. Temporary buffer `t` must be distinct from all other arguments.
+**Aliasing.** No restrictions on input/output overlap. Temporary buffer `t` must be distinct from all other arguments.
 
 **Stack use.** ARM 64 bytes, x86 136 bytes (below the stack pointer)
 
@@ -2532,7 +2538,7 @@ void bignum_montinv_p256(uint64_t z[static 4],const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 208 bytes, x86 288 bytes (below the stack pointer)
 
@@ -2550,7 +2556,7 @@ void bignum_montinv_p384(uint64_t z[static 6],const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 304 bytes, x86 384 bytes (below the stack pointer)
 
@@ -2568,7 +2574,7 @@ void bignum_montinv_sm2(uint64_t z[static 4],const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 208 bytes, x86 288 bytes (below the stack pointer)
 
@@ -2604,7 +2610,7 @@ void bignum_montmul_p256(uint64_t z[static 4], const uint64_t x[static 4], const
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 40 bytes (below the stack pointer)
 
@@ -2622,7 +2628,7 @@ void bignum_montmul_p256_alt(uint64_t z[static 4], const uint64_t x[static 4], c
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 40 bytes (below the stack pointer)
 
@@ -2640,7 +2646,7 @@ void bignum_montmul_p256k1(uint64_t z[static 4], const uint64_t x[static 4], con
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 48 bytes (below the stack pointer)
 
@@ -2658,7 +2664,7 @@ void bignum_montmul_p256k1_alt(uint64_t z[static 4], const uint64_t x[static 4],
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 40 bytes (below the stack pointer)
 
@@ -2676,7 +2682,7 @@ void bignum_montmul_p384(uint64_t z[static 6], const uint64_t x[static 6], const
 
 **Sizes.** inputs `x`[6], `y`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** 48 bytes (below the stack pointer)
 
@@ -2694,7 +2700,7 @@ void bignum_montmul_p384_alt(uint64_t z[static 6], const uint64_t x[static 6], c
 
 **Sizes.** inputs `x`[6], `y`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 32 bytes, x86 48 bytes (below the stack pointer)
 
@@ -2712,7 +2718,7 @@ void bignum_montmul_p521(uint64_t z[static 9], const uint64_t x[static 9], const
 
 **Sizes.** inputs `x`[9], `y`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 144 bytes, x86 112 bytes (below the stack pointer)
 
@@ -2730,7 +2736,7 @@ void bignum_montmul_p521_alt(uint64_t z[static 9], const uint64_t x[static 9], c
 
 **Sizes.** inputs `x`[9], `y`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 128 bytes, x86 104 bytes (below the stack pointer)
 
@@ -2748,7 +2754,7 @@ void bignum_montmul_sm2(uint64_t z[static 4], const uint64_t x[static 4], const 
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 48 bytes (below the stack pointer)
 
@@ -2766,7 +2772,7 @@ void bignum_montmul_sm2_alt(uint64_t z[static 4], const uint64_t x[static 4], co
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 40 bytes (below the stack pointer)
 
@@ -2822,7 +2828,7 @@ void bignum_montsqr_p256(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 48 bytes (below the stack pointer)
 
@@ -2840,7 +2846,7 @@ void bignum_montsqr_p256_alt(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 40 bytes (below the stack pointer)
 
@@ -2858,7 +2864,7 @@ void bignum_montsqr_p256k1(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 48 bytes (below the stack pointer)
 
@@ -2876,7 +2882,7 @@ void bignum_montsqr_p256k1_alt(uint64_t z[static 4], const uint64_t x[static 4])
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 40 bytes (below the stack pointer)
 
@@ -2894,7 +2900,7 @@ void bignum_montsqr_p384(uint64_t z[static 6], const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 48 bytes (below the stack pointer)
 
@@ -2912,7 +2918,7 @@ void bignum_montsqr_p384_alt(uint64_t z[static 6], const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 16 bytes, x86 48 bytes (below the stack pointer)
 
@@ -2966,7 +2972,7 @@ void bignum_montsqr_sm2(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 48 bytes (below the stack pointer)
 
@@ -2984,7 +2990,7 @@ void bignum_montsqr_sm2_alt(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 40 bytes (below the stack pointer)
 
@@ -3020,7 +3026,7 @@ void bignum_mul_4_8(uint64_t z[static 8], const uint64_t x[static 4], const uint
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[8]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 16 bytes (below the stack pointer)
 
@@ -3036,7 +3042,7 @@ void bignum_mul_4_8_alt(uint64_t z[static 8], const uint64_t x[static 4], const 
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[8]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -3114,7 +3120,7 @@ void bignum_mul_p25519(uint64_t z[static 4], const uint64_t x[static 4], const u
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 48 bytes (below the stack pointer)
 
@@ -3130,7 +3136,7 @@ void bignum_mul_p25519_alt(uint64_t z[static 4], const uint64_t x[static 4], con
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 32 bytes (below the stack pointer)
 
@@ -3146,7 +3152,7 @@ void bignum_mul_p256k1(uint64_t z[static 4], const uint64_t x[static 4], const u
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 48 bytes (below the stack pointer)
 
@@ -3162,7 +3168,7 @@ void bignum_mul_p256k1_alt(uint64_t z[static 4], const uint64_t x[static 4], con
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 32 bytes (below the stack pointer)
 
@@ -3178,7 +3184,7 @@ void bignum_mul_p521(uint64_t z[static 9], const uint64_t x[static 9], const uin
 
 **Sizes.** inputs `x`[9], `y`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 144 bytes, x86 112 bytes (below the stack pointer)
 
@@ -3194,7 +3200,7 @@ void bignum_mul_p521_alt(uint64_t z[static 9], const uint64_t x[static 9], const
 
 **Sizes.** inputs `x`[9], `y`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 128 bytes, x86 104 bytes (below the stack pointer)
 
@@ -3290,7 +3296,7 @@ void bignum_neg_p25519(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -3304,7 +3310,7 @@ void bignum_neg_p256(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -3318,7 +3324,7 @@ void bignum_neg_p256k1(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -3332,7 +3338,7 @@ void bignum_neg_p384(uint64_t z[static 6], const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -3346,7 +3352,7 @@ void bignum_neg_p521(uint64_t z[static 9], const uint64_t x[static 9]);
 
 **Sizes.** inputs `x`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -3360,7 +3366,7 @@ void bignum_neg_sm2(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -3510,7 +3516,7 @@ void bignum_optneg_p25519(uint64_t z[static 4], uint64_t p, const uint64_t x[sta
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -3526,7 +3532,7 @@ void bignum_optneg_p256(uint64_t z[static 4], uint64_t p, const uint64_t x[stati
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -3542,7 +3548,7 @@ void bignum_optneg_p256k1(uint64_t z[static 4], uint64_t p, const uint64_t x[sta
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -3558,7 +3564,7 @@ void bignum_optneg_p384(uint64_t z[static 6], uint64_t p, const uint64_t x[stati
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -3574,7 +3580,7 @@ void bignum_optneg_p521(uint64_t z[static 9], uint64_t p, const uint64_t x[stati
 
 **Sizes.** inputs `x`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -3590,7 +3596,7 @@ void bignum_optneg_sm2(uint64_t z[static 4], uint64_t p, const uint64_t x[static
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -3702,7 +3708,7 @@ void bignum_sqr_4_8(uint64_t z[static 8], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[8]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 24 bytes (below the stack pointer)
 
@@ -3718,7 +3724,7 @@ void bignum_sqr_4_8_alt(uint64_t z[static 8], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[8]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -3732,7 +3738,7 @@ void bignum_sqr_6_12(uint64_t z[static 12], const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[12]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 48 bytes (below the stack pointer)
 
@@ -3748,7 +3754,7 @@ void bignum_sqr_6_12_alt(uint64_t z[static 12], const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[12]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 16 bytes, x86 none (below the stack pointer)
 
@@ -3780,7 +3786,7 @@ void bignum_sqr_8_16_alt(uint64_t z[static 16], const uint64_t x[static 8]);
 
 **Sizes.** inputs `x`[8]; output `z`[16]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 64 bytes, x86 none (below the stack pointer)
 
@@ -3796,7 +3802,7 @@ void bignum_sqr_p25519(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 40 bytes (below the stack pointer)
 
@@ -3812,7 +3818,7 @@ void bignum_sqr_p25519_alt(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 32 bytes (below the stack pointer)
 
@@ -3828,7 +3834,7 @@ void bignum_sqr_p256k1(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 40 bytes (below the stack pointer)
 
@@ -3844,7 +3850,7 @@ void bignum_sqr_p256k1_alt(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 32 bytes (below the stack pointer)
 
@@ -3860,7 +3866,7 @@ void bignum_sqr_p521(uint64_t z[static 9], const uint64_t x[static 9]);
 
 **Sizes.** inputs `x`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 48 bytes, x86 104 bytes (below the stack pointer)
 
@@ -3892,7 +3898,7 @@ int64_t bignum_sqrt_p25519(uint64_t z[static 4],const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 144 bytes, x86 232 bytes (below the stack pointer)
 
@@ -3910,7 +3916,7 @@ int64_t bignum_sqrt_p25519_alt(uint64_t z[static 4],const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 144 bytes, x86 232 bytes (below the stack pointer)
 
@@ -3944,7 +3950,7 @@ void bignum_sub_p25519(uint64_t z[static 4], const uint64_t x[static 4], const u
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -3958,7 +3964,7 @@ void bignum_sub_p256(uint64_t z[static 4], const uint64_t x[static 4], const uin
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -3972,7 +3978,7 @@ void bignum_sub_p256k1(uint64_t z[static 4], const uint64_t x[static 4], const u
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -3986,7 +3992,7 @@ void bignum_sub_p384(uint64_t z[static 6], const uint64_t x[static 6], const uin
 
 **Sizes.** inputs `x`[6], `y`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -4000,7 +4006,7 @@ void bignum_sub_p521(uint64_t z[static 9], const uint64_t x[static 9], const uin
 
 **Sizes.** inputs `x`[9], `y`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 16 bytes (below the stack pointer)
 
@@ -4016,7 +4022,7 @@ void bignum_sub_sm2(uint64_t z[static 4], const uint64_t x[static 4], const uint
 
 **Sizes.** inputs `x`[4], `y`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x`, `y` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -4102,7 +4108,7 @@ void bignum_tomont_p256(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 32 bytes (below the stack pointer)
 
@@ -4118,7 +4124,7 @@ void bignum_tomont_p256_alt(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** x86 32 bytes (below the stack pointer)
 
@@ -4134,7 +4140,7 @@ void bignum_tomont_p256k1(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -4148,7 +4154,7 @@ void bignum_tomont_p256k1_alt(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -4162,7 +4168,7 @@ void bignum_tomont_p384(uint64_t z[static 6], const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 40 bytes (below the stack pointer)
 
@@ -4178,7 +4184,7 @@ void bignum_tomont_p384_alt(uint64_t z[static 6], const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** x86 40 bytes (below the stack pointer)
 
@@ -4194,7 +4200,7 @@ void bignum_tomont_p521(uint64_t z[static 9], const uint64_t x[static 9]);
 
 **Sizes.** inputs `x`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 8 bytes (below the stack pointer)
 
@@ -4210,7 +4216,7 @@ void bignum_tomont_sm2(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -4224,7 +4230,7 @@ void bignum_triple_p256(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -4240,7 +4246,7 @@ void bignum_triple_p256_alt(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -4256,7 +4262,7 @@ void bignum_triple_p256k1(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -4272,7 +4278,7 @@ void bignum_triple_p256k1_alt(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -4288,7 +4294,7 @@ void bignum_triple_p384(uint64_t z[static 6], const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 8 bytes (below the stack pointer)
 
@@ -4306,7 +4312,7 @@ void bignum_triple_p384_alt(uint64_t z[static 6], const uint64_t x[static 6]);
 
 **Sizes.** inputs `x`[6]; output `z`[6]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** x86 8 bytes (below the stack pointer)
 
@@ -4324,7 +4330,7 @@ void bignum_triple_p521(uint64_t z[static 9], const uint64_t x[static 9]);
 
 **Sizes.** inputs `x`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM none, x86 16 bytes (below the stack pointer)
 
@@ -4340,7 +4346,7 @@ void bignum_triple_p521_alt(uint64_t z[static 9], const uint64_t x[static 9]);
 
 **Sizes.** inputs `x`[9]; output `z`[9]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** x86 24 bytes (below the stack pointer)
 
@@ -4356,7 +4362,7 @@ void bignum_triple_sm2(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -4372,7 +4378,7 @@ void bignum_triple_sm2_alt(uint64_t z[static 4], const uint64_t x[static 4]);
 
 **Sizes.** inputs `x`[4]; output `z`[4]
 
-**Aliasing.** Output `z` may coincide with or overlap `x` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -4460,7 +4466,7 @@ void curve25519_x25519(uint64_t res[static 4],const uint64_t scalar[static 4],co
 
 **Sizes.** inputs `scalar`[4], `point`[4]; output `res`[4]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `point` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 384 bytes, x86 464 bytes (below the stack pointer)
 
@@ -4478,7 +4484,7 @@ void curve25519_x25519_alt(uint64_t res[static 4],const uint64_t scalar[static 4
 
 **Sizes.** inputs `scalar`[4], `point`[4]; output `res`[4]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `point` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 368 bytes, x86 464 bytes (below the stack pointer)
 
@@ -4496,7 +4502,7 @@ void curve25519_x25519_byte(uint8_t res[static 32],const uint8_t scalar[static 3
 
 **Sizes.** inputs `scalar`[32] (bytes), `point`[32] (bytes); output `res`[32] (bytes)
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `point` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 384 bytes, x86 464 bytes (below the stack pointer)
 
@@ -4514,7 +4520,7 @@ void curve25519_x25519_byte_alt(uint8_t res[static 32],const uint8_t scalar[stat
 
 **Sizes.** inputs `scalar`[32] (bytes), `point`[32] (bytes); output `res`[32] (bytes)
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `point` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 368 bytes, x86 464 bytes (below the stack pointer)
 
@@ -4532,7 +4538,7 @@ void curve25519_x25519base(uint64_t res[static 4],const uint64_t scalar[static 4
 
 **Sizes.** inputs `scalar`[4]; output `res`[4]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 496 bytes, x86 536 bytes (below the stack pointer)
 
@@ -4550,7 +4556,7 @@ void curve25519_x25519base_alt(uint64_t res[static 4],const uint64_t scalar[stat
 
 **Sizes.** inputs `scalar`[4]; output `res`[4]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 496 bytes, x86 536 bytes (below the stack pointer)
 
@@ -4568,7 +4574,7 @@ void curve25519_x25519base_byte(uint8_t res[static 32],const uint8_t scalar[stat
 
 **Sizes.** inputs `scalar`[32] (bytes); output `res`[32] (bytes)
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 496 bytes, x86 536 bytes (below the stack pointer)
 
@@ -4586,7 +4592,7 @@ void curve25519_x25519base_byte_alt(uint8_t res[static 32],const uint8_t scalar[
 
 **Sizes.** inputs `scalar`[32] (bytes); output `res`[32] (bytes)
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 496 bytes, x86 536 bytes (below the stack pointer)
 
@@ -4604,7 +4610,7 @@ uint64_t edwards25519_decode(uint64_t z[static 8], const uint8_t c[static 32]);
 
 **Sizes.** inputs `c`[32] (bytes); output `z`[8]
 
-**Aliasing.** Output `z` may coincide with or overlap `c` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 224 bytes, x86 312 bytes (below the stack pointer)
 
@@ -4622,7 +4628,7 @@ uint64_t edwards25519_decode_alt(uint64_t z[static 8], const uint8_t c[static 32
 
 **Sizes.** inputs `c`[32] (bytes); output `z`[8]
 
-**Aliasing.** Output `z` may coincide with or overlap `c` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 224 bytes, x86 312 bytes (below the stack pointer)
 
@@ -4640,7 +4646,7 @@ void edwards25519_encode(uint8_t z[static 32], const uint64_t p[static 8]);
 
 **Sizes.** inputs `p`[8]; output `z`[32] (bytes)
 
-**Aliasing.** Output `z` may coincide with or overlap `p` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Availability.** ARM and x86.
 
@@ -4656,7 +4662,7 @@ void edwards25519_epadd(uint64_t p3[static 16],const uint64_t p1[static 16],cons
 
 **Sizes.** inputs `p1`[16], `p2`[16]; output `p3`[16]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 208 bytes, x86 240 bytes (below the stack pointer)
 
@@ -4674,7 +4680,7 @@ void edwards25519_epadd_alt(uint64_t p3[static 16],const uint64_t p1[static 16],
 
 **Sizes.** inputs `p1`[16], `p2`[16]; output `p3`[16]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 208 bytes, x86 240 bytes (below the stack pointer)
 
@@ -4692,7 +4698,7 @@ void edwards25519_epdouble(uint64_t p3[static 16],const uint64_t p1[static 12]);
 
 **Sizes.** inputs `p1`[12]; output `p3`[16]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 176 bytes, x86 200 bytes (below the stack pointer)
 
@@ -4710,7 +4716,7 @@ void edwards25519_epdouble_alt(uint64_t p3[static 16],const uint64_t p1[static 1
 
 **Sizes.** inputs `p1`[12]; output `p3`[16]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 176 bytes, x86 200 bytes (below the stack pointer)
 
@@ -4728,7 +4734,7 @@ void edwards25519_pdouble(uint64_t p3[static 12],const uint64_t p1[static 12]);
 
 **Sizes.** inputs `p1`[12]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 176 bytes, x86 200 bytes (below the stack pointer)
 
@@ -4746,7 +4752,7 @@ void edwards25519_pdouble_alt(uint64_t p3[static 12],const uint64_t p1[static 12
 
 **Sizes.** inputs `p1`[12]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 176 bytes, x86 200 bytes (below the stack pointer)
 
@@ -4764,7 +4770,7 @@ void edwards25519_pepadd(uint64_t p3[static 16],const uint64_t p1[static 16],con
 
 **Sizes.** inputs `p1`[16], `p2`[12]; output `p3`[16]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 208 bytes, x86 240 bytes (below the stack pointer)
 
@@ -4782,7 +4788,7 @@ void edwards25519_pepadd_alt(uint64_t p3[static 16],const uint64_t p1[static 16]
 
 **Sizes.** inputs `p1`[16], `p2`[12]; output `p3`[16]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 208 bytes, x86 240 bytes (below the stack pointer)
 
@@ -4800,7 +4806,7 @@ void edwards25519_scalarmulbase(uint64_t res[static 8],const uint64_t scalar[sta
 
 **Sizes.** inputs `scalar`[4]; output `res`[8]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 496 bytes, x86 536 bytes (below the stack pointer)
 
@@ -4818,7 +4824,7 @@ void edwards25519_scalarmulbase_alt(uint64_t res[static 8],const uint64_t scalar
 
 **Sizes.** inputs `scalar`[4]; output `res`[8]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 496 bytes, x86 536 bytes (below the stack pointer)
 
@@ -4836,7 +4842,7 @@ void edwards25519_scalarmuldouble(uint64_t res[static 8],const uint64_t scalar[s
 
 **Sizes.** inputs `scalar`[4], `point`[8], `bscalar`[4]; output `res`[8]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `point`, `bscalar` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 1696 bytes, x86 1720 bytes (below the stack pointer)
 
@@ -4854,7 +4860,7 @@ void edwards25519_scalarmuldouble_alt(uint64_t res[static 8],const uint64_t scal
 
 **Sizes.** inputs `scalar`[4], `point`[8], `bscalar`[4]; output `res`[8]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `point`, `bscalar` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 1696 bytes, x86 1720 bytes (below the stack pointer)
 
@@ -5210,7 +5216,7 @@ uint64_t mldsa_rej_uniform_VARIABLE_TIME(int32_t r[static 256],const uint8_t *bu
 
 **Assumptions.** buflen is a multiple of 24.
 
-**Aliasing.** The formal spec only requires the output `r` to be disjoint from the code; it places no disjointness requirement between `r` and `buf` or `table`.
+**Aliasing.** No restrictions (the spec imposes no disjointness between `r` and `buf` or `table`).
 
 **Stack use.** ARM 1088 bytes (below the stack pointer)
 
@@ -5230,7 +5236,7 @@ uint32_t mldsa_rej_uniform_VARIABLE_TIME_x86(int32_t r[static 256], const uint8_
 
 **Assumptions.** buflen is a multiple of 24.
 
-**Aliasing.** The formal spec only requires the output `r` to be disjoint from the code; it places no disjointness requirement between `r` and `buf` or `table`.
+**Aliasing.** No restrictions (the spec imposes no disjointness between `r` and `buf` or `table`).
 
 **Availability.** x86 only.
 
@@ -5246,7 +5252,7 @@ uint64_t mldsa_rej_uniform_eta2_VARIABLE_TIME(int32_t r[static 256], const uint8
 
 **Assumptions.** buflen is a multiple of 8; 8 <= buflen.
 
-**Aliasing.** The formal spec only requires the output `r` to be disjoint from the code; it places no disjointness requirement between `r` and `buf`.
+**Aliasing.** No restrictions (the spec imposes no disjointness between `r` and `buf`).
 
 **Stack use.** ARM 576 bytes (below the stack pointer)
 
@@ -5266,7 +5272,7 @@ uint64_t mldsa_rej_uniform_eta4_VARIABLE_TIME(int32_t r[static 256], const uint8
 
 **Assumptions.** buflen is a multiple of 8; 8 <= buflen.
 
-**Aliasing.** The formal spec only requires the output `r` to be disjoint from the code; it places no disjointness requirement between `r` and `buf`.
+**Aliasing.** No restrictions (the spec imposes no disjointness between `r` and `buf`).
 
 **Stack use.** ARM 576 bytes (below the stack pointer)
 
@@ -5466,7 +5472,7 @@ uint64_t mlkem_rej_uniform_VARIABLE_TIME(int16_t r[static 256],const uint8_t *bu
 
 **Assumptions.** buflen is a multiple of 24.
 
-**Aliasing.** The formal spec only requires the output `r` to be disjoint from the code; it places no disjointness requirement between `r` and `buf` or `table`.
+**Aliasing.** No restrictions (the spec imposes no disjointness between `r` and `buf` or `table`).
 
 **Stack use.** ARM 576 bytes, x86 528 bytes (below the stack pointer)
 
@@ -5532,7 +5538,7 @@ void p256_montjadd(uint64_t p3[static 12],const uint64_t p1[static 12],const uin
 
 **Sizes.** inputs `p1`[12], `p2`[12]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 304 bytes, x86 272 bytes (below the stack pointer)
 
@@ -5550,7 +5556,7 @@ void p256_montjadd_alt(uint64_t p3[static 12],const uint64_t p1[static 12],const
 
 **Sizes.** inputs `p1`[12], `p2`[12]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 224 bytes, x86 272 bytes (below the stack pointer)
 
@@ -5568,7 +5574,7 @@ void p256_montjdouble(uint64_t p3[static 12],const uint64_t p1[static 12]);
 
 **Sizes.** inputs `p1`[12]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 272 bytes, x86 240 bytes (below the stack pointer)
 
@@ -5586,7 +5592,7 @@ void p256_montjdouble_alt(uint64_t p3[static 12],const uint64_t p1[static 12]);
 
 **Sizes.** inputs `p1`[12]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 192 bytes, x86 232 bytes (below the stack pointer)
 
@@ -5604,7 +5610,7 @@ void p256_montjmixadd(uint64_t p3[static 12],const uint64_t p1[static 12],const 
 
 **Sizes.** inputs `p1`[12], `p2`[8]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 208 bytes, x86 240 bytes (below the stack pointer)
 
@@ -5622,7 +5628,7 @@ void p256_montjmixadd_alt(uint64_t p3[static 12],const uint64_t p1[static 12],co
 
 **Sizes.** inputs `p1`[12], `p2`[8]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 192 bytes, x86 240 bytes (below the stack pointer)
 
@@ -5640,7 +5646,7 @@ void p256_montjscalarmul(uint64_t res[static 12],const uint64_t scalar[static 4]
 
 **Sizes.** inputs `scalar`[4], `point`[12]; output `res`[12]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `point` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 1328 bytes, x86 1368 bytes (below the stack pointer)
 
@@ -5658,7 +5664,7 @@ void p256_montjscalarmul_alt(uint64_t res[static 12],const uint64_t scalar[stati
 
 **Sizes.** inputs `scalar`[4], `point`[12]; output `res`[12]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `point` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 1248 bytes, x86 1368 bytes (below the stack pointer)
 
@@ -5676,7 +5682,7 @@ void p256_scalarmul(uint64_t res[static 8],const uint64_t scalar[static 4],const
 
 **Sizes.** inputs `scalar`[4], `point`[8]; output `res`[8]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `point` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 1328 bytes, x86 1368 bytes (below the stack pointer)
 
@@ -5694,7 +5700,7 @@ void p256_scalarmul_alt(uint64_t res[static 8],const uint64_t scalar[static 4],c
 
 **Sizes.** inputs `scalar`[4], `point`[8]; output `res`[8]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `point` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 1248 bytes, x86 1368 bytes (below the stack pointer)
 
@@ -5714,7 +5720,7 @@ void p256_scalarmulbase(uint64_t res[static 8],const uint64_t scalar[static 4],u
 
 **Assumptions.** 2 <= blocksize; blocksize <= 31.
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `table` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 576 bytes, x86 696 bytes (below the stack pointer)
 
@@ -5734,7 +5740,7 @@ void p256_scalarmulbase_alt(uint64_t res[static 8],const uint64_t scalar[static 
 
 **Assumptions.** 2 <= blocksize; blocksize <= 31.
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `table` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 576 bytes, x86 696 bytes (below the stack pointer)
 
@@ -5752,7 +5758,7 @@ void p384_montjadd(uint64_t p3[static 18],const uint64_t p1[static 18],const uin
 
 **Sizes.** inputs `p1`[18], `p2`[18]; output `p3`[18]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 464 bytes, x86 400 bytes (below the stack pointer)
 
@@ -5770,7 +5776,7 @@ void p384_montjadd_alt(uint64_t p3[static 18],const uint64_t p1[static 18],const
 
 **Sizes.** inputs `p1`[18], `p2`[18]; output `p3`[18]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** 400 bytes (below the stack pointer)
 
@@ -5788,7 +5794,7 @@ void p384_montjdouble(uint64_t p3[static 18],const uint64_t p1[static 18]);
 
 **Sizes.** inputs `p1`[18]; output `p3`[18]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 464 bytes, x86 392 bytes (below the stack pointer)
 
@@ -5806,7 +5812,7 @@ void p384_montjdouble_alt(uint64_t p3[static 18],const uint64_t p1[static 18]);
 
 **Sizes.** inputs `p1`[18]; output `p3`[18]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 384 bytes, x86 392 bytes (below the stack pointer)
 
@@ -5824,7 +5830,7 @@ void p384_montjmixadd(uint64_t p3[static 18],const uint64_t p1[static 18],const 
 
 **Sizes.** inputs `p1`[18], `p2`[12]; output `p3`[18]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** 352 bytes (below the stack pointer)
 
@@ -5842,7 +5848,7 @@ void p384_montjmixadd_alt(uint64_t p3[static 18],const uint64_t p1[static 18],co
 
 **Sizes.** inputs `p1`[18], `p2`[12]; output `p3`[18]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** 352 bytes (below the stack pointer)
 
@@ -5860,7 +5866,7 @@ void p384_montjscalarmul(uint64_t res[static 18],const uint64_t scalar[static 6]
 
 **Sizes.** inputs `scalar`[6], `point`[18]; output `res`[18]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `point` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 3168 bytes, x86 3144 bytes (below the stack pointer)
 
@@ -5878,7 +5884,7 @@ void p384_montjscalarmul_alt(uint64_t res[static 18],const uint64_t scalar[stati
 
 **Sizes.** inputs `scalar`[6], `point`[18]; output `res`[18]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `point` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 3104 bytes, x86 3144 bytes (below the stack pointer)
 
@@ -5896,7 +5902,7 @@ void p521_jadd(uint64_t p3[static 27],const uint64_t p1[static 27],const uint64_
 
 **Sizes.** inputs `p1`[27], `p2`[27]; output `p3`[27]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 816 bytes, x86 616 bytes (below the stack pointer)
 
@@ -5914,7 +5920,7 @@ void p521_jadd_alt(uint64_t p3[static 27],const uint64_t p1[static 27],const uin
 
 **Sizes.** inputs `p1`[27], `p2`[27]; output `p3`[27]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 592 bytes, x86 624 bytes (below the stack pointer)
 
@@ -5932,7 +5938,7 @@ void p521_jdouble(uint64_t p3[static 27],const uint64_t p1[static 27]);
 
 **Sizes.** inputs `p1`[27]; output `p3`[27]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 752 bytes, x86 608 bytes (below the stack pointer)
 
@@ -5950,7 +5956,7 @@ void p521_jdouble_alt(uint64_t p3[static 27],const uint64_t p1[static 27]);
 
 **Sizes.** inputs `p1`[27]; output `p3`[27]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 592 bytes, x86 624 bytes (below the stack pointer)
 
@@ -5968,7 +5974,7 @@ void p521_jmixadd(uint64_t p3[static 27],const uint64_t p1[static 27],const uint
 
 **Sizes.** inputs `p1`[27], `p2`[18]; output `p3`[27]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 608 bytes, x86 544 bytes (below the stack pointer)
 
@@ -5986,7 +5992,7 @@ void p521_jmixadd_alt(uint64_t p3[static 27],const uint64_t p1[static 27],const 
 
 **Sizes.** inputs `p1`[27], `p2`[18]; output `p3`[27]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 512 bytes, x86 552 bytes (below the stack pointer)
 
@@ -6004,7 +6010,7 @@ void p521_jscalarmul(uint64_t res[static 27],const uint64_t scalar[static 9],con
 
 **Sizes.** inputs `scalar`[9], `point`[27]; output `res`[27]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `point` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 4816 bytes, x86 4736 bytes (below the stack pointer)
 
@@ -6022,7 +6028,7 @@ void p521_jscalarmul_alt(uint64_t res[static 27],const uint64_t scalar[static 9]
 
 **Sizes.** inputs `scalar`[9], `point`[27]; output `res`[27]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `point` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 4672 bytes, x86 4744 bytes (below the stack pointer)
 
@@ -6040,7 +6046,7 @@ void secp256k1_jadd(uint64_t p3[static 12],const uint64_t p1[static 12],const ui
 
 **Sizes.** inputs `p1`[12], `p2`[12]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 256 bytes, x86 272 bytes (below the stack pointer)
 
@@ -6058,7 +6064,7 @@ void secp256k1_jadd_alt(uint64_t p3[static 12],const uint64_t p1[static 12],cons
 
 **Sizes.** inputs `p1`[12], `p2`[12]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 224 bytes, x86 272 bytes (below the stack pointer)
 
@@ -6076,7 +6082,7 @@ void secp256k1_jdouble(uint64_t p3[static 12],const uint64_t p1[static 12]);
 
 **Sizes.** inputs `p1`[12]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 400 bytes, x86 424 bytes (below the stack pointer)
 
@@ -6094,7 +6100,7 @@ void secp256k1_jdouble_alt(uint64_t p3[static 12],const uint64_t p1[static 12]);
 
 **Sizes.** inputs `p1`[12]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 384 bytes, x86 424 bytes (below the stack pointer)
 
@@ -6112,7 +6118,7 @@ void secp256k1_jmixadd(uint64_t p3[static 12],const uint64_t p1[static 12],const
 
 **Sizes.** inputs `p1`[12], `p2`[8]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 224 bytes, x86 240 bytes (below the stack pointer)
 
@@ -6130,7 +6136,7 @@ void secp256k1_jmixadd_alt(uint64_t p3[static 12],const uint64_t p1[static 12],c
 
 **Sizes.** inputs `p1`[12], `p2`[8]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 192 bytes, x86 240 bytes (below the stack pointer)
 
@@ -6277,7 +6283,7 @@ void sha3_keccak_f1600_alt2(uint64_t a[static 25],const uint64_t rc[static 24]);
 
 **Sizes.** inputs `a`[25], `rc`[24]; output `a`[25]
 
-**Aliasing.** Output `a` may coincide with or overlap `rc` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 208 bytes (below the stack pointer)
 
@@ -6295,7 +6301,7 @@ void sm2_montjadd(uint64_t p3[static 12],const uint64_t p1[static 12],const uint
 
 **Sizes.** inputs `p1`[12], `p2`[12]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 240 bytes, x86 272 bytes (below the stack pointer)
 
@@ -6313,7 +6319,7 @@ void sm2_montjadd_alt(uint64_t p3[static 12],const uint64_t p1[static 12],const 
 
 **Sizes.** inputs `p1`[12], `p2`[12]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 224 bytes, x86 272 bytes (below the stack pointer)
 
@@ -6331,7 +6337,7 @@ void sm2_montjdouble(uint64_t p3[static 12],const uint64_t p1[static 12]);
 
 **Sizes.** inputs `p1`[12]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 208 bytes, x86 232 bytes (below the stack pointer)
 
@@ -6349,7 +6355,7 @@ void sm2_montjdouble_alt(uint64_t p3[static 12],const uint64_t p1[static 12]);
 
 **Sizes.** inputs `p1`[12]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 192 bytes, x86 232 bytes (below the stack pointer)
 
@@ -6367,7 +6373,7 @@ void sm2_montjmixadd(uint64_t p3[static 12],const uint64_t p1[static 12],const u
 
 **Sizes.** inputs `p1`[12], `p2`[8]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 208 bytes, x86 240 bytes (below the stack pointer)
 
@@ -6385,7 +6391,7 @@ void sm2_montjmixadd_alt(uint64_t p3[static 12],const uint64_t p1[static 12],con
 
 **Sizes.** inputs `p1`[12], `p2`[8]; output `p3`[12]
 
-**Aliasing.** Output `p3` may coincide with or overlap `p1`, `p2` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 192 bytes, x86 240 bytes (below the stack pointer)
 
@@ -6403,7 +6409,7 @@ void sm2_montjscalarmul(uint64_t res[static 12],const uint64_t scalar[static 4],
 
 **Sizes.** inputs `scalar`[4], `point`[12]; output `res`[12]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `point` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 1264 bytes, x86 1368 bytes (below the stack pointer)
 
@@ -6421,7 +6427,7 @@ void sm2_montjscalarmul_alt(uint64_t res[static 12],const uint64_t scalar[static
 
 **Sizes.** inputs `scalar`[4], `point`[12]; output `res`[12]
 
-**Aliasing.** Output `res` may coincide with or overlap `scalar`, `point` arbitrarily.
+**Aliasing.** No restrictions.
 
 **Stack use.** ARM 1248 bytes, x86 1368 bytes (below the stack pointer)
 

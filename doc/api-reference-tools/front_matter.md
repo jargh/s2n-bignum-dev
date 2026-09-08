@@ -46,26 +46,32 @@ Each entry gives the C prototype followed by some of these fields:
 ### Aliasing legend
 
 Aliasing is the property most easily gotten wrong from the terse headers, so it
-is called out explicitly. For a given output buffer the possibilities are:
+is called out explicitly. The phrasings used are:
 
-* **may coincide with or overlap `x` arbitrarily** — no restriction at all: the
-  output may equal `x`, or partially overlap it, in any way. (Typical of the
-  fixed-size field and elliptic-curve routines, which copy their inputs into a
-  private stack frame before computing.)
+* **No restrictions.** — the output(s) and inputs may coincide, partially
+  overlap, or be disjoint in any combination; nothing is forbidden. (Typical of
+  the fixed-size field and elliptic-curve routines, which read their inputs into
+  registers or a private stack frame before writing any output.)
 * **may be the same buffer as `x` (exact aliasing only — no partial overlap)** —
-  in-place operation is supported (`z` and `x` may be the identical pointer with
-  identical length), but a *partial* overlap, where the buffers share some but not
-  all memory, is forbidden. (Typical of the "linear" generic-size routines like
-  `bignum_add`.)
+  in-place operation is supported (the output and `x` may be the identical
+  pointer with identical length), but a *partial* overlap, where the buffers
+  share some but not all memory, is forbidden. (Typical of the "linear"
+  generic-size routines like `bignum_add`.)
 * **must not overlap `x`** — the output must be entirely disjoint from that
   input; passing overlapping buffers voids the guarantee. (Typical of the
   generic-size multiply/reduce routines that revisit their inputs while writing
   output.)
 
-Unless stated otherwise, output and **temporary** buffers must always be
-disjoint from each other and from the inputs, and *distinct output buffers* must
-be disjoint from each other. Where a function takes a temporary buffer, the
-entry says so explicitly.
+An entry may combine these per buffer (e.g. in-place with one input but disjoint
+from another). Where a function takes a **temporary** buffer, it must always be
+distinct from every other argument, and this is stated explicitly. Distinct
+output buffers must likewise be disjoint from each other.
+
+Two things are *not* spelled out per entry because they hold universally and are
+automatic at the C level: the output and temporary buffers must not overlap the
+function's own machine code, and (on the routines that use one) the stack frame
+below the stack pointer is private to the call. "No restrictions" is about the
+caller-visible input and output buffers.
 
 Two global rules hold for every function and are not repeated per entry:
 
