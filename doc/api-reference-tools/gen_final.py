@@ -322,16 +322,24 @@ def stack_text(fn):
     return ', '.join(f"{arch} {show(v)}" for arch,v in parts) + " (below the stack pointer)"
 
 def availability_text(fn):
+    """Return the Availability value, or None to omit the field entirely.
+
+    The field is only worth showing when there is something to say: a genuine
+    ARM-only / x86-only restriction, a notable cross-architecture difference, or
+    the byte-array sibling cross-reference. The overwhelmingly common (and
+    ideally eventually universal) "present on both, no differences" case carries
+    no information, so the field is dropped for it."""
     d=deltas.get(fn,{})
     avail=d.get('avail',['arm','x86'])
-    if avail==['arm']: base='ARM only.'
-    elif avail==['x86']: base='x86 only.'
-    else: base='ARM and x86.'
     extra=[]
     if fn in ARCH_NOTES: extra.append(ARCH_NOTES[fn])
     if fn in BYTE_SIBLING:
         extra.append(f'See also [`{BYTE_SIBLING[fn]}`](#{BYTE_SIBLING[fn]}), an identical routine whose arguments are typed as 32-byte little-endian arrays instead of 4-word bignums.')
-    return base + (' ' + ' '.join(extra) if extra else '')
+    if avail==['arm']: base='ARM only.'
+    elif avail==['x86']: base='x86 only.'
+    else: base=''   # present on both, no restriction — say nothing unless a note follows
+    parts=[p for p in [base, *extra] if p]
+    return ' '.join(parts) if parts else None
 
 def render(fn):
     rec=hdr[fn]
@@ -358,7 +366,8 @@ def render(fn):
     if at: L.append(f"**Aliasing:** {decap(at)}\n")
     stk=stack_text(fn)
     if stk: L.append(f"**Stack use:** {stk}\n")
-    L.append(f"**Availability:** {availability_text(fn)}\n")
+    av=availability_text(fn)
+    if av: L.append(f"**Availability:** {av}\n")
     dp=detail_paras(fn)
     if dp:
         # keep it to the first 1-2 substantive paragraphs to stay digestible

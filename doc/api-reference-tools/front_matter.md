@@ -39,8 +39,11 @@ Each entry gives the C prototype followed by some of these fields:
   as "inputs already reduced modulo p" are stated in the Operation text.
 * **Aliasing** — which buffers may point at the same or overlapping memory. See
   the legend below.
-* **Availability** — whether the function exists on ARM, x86, or both, plus any
-  genuine per-architecture differences in the prototype or behaviour.
+* **Availability** — shown only when there is something to note: the function
+  is restricted to one architecture ("ARM only" / "x86 only"), or there is a
+  genuine per-architecture difference in the prototype or behaviour. When this
+  field is absent the function is present on both ARM and x86 with the same
+  contract.
 * **Details** — extra explanation carried over from the source banner.
 
 ### Aliasing legend
