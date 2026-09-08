@@ -19,6 +19,25 @@ hdr = {}
 for r in hdr_list:
     hdr.setdefault(r['name'], r)
 
+# Proper nouns to leave capitalised even though they start with an ordinary
+# capitalised word (so "Montgomery-Jacobian ...", "Keccak-f1600 ..." are kept).
+_KEEP_CAP = ('Montgomery', 'Keccak')
+
+def decap(s):
+    """Lower-case the first letter so a field value reads as a continuation of
+    its 'Label:' — but only when the value begins with an ordinary capitalised
+    English word (optionally the head of a hyphenated/compound like
+    "Single-word" or "Almost-Montgomery"). Leave acronyms (ARM, AES_XTS_DECRYPT,
+    NTT), code identifiers, numbers, symbols, and proper nouns untouched."""
+    if not s:
+        return s
+    m = re.match(r'^([A-Z][a-z]+)', s)
+    if not m:
+        return s
+    if m.group(1) in _KEEP_CAP:
+        return s
+    return s[0].lower() + s[1:]
+
 # ---- alt/base + arch-only sets -------------------------------------------
 ALT = {h for h in hdr if h.endswith('_alt')}
 
@@ -76,29 +95,57 @@ def buffers_line(fn):
     # no pointer buffers (pure word ops): fall back to the banner's I/O line
     return '; '.join(segs) if segs else banner_io_line(fn)
 
+INPUTS_RE = re.compile(r'^\s*(Inputs?|Outputs?|Input/output)\b')
+
+def _split_prose(fn):
+    """Return (summary_str, [detail_paragraphs]) from the banner prose.
+
+    The banner's one-sentence summary is occasionally wrapped across two or more
+    comment lines before the 'Inputs .../output ...' line. A wrapped
+    continuation always begins with a lower-case word (e.g. "x reduced",
+    "assuming ...", "into z[...]"), whereas a fresh sentence of extended
+    discussion begins with a capital ("Reads ...", "For each ..."). So the
+    summary absorbs following lines while they start lower-case and precede the
+    Inputs line; everything after becomes detail (the Inputs line is dropped)."""
+    b = ban.get(fn, {})
+    pr = None
+    for arch in ('arm', 'x86'):
+        p = b.get(arch, {}).get('prose', [])
+        if p:
+            pr = p
+            break
+    if not pr:
+        desc = hdr[fn]['desc'] if fn in hdr else []
+        return ((desc[0].strip() if desc else ''), [])
+
+    summ = [pr[0].strip()]
+    i = 1
+    while (i < len(pr) and pr[i].strip() and not INPUTS_RE.match(pr[i])
+           and pr[i].lstrip()[:1].islower()):
+        summ.append(pr[i].strip())
+        i += 1
+    summary = ' '.join(summ)
+
+    # remaining lines -> detail paragraphs (skip blanks and the Inputs line)
+    rest = pr[i:]
+    while rest and (rest[0].strip() == '' or INPUTS_RE.match(rest[0])):
+        rest.pop(0)
+    paras, cur = [], []
+    for l in rest:
+        if l.strip() == '':
+            if cur: paras.append(' '.join(x.strip() for x in cur)); cur = []
+        elif INPUTS_RE.match(l):
+            continue
+        else:
+            cur.append(l)
+    if cur: paras.append(' '.join(x.strip() for x in cur))
+    return (summary, paras)
+
 def summary_line(fn):
-    b=ban.get(fn,{})
-    for arch in ('arm','x86'):
-        pr=b.get(arch,{}).get('prose',[])
-        if pr: return pr[0].strip()
-    return (hdr[fn]['desc'][0] if hdr[fn]['desc'] else '').strip()
+    return _split_prose(fn)[0]
 
 def detail_paras(fn, arch_pref=('arm','x86')):
-    b=ban.get(fn,{})
-    for arch in arch_pref:
-        pr=b.get(arch,{}).get('prose',[])
-        if not pr: continue
-        rest=pr[1:]
-        while rest and (rest[0].strip()=='' or re.match(r'^\s*(Inputs?|Outputs?|Input/output)\b', rest[0])):
-            rest.pop(0)
-        paras=[]; cur=[]
-        for l in rest:
-            if l.strip()=='':
-                if cur: paras.append(' '.join(x.strip() for x in cur)); cur=[]
-            else: cur.append(l)
-        if cur: paras.append(' '.join(x.strip() for x in cur))
-        return paras
-    return []
+    return _split_prose(fn)[1]
 
 # ML-KEM / ML-DSA entries whose proof variable-names collide with C arg-names, or
 # which transform in place: auto-derived aliasing is unreliable, hand-write these.
@@ -301,22 +348,22 @@ def render(fn):
     else:
         L.append(c_signature(rec))
     L.append("```\n")
-    L.append(f"**Operation.** {summary_line(fn)}\n")
+    L.append(f"**Operation:** {decap(summary_line(fn))}\n")
     bl=buffers_line(fn)
-    if bl: L.append(f"**Sizes.** {bl}\n")
+    if bl: L.append(f"**Sizes:** {decap(bl)}\n")
     asm=assumptions_text(fn)
     if asm:
-        L.append(f"**Assumptions.** "+'; '.join(asm)+".\n")
+        L.append(f"**Assumptions:** "+'; '.join(asm)+".\n")
     at=aliasing_text(fn)
-    if at: L.append(f"**Aliasing.** {at}\n")
+    if at: L.append(f"**Aliasing:** {decap(at)}\n")
     stk=stack_text(fn)
-    if stk: L.append(f"**Stack use.** {stk}\n")
-    L.append(f"**Availability.** {availability_text(fn)}\n")
+    if stk: L.append(f"**Stack use:** {stk}\n")
+    L.append(f"**Availability:** {availability_text(fn)}\n")
     dp=detail_paras(fn)
     if dp:
         # keep it to the first 1-2 substantive paragraphs to stay digestible
         body=' '.join(dp[:2]) if len(' '.join(dp))<900 else dp[0]
-        L.append(f"**Details.** {body}\n")
+        L.append(f"**Details:** {decap(body)}\n")
     return '\n'.join(L)
 
 names=sorted(hdr.keys())
