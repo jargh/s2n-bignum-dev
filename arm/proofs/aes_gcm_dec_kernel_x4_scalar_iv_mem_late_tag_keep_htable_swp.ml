@@ -643,685 +643,128 @@ let aes2c = new_definition
 
 (* ===== invariant swpS_inv8_dec_v8 (Q = P o [Y]) ===== *)
 let swpS_inv8_dec_v8 : term =
-`\(i:num) (s:armstate).
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X3:(armstate,(64)word)component)
-    (s:armstate) =
-    (tag_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X4:(armstate,(64)word)component)
-    (s:armstate) =
-    (ivec_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X6:(armstate,(64)word)component)
-    (s:armstate) =
-    (htable_p:(64)word) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (SP:(armstate,(64)word)component)
-    (s:armstate) =
-    (stackpointer:(64)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     (tag_p:(64)word))
-    (s:armstate) =
-    (word_reversefields:num->(128)word->(128)word) 8 (tag0:(128)word) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     (ivec_p:(64)word))
-    (s:armstate) =
-    (word_reversefields:num->(128)word->(128)word) 8
-    ((ctr_block:(96)word->num->(128)word) (nonce:(96)word) 2) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q18:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_reversefields:num->(128)word->(128)word) 8
-    ((EL:num->((128)word)list->(128)word) 0 (rk:((128)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q19:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_reversefields:num->(128)word->(128)word) 8
-    ((EL:num->((128)word)list->(128)word) 1 (rk:((128)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q20:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_reversefields:num->(128)word->(128)word) 8
-    ((EL:num->((128)word)list->(128)word) 2 (rk:((128)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q21:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_reversefields:num->(128)word->(128)word) 8
-    ((EL:num->((128)word)list->(128)word) 3 (rk:((128)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q22:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_reversefields:num->(128)word->(128)word) 8
-    ((EL:num->((128)word)list->(128)word) 4 (rk:((128)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q23:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_reversefields:num->(128)word->(128)word) 8
-    ((EL:num->((128)word)list->(128)word) 5 (rk:((128)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q24:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_reversefields:num->(128)word->(128)word) 8
-    ((EL:num->((128)word)list->(128)word) 6 (rk:((128)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q25:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_reversefields:num->(128)word->(128)word) 8
-    ((EL:num->((128)word)list->(128)word) 7 (rk:((128)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q26:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_reversefields:num->(128)word->(128)word) 8
-    ((EL:num->((128)word)list->(128)word) 8 (rk:((128)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q27:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_reversefields:num->(128)word->(128)word) 8
-    ((EL:num->((128)word)list->(128)word) 9 (rk:((128)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q28:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_reversefields:num->(128)word->(128)word) 8
-    ((EL:num->((128)word)list->(128)word) 10 (rk:((128)word)list)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q7:(armstate,(128)word)component)
-    (s:armstate) =
-    (word:num->(128)word) 13979173243358019584 /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q12:(armstate,(128)word)component)
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((h_power:(128)word->num->(128)word)
-     ((ghash_twist:(128)word->(128)word)
-     ((aes128_cipher:(128)word->((128)word)list->(128)word)
-      ((word:num->(128)word) 0)
-     (rk:((128)word)list)))
-    0) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q13:(armstate,(128)word)component)
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((h_power:(128)word->num->(128)word)
-     ((ghash_twist:(128)word->(128)word)
-     ((aes128_cipher:(128)word->((128)word)list->(128)word)
-      ((word:num->(128)word) 0)
-     (rk:((128)word)list)))
-    1) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q14:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((karatsuba_mid:(128)word->(64)word)
-    ((h_power:(128)word->num->(128)word)
-     ((ghash_twist:(128)word->(128)word)
-     ((aes128_cipher:(128)word->((128)word)list->(128)word)
-      ((word:num->(128)word) 0)
-     (rk:((128)word)list)))
-    1))
-    ((karatsuba_mid:(128)word->(64)word)
-    ((h_power:(128)word->num->(128)word)
-     ((ghash_twist:(128)word->(128)word)
-     ((aes128_cipher:(128)word->((128)word)list->(128)word)
-      ((word:num->(128)word) 0)
-     (rk:((128)word)list)))
-    0)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q15:(armstate,(128)word)component)
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((h_power:(128)word->num->(128)word)
-     ((ghash_twist:(128)word->(128)word)
-     ((aes128_cipher:(128)word->((128)word)list->(128)word)
-      ((word:num->(128)word) 0)
-     (rk:((128)word)list)))
-    2) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q16:(armstate,(128)word)component)
-    (s:armstate) =
-    (byteswap128:(128)word->(128)word)
-    ((h_power:(128)word->num->(128)word)
-     ((ghash_twist:(128)word->(128)word)
-     ((aes128_cipher:(128)word->((128)word)list->(128)word)
-      ((word:num->(128)word) 0)
-     (rk:((128)word)list)))
-    3) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q17:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((karatsuba_mid:(128)word->(64)word)
-    ((h_power:(128)word->num->(128)word)
-     ((ghash_twist:(128)word->(128)word)
-     ((aes128_cipher:(128)word->((128)word)list->(128)word)
-      ((word:num->(128)word) 0)
-     (rk:((128)word)list)))
-    3))
-    ((karatsuba_mid:(128)word->(64)word)
-    ((h_power:(128)word->num->(128)word)
-     ((ghash_twist:(128)word->(128)word)
-     ((aes128_cipher:(128)word->((128)word)list->(128)word)
-      ((word:num->(128)word) 0)
-     (rk:((128)word)list)))
-    2)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X11:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_subword:(128)word->num#num->(64)word)
-    ((word_reversefields:num->(128)word->(128)word) 8
-    ((ctr_block:(96)word->num->(128)word) (nonce:(96)word) 2))
-    (0,64) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X12:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_zx:(32)word->(64)word)
-    ((word_zx:(64)word->(32)word)
-    ((word_subword:(128)word->num#num->(64)word)
-     ((word_reversefields:num->(128)word->(128)word) 8
-     ((ctr_block:(96)word->num->(128)word) (nonce:(96)word) 2))
-    (64,64))) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X15:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) ((len_bits:num) DIV 8) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X16:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) (loop_remain:num) /\
-    (htable_mem_4:(128)word->(64)word->armstate->bool)
-    ((ghash_twist:(128)word->(128)word)
-    ((aes128_cipher:(128)word->((128)word)list->(128)word)
-     ((word:num->(128)word) 0)
-    (rk:((128)word)list)))
-    (htable_p:(64)word)
-    (s:armstate) /\
-    (forall (j:num).
-         (j:num) < (nblocks:num)
-         ==> (read:(armstate,(128)word)component->armstate->(128)word)
-             ((memory:(armstate,(64)word->(8)word)component) :>
-              (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-              ((word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-              ((word:num->(64)word) (16 * (j:num)))))
-             (s:armstate) =
-             (inblock:num->(128)word) (j:num)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X0:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (in_p:(64)word)
-    ((word:num->(64)word) (64 * (i:num) + 64)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X2:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-    ((word:num->(64)word) (64 * (i:num))) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X1:(armstate,(64)word)component)
-    (s:armstate) =
-    (word:num->(64)word) ((loop_count:num) - 2 - (i:num)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X13:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_zx:(32)word->(64)word) ((word:num->(32)word) (4 * (i:num) + 6)) /\
-    (forall (j:num).
-         (j:num) < 4 * (i:num)
-         ==> (read:(armstate,(128)word)component->armstate->(128)word)
-             ((memory:(armstate,(64)word->(8)word)component) :>
-              (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-              ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-              ((word:num->(64)word) (16 * (j:num)))))
-             (s:armstate) =
-             (word_xor:(128)word->(128)word->(128)word)
-             ((aes_ctr_block:(96)word->((128)word)list->num->(128)word)
-              (nonce:(96)word)
-              (rk:((128)word)list)
-             (j:num))
-             ((inblock:num->(128)word) (j:num))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-     ((word:num->(64)word) (64 * (i:num) + 32))))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((aes_ctr_block:(96)word->((128)word)list->num->(128)word)
-     (nonce:(96)word)
-     (rk:((128)word)list)
-    (4 * (i:num) + 2))
-    ((inblock:num->(128)word) (4 * (i:num) + 2)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (out_p:(64)word)
-     ((word:num->(64)word) (64 * (i:num) + 48))))
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((aes_ctr_block:(96)word->((128)word)list->num->(128)word)
-     (nonce:(96)word)
-     (rk:((128)word)list)
-    (4 * (i:num) + 3))
-    ((inblock:num->(128)word) (4 * (i:num) + 3)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q11:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((byteswap128:(128)word->(128)word)
-    ((nist_ghash:(128)word->(128)word->((128)word)list->(128)word)
-     ((aes128_cipher:(128)word->((128)word)list->(128)word)
-      ((word:num->(128)word) 0)
-     (rk:((128)word)list))
-     (tag0:(128)word)
-    ((list_of_seq:(num->(128)word)->num->((128)word)list)
-     ((nist_input_block:(num->(128)word)->num->(128)word)
-     (inblock:num->(128)word))
-    (4 * (i:num)))))
-    ((byteswap128:(128)word->(128)word)
-    ((word_reversefields:num->(128)word->(128)word) 8
-    ((inblock:num->(128)word) (4 * (i:num))))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q0:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_join:(64)word->(64)word->(128)word)
-    ((word_subword:(128)word->num#num->(64)word)
-     ((word_reversefields:num->(128)word->(128)word) 8
-     ((inblock:num->(128)word) (4 * (i:num) + 1)))
-    (0,64))
-    ((word_subword:(128)word->num#num->(64)word)
-     ((word_reversefields:num->(128)word->(128)word) 8
-     ((inblock:num->(128)word) (4 * (i:num) + 1)))
-    (64,64)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q1:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_pmul:(64)word->(64)word->(128)word)
-    ((word_subword:(128)word->num#num->(64)word)
-     ((word_reversefields:num->(128)word->(128)word) 8
-     ((inblock:num->(128)word) (4 * (i:num) + 3)))
-    (0,64))
-    ((word_subword:(128)word->num#num->(64)word)
-     ((byteswap128:(128)word->(128)word)
-     ((h_power:(128)word->num->(128)word)
-      ((ghash_twist:(128)word->(128)word)
-      ((aes128_cipher:(128)word->((128)word)list->(128)word)
-       ((word:num->(128)word) 0)
-      (rk:((128)word)list)))
-     0))
-    (64,64)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q9:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_pmul:(64)word->(64)word->(128)word)
-     ((word_subword:(128)word->num#num->(64)word)
-      ((word_reversefields:num->(128)word->(128)word) 8
-      ((inblock:num->(128)word) (4 * (i:num) + 2)))
-     (0,64))
-    ((word_subword:(128)word->num#num->(64)word)
-     ((byteswap128:(128)word->(128)word)
-     ((h_power:(128)word->num->(128)word)
-      ((ghash_twist:(128)word->(128)word)
-      ((aes128_cipher:(128)word->((128)word)list->(128)word)
-       ((word:num->(128)word) 0)
-      (rk:((128)word)list)))
-     1))
-    (64,64)))
-    ((word_pmul:(64)word->(64)word->(128)word)
-     ((word_subword:(128)word->num#num->(64)word)
-      ((word_reversefields:num->(128)word->(128)word) 8
-      ((inblock:num->(128)word) (4 * (i:num) + 3)))
-     (0,64))
-    ((word_subword:(128)word->num#num->(64)word)
-     ((byteswap128:(128)word->(128)word)
-     ((h_power:(128)word->num->(128)word)
-      ((ghash_twist:(128)word->(128)word)
-      ((aes128_cipher:(128)word->((128)word)list->(128)word)
-       ((word:num->(128)word) 0)
-      (rk:((128)word)list)))
-     0))
-    (64,64))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q31:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_pmul:(64)word->(64)word->(128)word)
-     ((word_subword:(128)word->num#num->(64)word)
-      ((word_reversefields:num->(128)word->(128)word) 8
-      ((inblock:num->(128)word) (4 * (i:num) + 2)))
-     (64,64))
-    ((word_subword:(128)word->num#num->(64)word)
-     ((byteswap128:(128)word->(128)word)
-     ((h_power:(128)word->num->(128)word)
-      ((ghash_twist:(128)word->(128)word)
-      ((aes128_cipher:(128)word->((128)word)list->(128)word)
-       ((word:num->(128)word) 0)
-      (rk:((128)word)list)))
-     1))
-    (0,64)))
-    ((word_pmul:(64)word->(64)word->(128)word)
-     ((word_subword:(128)word->num#num->(64)word)
-      ((word_reversefields:num->(128)word->(128)word) 8
-      ((inblock:num->(128)word) (4 * (i:num) + 3)))
-     (64,64))
-    ((word_subword:(128)word->num#num->(64)word)
-     ((byteswap128:(128)word->(128)word)
-     ((h_power:(128)word->num->(128)word)
-      ((ghash_twist:(128)word->(128)word)
-      ((aes128_cipher:(128)word->((128)word)list->(128)word)
-       ((word:num->(128)word) 0)
-      (rk:((128)word)list)))
-     0))
-    (0,64))) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q29:(armstate,(128)word)component)
-    (s:armstate) =
-    (inblock:num->(128)word) (4 * (i:num)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q10:(armstate,(128)word)component)
-    (s:armstate) =
-    (inblock:num->(128)word) (4 * (i:num) + 1) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q30:(armstate,(128)word)component)
-    (s:armstate) =
-    (aes2c:(96)word->((128)word)list->num->(128)word) (nonce:(96)word)
-    (rk:((128)word)list)
-    (4 * (i:num) + 2) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-     ((word:num->(64)word) 176)))
-    (s:armstate) =
-    (word_reversefields:num->(128)word->(128)word) 8
-    ((ctr_block:(96)word->num->(128)word) (nonce:(96)word) (4 * (i:num) + 3)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-     ((word:num->(64)word) 192)))
-    (s:armstate) =
-    (word_reversefields:num->(128)word->(128)word) 8
-    ((ctr_block:(96)word->num->(128)word) (nonce:(96)word) (4 * (i:num) + 4)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-     ((word:num->(64)word) 208)))
-    (s:armstate) =
-    (word_reversefields:num->(128)word->(128)word) 8
-    ((ctr_block:(96)word->num->(128)word) (nonce:(96)word) (4 * (i:num) + 5)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    ((memory:(armstate,(64)word->(8)word)component) :>
-     (bytes128:(64)word->((64)word->(8)word,(128)word)component)
-     ((word_add:(64)word->(64)word->(64)word) (stackpointer:(64)word)
-     ((word:num->(64)word) 160)))
-    (s:armstate) =
-    (word_reversefields:num->(128)word->(128)word) 8
-    ((ctr_block:(96)word->num->(128)word) (nonce:(96)word) (4 * (i:num) + 6)) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X26:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_zx:(32)word->(64)word) ((word:num->(32)word) (4 * (i:num) + 9)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q5:(armstate,(128)word)component)
-    (s:armstate) =
-    (aese:(128)word->(128)word->(128)word)
-    ((aesmc:(128)word->(128)word)
-    ((aese:(128)word->(128)word->(128)word)
-     ((aesmc:(128)word->(128)word)
-     ((aese:(128)word->(128)word->(128)word)
-      ((aesmc:(128)word->(128)word)
-      ((aese:(128)word->(128)word->(128)word)
-       ((aesmc:(128)word->(128)word)
-       ((aese:(128)word->(128)word->(128)word)
-        ((aesmc:(128)word->(128)word)
-        ((aese:(128)word->(128)word->(128)word)
-         ((aesmc:(128)word->(128)word)
-         ((aese:(128)word->(128)word->(128)word)
-          ((aesmc:(128)word->(128)word)
-          ((aese:(128)word->(128)word->(128)word)
-           ((aesmc:(128)word->(128)word)
-           ((aese:(128)word->(128)word->(128)word)
-            ((aesmc:(128)word->(128)word)
-            ((aese:(128)word->(128)word->(128)word)
-             ((word_join:(64)word->(64)word->(128)word)
-              ((word_or:(64)word->(64)word->(64)word)
-               ((word_zx:(32)word->(64)word)
-               ((word_zx:(64)word->(32)word)
-               ((word_subword:(128)word->num#num->(64)word)
-                ((word_reversefields:num->(128)word->(128)word) 8
-                ((ctr_block:(96)word->num->(128)word) (nonce:(96)word) 2))
-               (64,64))))
-              ((word_shl:(64)word->num->(64)word)
-               ((word_zx:(32)word->(64)word)
-               ((word_bytereverse:(32)word->(32)word)
-               ((word:num->(32)word) (4 * (i:num) + 3))))
-              32))
-             ((word_subword:(128)word->num#num->(64)word)
-              ((word_reversefields:num->(128)word->(128)word) 8
-              ((ctr_block:(96)word->num->(128)word) (nonce:(96)word) 2))
-             (0,64)))
-            ((word_reversefields:num->(128)word->(128)word) 8
-            ((EL:num->((128)word)list->(128)word) 0 (rk:((128)word)list)))))
-           ((word_reversefields:num->(128)word->(128)word) 8
-           ((EL:num->((128)word)list->(128)word) 1 (rk:((128)word)list)))))
-          ((word_reversefields:num->(128)word->(128)word) 8
-          ((EL:num->((128)word)list->(128)word) 2 (rk:((128)word)list)))))
-         ((word_reversefields:num->(128)word->(128)word) 8
-         ((EL:num->((128)word)list->(128)word) 3 (rk:((128)word)list)))))
-        ((word_reversefields:num->(128)word->(128)word) 8
-        ((EL:num->((128)word)list->(128)word) 4 (rk:((128)word)list)))))
-       ((word_reversefields:num->(128)word->(128)word) 8
-       ((EL:num->((128)word)list->(128)word) 5 (rk:((128)word)list)))))
-      ((word_reversefields:num->(128)word->(128)word) 8
-      ((EL:num->((128)word)list->(128)word) 6 (rk:((128)word)list)))))
-     ((word_reversefields:num->(128)word->(128)word) 8
-     ((EL:num->((128)word)list->(128)word) 7 (rk:((128)word)list)))))
-    ((word_reversefields:num->(128)word->(128)word) 8
-    ((EL:num->((128)word)list->(128)word) 8 (rk:((128)word)list)))))
-    ((word_reversefields:num->(128)word->(128)word) 8
-    ((EL:num->((128)word)list->(128)word) 9 (rk:((128)word)list))) /\
-    (read:(armstate,(64)word)component->armstate->(64)word)
-    (X24:(armstate,(64)word)component)
-    (s:armstate) =
-    (word_or:(64)word->(64)word->(64)word)
-    ((word_zx:(32)word->(64)word)
-    ((word_zx:(64)word->(32)word)
-    ((word_subword:(128)word->num#num->(64)word)
-     ((word_reversefields:num->(128)word->(128)word) 8
-     ((ctr_block:(96)word->num->(128)word) (nonce:(96)word) 2))
-    (64,64))))
-    ((word_shl:(64)word->num->(64)word)
-     ((word_zx:(32)word->(64)word)
-     ((word_bytereverse:(32)word->(32)word)
-     ((word:num->(32)word) (4 * (i:num) + 7))))
-    32) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q2:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_zx:(64)word->(128)word)
-    ((word_subword:(128)word->num#num->(64)word)
-     ((word_xor:(128)word->(128)word->(128)word)
-      ((word_join:(64)word->(64)word->(128)word)
-       ((word_subword:(128)word->num#num->(64)word)
-        ((word_reversefields:num->(128)word->(128)word) 8
-        ((inblock:num->(128)word) (4 * (i:num) + 3)))
-       (0,64))
-      ((word_subword:(128)word->num#num->(64)word)
-       ((word_reversefields:num->(128)word->(128)word) 8
-       ((inblock:num->(128)word) (4 * (i:num) + 3)))
-      (64,64)))
-     ((word_zx:(64)word->(128)word)
-     ((word_subword:(128)word->num#num->(64)word)
-      ((word_reversefields:num->(128)word->(128)word) 8
-      ((inblock:num->(128)word) (4 * (i:num) + 3)))
-     (0,64))))
-    (0,64)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q3:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_pmul:(64)word->(64)word->(128)word)
-    ((word_subword:(128)word->num#num->(64)word)
-     ((word_reversefields:num->(128)word->(128)word) 8
-     ((inblock:num->(128)word) (4 * (i:num) + 1)))
-    (0,64))
-    ((word_subword:(128)word->num#num->(64)word)
-     ((byteswap128:(128)word->(128)word)
-     ((h_power:(128)word->num->(128)word)
-      ((ghash_twist:(128)word->(128)word)
-      ((aes128_cipher:(128)word->((128)word)list->(128)word)
-       ((word:num->(128)word) 0)
-      (rk:((128)word)list)))
-     2))
-    (64,64)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q4:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_pmul:(64)word->(64)word->(128)word)
-    ((word_subword:(128)word->num#num->(64)word)
-     ((word_xor:(128)word->(128)word->(128)word)
-      ((word_join:(64)word->(64)word->(128)word)
-       ((word_subword:(128)word->num#num->(64)word)
-        ((word_reversefields:num->(128)word->(128)word) 8
-        ((inblock:num->(128)word) (4 * (i:num) + 2)))
-       (0,64))
-      ((word_subword:(128)word->num#num->(64)word)
-       ((word_reversefields:num->(128)word->(128)word) 8
-       ((inblock:num->(128)word) (4 * (i:num) + 2)))
-      (64,64)))
-     ((word_subword:(256)word->num#num->(128)word)
-      ((word_join:(128)word->(128)word->(256)word)
-       ((word_join:(64)word->(64)word->(128)word)
-        ((word_subword:(128)word->num#num->(64)word)
-         ((word_reversefields:num->(128)word->(128)word) 8
-         ((inblock:num->(128)word) (4 * (i:num) + 2)))
-        (0,64))
-       ((word_subword:(128)word->num#num->(64)word)
-        ((word_reversefields:num->(128)word->(128)word) 8
-        ((inblock:num->(128)word) (4 * (i:num) + 2)))
-       (64,64)))
-      ((word_join:(64)word->(64)word->(128)word)
-       ((word_subword:(128)word->num#num->(64)word)
-        ((word_reversefields:num->(128)word->(128)word) 8
-        ((inblock:num->(128)word) (4 * (i:num) + 2)))
-       (0,64))
-      ((word_subword:(128)word->num#num->(64)word)
-       ((word_reversefields:num->(128)word->(128)word) 8
-       ((inblock:num->(128)word) (4 * (i:num) + 2)))
-      (64,64))))
-     (64,128)))
-    (64,64))
-    ((karatsuba_mid:(128)word->(64)word)
-    ((h_power:(128)word->num->(128)word)
-     ((ghash_twist:(128)word->(128)word)
-     ((aes128_cipher:(128)word->((128)word)list->(128)word)
-      ((word:num->(128)word) 0)
-     (rk:((128)word)list)))
-    1)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q6:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_xor:(128)word->(128)word->(128)word)
-    ((word_xor:(128)word->(128)word->(128)word)
-     ((byteswap128:(128)word->(128)word)
-     ((nist_ghash:(128)word->(128)word->((128)word)list->(128)word)
-      ((aes128_cipher:(128)word->((128)word)list->(128)word)
-       ((word:num->(128)word) 0)
-      (rk:((128)word)list))
-      (tag0:(128)word)
-     ((list_of_seq:(num->(128)word)->num->((128)word)list)
-      ((nist_input_block:(num->(128)word)->num->(128)word)
-      (inblock:num->(128)word))
-     (4 * (i:num)))))
-    ((word_join:(64)word->(64)word->(128)word)
-     ((word_subword:(128)word->num#num->(64)word)
-      ((word_reversefields:num->(128)word->(128)word) 8
-      ((inblock:num->(128)word) (4 * (i:num))))
-     (0,64))
-    ((word_subword:(128)word->num#num->(64)word)
-     ((word_reversefields:num->(128)word->(128)word) 8
-     ((inblock:num->(128)word) (4 * (i:num))))
-    (64,64))))
-    ((word_subword:(256)word->num#num->(128)word)
-     ((word_join:(128)word->(128)word->(256)word)
-      ((word_xor:(128)word->(128)word->(128)word)
-       ((byteswap128:(128)word->(128)word)
-       ((nist_ghash:(128)word->(128)word->((128)word)list->(128)word)
-        ((aes128_cipher:(128)word->((128)word)list->(128)word)
-         ((word:num->(128)word) 0)
-        (rk:((128)word)list))
-        (tag0:(128)word)
-       ((list_of_seq:(num->(128)word)->num->((128)word)list)
-        ((nist_input_block:(num->(128)word)->num->(128)word)
-        (inblock:num->(128)word))
-       (4 * (i:num)))))
-      ((word_join:(64)word->(64)word->(128)word)
-       ((word_subword:(128)word->num#num->(64)word)
-        ((word_reversefields:num->(128)word->(128)word) 8
-        ((inblock:num->(128)word) (4 * (i:num))))
-       (0,64))
-      ((word_subword:(128)word->num#num->(64)word)
-       ((word_reversefields:num->(128)word->(128)word) 8
-       ((inblock:num->(128)word) (4 * (i:num))))
-      (64,64))))
-     ((word_xor:(128)word->(128)word->(128)word)
-      ((byteswap128:(128)word->(128)word)
-      ((nist_ghash:(128)word->(128)word->((128)word)list->(128)word)
-       ((aes128_cipher:(128)word->((128)word)list->(128)word)
-        ((word:num->(128)word) 0)
-       (rk:((128)word)list))
-       (tag0:(128)word)
-      ((list_of_seq:(num->(128)word)->num->((128)word)list)
-       ((nist_input_block:(num->(128)word)->num->(128)word)
-       (inblock:num->(128)word))
-      (4 * (i:num)))))
-     ((word_join:(64)word->(64)word->(128)word)
-      ((word_subword:(128)word->num#num->(64)word)
-       ((word_reversefields:num->(128)word->(128)word) 8
-       ((inblock:num->(128)word) (4 * (i:num))))
-      (0,64))
-     ((word_subword:(128)word->num#num->(64)word)
-      ((word_reversefields:num->(128)word->(128)word) 8
-      ((inblock:num->(128)word) (4 * (i:num))))
-     (64,64)))))
-    (64,128)) /\
-    (read:(armstate,(128)word)component->armstate->(128)word)
-    (Q8:(armstate,(128)word)component)
-    (s:armstate) =
-    (word_pmul:(64)word->(64)word->(128)word)
-    ((word_subword:(128)word->num#num->(64)word)
-     ((word_xor:(128)word->(128)word->(128)word)
-      ((byteswap128:(128)word->(128)word)
-      ((nist_ghash:(128)word->(128)word->((128)word)list->(128)word)
-       ((aes128_cipher:(128)word->((128)word)list->(128)word)
-        ((word:num->(128)word) 0)
-       (rk:((128)word)list))
-       (tag0:(128)word)
-      ((list_of_seq:(num->(128)word)->num->((128)word)list)
-       ((nist_input_block:(num->(128)word)->num->(128)word)
-       (inblock:num->(128)word))
-      (4 * (i:num)))))
-     ((word_join:(64)word->(64)word->(128)word)
-      ((word_subword:(128)word->num#num->(64)word)
-       ((word_reversefields:num->(128)word->(128)word) 8
-       ((inblock:num->(128)word) (4 * (i:num))))
-      (0,64))
-     ((word_subword:(128)word->num#num->(64)word)
-      ((word_reversefields:num->(128)word->(128)word) 8
-      ((inblock:num->(128)word) (4 * (i:num))))
-     (64,64))))
-    (64,64))
-    ((word_subword:(128)word->num#num->(64)word)
-     ((byteswap128:(128)word->(128)word)
-     ((h_power:(128)word->num->(128)word)
-      ((ghash_twist:(128)word->(128)word)
-      ((aes128_cipher:(128)word->((128)word)list->(128)word)
-       ((word:num->(128)word) 0)
-      (rk:((128)word)list)))
-     3))
-    (64,64))`;;
+`\(i:num) s.
+    read X3 s = tag_p /\
+    read X4 s = ivec_p /\
+    read X6 s = htable_p /\
+    read SP s = stackpointer /\
+    read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0 /\
+    read (memory :> bytes128 ivec_p) s = word_reversefields 8 (ctr_block nonce 2) /\
+    read Q18 s = word_reversefields 8 (EL 0 rk) /\
+    read Q19 s = word_reversefields 8 (EL 1 rk) /\
+    read Q20 s = word_reversefields 8 (EL 2 rk) /\
+    read Q21 s = word_reversefields 8 (EL 3 rk) /\
+    read Q22 s = word_reversefields 8 (EL 4 rk) /\
+    read Q23 s = word_reversefields 8 (EL 5 rk) /\
+    read Q24 s = word_reversefields 8 (EL 6 rk) /\
+    read Q25 s = word_reversefields 8 (EL 7 rk) /\
+    read Q26 s = word_reversefields 8 (EL 8 rk) /\
+    read Q27 s = word_reversefields 8 (EL 9 rk) /\
+    read Q28 s = word_reversefields 8 (EL 10 rk) /\
+    read Q7 s = word 13979173243358019584 /\
+    read Q12 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
+    read Q13 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
+    read Q14 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1))
+        (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)):int128 /\
+    read Q15 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2) /\
+    read Q16 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3) /\
+    read Q17 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3))
+        (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2)):int128 /\
+    read X11 s = word_subword (word_reversefields 8 (ctr_block nonce 2)) (0,64):int64 /\
+    read X12 s = (word_zx:int32->int64) ((word_zx:int64->int32) (word_subword
+        (word_reversefields 8 (ctr_block nonce 2)) (64,64):int64)) /\
+    read X15 s = word (len_bits DIV 8) /\
+    read X16 s = word loop_remain /\
+    htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
+    (forall j. j < nblocks ==> read (memory :> bytes128 (word_add in_p (word (16 * j)))) s =
+        inblock j) /\
+    read X0 s = word_add in_p (word (64 * i + 64)) /\
+    read X2 s = word_add out_p (word (64 * i)) /\
+    read X1 s = word (loop_count - 2 - i) /\
+    read X13 s = (word_zx:int32->int64) (word (4 * i + 6)) /\
+    (forall j. j < 4 * i ==> read (memory :> bytes128 (word_add out_p (word (16 * j)))) s =
+        word_xor (aes_ctr_block nonce rk j) (inblock j)) /\
+    read (memory :> bytes128 (word_add out_p (word (64 * i + 32)))) s = word_xor (aes_ctr_block
+        nonce rk (4 * i + 2)) (inblock (4 * i + 2)) /\
+    read (memory :> bytes128 (word_add out_p (word (64 * i + 48)))) s = word_xor (aes_ctr_block
+        nonce rk (4 * i + 3)) (inblock (4 * i + 3)) /\
+    read Q11 s = word_xor (byteswap128 (nist_ghash (aes128_cipher (word 0) rk) tag0 (list_of_seq
+        (nist_input_block inblock) (4 * i)))) (byteswap128 (word_reversefields 8 (inblock (4 *
+        i)))) /\
+    read Q0 s = word_join (word_subword (word_reversefields 8 (inblock (4 * i + 1)))
+        (0,64):int64) (word_subword (word_reversefields 8 (inblock (4 * i + 1)))
+        (64,64):int64):int128 /\
+    read Q1 s = word_pmul (word_subword (word_reversefields 8 (inblock (4 * i + 3)))
+        (0,64):int64) (word_subword (byteswap128 (h_power (ghash_twist (aes128_cipher (word 0)
+        rk)) 0)) (64,64):int64):int128 /\
+    read Q9 s = word_xor (word_pmul (word_subword (word_reversefields 8 (inblock (4 * i + 2)))
+        (0,64):int64) (word_subword (byteswap128 (h_power (ghash_twist (aes128_cipher (word 0)
+        rk)) 1)) (64,64):int64):int128) (word_pmul (word_subword (word_reversefields 8 (inblock
+        (4 * i + 3))) (0,64):int64) (word_subword (byteswap128 (h_power (ghash_twist
+        (aes128_cipher (word 0) rk)) 0)) (64,64):int64):int128) /\
+    read Q31 s = word_xor (word_pmul (word_subword (word_reversefields 8 (inblock (4 * i + 2)))
+        (64,64):int64) (word_subword (byteswap128 (h_power (ghash_twist (aes128_cipher (word 0)
+        rk)) 1)) (0,64):int64):int128) (word_pmul (word_subword (word_reversefields 8 (inblock
+        (4 * i + 3))) (64,64):int64) (word_subword (byteswap128 (h_power (ghash_twist
+        (aes128_cipher (word 0) rk)) 0)) (0,64):int64):int128) /\
+    read Q29 s = inblock (4 * i) /\
+    read Q10 s = inblock (4 * i + 1) /\
+    read Q30 s = aes2c nonce rk (4 * i + 2) /\
+    read (memory :> bytes128 (word_add stackpointer (word 176))) s = word_reversefields 8
+        (ctr_block nonce (4 * i + 3)) /\
+    read (memory :> bytes128 (word_add stackpointer (word 192))) s = word_reversefields 8
+        (ctr_block nonce (4 * i + 4)) /\
+    read (memory :> bytes128 (word_add stackpointer (word 208))) s = word_reversefields 8
+        (ctr_block nonce (4 * i + 5)) /\
+    read (memory :> bytes128 (word_add stackpointer (word 160))) s = word_reversefields 8
+        (ctr_block nonce (4 * i + 6)) /\
+    read X26 s = (word_zx:int32->int64) (word (4 * i + 9)) /\
+    read Q5 s = aese (aesmc (aese (aesmc (aese (aesmc (aese (aesmc (aese (aesmc (aese (aesmc
+        (aese (aesmc (aese (aesmc (aese (aesmc (aese (word_join (word_or ((word_zx:int32->int64)
+        ((word_zx:int64->int32) (word_subword (word_reversefields 8 (ctr_block nonce 2))
+        (64,64):int64))) (word_shl ((word_zx:int32->int64) (word_bytereverse (word (4 * i +
+        3)))) 32)) (word_subword (word_reversefields 8 (ctr_block nonce 2))
+        (0,64):int64):int128) (word_reversefields 8 (EL 0 rk)))) (word_reversefields 8 (EL 1
+        rk)))) (word_reversefields 8 (EL 2 rk)))) (word_reversefields 8 (EL 3 rk))))
+        (word_reversefields 8 (EL 4 rk)))) (word_reversefields 8 (EL 5 rk))))
+        (word_reversefields 8 (EL 6 rk)))) (word_reversefields 8 (EL 7 rk))))
+        (word_reversefields 8 (EL 8 rk)))) (word_reversefields 8 (EL 9 rk)) /\
+    read X24 s = word_or ((word_zx:int32->int64) ((word_zx:int64->int32) (word_subword
+        (word_reversefields 8 (ctr_block nonce 2)) (64,64):int64))) (word_shl
+        ((word_zx:int32->int64) (word_bytereverse (word (4 * i + 7)))) 32) /\
+    read Q2 s = (word_zx:int64->int128) (word_subword (word_xor (word_join (word_subword
+        (word_reversefields 8 (inblock (4 * i + 3))) (0,64):int64) (word_subword
+        (word_reversefields 8 (inblock (4 * i + 3))) (64,64):int64):int128)
+        ((word_zx:int64->int128) (word_subword (word_reversefields 8 (inblock (4 * i + 3)))
+        (0,64):int64))) (0,64):int64) /\
+    read Q3 s = word_pmul (word_subword (word_reversefields 8 (inblock (4 * i + 1)))
+        (0,64):int64) (word_subword (byteswap128 (h_power (ghash_twist (aes128_cipher (word 0)
+        rk)) 2)) (64,64):int64):int128 /\
+    read Q4 s = word_pmul (word_subword (word_xor (word_join (word_subword (word_reversefields 8
+        (inblock (4 * i + 2))) (0,64):int64) (word_subword (word_reversefields 8 (inblock (4 * i
+        + 2))) (64,64):int64):int128) (word_subword (word_join (word_join (word_subword
+        (word_reversefields 8 (inblock (4 * i + 2))) (0,64):int64) (word_subword
+        (word_reversefields 8 (inblock (4 * i + 2))) (64,64):int64):int128) (word_join
+        (word_subword (word_reversefields 8 (inblock (4 * i + 2))) (0,64):int64) (word_subword
+        (word_reversefields 8 (inblock (4 * i + 2))) (64,64):int64):int128):int256)
+        (64,128):int128)) (64,64):int64) (karatsuba_mid (h_power (ghash_twist (aes128_cipher
+        (word 0) rk)) 1)):int128 /\
+    read Q6 s = word_xor (word_xor (byteswap128 (nist_ghash (aes128_cipher (word 0) rk) tag0
+        (list_of_seq (nist_input_block inblock) (4 * i)))) (word_join (word_subword
+        (word_reversefields 8 (inblock (4 * i))) (0,64):int64) (word_subword (word_reversefields
+        8 (inblock (4 * i))) (64,64):int64):int128)) (word_subword (word_join (word_xor
+        (byteswap128 (nist_ghash (aes128_cipher (word 0) rk) tag0 (list_of_seq (nist_input_block
+        inblock) (4 * i)))) (word_join (word_subword (word_reversefields 8 (inblock (4 * i)))
+        (0,64):int64) (word_subword (word_reversefields 8 (inblock (4 * i)))
+        (64,64):int64):int128)) (word_xor (byteswap128 (nist_ghash (aes128_cipher (word 0) rk)
+        tag0 (list_of_seq (nist_input_block inblock) (4 * i)))) (word_join (word_subword
+        (word_reversefields 8 (inblock (4 * i))) (0,64):int64) (word_subword (word_reversefields
+        8 (inblock (4 * i))) (64,64):int64):int128)):int256) (64,128):int128) /\
+    read Q8 s = word_pmul (word_subword (word_xor (byteswap128 (nist_ghash (aes128_cipher (word
+        0) rk) tag0 (list_of_seq (nist_input_block inblock) (4 * i)))) (word_join (word_subword
+        (word_reversefields 8 (inblock (4 * i))) (0,64):int64) (word_subword (word_reversefields
+        8 (inblock (4 * i))) (64,64):int64):int128)) (64,64):int64) (word_subword (byteswap128
+        (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3)) (64,64):int64):int128`;;
 
 (* ===== GHASH-seed / reduce closers ===== *)
 (* dec-swp BODYLEG unified closer (reconstructed clean half: lemmas + GHASH/partial tactics).
