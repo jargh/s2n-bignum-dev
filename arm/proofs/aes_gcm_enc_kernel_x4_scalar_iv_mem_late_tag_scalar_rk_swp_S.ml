@@ -2916,6 +2916,70 @@ let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_SWP_S_CORRECT = prove
     EXPAND_TAC "nblocks" THEN
     UNDISCH_TAC `len_bits < 2 EXP 64` THEN ARITH_TAC]);;
 
+(* ------------------------------------------------------------------------- *)
+(* Subroutine wrapper: same public contract as the non-pipelined kernel,     *)
+(* recovered from the core theorem by wrapping the 224-byte-frame prologue /  *)
+(* epilogue (11 saved-register steps each side) via ARM_ADD_RETURN_STACK_TAC. *)
+(* ------------------------------------------------------------------------- *)
+
+let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_SWP_S_SUBROUTINE_CORRECT = prove
+ (`!in_p out_p len_bits tag_p ivec_p key_p htable_p tag0 nonce rk inblock
+    pc stackpointer returnaddress.
+    aligned 16 stackpointer /\
+    ALLPAIRS nonoverlapping
+      [(out_p, 16 * val len_bits DIV 128); (tag_p, 16); (ivec_p, 16);
+       (word_sub stackpointer (word 224), 224)]
+      [(word pc, LENGTH swpS_mc);
+       (in_p,  16 * val len_bits DIV 128); (key_p, 176); (htable_p, 192)] /\
+    PAIRWISE nonoverlapping
+      [(out_p, 16 * val len_bits DIV 128); (tag_p, 16); (ivec_p, 16);
+       (word_sub stackpointer (word 224), 224)]
+    ==>
+    ensures arm
+      (\s. aligned_bytes_loaded s (word pc) swpS_mc /\
+           read PC s = word pc /\
+           read SP s = stackpointer /\
+           read X30 s = returnaddress /\
+           C_ARGUMENTS
+            [in_p; len_bits; out_p; tag_p; ivec_p; key_p; htable_p] s /\
+           read (memory :> bytes128 tag_p)  s = word_reversefields 8 tag0 /\
+           read (memory :> bytes128 ivec_p) s =
+             word_reversefields 8 (ctr_block nonce 2) /\
+           wordlist_from_memory(key_p,11) s =
+             MAP (word_reversefields 8) rk /\
+           (!i. i < val len_bits DIV 128
+                ==> read (memory :> bytes128 (word_add in_p (word(16*i)))) s =
+                    inblock i) /\
+           htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk))
+                      htable_p s)
+      (\s. read PC s = returnaddress /\
+           (!i. i < val len_bits DIV 128
+                ==> read (memory :> bytes128 (word_add out_p (word(16*i)))) s =
+                    word_xor (aes_ctr_block nonce rk i) (inblock i)) /\
+           read (memory :> bytes128 tag_p) s =
+             word_reversefields 8
+              (nist_ghash (aes128_cipher (word 0) rk) tag0
+                 (list_of_seq (nist_cipher_block nonce rk inblock)
+                              (val len_bits DIV 128))) /\
+           read (memory :> bytes128 ivec_p) s =
+             word_reversefields 8
+               (ctr_block nonce (val len_bits DIV 128 + 2)))
+      (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+       MAYCHANGE [memory :> bytes(out_p, 16 * val len_bits DIV 128);
+                  memory :> bytes(tag_p, 16);
+                  memory :> bytes(ivec_p, 16);
+                  memory :> bytes(word_sub stackpointer (word 224), 224)])`,
+  REWRITE_TAC[fst SWPS_EXEC; htable_mem_4] THEN
+  CONV_TAC(ONCE_DEPTH_CONV WORDLIST_FROM_MEMORY_CONV) THEN
+  ARM_ADD_RETURN_STACK_TAC
+    ~pre_post_nsteps:(11, 11)
+    SWPS_EXEC
+    (CONV_RULE(ONCE_DEPTH_CONV WORDLIST_FROM_MEMORY_CONV)
+       (REWRITE_RULE[fst SWPS_EXEC; htable_mem_4]
+          AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_SWP_S_CORRECT))
+    `[X19; X20; X21; X22; X23; X24; X25; X26; X27; X28; X29; X30;
+      D8; D9; D10; D11; D12; D13; D14; D15]` 224);;
+
 (* ========================================================================= *)
 (* Constant-time + memory-safety (appended to the correctness proof).        *)
 (*                                                                           *)
