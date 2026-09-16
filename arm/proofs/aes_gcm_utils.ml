@@ -546,6 +546,58 @@ let DISCARD_STALE_TAC sname : tactic = fun (asl,w) ->
       [s] when s <> sv && not (mem s live) -> exists (aconv (vsubst [sv,s] c)) cur
     | _ -> false) (asl,w);;
 
+(* The state variable of the first `read` inside a fact (used for the quantified memory facts). *)
+let state_of_forall c =
+  try let rd = find_term (fun t -> match t with
+        Comb(Comb(Const("read",_),_),Var(nm,_)) when String.length nm>=1 && nm.[0]='s' -> true | _->false) c in
+      (match rd with Comb(_,Var(nm,_)) -> Some nm | _ -> None) with _ -> None;;
+
+(* One step of a software-pipelined simulation followed by garbage collection of the assumption list.
+   After the step we keep the MAYCHANGE fact of the current state, the input/output buffer foralls, the
+   memory reads at the anchor pointers and at the counter stack slots (by offset), the latest read of
+   each register in keeplist, and every fact that is not a read of an earlier state; DISCARD_STALE_TAC
+   then drops the superseded copies of the kept facts. *)
+let SWP_STEP_TAC (anchors:term list) (slots:string list) keeplist exec sname : tactic =
+  ARM_STEP_TAC exec [] sname None (K STRIP_TAC) THEN
+  (fun (asl,w) ->
+    let cs = map (fun (_,th) -> concl th) asl in
+    let latest = map (fun r -> (r, itlist (fun c m ->
+                   match gc2 keeplist c with Some(rr,k) when rr = r && k > m -> k | _ -> m) cs (-1)))
+                   keeplist in
+    let is_read c = try fst(dest_const(fst(strip_comb(lhs c)))) = "read" with Failure _ -> false in
+    let slot_read c = can (find_term (fun t -> match t with
+          Comb(Comb(Const("word_add",_),sp),Comb(Const("word",_),n))
+            when (try fst(dest_var sp) = "stackpointer" with Failure _ -> false) ->
+              mem (string_of_term n) slots
+        | _ -> false)) (lhs c) in
+    let anchored c = is_read c && (exists (fun p -> free_in p (lhs c)) anchors || slot_read c) in
+    let is_maychange c = can (find_term (fun t -> match t with Const("MAYCHANGE",_) -> true | _ -> false)) c in
+    let old_state_read c = try (match rand(lhs c) with
+          Var(nm,_) -> nm <> sname && String.length nm >= 1 && nm.[0] = 's' | _ -> false)
+        with Failure _ -> false in
+    DISCARD_ASSUMPTIONS_TAC (fun th ->
+      let c = concl th in
+      if is_maychange c then (try string_of_term(last(snd(strip_comb c))) <> sname with Failure _ -> false)
+      else if is_forall c then
+        (if free_in `in_p:int64` c || free_in `out_p:int64` c then false
+         else match state_of_forall c with Some nm -> nm <> sname | None -> false)
+      else if anchored c then false
+      else match gc2 keeplist c with
+             Some(r,k) -> k < List.assoc r latest
+           | None -> old_state_read c) (asl,w)) THEN
+  DISCARD_STALE_TAC sname;;
+
+(* Steps k in ks of a leg: SWP_STEP_TAC, the address and subword normalization, a per-leg
+   simplification of the fresh facts (extra k), and the counter-slot merge at the recorded store steps. *)
+let SWP_STEPS_TAC anchors slots keeplist exec (extra:int->tactic) merges (ks:int list) : tactic =
+  MAP_EVERY (fun k ->
+    let sname = "s" ^ string_of_int k in
+    SWP_STEP_TAC anchors slots keeplist exec sname THEN
+    RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
+                             ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
+    extra k THEN
+    (if List.mem_assoc k merges then MERGE_CTR128_TAC (List.assoc k merges) sname else ALL_TAC)) ks;;
+
 (* ------------------------------------------------------------------------- *)
 (* Leaf closers for the constant-time and memory-safety proofs (shared with  *)
 (* the clean keep_htable safety proof).                                      *)

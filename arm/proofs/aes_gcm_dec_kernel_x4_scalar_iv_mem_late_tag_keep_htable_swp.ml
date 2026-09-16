@@ -44,6 +44,7 @@ let aes_gcm_dec_kernel_x4_scalar_iv_mem_late_tag_keep_htable_swp_mc =
     "arm/aes_gcm/aes_gcm_dec_kernel_x4_scalar_iv_mem_late_tag_keep_htable_swp.o";;
 
 let AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC = ARM_MK_EXEC_RULE aes_gcm_dec_kernel_x4_scalar_iv_mem_late_tag_keep_htable_swp_mc;;
+let EXEC = AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC;;
 
 (* ------------------------------------------------------------------------- *)
 (* Some specification concepts.                                              *)
@@ -523,45 +524,17 @@ let dec_setup_extra : tactic =
                               && string_of_term t <> "read PC s0") reads0 in
     (EVERY (List.mapi (fun k t -> ABBREV_TAC (mk_eq(mk_var(Printf.sprintf "init_%d" k, type_of t), t))) toab)) (asl,w));;
 
-let is_spctr_read c = try
-    let l = lhs c in
-    fst(dest_const(fst(strip_comb l)))="read" && free_in `stackpointer:int64` l &&
-    (can (find_term (fun t -> match t with
-       | Comb(Comb(Const("word_add",_),sp),Comb(Const("word",_),n))
-           when (try fst(dest_var sp)="stackpointer" with _->false) ->
-             (let v=string_of_term n in v="160"||v="176"||v="192"||v="208") | _ -> false)) l)
-  with _ -> false;;
-let state_of_forall c =
-  try let rd = find_term (fun t -> match t with
-        Comb(Comb(Const("read",_),_),Var(nm,_)) when String.length nm>=1 && nm.[0]='s' -> true | _->false) c in
-      (match rd with Comb(_,Var(nm,_)) -> Some nm | _ -> None) with _ -> None;;
-
-let gkeepN_mem2 keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
-  (fun (asl,w) -> let cs=map(fun(_,t)->concl t)asl in
-    let mx=map(fun r->(r,itlist(fun c m->match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m)cs(-1)))keeplist in
-    let anchored c = try (is_spctr_read c) ||
-        (fst(dest_const(fst(strip_comb(lhs c))))="read" &&
-         ((free_in `tag_p:int64` (lhs c)) || (free_in `ivec_p:int64` (lhs c)) || (free_in `htable_p:int64` (lhs c))))
-      with _ -> false in
-    DISCARD_ASSUMPTIONS_TAC(fun th->let c=concl th in
-      if (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
-      then (try let _,args = strip_comb c in string_of_term(last args) <> sname with _ -> false) else
-      if is_forall c then
-        (if free_in `in_p:int64` c || free_in `out_p:int64` c then false
-         else (match state_of_forall c with Some nm -> nm <> sname | None -> false)) else
-      if anchored c then false else
-      match gc2 keeplist c with Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w)) THEN DISCARD_STALE_TAC sname;;
+(* Stepper parameters for this kernel: the memory reads at the tag, IV and Htable pointers are anchored
+   (and, in the legs that also finish the output, those at the input and output pointers), as are the
+   counter stack slots; REDSETX_DEC lists the registers whose latest value is carried. *)
+let dec_anchors = [`tag_p:int64`; `ivec_p:int64`; `htable_p:int64`];;
+let dec_anchors_io = dec_anchors @ [`in_p:int64`; `out_p:int64`];;
+let ctr_slots = ["160"; "176"; "192"; "208"];;
+let ctr_slots_all = ctr_slots @ ["168"; "184"; "200"; "216"];;
 let REDSETX_DEC = ["Q0";"Q1";"Q2";"Q3";"Q4";"Q5";"Q6";"Q8";"Q9";"Q10";"Q11";"Q29";"Q30";"Q31";
                    "X0";"X2";"X7";"X13";"X14";"X17";"X21";"X23";"X24";"X25";"X26";"X27";"X29"];;
 let steady_merges = [(17,208);(46,176);(52,192);(112,160)];;
-let body_step_tac_gkeep =
-  (fun (asl,w) -> (MAP_EVERY (fun k ->
-        gkeepN_mem2 REDSETX_DEC AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC ("s"^string_of_int k) THEN
-        RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                 ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-        (if List.mem_assoc k steady_merges then MERGE_CTR128_TAC (List.assoc k steady_merges) ("s"^string_of_int k)
-         else ALL_TAC)) (1--159)) (asl,w));;
+let body_step_tac = SWP_STEPS_TAC dec_anchors ctr_slots REDSETX_DEC EXEC (K ALL_TAC) steady_merges (1--159);;
 
 (* ---- extra closers: out-block recon (OUTBLK), in-read folder (INFOLD3), byteswap, GHASH partial ---- *)
 let inp_addr_norms = List.map (fun (kk,m) ->
@@ -873,7 +846,7 @@ let SWP_DEC_BODYLEG = prove(bodyleg_goal_v8,
     FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC;
     ALL_TAC] THEN
   dec_setup_extra THEN
-  body_step_tac_gkeep THEN
+  body_step_tac THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
   REWRITE_TAC[ARITH_RULE `j < 4 * (i + 1) <=>
                           j < 4 * i \/ j = 4 * i \/ j = 4 * i + 1 \/ j = 4 * i + 2 \/ j = 4 * i + 3`] THEN
@@ -895,7 +868,7 @@ let SWP_DEC_BODYLEG = prove(bodyleg_goal_v8,
   REPEAT CONJ_TAC THEN CLOSE_V8);;
 
 (* ================= FILL: entry -> inv 0  (0xa0 -> 0x294) ================= *)
-(* shared with DRAIN: abl_s, REV64_16B_IS_BSW_REVFIELDS, is_spctr_read2, gkeep2 (FILL's variant). *)
+(* shared with DRAIN: abl_s, REV64_16B_IS_BSW_REVFIELDS. *)
 let fill_pre_body = `read X0 s = in_p /\ read X2 s = out_p /\ read X3 s = tag_p /\ read X4 s = ivec_p /\
     read X6 s = htable_p /\ read SP s = stackpointer /\
     read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0 /\
@@ -1038,34 +1011,6 @@ let CTRBASEN =
                       mk_ctrbase 6 432345564227567616],
         REWRITE_TAC[ctr_block] THEN CONV_TAC WORD_BLAST);;
 
-(* extended-anchor keep-stepper: also anchor sp-slot HIGH-half offsets 168/184/200/216 so both stp halves
-   survive to enable bytes128 counter reconstruction at any state. *)
-let is_spctr_read2 c = try
-    let l = lhs c in
-    fst(dest_const(fst(strip_comb l)))="read" && free_in `stackpointer:int64` l &&
-    (can (find_term (fun t -> match t with
-       | Comb(Comb(Const("word_add",_),sp),Comb(Const("word",_),n))
-           when (try fst(dest_var sp)="stackpointer" with _->false) ->
-             (let v=string_of_term n in
-              v="160"||v="176"||v="192"||v="208"||v="168"||v="184"||v="200"||v="216") | _ -> false)) l)
-  with _ -> false;;
-let gkeep2 keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
-  (fun (asl,w) -> let cs=map(fun(_,t)->concl t)asl in
-    let mx=map(fun r->(r,itlist(fun c m->match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m)cs(-1)))keeplist in
-    let anchored c = try (is_spctr_read2 c) ||
-        (fst(dest_const(fst(strip_comb(lhs c))))="read" &&
-         ((free_in `tag_p:int64` (lhs c)) || (free_in `ivec_p:int64` (lhs c)) || (free_in `htable_p:int64` (lhs c))))
-      with _ -> false in
-    DISCARD_ASSUMPTIONS_TAC(fun th->let c=concl th in
-      if (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
-      then (try let _,args = strip_comb c in string_of_term(last args) <> sname with _ -> false) else
-      if is_forall c then
-        (if free_in `in_p:int64` c || free_in `out_p:int64` c then false
-         else (match state_of_forall c with Some nm -> nm <> sname | None -> false)) else
-      if anchored c then false else
-      match gc2 keeplist c with Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w)) THEN DISCARD_STALE_TAC sname;;
-
 (* FILL per-conjunct closer.  8 shape-specific branches (all validated interactively, 24/24). *)
 let FILL_CLOSE : tactic =
   FIRST
@@ -1094,18 +1039,8 @@ let FILL_CLOSE : tactic =
      (ASM_REWRITE_TAC[] THEN TRY REFL_TAC THEN NO_TAC);
      (ASM_REWRITE_TAC[] THEN CONV_TAC WORD_RULE THEN NO_TAC) ];;
 
-(* ---- FILL stepper: gkeep2 (extended anchor) + FILL merge sites + branch/COND simplification ---- *)
+(* Counter-slot store sites in the fill (MERGE_CTR128_TAC after these steps). *)
 let fill_merges = [(10,160);(12,176);(15,208);(21,192)];;
-let fill_step_tac =
-  (fun (asl,w) -> (MAP_EVERY (fun k ->
-        gkeep2 REDSETX_DEC AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC ("s"^string_of_int k) THEN
-        RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `loop_count = 0 <=> F`; ASSUME `loop_count = 1 <=> F`;
-           ASSUME `loop_count = 2 <=> F`;
-           ASSUME `val(word_sub (word loop_count:int64) (word 1)) = 0 <=> F`; COND_CLAUSES]) THEN
-        RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                 ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-        (if List.mem_assoc k fill_merges then MERGE_CTR128_TAC (List.assoc k fill_merges) ("s"^string_of_int k)
-         else ALL_TAC)) (1--125)) (asl,w));;
 
 (* ------------------------------------------------------------------ *)
 (* Shared pre-branch fill leg (0xa0 -> 0x290, establishes inv 0, hyp 2 <= loop_count). *)
@@ -1132,14 +1067,10 @@ let fill290_hyps = subst [`2 <= loop_count`,`3 <= loop_count`] fill_hyps;;
 let fill290_goal = list_mk_forall(vs_fill, mk_imp(fill290_hyps, fill290_ens));;
 
 let fill290_step n =
-  (fun (asl,w) -> (MAP_EVERY (fun k ->
-        gkeep2 REDSETX_DEC AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC ("s"^string_of_int k) THEN
-        RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `loop_count = 0 <=> F`; ASSUME `loop_count = 1 <=> F`;
-           ASSUME `val(word_sub (word loop_count:int64) (word 1)) = 0 <=> F`; COND_CLAUSES]) THEN
-        RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                 ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-        (if List.mem_assoc k fill_merges then MERGE_CTR128_TAC (List.assoc k fill_merges) ("s"^string_of_int k)
-         else ALL_TAC)) (1--n)) (asl,w));;
+  SWP_STEPS_TAC dec_anchors ctr_slots_all REDSETX_DEC EXEC
+    (K (RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `loop_count = 0 <=> F`; ASSUME `loop_count = 1 <=> F`;
+          ASSUME `val(word_sub (word loop_count:int64) (word 1)) = 0 <=> F`; COND_CLAUSES])))
+    fill_merges (1--n);;
 
 let fill290_prefix =
   REPEAT STRIP_TAC THEN ENSURES_INIT_TAC "s0" THEN
@@ -1215,7 +1146,7 @@ let SWP_DEC_FILLLEG = prove(fill_goal,
      [MAP_EVERY UNDISCH_TAC [`nblocks DIV 4 = loop_count`; `16 * nblocks <= 2 EXP 64`] THEN
       ARITH_TAC; ALL_TAC] THEN
     MP_TAC(SPEC_ALL fill290_cbz_nt) THEN ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_TAC] THEN
-    gkeep2 REDSETX_DEC AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC "s1" THEN
+    SWP_STEP_TAC dec_anchors ctr_slots_all REDSETX_DEC EXEC "s1" THEN
     RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val(word(loop_count - 2 - 0):int64) = 0 <=> F`;
                                COND_CLAUSES]) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
@@ -1247,44 +1178,15 @@ let SWP_DEC_LC2_PARTA = prove(fill_goal_lc2,
     ENSURES_INIT_TAC "s0" THEN
     RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4] THEN
     MP_TAC(SPEC_ALL fill290_cbz_t) THEN ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_TAC] THEN
-    gkeep2 REDSETX_DEC AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC "s1" THEN
+    SWP_STEP_TAC dec_anchors ctr_slots_all REDSETX_DEC EXEC "s1" THEN
     RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val(word(loop_count - 2 - 0):int64) = 0 <=> T`;
                                COND_CLAUSES]) THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
     REPEAT CONJ_TAC THEN FILL_CLOSE]);;
 
 (* ================= DRAIN: inv (loop_count-2) -> postcondition  (0x510 -> 0xaa0) ================= *)
-(* Uses FILL's shared abl_s / REV64_16B_IS_BSW_REVFIELDS.  DRAIN's keep-stepper additionally anchors
-   out_p STORE facts and in_p READ facts (drain_gkeep2), distinct from FILL's gkeep2. *)
-
-let drain_is_spctr_read2 c = try
-    let l = lhs c in
-    fst(dest_const(fst(strip_comb l)))="read" && free_in `stackpointer:int64` l &&
-    (can (find_term (fun t -> match t with
-       | Comb(Comb(Const("word_add",_),sp),Comb(Const("word",_),n))
-           when (try fst(dest_var sp)="stackpointer" with _->false) ->
-             (let v=string_of_term n in
-              v="160"||v="176"||v="192"||v="208"||v="168"||v="184"||v="200"||v="216") | _ -> false)) l)
-  with _ -> false;;
-
-let drain_gkeep2 keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
-  (fun (asl,w) -> let cs=map(fun(_,t)->concl t)asl in
-    let mx=map(fun r->(r,itlist(fun c m->match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m)cs(-1)))keeplist in
-    let anchored c = try (drain_is_spctr_read2 c) ||
-        (fst(dest_const(fst(strip_comb(lhs c))))="read" &&
-         ((free_in `tag_p:int64` (lhs c)) || (free_in `ivec_p:int64` (lhs c)) || (free_in `htable_p:int64` (lhs c)) ||
-          (free_in `out_p:int64` (lhs c)) ||
-          (free_in `in_p:int64` (lhs c))))
-      with _ -> false in
-    DISCARD_ASSUMPTIONS_TAC(fun th->let c=concl th in
-      if (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
-      then (try let _,args = strip_comb c in string_of_term(last args) <> sname with _ -> false) else
-      if is_forall c then
-        (if free_in `in_p:int64` c || free_in `out_p:int64` c then false
-         else (match state_of_forall c with Some nm -> nm <> sname | None -> false)) else
-      if anchored c then false else
-      match gc2 keeplist c with Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w)) THEN DISCARD_STALE_TAC sname;;
+(* Uses FILL's shared abl_s / REV64_16B_IS_BSW_REVFIELDS.  The drain also finishes the output, so its
+   stepper anchors the input and output memory facts as well. *)
 
 let drain_post_body = `read X0 s = word_add in_p (word (64 * loop_count)) /\
    read X2 s = word_add out_p (word (64 * loop_count)) /\
@@ -1333,19 +1235,15 @@ let drain514_ens = list_mk_comb(`ensures arm`,[drain514_pre; drain_post; drain_f
 let drain514_hyps = subst [`2 <= loop_count`, `3 <= loop_count`] drain_hyps;;
 let drain514_goal = list_mk_forall(vs_drain, mk_imp(drain514_hyps, drain514_ens));;
 
-(* stepper: drain_gkeep2 + counter merges at the tower-referenced ldr states.  Step 97 (0x694) is the first
+(* stepper: counter merges at the tower-referenced ldr states.  Step 97 (0x694) is the first
    reduce's final `ext v30`: abbreviate the settled group-(loop_count-2) accumulator to `inter` so the second
    reduce + downstream references fold it (a 10x collapse of the Q30 tower). *)
 let drain_merges = [(17,208);(42,176);(48,192)];;
 let drain_step_tac =
-  (fun (asl,w) -> (MAP_EVERY (fun k ->
-        drain_gkeep2 REDSETX_DEC AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC ("s"^string_of_int k) THEN
-        RULE_ASSUM_TAC(REWRITE_RULE[COND_CLAUSES]) THEN
-        RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                 ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-        (if k = 97 then REABBREV_TAC (mk_eq(`inter:int128`, `read Q30 s97`)) else ALL_TAC) THEN
-        (if List.mem_assoc k drain_merges then MERGE_CTR128_TAC (List.assoc k drain_merges) ("s"^string_of_int k)
-         else ALL_TAC)) (1--197)) (asl,w));;
+  SWP_STEPS_TAC dec_anchors_io ctr_slots_all REDSETX_DEC EXEC
+    (fun k -> RULE_ASSUM_TAC(REWRITE_RULE[COND_CLAUSES]) THEN
+              (if k = 97 then REABBREV_TAC (mk_eq(`inter:int128`, `read Q30 s97`)) else ALL_TAC))
+    drain_merges (1--197);;
 
 let rhs_has c w = try (is_eq w) && can (find_term (fun u -> try fst(dest_const(fst(strip_comb u)))=c with _->false)) (rhs w) with _->false;;
 
@@ -1538,7 +1436,7 @@ let SWP_DEC_DRAINLEG = prove(drain_goal,
     ENSURES_INIT_TAC "s0" THEN
     RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4] THEN
     MP_TAC drain_cbnz_guard THEN DISCH_TAC THEN
-    drain_gkeep2 REDSETX_DEC AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC "s1" THEN
+    SWP_STEP_TAC dec_anchors_io ctr_slots_all REDSETX_DEC EXEC "s1" THEN
     RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val(word(loop_count - 2 - (loop_count - 2)):int64) = 0 <=> T`;
                                NOT_CLAUSES; COND_CLAUSES]) THEN
     ENSURES_FINAL_STATE_TAC THEN
@@ -1554,57 +1452,6 @@ let SWP_DEC_DRAINLEG = prove(drain_goal,
     MATCH_MP_TAC SWP_DEC_DRAIN514 THEN EXISTS_TAC `key_p:int64` THEN ASM_REWRITE_TAC[]]);;
 
 (* ============================ iter_1 (loop_count=1) leg ============================ *)
-let sp_off_str c =
-  try let l = lhs c in
-    let off = find_term (fun t -> match t with
-       | Comb(Comb(Const("word_add",_),sp),Comb(Const("word",_),_))
-           when (try fst(dest_var sp)="stackpointer" with _->false) -> true | _ -> false) l in
-    (match off with Comb(Comb(_,_),Comb(_,noff)) -> string_of_term noff | _ -> "")
-  with _ -> "";;
-let read_state_idx c =
-  try let rdx,st = dest_comb (lhs c) in
-    (match st with Var(nm,_) when String.length nm>=2 && nm.[0]='s' ->
-       (try int_of_string (String.sub nm 1 (String.length nm-1)) with _-> -1) | _ -> -1)
-  with _ -> -1;;
-let forall_state_idx c =
-  try (match state_of_forall c with
-       | Some nm -> if String.length nm>=2 && nm.[0]='s' then (try int_of_string (String.sub nm 1 (String.length nm-1)) with _-> -1) else -1
-       | None -> -1)
-  with _ -> -1;;
-let mxreg_of cs keeplist r = itlist (fun c m -> match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m) cs (-1);;
-let sp_match c ofs = if sp_off_str c = ofs then read_state_idx c else (-1);;
-let mxsp_of cs ofs = itlist (fun c m -> max (sp_match c ofs) m) cs (-1);;
-let max_forall_idx cs = itlist (fun c m -> if is_forall c then max (forall_state_idx c) m else m) cs (-1);;
-let anchored_read c =
-  try fst(dest_const(fst(strip_comb(lhs c))))="read" &&
-    (free_in `tag_p:int64` (lhs c) || free_in `ivec_p:int64` (lhs c) || free_in `htable_p:int64` (lhs c) ||
-     free_in `out_p:int64` (lhs c) || free_in `in_p:int64` (lhs c))
-  with _ -> false;;
-let is_old_state_read c sname =
-  try let rdx,st = dest_comb (lhs c) in
-    (match st with Var(nm,_) -> nm<>sname && String.length nm>=1 && nm.[0]='s' | _ -> false)
-  with _ -> false;;
-let is_maychange_notlast c sname =
-  (try can (find_term (fun x -> match x with Const("MAYCHANGE",_)->true|_->false)) c with _->false) &&
-  (try let _,args = strip_comb c in string_of_term(last args) <> sname with _ -> false);;
-let gkeep3_discard keeplist sname cs mx mxsp mxfa c =
-  if is_maychange_notlast c sname then true
-  else if is_neg c then true
-  else if is_forall c then forall_state_idx c < mxfa
-  else
-    let spo = sp_off_str c in
-    if not (spo = "") then read_state_idx c < List.assoc spo mxsp
-    else if anchored_read c then false
-    else (match gc2 keeplist c with Some(r,k) -> k < List.assoc r mx | None -> is_old_state_read c sname);;
-let gkeep3 keeplist th sname =
-  ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
-  (fun (asl,w) ->
-     let cs = map (fun p -> concl (snd p)) asl in
-     let mx = map (fun r -> (r, mxreg_of cs keeplist r)) keeplist in
-     let spoffs = setify (filter (fun s -> not (s = "")) (map sp_off_str cs)) in
-     let mxsp = map (fun ofs -> (ofs, mxsp_of cs ofs)) spoffs in
-     let mxfa = max_forall_idx cs in
-     DISCARD_ASSUMPTIONS_TAC (fun th -> gkeep3_discard keeplist sname cs mx mxsp mxfa (concl th)) (asl,w)) THEN DISCARD_STALE_TAC sname;;
 
 (* ---- iter_1 goal: 0xa0 precond -> 0xaa0 WEAKENED postcond (X1 dropped), loop_count = 1 ---- *)
 let abl_s = `aligned_bytes_loaded s (word pc) aes_gcm_dec_kernel_x4_scalar_iv_mem_late_tag_keep_htable_swp_mc`;;
@@ -1680,13 +1527,8 @@ let iter1_goal = list_mk_forall(vs_i1, mk_imp(iter1_hyps, iter1_ens));;
    ABS step indices 16(208), 23(176), 27(160), 32(192) (body-relative 13/20/24/29 + 3 control prefix). ---- *)
 let iter1_merges = [(16,208);(23,176);(27,160);(32,192)];;
 let iter1_step_tac =
-  (fun (asl,w) -> (MAP_EVERY (fun k ->
-        gkeep3 REDSETX_DEC AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC ("s"^string_of_int k) THEN
-        RULE_ASSUM_TAC(REWRITE_RULE[COND_CLAUSES]) THEN
-        RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                 ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-        (if List.mem_assoc k iter1_merges then MERGE_CTR128_TAC (List.assoc k iter1_merges) ("s"^string_of_int k)
-         else ALL_TAC)) (1--161)) (asl,w));;
+  SWP_STEPS_TAC dec_anchors_io ctr_slots_all REDSETX_DEC EXEC
+    (K (RULE_ASSUM_TAC(REWRITE_RULE[COND_CLAUSES]))) iter1_merges (1--161);;
 
 (* ---- single-group settled-Q30 closer: acc = tag0 = nist_ghash..(0), blocks 0..3, reduces to
    nist_ghash..(4).  (This is the clean-body i=0 closer / DRAIN GHASH_SETTLE with k=0, literal indices.) ---- *)
@@ -2671,8 +2513,6 @@ let AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_SUBROUTINE_CORR
 (* variant additionally wraps the register-save prologue and register-restore *)
 (* epilogue over the 224-byte stack frame (WORD_FORALL_OFFSET_TAC 224).        *)
 (* ------------------------------------------------------------------------- *)
-
-let EXEC = AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC;;
 
 let SAFE_SIM = ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
                  ~canonicalize_pc_diff:false EXEC;;

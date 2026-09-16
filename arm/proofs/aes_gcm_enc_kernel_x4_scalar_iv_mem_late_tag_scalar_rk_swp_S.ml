@@ -479,26 +479,11 @@ let body_goal = mk_body_goal swpS_inv8;;
 (* store sites for MERGE_CTR128_TAC *)
 let merges = [(10,176);(28,192);(31,176);(41,160);(50,160);(63,208);(81,192);(95,208)];;
 
-(* discard predicate: TRUE = drop.  Keep (a) the current step's reads, (b) the per-reg latest read of
-   each keeplist reg, and (c) any read of in_p-memory (the read-only input-split anchors, needed for the
-   prefetch loads to fold to inblock across stepping - they read s0 but must NOT be discarded). *)
-let gkeepN keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
-  (fun (asl,w) -> let cs=map(fun(_,t)->concl t)asl in
-    let mx=map(fun r->(r,itlist(fun c m->match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m)cs(-1)))keeplist in
-    DISCARD_ASSUMPTIONS_TAC(fun th->let c=concl th in
-      (* MAYCHANGE assumptions: KEEP only the one whose 2nd state arg is the CURRENT step (sname) -
-         discard superseded ones (older 2nd-arg) so exactly ONE `s0 s<final>` survives at the end, which
-         ENSURES_FINAL_STATE_TAC / MONOTONE_MAYCHANGE_TAC then uses to discharge the frame in-context. *)
-      if (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
-      then (try let _,args = strip_comb c in string_of_term(last args) <> sname with _ -> false) else
-      if (try free_in `in_p:int64` (lhs c) with _->false) then false else
-      match gc2 keeplist c with
-      Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w)) THEN DISCARD_STALE_TAC sname;;
-
 (* GHASH-reduce Q-regs + the counter/input X-lanes carried through the reduce lineage. *)
 let REDSETX = ["Q0";"Q1";"Q2";"Q3";"Q4";"Q5";"Q6";"Q8";"Q13";"Q14";"Q16";"Q17";"Q28";"Q29";"Q30";"Q31";
                "X7";"X8";"X11";"X13";"X14";"X17";"X23";"X24";"X25";"X26";"X28";"X30"];;
+(* The stepper anchors the input-block reads (the read-only input-split facts at s0). *)
+let enc_anchors = [`in_p:int64`];;
 
 (* loop-head scalar lanes to GHOST_INTRO (so their s0 value is a logic var kept across the body, not a
    discarded ghost).  X23/X28 ARE here (consumed early @0x210->Q13@0x21c) so they must be KEPT; the
@@ -543,7 +528,7 @@ let INPUT_SPLIT_TAC =
 (* ABBREV-based setup (John's key fix): GHOST_INTRO the loop-head scalar lanes, then ENSURES_INIT +
    input-split, then ABBREV every remaining `read C s0` to init_ logic vars.  This makes every in-body
    value a stable init_-expression that DISCARD_OLDSTATE never drops, keeping the reduce towers BOUNDED
-   (init_ atoms, not read-state megabyte towers).  Then gkeepN keeps the reduce lineage -> orphan-free Q30. *)
+   (init_ atoms, not read-state megabyte towers).  Then the stepper keeps the reduce lineage -> orphan-free Q30. *)
 let setup_tac =
   STRIP_TAC THEN REWRITE_TAC[fst SWPS_EXEC] THEN
   MAP_EVERY (fun rn -> GHOST_INTRO_TAC (mk_var("ghost_"^rn,`:int64`)) (parse_term("read "^rn))) ghost_lanes THEN
@@ -563,22 +548,14 @@ let setup_tac =
                               && string_of_term t <> "read PC s0") reads0 in
     (EVERY (List.mapi (fun k t -> ABBREV_TAC (mk_eq(mk_var(Printf.sprintf "init_%d" k, type_of t), t))) toab)) (asl,w));;
 
-(* Stepper: gkeepN keep-latest over REDSETX (keeps Q30 + reduce lineage; plain discard would drop
+(* Stepper: keep-latest over REDSETX (keeps Q30 + reduce lineage; plain discard would drop
    Q30@176).  The init_-ABBREV setup keeps the towers bounded.  Prefetch input reads for blocks 4i+5/6/7
    (feeding the i+1 pins X23/Q10/Q15) settle as read(bytes64 (in_p+word(64i))+word K) sN with a NESTED
    address + a non-s0 state, so they don't auto-match the s0 split anchors; a post-step normalization
    (addr-fold + input-forall @ current state) resolves them (see prefetch_fold_tac). *)
 let step_body_tac =
   setup_tac THEN
-  (fun (asl,w) ->
-     (MAP_EVERY (fun k ->
-        gkeepN REDSETX SWPS_EXEC ("s"^string_of_int k) THEN
-        RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                 ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC
-                                 IN_P_ADDR_FOLD_CONV)) THEN
-        (if List.mem_assoc k merges then MERGE_CTR128_TAC (List.assoc k merges) ("s"^string_of_int k)
-         else ALL_TAC))
-       (1--177)) (asl,w)) THEN
+  SWP_STEPS_TAC enc_anchors [] REDSETX SWPS_EXEC (K ALL_TAC) merges (1--177) THEN
   RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                            ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC
                            IN_P_ADDR_FOLD_CONV)) THEN
@@ -797,14 +774,14 @@ let close_goal9 : tactic =
 (* ---- goal [10]: MAYCHANGE frame.  Shipped-proof idiom (cf. _swp_S_via_equiv_correct.ml): MP all the per-step
    MAYCHANGE assumptions, then a SINGLE MONOTONE_MAYCHANGE_TAC.  (REPEAT(MONOTONE.. ORELSE SUBSUMED..)
    LOOPS - MONOTONE makes trivial progress forever.) ---- *)
-(* The frame goal is `<declared frame> s0 s177`.  gkeepN keeps MANY MAYCHANGE assumptions (one per step,
+(* The frame goal is `<declared frame> s0 s177`.  The stepper may leave several MAYCHANGE assumptions (one per step,
    various state pairs); MONOTONE_MAYCHANGE_TAC's FIRST_ASSUM may pick a WRONG one (e.g. a per-step
    fragment sk s(k+1)) -> "No match".  Fix: find the ONE full-body maychange assumption whose 2nd state
    arg is s177 (the final state), MP it, then subsumed.  Fallbacks retained. *)
 let close_goal10 : tactic =
   fun (asl,w) ->
     let is_mc c = try can(find_term(fun x->match x with Const("MAYCHANGE",_)->true|_->false)) c with _->false in
-    (* gkeepN leaves several MAYCHANGE-bearing assumptions; the RIGHT one is the full-body `bigR s0 s177`.
+    (* The stepper may leave several MAYCHANGE-bearing assumptions; the RIGHT one is the full-body `bigR s0 s177`.
        Try each maychange assumption with MATCH_MP pth + SUBSUMED; whichever works wins.  First establish
        the current-group output-store bound `4*i+3 < nblocks` (SUBSUMED needs it for out_p containment). *)
     let pth = prove(`R s s' ==> R subsumed R' ==> R' s s'`, REWRITE_TAC[subsumed] THEN MESON_TAC[]) in
@@ -1008,15 +985,8 @@ let fill_step_tac =
   RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val(word loop_count:int64) = loop_count`;
                              ASSUME `~(loop_count = 0)`; COND_CLAUSES]) THEN
   (* steps 2..88 with per-step subword + MERGE at fill_merges; then step 89 (the mid cbz) resolves via
-     the loop_count-1 valfacts; then 90..N to reach 0x1ec.  Use gkeepN REDSETX to keep the i=0 partials. *)
-  (fun (asl,w) ->
-     (MAP_EVERY (fun k ->
-        gkeepN REDSETX SWPS_EXEC ("s"^string_of_int k) THEN
-        RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                 ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-        (if List.mem_assoc k fill_merges then MERGE_CTR128_TAC (List.assoc k fill_merges) ("s"^string_of_int k)
-         else ALL_TAC))
-       (2--88)) (asl,w)) THEN
+     the loop_count-1 valfacts; then 90..N to reach 0x1ec.  The stepper keeps the i=0 partials. *)
+  SWP_STEPS_TAC enc_anchors [] REDSETX SWPS_EXEC (K ALL_TAC) fill_merges (2--88) THEN
   ARM_STEPS_TAC SWPS_EXEC [89] THEN
   RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val(word_sub (word loop_count) (word 1):int64) = loop_count - 1`;
                              ASSUME `~(loop_count - 1 = 0)`; COND_CLAUSES]) THEN
@@ -1235,15 +1205,8 @@ let reducelast_step_tac =
   (* guard cbnz@0x4b0: step 1, X1=word 0 -> val 0 -> not taken *)
   ARM_STEPS_TAC SWPS_EXEC [1] THEN
   RULE_ASSUM_TAC(REWRITE_RULE[VAL_WORD_0; COND_CLAUSES]) THEN
-  (* steps 2..91 (reduce_last 0x4b4..0x618) with per-step subword + MERGE.  gkeepN keeps the reduce set. *)
-  (fun (asl,w) ->
-     (MAP_EVERY (fun k ->
-        gkeepN REDSETX SWPS_EXEC ("s"^string_of_int k) THEN
-        RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                 ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-        (if List.mem_assoc k reducelast_merges then MERGE_CTR128_TAC (List.assoc k reducelast_merges) ("s"^string_of_int k)
-         else ALL_TAC))
-       (2--91)) (asl,w)) THEN
+  (* steps 2..91 (reduce_last 0x4b4..0x618) with per-step subword + MERGE; the stepper keeps the reduce set. *)
+  SWP_STEPS_TAC enc_anchors [] REDSETX SWPS_EXEC (K ALL_TAC) reducelast_merges (2--91) THEN
   RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                            ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];;
