@@ -955,19 +955,23 @@ let gc2 keeplist c = try let l=lhs c in let rd,st=dest_comb l in let rr,cc=dest_
         (try Some(fst(dest_const cc), int_of_string(String.sub nm 1 (String.length nm-1))) with _->None) |_->None) else None
   with _->None;;
 (* Discard a fact about an OLD state when the same fact (modulo the state variable) already holds of
-   the current state and no other assumption mentions that old state, so nothing can still need it.
+   the current state and no other assumption refers to that old state.  A fact refers to a state that
+   occurs in it other than as the state its own left-hand read is about: the latest value of a register
+   may mention an earlier state's memory read (`read Q5 s148 = .. read (memory :> ..) s99 ..`), which
+   keeps s99's facts (the closers resolve that read from them) but says nothing about s148.
    The stepper re-derives the anchored memory facts, the in_p/out_p foralls and aligned_bytes_loaded
-   at every step; without this they accumulate one copy per state (1600 assumptions by the end of a
-   leg) and every ARM_STEP_TAC and ASM_REWRITE_TAC is linear in the assumption list.  States that are
-   still referenced (the memory reads embedded in the register towers, resolved by the closers'
-   MERGE_CTR128_TAC at those states) keep all their facts. *)
+   at every step; without this they accumulate one copy per state and every ARM_STEP_TAC and
+   ASM_REWRITE_TAC is linear in the assumption list. *)
 let DISCARD_STALE_TAC sname : tactic = fun (asl,w) ->
   let sv = mk_var(sname,`:armstate`) in
   let is_st v = is_var v && type_of v = `:armstate` in
   let cs = map (fun (_,th) -> concl th) asl in
+  let own c = try (match strip_comb (lhs c) with
+                     (Const("read",_),[_;st]) when is_st st -> [st] | _ -> [])
+              with Failure _ -> [] in
   let live = itlist (fun c acc ->
       let svs = filter is_st (frees c) in
-      if length svs >= 2 then union svs acc else acc) cs [] in
+      if length svs >= 2 then union (subtract svs (own c)) acc else acc) cs [] in
   let cur = filter (vfree_in sv) cs in
   DISCARD_ASSUMPTIONS_TAC (fun th ->
     let c = concl th in
