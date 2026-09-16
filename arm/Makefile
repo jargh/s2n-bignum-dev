@@ -591,6 +591,9 @@ aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S_via_equiv_c
 curve25519/curve25519_x25519.native: curve25519/bignum_inv_p25519.native
 curve25519/curve25519_x25519_alt.native: curve25519/bignum_inv_p25519.native
 curve25519/curve25519_x25519_byte.native: curve25519/bignum_inv_p25519.native
+# The two software-pipelined AES-GCM proofs share arm/proofs/aes_gcm_utils.ml.
+aes_gcm/aes_gcm_dec_kernel_x4_scalar_iv_mem_late_tag_keep_htable_swp.native: proofs/aes_gcm_utils.ml
+aes_gcm/aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S.native: proofs/aes_gcm_utils.ml
 curve25519/curve25519_x25519_byte_alt.native: curve25519/bignum_inv_p25519.native
 curve25519/curve25519_x25519base.native: curve25519/bignum_inv_p25519.native
 curve25519/curve25519_x25519base_alt.native: curve25519/bignum_inv_p25519.native
