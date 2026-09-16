@@ -1022,6 +1022,27 @@ let state_of_forall c =
   try let rd = find_term (fun t -> match t with
         Comb(Comb(Const("read",_),_),Var(nm,_)) when String.length nm>=1 && nm.[0]='s' -> true | _->false) c in
       (match rd with Comb(_,Var(nm,_)) -> Some nm | _ -> None) with _ -> None;;
+(* Discard a fact about an OLD state when the same fact (modulo the state variable) already holds of
+   the current state and no other assumption mentions that old state, so nothing can still need it.
+   The stepper re-derives the anchored memory facts, the in_p/out_p foralls and aligned_bytes_loaded
+   at every step; without this they accumulate one copy per state (1600 assumptions by the end of a
+   leg) and every ARM_STEP_TAC and ASM_REWRITE_TAC is linear in the assumption list.  States that are
+   still referenced (the memory reads embedded in the register towers, resolved by the closers'
+   MERGE_CTR128_TAC at those states) keep all their facts. *)
+let DISCARD_STALE_TAC sname : tactic = fun (asl,w) ->
+  let sv = mk_var(sname,`:armstate`) in
+  let is_st v = is_var v && type_of v = `:armstate` in
+  let cs = map (fun (_,th) -> concl th) asl in
+  let live = itlist (fun c acc ->
+      let svs = filter is_st (frees c) in
+      if length svs >= 2 then union svs acc else acc) cs [] in
+  let cur = filter (vfree_in sv) cs in
+  DISCARD_ASSUMPTIONS_TAC (fun th ->
+    let c = concl th in
+    match filter is_st (frees c) with
+      [s] when s <> sv && not (mem s live) -> exists (aconv (vsubst [sv,s] c)) cur
+    | _ -> false) (asl,w);;
+
 let gkeepN_mem2 keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
   (fun (asl,w) -> let cs=map(fun(_,t)->concl t)asl in
     let mx=map(fun r->(r,itlist(fun c m->match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m)cs(-1)))keeplist in
@@ -1037,7 +1058,7 @@ let gkeepN_mem2 keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) 
          else (match state_of_forall c with Some nm -> nm <> sname | None -> false)) else
       if anchored c then false else
       match gc2 keeplist c with Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w));;
+      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w)) THEN DISCARD_STALE_TAC sname;;
 let REDSETX_DEC = ["Q0";"Q1";"Q2";"Q3";"Q4";"Q5";"Q6";"Q8";"Q9";"Q10";"Q11";"Q29";"Q30";"Q31";
                    "X0";"X2";"X7";"X13";"X14";"X17";"X21";"X23";"X24";"X25";"X26";"X27";"X29"];;
 let steady_merges = [(17,208);(46,176);(52,192);(112,160)];;
@@ -1550,7 +1571,7 @@ let gkeep2 keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
          else (match state_of_forall c with Some nm -> nm <> sname | None -> false)) else
       if anchored c then false else
       match gc2 keeplist c with Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w));;
+      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w)) THEN DISCARD_STALE_TAC sname;;
 
 (* FILL per-conjunct closer.  8 shape-specific branches (all validated interactively, 24/24). *)
 let FILL_CLOSE : tactic =
@@ -1770,7 +1791,7 @@ let drain_gkeep2 keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC)
          else (match state_of_forall c with Some nm -> nm <> sname | None -> false)) else
       if anchored c then false else
       match gc2 keeplist c with Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w));;
+      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w)) THEN DISCARD_STALE_TAC sname;;
 
 let drain_post_body = `read X0 s = word_add in_p (word (64 * loop_count)) /\
    read X2 s = word_add out_p (word (64 * loop_count)) /\
@@ -2090,7 +2111,7 @@ let gkeep3 keeplist th sname =
      let spoffs = setify (filter (fun s -> not (s = "")) (map sp_off_str cs)) in
      let mxsp = map (fun ofs -> (ofs, mxsp_of cs ofs)) spoffs in
      let mxfa = max_forall_idx cs in
-     DISCARD_ASSUMPTIONS_TAC (fun th -> gkeep3_discard keeplist sname cs mx mxsp mxfa (concl th)) (asl,w));;
+     DISCARD_ASSUMPTIONS_TAC (fun th -> gkeep3_discard keeplist sname cs mx mxsp mxfa (concl th)) (asl,w)) THEN DISCARD_STALE_TAC sname;;
 
 (* ---- iter_1 goal: 0xa0 precond -> 0xaa0 WEAKENED postcond (X1 dropped), loop_count = 1 ---- *)
 let abl_s = `aligned_bytes_loaded s (word pc) aes_gcm_dec_kernel_x4_scalar_iv_mem_late_tag_keep_htable_swp_mc`;;

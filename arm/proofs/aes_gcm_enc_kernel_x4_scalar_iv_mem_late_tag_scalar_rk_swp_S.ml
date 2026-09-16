@@ -954,6 +954,27 @@ let gc2 keeplist c = try let l=lhs c in let rd,st=dest_comb l in let rr,cc=dest_
      (match st with Var(nm,_) when String.length nm>=2 && nm.[0]='s' ->
         (try Some(fst(dest_const cc), int_of_string(String.sub nm 1 (String.length nm-1))) with _->None) |_->None) else None
   with _->None;;
+(* Discard a fact about an OLD state when the same fact (modulo the state variable) already holds of
+   the current state and no other assumption mentions that old state, so nothing can still need it.
+   The stepper re-derives the anchored memory facts, the in_p/out_p foralls and aligned_bytes_loaded
+   at every step; without this they accumulate one copy per state (1600 assumptions by the end of a
+   leg) and every ARM_STEP_TAC and ASM_REWRITE_TAC is linear in the assumption list.  States that are
+   still referenced (the memory reads embedded in the register towers, resolved by the closers'
+   MERGE_CTR128_TAC at those states) keep all their facts. *)
+let DISCARD_STALE_TAC sname : tactic = fun (asl,w) ->
+  let sv = mk_var(sname,`:armstate`) in
+  let is_st v = is_var v && type_of v = `:armstate` in
+  let cs = map (fun (_,th) -> concl th) asl in
+  let live = itlist (fun c acc ->
+      let svs = filter is_st (frees c) in
+      if length svs >= 2 then union svs acc else acc) cs [] in
+  let cur = filter (vfree_in sv) cs in
+  DISCARD_ASSUMPTIONS_TAC (fun th ->
+    let c = concl th in
+    match filter is_st (frees c) with
+      [s] when s <> sv && not (mem s live) -> exists (aconv (vsubst [sv,s] c)) cur
+    | _ -> false) (asl,w);;
+
 (* discard predicate: TRUE = drop.  Keep (a) the current step's reads, (b) the per-reg latest read of
    each keeplist reg, and (c) any read of in_p-memory (the read-only input-split anchors, needed for the
    prefetch loads to fold to inblock across stepping - they read s0 but must NOT be discarded). *)
@@ -969,7 +990,7 @@ let gkeepN keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
       if (try free_in `in_p:int64` (lhs c) with _->false) then false else
       match gc2 keeplist c with
       Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w));;
+      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w)) THEN DISCARD_STALE_TAC sname;;
 
 (* Surgical address-fold: inside `word_add in_p (word (...))` ONLY, fold a nested num offset
    (64*i+c)+d -> 64*i+(c+d) (GSYM ADD_ASSOC + NUM_ADD).  Scoped to in_p reads so it can NOT mangle
