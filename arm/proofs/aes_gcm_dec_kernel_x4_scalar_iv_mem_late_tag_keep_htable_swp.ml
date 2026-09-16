@@ -1593,19 +1593,49 @@ let fill_step_tac =
         (if List.mem_assoc k fill_merges then MERGE_CTR128_TAC (List.assoc k fill_merges) ("s"^string_of_int k)
          else ALL_TAC)) (1--125)) (asl,w));;
 
-(* Diagnostic per-conjunct closer: try FILL_CLOSE; if it fails, PRINT the conjunct goal and leave it. *)
+(* ------------------------------------------------------------------ *)
+(* Shared pre-branch fill leg (0xa0 -> 0x290, establishes inv 0, hyp 2 <= loop_count). *)
+(* FILLLEG and LC2-PARTA both bridge one branch step off this shared leg. *)
+(* ------------------------------------------------------------------ *)
 
-let SWP_DEC_FILLLEG = prove(fill_goal,
+(* branch_lem restated for the shared leg's weaker hypothesis 2 <= loop_count: the b.eq at 0xa8
+   guard tests loop_count = 1, already false for loop_count >= 2.  branch_lem itself needs 3 <= loop_count. *)
+let branch_lem_ge2 = prove(
+  `2 <= loop_count /\ loop_count < 2 EXP 64
+   ==> (val(word_sub (word loop_count:int64) (word 1)) = 0 <=> F)`,
+  STRIP_TAC THEN REWRITE_TAC[VAL_EQ_0; WORD_SUB_EQ_0] THEN
+  DISCH_THEN(MP_TAC o AP_TERM `val:int64->num`) THEN
+  SUBGOAL_THEN `val(word loop_count:int64) = loop_count` SUBST1_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN ASM_REWRITE_TAC[DIMINDEX_64]; ALL_TAC] THEN
+  REWRITE_TAC[VAL_WORD_1] THEN UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC);;
+
+let fill290_post =
+  mk_abs(`s:armstate`,
+    mk_conj(abl_s,
+      mk_conj(`read PC s = word (pc + 0x290)`, ap swpS_inv8_dec_v8 `0` `s:armstate`)));;
+let fill290_ens  = list_mk_comb(`ensures arm`,[fill_pre; fill290_post; fill_frame]);;
+let fill290_hyps = subst [`2 <= loop_count`,`3 <= loop_count`] fill_hyps;;
+let fill290_goal = list_mk_forall(vs_fill, mk_imp(fill290_hyps, fill290_ens));;
+
+let fill290_step n =
+  (fun (asl,w) -> (MAP_EVERY (fun k ->
+        gkeep2 REDSETX_DEC AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC ("s"^string_of_int k) THEN
+        RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `loop_count = 0 <=> F`; ASSUME `loop_count = 1 <=> F`;
+           ASSUME `val(word_sub (word loop_count:int64) (word 1)) = 0 <=> F`; COND_CLAUSES]) THEN
+        RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
+                                 ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
+        (if List.mem_assoc k fill_merges then MERGE_CTR128_TAC (List.assoc k fill_merges) ("s"^string_of_int k)
+         else ALL_TAC)) (1--n)) (asl,w));;
+
+let fill290_prefix =
   REPEAT STRIP_TAC THEN ENSURES_INIT_TAC "s0" THEN
   SUBGOAL_THEN `loop_count < 2 EXP 64` ASSUME_TAC THENL
    [MAP_EVERY UNDISCH_TAC [`nblocks DIV 4 = loop_count`; `16 * nblocks <= 2 EXP 64`] THEN ARITH_TAC; ALL_TAC] THEN
   VAL_INT64_TAC `loop_count:num` THEN
-  SUBGOAL_THEN `(loop_count = 0 <=> F) /\ (loop_count = 1 <=> F) /\ (loop_count = 2 <=> F)` STRIP_ASSUME_TAC THENL
-   [UNDISCH_TAC `3 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
-  MP_TAC(SPEC_ALL branch_lem) THEN ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_TAC] THEN
-  (* unfold htable_mem_4 -> 4 htable_p reads (anchored by gkeep2, survive to final state); also in goal *)
+  SUBGOAL_THEN `(loop_count = 0 <=> F) /\ (loop_count = 1 <=> F)` STRIP_ASSUME_TAC THENL
+   [UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
+  MP_TAC(SPEC_ALL branch_lem_ge2) THEN ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_TAC] THEN
   RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4] THEN
-  (* input blocks 0..3 pinned for the fill's group-0 loads (in_p+{0,16,32,48}) *)
   SUBGOAL_THEN
    `read (memory :> bytes128 in_p) s0 = inblock 0 /\
     read (memory :> bytes128 (word_add in_p (word 16))) s0 = inblock 1 /\
@@ -1618,18 +1648,13 @@ let SWP_DEC_FILLLEG = prove(fill_goal,
       SUBST1_TAC(WORD_RULE `word_add in_p (word 32):int64 = word_add in_p (word (16*2))`);
       SUBST1_TAC(WORD_RULE `word_add in_p (word 48):int64 = word_add in_p (word (16*3))`)] THEN
     FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC;
-    ALL_TAC] THEN
-  fill_step_tac THEN
-  (* resolve the final cbz @ 0x290 (word_sub .. word 2) then reach 0x294 *)
-  MP_TAC(SPEC_ALL branch_lem2) THEN ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val(word_sub (word loop_count:int64) (word 2)) = 0 <=> F`; COND_CLAUSES]) THEN
+    ALL_TAC];;
+
+let fill290_close =
   ENSURES_FINAL_STATE_TAC THEN
-  (* reconstruct the 4 invariant counter-slot bytes128 reads at s125 from the surviving stp halves;
-     the aes-tower / out-store base merges are done per-conjunct inside FILL_CLOSE at their load states. *)
-  MERGE_CTR128_TAC 160 "s125" THEN MERGE_CTR128_TAC 176 "s125" THEN
-  MERGE_CTR128_TAC 192 "s125" THEN MERGE_CTR128_TAC 208 "s125" THEN
+  MERGE_CTR128_TAC 160 "s124" THEN MERGE_CTR128_TAC 176 "s124" THEN
+  MERGE_CTR128_TAC 192 "s124" THEN MERGE_CTR128_TAC 208 "s124" THEN
   ASM_REWRITE_TAC[] THEN
-  (* goal-level i=0 arithmetic normalization *)
   REWRITE_TAC[ARITH_RULE `4 * 0 = 0`; ARITH_RULE `64 * 0 = 0`;
     ARITH_RULE `4 * 0 + 1 = 1`; ARITH_RULE `4 * 0 + 2 = 2`; ARITH_RULE `4 * 0 + 3 = 3`;
     ARITH_RULE `4 * 0 + 4 = 4`; ARITH_RULE `4 * 0 + 5 = 5`; ARITH_RULE `4 * 0 + 6 = 6`;
@@ -1639,7 +1664,80 @@ let SWP_DEC_FILLLEG = prove(fill_goal,
     ARITH_RULE `64 * 0 + 64 = 64`; ARITH_RULE `loop_count - 2 - 0 = loop_count - 2`] THEN
   REWRITE_TAC[ARITH_RULE `j < 0 <=> F`] THEN
   ASM_REWRITE_TAC[] THEN
-  REPEAT CONJ_TAC THEN FILL_CLOSE);;
+  REPEAT CONJ_TAC THEN FILL_CLOSE;;
+
+let SWP_DEC_FILL290 = prove(fill290_goal,
+  fill290_prefix THEN fill290_step 124 THEN fill290_close);;
+
+(* cbz at 0x290 guards on the invariant's literal X1 form word(loop_count-2-0) (= inv 0). *)
+let fill290_cbz_nt = prove(
+  `3 <= loop_count /\ loop_count < 2 EXP 64
+   ==> (val(word(loop_count - 2 - 0):int64) = 0 <=> F)`,
+  STRIP_TAC THEN
+  SUBGOAL_THEN `val(word(loop_count - 2 - 0):int64) = loop_count - 2 - 0` SUBST1_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
+    UNDISCH_TAC `loop_count < 2 EXP 64` THEN ARITH_TAC;
+    UNDISCH_TAC `3 <= loop_count` THEN ARITH_TAC]);;
+let fill290_cbz_t = prove(
+  `loop_count = 2 ==> (val(word(loop_count - 2 - 0):int64) = 0 <=> T)`,
+  DISCH_THEN SUBST1_TAC THEN REWRITE_TAC[ARITH_RULE `2 - 2 - 0 = 0`; VAL_WORD_0]);;
+
+(* FILLLEG (0xa0 -> 0x294, establish inv 0) = FILL290 followed by the cbz-not-taken bridge
+   0x290 -> 0x294 under 3 <= loop_count (branch falls through, X1 preserved at inv 0). *)
+let SWP_DEC_FILLLEG = prove(fill_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+  ENSURES_SEQUENCE_TAC `pc + 0x290`
+    (mk_abs(`s:armstate`, ap swpS_inv8_dec_v8 `0` `s:armstate`)) THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    SUBGOAL_THEN `2 <= loop_count` ASSUME_TAC THENL
+     [UNDISCH_TAC `3 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
+    MATCH_MP_TAC SWP_DEC_FILL290 THEN EXISTS_TAC `key_p:int64` THEN ASM_REWRITE_TAC[];
+    REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    ENSURES_INIT_TAC "s0" THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4] THEN
+    SUBGOAL_THEN `loop_count < 2 EXP 64` ASSUME_TAC THENL
+     [MAP_EVERY UNDISCH_TAC [`nblocks DIV 4 = loop_count`; `16 * nblocks <= 2 EXP 64`] THEN
+      ARITH_TAC; ALL_TAC] THEN
+    MP_TAC(SPEC_ALL fill290_cbz_nt) THEN ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_TAC] THEN
+    gkeep2 REDSETX_DEC AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC "s1" THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val(word(loop_count - 2 - 0):int64) = 0 <=> F`;
+                               COND_CLAUSES]) THEN
+    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    REPEAT CONJ_TAC THEN FILL_CLOSE]);;
+
+(* LC2-PARTA (0xa0 -> 0x514, loop_count = 2) = FILL290 followed by the cbz-taken bridge
+   0x290 -> 0x514 (branch taken into the drain, X1 = word 0). *)
+let fill_post514 =
+  mk_abs(`s:armstate`,
+    mk_conj(abl_s, mk_conj(`read PC s = word (pc + 0x514)`, ap swpS_inv8_dec_v8 `0` `s:armstate`)));;
+let fill_ens514 = list_mk_comb(`ensures arm`,[fill_pre; fill_post514; fill_frame]);;
+let fill_hyps_lc2 = list_mk_conj
+  ((filter (fun t -> not (t = `i < loop_count - 2`) && not (t = `3 <= loop_count`))
+           (conjuncts bodyleg_hyps))
+   @ [`loop_count = 2`]);;
+let fill_goal_lc2 = list_mk_forall(vs_fill, mk_imp(fill_hyps_lc2, fill_ens514));;
+
+let SWP_DEC_LC2_PARTA = prove(fill_goal_lc2,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+  ENSURES_SEQUENCE_TAC `pc + 0x290`
+    (mk_abs(`s:armstate`, ap swpS_inv8_dec_v8 `0` `s:armstate`)) THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    SUBGOAL_THEN `2 <= loop_count` ASSUME_TAC THENL
+     [UNDISCH_TAC `loop_count = 2` THEN ARITH_TAC; ALL_TAC] THEN
+    MATCH_MP_TAC SWP_DEC_FILL290 THEN EXISTS_TAC `key_p:int64` THEN ASM_REWRITE_TAC[];
+    REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    ENSURES_INIT_TAC "s0" THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4] THEN
+    MP_TAC(SPEC_ALL fill290_cbz_t) THEN ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_TAC] THEN
+    gkeep2 REDSETX_DEC AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC "s1" THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val(word(loop_count - 2 - 0):int64) = 0 <=> T`;
+                               COND_CLAUSES]) THEN
+    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    REPEAT CONJ_TAC THEN FILL_CLOSE]);;
 
 (* ================= DRAIN: inv (loop_count-2) -> postcondition  (0x510 -> 0xaa0) ================= *)
 (* Uses FILL's shared abl_s / REV64_16B_IS_BSW_REVFIELDS.  DRAIN's keep-stepper additionally anchors
@@ -1712,19 +1810,28 @@ let drain_hyps = subst [`3 <= loop_count`, `i < loop_count - 2`] bodyleg_hyps;;
 let vs_drain = filter (fun v -> v <> `i:num`) vs;;
 let drain_goal = list_mk_forall(vs_drain, mk_imp(drain_hyps, drain_ens));;
 
-(* stepper: drain_gkeep2 + counter merges at the tower-referenced ldr states.  Step 98 (0x694) is the first
+(* Shared drain leg (0x514 -> 0xaa0, hyp 2 <= loop_count): entered by the DRAINLEG leaf bridge and
+   by the loop_count = 2 composition.  drain_hyps keeps 3 <= for the DRAINLEG leaf goal; drain514_hyps
+   weakens it to 2 <= for this shared leg. *)
+let drain514_pre = mk_abs(`s:armstate`, mk_conj(abl_s,
+   mk_conj(`read PC s = word (pc + 0x514)`, ap swpS_inv8_dec_v8 `loop_count - 2` `s:armstate`)));;
+let drain514_ens = list_mk_comb(`ensures arm`,[drain514_pre; drain_post; drain_frame]);;
+let drain514_hyps = subst [`2 <= loop_count`, `3 <= loop_count`] drain_hyps;;
+let drain514_goal = list_mk_forall(vs_drain, mk_imp(drain514_hyps, drain514_ens));;
+
+(* stepper: drain_gkeep2 + counter merges at the tower-referenced ldr states.  Step 97 (0x694) is the first
    reduce's final `ext v30`: abbreviate the settled group-(loop_count-2) accumulator to `inter` so the second
    reduce + downstream references fold it (a 10x collapse of the Q30 tower). *)
-let drain_merges = [(18,208);(43,176);(49,192)];;
+let drain_merges = [(17,208);(42,176);(48,192)];;
 let drain_step_tac =
   (fun (asl,w) -> (MAP_EVERY (fun k ->
         drain_gkeep2 REDSETX_DEC AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC ("s"^string_of_int k) THEN
         RULE_ASSUM_TAC(REWRITE_RULE[COND_CLAUSES]) THEN
         RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                                  ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-        (if k = 98 then REABBREV_TAC (mk_eq(`inter:int128`, `read Q30 s98`)) else ALL_TAC) THEN
+        (if k = 97 then REABBREV_TAC (mk_eq(`inter:int128`, `read Q30 s97`)) else ALL_TAC) THEN
         (if List.mem_assoc k drain_merges then MERGE_CTR128_TAC (List.assoc k drain_merges) ("s"^string_of_int k)
-         else ALL_TAC)) (1--198)) (asl,w));;
+         else ALL_TAC)) (1--197)) (asl,w));;
 
 let rhs_has c w = try (is_eq w) && can (find_term (fun u -> try fst(dest_const(fst(strip_comb u)))=c with _->false)) (rhs w) with _->false;;
 
@@ -1781,7 +1888,7 @@ let GHASH_SETTLE_TAC (ktm:term) (off:int) : tactic =
                   if j = 0 then mtm else mk_binop `(+):num->num->num` mtm (mk_small_numeral j)))
           [0;1;2;3]))
          (fun th -> REWRITE_TAC[th]) THENL
-        [UNDISCH_TAC `3 <= loop_count` THEN ARITH_TAC; ALL_TAC]) THEN
+        [UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC]) THEN
     MP_TAC(ISPEC ktm SWP_GHASH_BRANCH2_SETTLED) THEN
     REWRITE_TAC[] THEN DISCH_THEN(fun th -> REWRITE_TAC[th])];;
 
@@ -1796,14 +1903,14 @@ let DRAIN_Q30_TAC : tactic =
                                  with _ -> false) then MP_TAC th else NO_TAC) THEN
     DISCH_THEN(SUBST1_TAC o SYM) THEN
     SUBGOAL_THEN `4 * (loop_count - 1) = 4 * (loop_count - 2) + 4` SUBST1_TAC THENL
-     [UNDISCH_TAC `3 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
+     [UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
     GHASH_SETTLE_TAC `loop_count - 2` 0;
     ALL_TAC] THEN
   FIRST_X_ASSUM(fun th -> if (try is_eq(concl th) && lhs(concl th) = `inter:int128` &&
                                  can(find_term(fun u->try fst(dest_const(fst(strip_comb u)))="nist_ghash" with _->false))(rhs(concl th))
                                with _ -> false) then SUBST1_TAC th else NO_TAC) THEN
   SUBGOAL_THEN `4 * loop_count = 4 * (loop_count - 1) + 4` SUBST1_TAC THENL
-   [UNDISCH_TAC `3 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
+   [UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
   GHASH_SETTLE_TAC `loop_count - 1` 4;;
 
 (* Per-conjunct closer for the drain postcondition, shape-gated. *)
@@ -1854,14 +1961,14 @@ let DRAIN_CLOSE : tactic =
                (CONV_TAC WORD_RULE THEN NO_TAC);
                (CLOSE_V8 THEN NO_TAC) ]) (asl,w));;
 
-let SWP_DEC_DRAINLEG = prove(drain_goal,
+let SWP_DEC_DRAIN514 = prove(drain514_goal,
   REPEAT STRIP_TAC THEN ENSURES_INIT_TAC "s0" THEN
   RULE_ASSUM_TAC(REWRITE_RULE[ARITH_RULE `loop_count - 2 - (loop_count - 2) = 0`]) THEN
   (* prime the drained group's 4 input-block reads to `inblock` form (the SWP ldrs otherwise reach the
      settled-Q30 closer as raw byte-reassembly towers and the branch1 BITBLAST blows up). *)
   SUBGOAL_THEN `4*(loop_count-2)+7 < nblocks` ASSUME_TAC THENL
    [MP_TAC(SPECL [`nblocks:num`;`4`] DIVISION) THEN
-    UNDISCH_TAC `3 <= loop_count` THEN
+    UNDISCH_TAC `2 <= loop_count` THEN
     SUBST1_TAC(SYM(ASSUME `nblocks DIV 4 = loop_count`)) THEN ARITH_TAC;
     ALL_TAC] THEN
   SUBGOAL_THEN
@@ -1884,7 +1991,7 @@ let SWP_DEC_DRAINLEG = prove(drain_goal,
   SUBGOAL_THEN `64 * (loop_count - 2) + 128 = 64 * loop_count /\
                 (64 * (loop_count - 2) + 64) + 64 = 64 * loop_count`
     (fun th -> REWRITE_TAC[th]) THENL
-   [MAP_EVERY UNDISCH_TAC [`3 <= loop_count`] THEN ARITH_TAC; ALL_TAC] THEN
+   [MAP_EVERY UNDISCH_TAC [`2 <= loop_count`] THEN ARITH_TAC; ALL_TAC] THEN
   ASM_REWRITE_TAC[] THEN
   (* split the out-store forall (post j < 4*loop_count) into the invariant's preserved prefix
      j < 4*(loop_count-2) + the 8 drained blocks as explicit unwound equations. *)
@@ -1893,12 +2000,44 @@ let SWP_DEC_DRAINLEG = prove(drain_goal,
       j = 4*(loop_count-2)+3 \/ j = 4*(loop_count-2)+4 \/ j = 4*(loop_count-2)+5 \/ j = 4*(loop_count-2)+6 \/
       j = 4*(loop_count-2)+7`
     (fun th -> REWRITE_TAC[th]) THENL
-   [UNDISCH_TAC `3 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
+   [UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
   REWRITE_TAC[TAUT `p \/ q ==> r <=> (p ==> r) /\ (q ==> r)`] THEN
   REWRITE_TAC[FORALL_AND_THM; FORALL_UNWIND_THM2] THEN
   REWRITE_TAC[ARITH_RULE `16 * (4 * a + b) = 64 * a + 16 * b`; ARITH_RULE `16 * 4 * a = 64 * a`] THEN
   CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN ASM_REWRITE_TAC[] THEN
   REPEAT CONJ_TAC THEN DRAIN_CLOSE);;
+
+(* cbnz @ 0x510 guard: X1 = word(loop_count - 2 - (loop_count - 2)) = word 0, so the branch is NOT taken. *)
+let drain_cbnz_guard = prove(
+  `val(word(loop_count - 2 - (loop_count - 2)):int64) = 0 <=> T`,
+  REWRITE_TAC[ARITH_RULE `loop_count - 2 - (loop_count - 2) = 0`; VAL_WORD_0]);;
+
+(* DRAINLEG (0x510 -> 0xaa0, hyp 3 <= loop_count) = the cbnz-not-taken bridge 0x510 -> 0x514
+   (X1 = word 0, falls through, invariant inv(loop_count - 2) preserved) then SWP_DEC_DRAIN514. *)
+let SWP_DEC_DRAINLEG = prove(drain_goal,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+  ENSURES_SEQUENCE_TAC `pc + 0x514`
+    (mk_abs(`s:armstate`, ap swpS_inv8_dec_v8 `loop_count - 2` `s:armstate`)) THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    ENSURES_INIT_TAC "s0" THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4] THEN
+    MP_TAC drain_cbnz_guard THEN DISCH_TAC THEN
+    drain_gkeep2 REDSETX_DEC AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC "s1" THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val(word(loop_count - 2 - (loop_count - 2)):int64) = 0 <=> T`;
+                               NOT_CLAUSES; COND_CLAUSES]) THEN
+    ENSURES_FINAL_STATE_TAC THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[ARITH_RULE `loop_count - 2 - (loop_count - 2) = 0`]) THEN
+    REWRITE_TAC[ARITH_RULE `loop_count - 2 - (loop_count - 2) = 0`] THEN
+    ASM_REWRITE_TAC[] THEN
+    REPEAT CONJ_TAC THEN
+    FIRST [close_goal10; (ASM_REWRITE_TAC[] THEN TRY REFL_TAC THEN NO_TAC);
+           (AP_TERM_TAC THEN ARITH_TAC)];
+    REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
+    SUBGOAL_THEN `2 <= loop_count` ASSUME_TAC THENL
+     [UNDISCH_TAC `3 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
+    MATCH_MP_TAC SWP_DEC_DRAIN514 THEN EXISTS_TAC `key_p:int64` THEN ASM_REWRITE_TAC[]]);;
 
 (* ============================ iter_1 (loop_count=1) leg ============================ *)
 let sp_off_str c =
@@ -2209,662 +2348,9 @@ let SWP_DEC_ITER1 = prove(iter1_goal,
   CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN ASM_REWRITE_TAC[] THEN
   REPEAT CONJ_TAC THEN ITER1_CLOSE_ALL);;
 
-
-(* ============================ loop_count=2 Part A (0xa0 -> 0x514) ============================ *)
-let fill_pre_body = `read X0 s = in_p /\ read X2 s = out_p /\ read X3 s = tag_p /\ read X4 s = ivec_p /\
-    read X6 s = htable_p /\ read SP s = stackpointer /\
-    read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0 /\
-    read (memory :> bytes128 ivec_p) s = word_reversefields 8 (ctr_block nonce 2) /\
-    read Q18 s = word_reversefields 8 (EL 0 rk) /\ read Q19 s = word_reversefields 8 (EL 1 rk) /\
-    read Q20 s = word_reversefields 8 (EL 2 rk) /\ read Q21 s = word_reversefields 8 (EL 3 rk) /\
-    read Q22 s = word_reversefields 8 (EL 4 rk) /\ read Q23 s = word_reversefields 8 (EL 5 rk) /\
-    read Q24 s = word_reversefields 8 (EL 6 rk) /\ read Q25 s = word_reversefields 8 (EL 7 rk) /\
-    read Q26 s = word_reversefields 8 (EL 8 rk) /\ read Q27 s = word_reversefields 8 (EL 9 rk) /\
-    read Q28 s = word_reversefields 8 (EL 10 rk) /\
-    read Q12 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
-    read Q13 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
-    read Q14 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
-    read Q15 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2) /\
-    read Q16 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3) /\
-    read Q17 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2)) /\
-    read Q7 s = word 13979173243358019584 /\
-    read X11 s = word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
-    read X12 s = word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
-    read X13 s = word_zx (word 2:int32):int64 /\
-    read X15 s = word(len_bits DIV 8) /\ read X1 s = word loop_count /\
-    read X7 s = word nblocks /\ read X16 s = word loop_remain /\
-    read Q30 s = byteswap128 tag0 /\
-    htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
-    (!j. j < nblocks ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s = inblock j)`;;
-
-let abl_s = `aligned_bytes_loaded s (word pc) aes_gcm_dec_kernel_x4_scalar_iv_mem_late_tag_keep_htable_swp_mc`;;
-let fill_pre  = mk_abs(`s:armstate`, mk_conj(abl_s, mk_conj(`read PC s = word (pc + 0xa0)`, fill_pre_body)));;
-let fill_post = mk_abs(`s:armstate`, mk_conj(abl_s, mk_conj(`read PC s = word (pc + 0x514)`, ap swpS_inv8_dec_v8 `0` `s:armstate`)));;
-let fill_frame = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-    MAYCHANGE [X0;X1;X2;X7;X10;X11;X12;X13;X14;X17;X19;X20;X21;X22;X23;X24;X25;X26;X27;X28;X29;X30] ,,
-    MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q8;Q9;Q10;Q11;Q29;Q30;Q31] ,,
-    MAYCHANGE [memory :> bytes(out_p, 16 * nblocks);
-               memory :> bytes(word_add stackpointer (word 160), 64)]`;;
-let fill_ens = list_mk_comb(`ensures arm`,[fill_pre;fill_post;fill_frame]);;
-(* Part A (loop_count=2): base hyps (drop i-constraint AND 3<=loop_count) + loop_count=2. *)
-let fill_hyps = list_mk_conj
-  ((filter (fun t -> not (t = `i < loop_count - 2`) && not (t = `3 <= loop_count`)) (conjuncts bodyleg_hyps))
-   @ [`loop_count = 2`]);;
-let vs_fill = filter (fun v -> v <> `i:num`) vs;;
-let fill_goal = list_mk_forall(vs_fill, mk_imp(fill_hyps, fill_ens));;
-
-(* ---- branch-resolution lemmas for the two guards at 0xa4/0xa8 (b.eq iter_1) and 0x290 (cbz drain) ---- *)
-let branch_lem = prove(
-  `3 <= loop_count /\ loop_count < 2 EXP 64
-   ==> (val(word_sub (word loop_count:int64) (word 1)) = 0 <=> F)`,
-  STRIP_TAC THEN REWRITE_TAC[VAL_EQ_0; WORD_SUB_EQ_0] THEN
-  DISCH_THEN(MP_TAC o AP_TERM `val:int64->num`) THEN
-  SUBGOAL_THEN `val(word loop_count:int64) = loop_count` SUBST1_TAC THENL
-   [MATCH_MP_TAC VAL_WORD_EQ THEN ASM_REWRITE_TAC[DIMINDEX_64]; ALL_TAC] THEN
-  REWRITE_TAC[VAL_WORD_1] THEN UNDISCH_TAC `3 <= loop_count` THEN ARITH_TAC);;
-let branch_lem2 = prove(
-  `3 <= loop_count /\ loop_count < 2 EXP 64
-   ==> (val(word_sub (word loop_count:int64) (word 2)) = 0 <=> F)`,
-  STRIP_TAC THEN REWRITE_TAC[VAL_EQ_0; WORD_SUB_EQ_0] THEN
-  DISCH_THEN(MP_TAC o AP_TERM `val:int64->num`) THEN
-  SUBGOAL_THEN `val(word loop_count:int64) = loop_count` SUBST1_TAC THENL
-   [MATCH_MP_TAC VAL_WORD_EQ THEN ASM_REWRITE_TAC[DIMINDEX_64]; ALL_TAC] THEN
-  SUBGOAL_THEN `val(word 2:int64) = 2` SUBST1_TAC THENL
-   [REWRITE_TAC[VAL_WORD] THEN CONV_TAC NUM_REDUCE_CONV THEN
-    REWRITE_TAC[DIMINDEX_64] THEN CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
-  UNDISCH_TAC `3 <= loop_count` THEN ARITH_TAC);;
-(* loop_count=2 guards: b.eq@0xa8 NOT taken (x1=2!=1) and cbz@0x290 TAKEN (x1 = 2-2 = 0 -> 0x514) *)
-let lc2_guard1 = prove(
-  `loop_count = 2 ==> (val(word_sub (word loop_count:int64) (word 1)) = 0 <=> F)`,
-  DISCH_THEN SUBST1_TAC THEN
-  SUBGOAL_THEN `word_sub (word 2:int64) (word 1) = word 1` SUBST1_TAC THENL
-   [CONV_TAC WORD_RULE; ALL_TAC] THEN
-  REWRITE_TAC[VAL_WORD_1] THEN ARITH_TAC);;
-let lc2_guard2 = prove(
-  `loop_count = 2 ==> (val(word_sub (word loop_count:int64) (word 2)) = 0 <=> T)`,
-  DISCH_THEN SUBST1_TAC THEN
-  SUBGOAL_THEN `word_sub (word 2:int64) (word 2) = word 0` SUBST1_TAC THENL
-   [CONV_TAC WORD_RULE; ALL_TAC] THEN
-  REWRITE_TAC[VAL_WORD_0]);;
-
-(* bridge: the machine rev64.16b(block) = byteswap128(word_reversefields 8 block); needed to close the
-   i=0 GHASH seed (Q11) whose FILL machine value is rev64.16b(inblock 0) but the invariant writes it as
-   byteswap128(word_reversefields 8 (inblock 0)). *)
-let REV64_16B_IS_BSW_REVFIELDS = prove(
-  `word_join (word_bytereverse (word_subword (x:int128) (64,64):int64):int64)
-             (word_bytereverse (word_subword (x:int128) (0,64):int64):int64):int128
-   = byteswap128 (word_reversefields 8 x)`,
-  GEN_REWRITE_TAC I [WORD_EQ_BITS_ALT] THEN X_GEN_TAC `k:num` THEN DISCH_TAC THEN
-  POP_ASSUM MP_TAC THEN SPEC_TAC(`k:num`,`k:num`) THEN
-  REWRITE_TAC[GSYM WORD_EQ_BITS_ALT] THEN REWRITE_TAC[byteswap128] THEN
-  CONV_TAC(BINOP_CONV(RAND_CONV(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV))) THEN
-  CONV_TAC BITBLAST_RULE);;
-
-(* FILL per-conjunct closer.  Applied AFTER the goal-level arith-normalization pass, so conjuncts
-   are in `inblock k` / literal-offset form (same shape CLOSE_V8 expects from BODYLEG).  The Q11 seed
-   at i=0 additionally needs nist_ghash..0 -> tag0 (empty Horner); handle it explicitly first. *)
-(* FILL out-store closer for the two stored-ahead blocks (2,3) at literal offsets 32/48
-   (X2 = out_p, not advanced during the fill).  Mirrors OUTBLK_TAC's reconstruction body but
-   with NO address-normalisation (offsets are already literal). *)
-let FILL_OUTBLK_TAC : tactic =
-  REWRITE_TAC[dewrap80;dewrap96;dewrap112] THEN INFOLD3 THEN ASM_REWRITE_TAC[] THEN
-  REWRITE_TAC[XOR_AES128_CIPHER_RECONSTRUCT_DEC] THEN
-  REWRITE_TAC[WORD_REVERSEFIELDS_REVERSEFIELDS] THEN ASM_REWRITE_TAC[] THEN
-  REWRITE_TAC[GSYM aes_ctr_block] THEN REWRITE_TAC[MAP] THEN
-  REWRITE_TAC[WORD_REVERSEFIELDS_REVERSEFIELDS] THEN ASM_REWRITE_TAC[] THEN
-  TRY(AP_THM_TAC THEN AP_TERM_TAC) THEN REWRITE_TAC[aes_ctr_block] THEN
-  CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
-  REWRITE_TAC[ZX_COUNTER_UD; CTR_ZX_NORM] THEN
-  REWRITE_TAC[CTR_BLOCK_BUILD_INSERT] THEN REWRITE_TAC[WORD_REVERSEFIELDS_REVERSEFIELDS] THEN
-  ASM_REWRITE_TAC[] THEN TRY REFL_TAC;;
-
-(* ks9 counter-base lemma: the inline staged-counter for block 3 (i=0) = revfields8(ctr_block nonce 3).
-   Lets the machine Q5 keystream (base = read(sp+176) = revfields8(ctr_block nonce 3) via the invariant's
-   own sp+176 conjunct) match the invariant ks9's inline-counter base inside the 9-round AES tower. *)
-let KS9_CTRBASE_0 = prove(
-  `word_join
-     (word_or (word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64)
-              (word_shl (word_zx (word_bytereverse (word 3:int32):int32):int64) 32:int64):int64)
-     (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64):int128
-   = word_reversefields 8 (ctr_block nonce 3)`,
-  REWRITE_TAC[ctr_block] THEN CONV_TAC WORD_BLAST);;
-
-(* i=0 counter-base folds: the FILL staged counter-lane joins = word_reversefields 8 (ctr_block nonce K),
-   for K in {2,3,4,5,6}.  Proven uniformly by REWRITE[ctr_block] + WORD_BLAST (like KS9_CTRBASE_0). *)
-let CTR_LANE_FOLD_0 = prove(
-  `(word_join
-     (word_or (word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64)
-              (word_shl (word_zx (word_bytereverse (word (4*0+3):int32):int32):int64) 32:int64):int64)
-     (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64):int128
-    = word_reversefields 8 (ctr_block nonce (4*0+3))) /\
-   (word_join
-     (word_or (word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64)
-              (word_shl (word_zx (word_bytereverse (word (4*0+4):int32):int32):int64) 32:int64):int64)
-     (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64):int128
-    = word_reversefields 8 (ctr_block nonce (4*0+4))) /\
-   (word_join
-     (word_or (word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64)
-              (word_shl (word_zx (word_bytereverse (word (4*0+5):int32):int32):int64) 32:int64):int64)
-     (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64):int128
-    = word_reversefields 8 (ctr_block nonce (4*0+5))) /\
-   (word_join
-     (word_or (word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64)
-              (word_shl (word_zx (word_bytereverse (word (4*0+6):int32):int32):int64) 32:int64):int64)
-     (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64):int128
-    = word_reversefields 8 (ctr_block nonce (4*0+6)))`,
-  REWRITE_TAC[ctr_block] THEN CONV_TAC NUM_REDUCE_CONV THEN CONV_TAC WORD_BLAST);;
-
-(* counter-base folds with the REDUCED shl-numeral (the stepping reduces word_shl(word_bytereverse(word k))32
-   to a numeral): the FILL staged counter-lane join = word_reversefields 8 (ctr_block nonce K) for K=2..6. *)
-let CTRBASEN =
-  let mk_ctrbase k num =
-    mk_eq(subst [mk_numeral(Num.num_of_int num),`NUM:num`]
-      `word_join
-        (word_or (word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64)
-                 (word NUM:int64):int64)
-        (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64):int128`,
-      subst [mk_small_numeral k,`K:num`] `word_reversefields 8 (ctr_block nonce K)`) in
-  prove(list_mk_conj [mk_ctrbase 2 144115188075855872; mk_ctrbase 3 216172782113783808;
-                      mk_ctrbase 4 288230376151711744; mk_ctrbase 5 360287970189639680;
-                      mk_ctrbase 6 432345564227567616],
-        REWRITE_TAC[ctr_block] THEN CONV_TAC WORD_BLAST);;
-
-(* extended-anchor keep-stepper: also anchor sp-slot HIGH-half offsets 168/184/200/216 so both stp halves
-   survive to enable bytes128 counter reconstruction at any state. *)
-let is_spctr_read2 c = try
-    let l = lhs c in
-    fst(dest_const(fst(strip_comb l)))="read" && free_in `stackpointer:int64` l &&
-    (can (find_term (fun t -> match t with
-       | Comb(Comb(Const("word_add",_),sp),Comb(Const("word",_),n))
-           when (try fst(dest_var sp)="stackpointer" with _->false) ->
-             (let v=string_of_term n in
-              v="160"||v="176"||v="192"||v="208"||v="168"||v="184"||v="200"||v="216") | _ -> false)) l)
-  with _ -> false;;
-let gkeep2 keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
-  (fun (asl,w) -> let cs=map(fun(_,t)->concl t)asl in
-    let mx=map(fun r->(r,itlist(fun c m->match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m)cs(-1)))keeplist in
-    let anchored c = try (is_spctr_read2 c) ||
-        (fst(dest_const(fst(strip_comb(lhs c))))="read" &&
-         ((free_in `tag_p:int64` (lhs c)) || (free_in `ivec_p:int64` (lhs c)) || (free_in `htable_p:int64` (lhs c))))
-      with _ -> false in
-    DISCARD_ASSUMPTIONS_TAC(fun th->let c=concl th in
-      if (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
-      then (try let _,args = strip_comb c in string_of_term(last args) <> sname with _ -> false) else
-      if is_forall c then
-        (if free_in `in_p:int64` c || free_in `out_p:int64` c then false
-         else (match state_of_forall c with Some nm -> nm <> sname | None -> false)) else
-      if anchored c then false else
-      match gc2 keeplist c with Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w));;
-
-(* FILL per-conjunct closer.  8 shape-specific branches (all validated interactively, 24/24). *)
-let FILL_CLOSE : tactic =
-  FIRST
-   [ (* GHASH (seed Q11 + partials): reassembly + ghash-nil + UNFOLD byteswap128 + bridge + WORD_BLAST *)
-     (REWRITE_TAC[INBLOCK_REASSEMBLE; list_of_seq; nist_ghash] THEN ASM_REWRITE_TAC[] THEN
-      REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST THEN NO_TAC);
-     (REWRITE_TAC[INBLOCK_REASSEMBLE; list_of_seq; nist_ghash] THEN ASM_REWRITE_TAC[] THEN
-      REWRITE_TAC[REV64_16B_IS_BSW_REVFIELDS; byteswap128] THEN CONV_TAC WORD_BLAST THEN NO_TAC);
-     (* counter stack slots (bytes128, merged at s125): ASM then fold counter numerals to ctr_block *)
-     (ASM_REWRITE_TAC[] THEN REWRITE_TAC[CTRBASEN; KS9_CTRBASE_0] THEN
-      REWRITE_TAC[ctr_block] THEN CONV_TAC NUM_REDUCE_CONV THEN CONV_TAC WORD_BLAST THEN NO_TAC);
-     (* Q30/ks9 aes towers: MERGE the base at its load state, fold counter numeral, aes defs, REFL/BLAST *)
-     ((MERGE_CTR128_TAC 160 "s77" ORELSE ALL_TAC) THEN (MERGE_CTR128_TAC 176 "s29" ORELSE ALL_TAC) THEN
-      ASM_REWRITE_TAC[] THEN REWRITE_TAC[CTRBASEN; KS9_CTRBASE_0] THEN
-      REWRITE_TAC[aes2c] THEN (REFL_TAC ORELSE (REWRITE_TAC[ctr_block] THEN CONV_TAC WORD_BLAST)) THEN NO_TAC);
-     (* out-stores blk2,3: MERGE base, fold counter, DEC readback recon, fold key-list=rk, aes_ctr_block, REFL *)
-     ((MERGE_CTR128_TAC 192 "s32" ORELSE ALL_TAC) THEN (MERGE_CTR128_TAC 208 "s18" ORELSE ALL_TAC) THEN
-      ASM_REWRITE_TAC[] THEN REWRITE_TAC[CTRBASEN] THEN
-      REWRITE_TAC[XOR_AES128_CIPHER_RECONSTRUCT_DEC] THEN REWRITE_TAC[MAP; WORD_REVERSEFIELDS_REVERSEFIELDS] THEN
-      ASM_REWRITE_TAC[] THEN REWRITE_TAC[aes_ctr_block] THEN CONV_TAC NUM_REDUCE_CONV THEN TRY REFL_TAC THEN NO_TAC);
-     (* word_sub loop-count *)
-     (SUBGOAL_THEN `2 <= loop_count` ASSUME_TAC THENL [ASM_ARITH_TAC; ASM_SIMP_TAC[WORD_SUB]] THEN NO_TAC);
-     (* MAYCHANGE frame *)
-     (close_goal10 THEN NO_TAC);
-     (* trivial registers / htable (post htable-unfold, the 4 reads close by ASM) *)
-     (ASM_REWRITE_TAC[] THEN TRY REFL_TAC THEN NO_TAC);
-     (ASM_REWRITE_TAC[] THEN CONV_TAC WORD_RULE THEN NO_TAC) ];;
-
-(* ---- Part-A stepper: gkeep3 (lean asl) + FILL merge sites.  loop_count:=2 is substituted before
-   stepping, so the guards (cbz@0xa0 X1=2, b.eq@0xa8 X1=2, cbz@0x290 X1=0->TAKEN to 0x514) resolve by
-   concrete arith (COND_CLAUSES after WORD_SIMPLE_SUBWORD); no branch_lem needed. ---- *)
-let fill_merges = [(10,160);(12,176);(15,208);(21,192)];;
-(* IDENTICAL to the proven FILL leg's stepper: gkeep2 for ALL steps 1--125 uniformly.  The earlier
-   split (plain 1-3 / gkeep2 4-124 / plain [125]) was a gkeep3-era leftover -- the plain [125] step
-   failed to frame the late-written pipeline carriers Q5 (@s109) and Q30 (@s117) forward to s125, so
-   ENSURES_FINAL_STATE_TAC dropped them and FILL_CLOSE's aes2c/ks9/out-store branches had nothing to
-   rewrite with.  loop_count is kept SYMBOLIC (with hyp loop_count=2); the RULE_ASSUM rewrite set uses
-   only the guard facts true under loop_count=2 (drop the FILL-only `loop_count=2<=>F`).  The cbz@0x290
-   at step 125 leaves PC symbolic (guard on word_sub .. word 2); resolved TAKEN->0x514 after stepping. *)
-let fill_step_tac =
-  (fun (asl,w) -> (MAP_EVERY (fun k ->
-        gkeep2 REDSETX_DEC AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC ("s"^string_of_int k) THEN
-        RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `loop_count = 0 <=> F`; ASSUME `loop_count = 1 <=> F`;
-           ASSUME `val(word_sub (word loop_count:int64) (word 1)) = 0 <=> F`; COND_CLAUSES]) THEN
-        RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                 ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-        (if List.mem_assoc k fill_merges then MERGE_CTR128_TAC (List.assoc k fill_merges) ("s"^string_of_int k)
-         else ALL_TAC)) (1--125)) (asl,w));;
-
-(* Diagnostic per-conjunct closer: try FILL_CLOSE; if it fails, PRINT the conjunct goal and leave it. *)
-let SWP_DEC_LC2_PARTA = prove(fill_goal,
-  REPEAT STRIP_TAC THEN ENSURES_INIT_TAC "s0" THEN
-  (* keep loop_count SYMBOLIC (hyp loop_count = 2); derive the guard facts the stepper needs. *)
-  SUBGOAL_THEN `loop_count < 2 EXP 64` ASSUME_TAC THENL
-   [UNDISCH_TAC `loop_count = 2` THEN ARITH_TAC; ALL_TAC] THEN
-  VAL_INT64_TAC `loop_count:num` THEN
-  SUBGOAL_THEN `(loop_count = 0 <=> F) /\ (loop_count = 1 <=> F)` STRIP_ASSUME_TAC THENL
-   [UNDISCH_TAC `loop_count = 2` THEN ARITH_TAC; ALL_TAC] THEN
-  (* b.eq@0xa8 guard (val(word_sub .. word 1)=0 <=> F): NOT taken since loop_count=2 *)
-  MP_TAC(SPEC_ALL lc2_guard1) THEN ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4] THEN
-  (* prime the fill's group-0 loads (blocks 0..3; block 0 = bare in_p per the ldr [x0] form) *)
-  SUBGOAL_THEN
-   `read (memory :> bytes128 in_p) s0 = inblock 0 /\
-    read (memory :> bytes128 (word_add in_p (word 16))) s0 = inblock 1 /\
-    read (memory :> bytes128 (word_add in_p (word 32))) s0 = inblock 2 /\
-    read (memory :> bytes128 (word_add in_p (word 48))) s0 = inblock 3`
-  STRIP_ASSUME_TAC THENL
-   [REPEAT CONJ_TAC THENL
-     [SUBST1_TAC(WORD_RULE `in_p:int64 = word_add in_p (word (16*0))`);
-      SUBST1_TAC(WORD_RULE `word_add in_p (word 16):int64 = word_add in_p (word (16*1))`);
-      SUBST1_TAC(WORD_RULE `word_add in_p (word 32):int64 = word_add in_p (word (16*2))`);
-      SUBST1_TAC(WORD_RULE `word_add in_p (word 48):int64 = word_add in_p (word (16*3))`)] THEN
-    FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC;
-    ALL_TAC] THEN
-  fill_step_tac THEN
-  (* resolve the final cbz @ 0x290 (word_sub .. word 2): TAKEN (loop_count=2) -> 0x514 *)
-  MP_TAC(SPEC_ALL lc2_guard2) THEN ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val(word_sub (word loop_count:int64) (word 2)) = 0 <=> T`; COND_CLAUSES]) THEN
-  ENSURES_FINAL_STATE_TAC THEN
-  MERGE_CTR128_TAC 160 "s125" THEN MERGE_CTR128_TAC 176 "s125" THEN
-  MERGE_CTR128_TAC 192 "s125" THEN MERGE_CTR128_TAC 208 "s125" THEN
-  ASM_REWRITE_TAC[] THEN
-  (* goal-level i=0 arithmetic normalization (loop_count SYMBOLIC, same as proven FILL leg) *)
-  REWRITE_TAC[ARITH_RULE `4 * 0 = 0`; ARITH_RULE `64 * 0 = 0`;
-    ARITH_RULE `4 * 0 + 1 = 1`; ARITH_RULE `4 * 0 + 2 = 2`; ARITH_RULE `4 * 0 + 3 = 3`;
-    ARITH_RULE `4 * 0 + 4 = 4`; ARITH_RULE `4 * 0 + 5 = 5`; ARITH_RULE `4 * 0 + 6 = 6`;
-    ARITH_RULE `4 * 0 + 7 = 7`; ARITH_RULE `4 * 0 + 9 = 9`;
-    ARITH_RULE `0 + 7 = 7`; ARITH_RULE `0 + 3 = 3`;
-    ARITH_RULE `64 * 0 + 32 = 32`; ARITH_RULE `64 * 0 + 48 = 48`;
-    ARITH_RULE `64 * 0 + 64 = 64`; ARITH_RULE `loop_count - 2 - 0 = loop_count - 2`] THEN
-  REWRITE_TAC[ARITH_RULE `j < 0 <=> F`] THEN
-  ASM_REWRITE_TAC[] THEN
-  REPEAT CONJ_TAC THEN FILL_CLOSE);;
-
-(* ============================ loop_count=2 Part B (0x514 -> 0xaa0) ============================ *)
-let REV64_16B_IS_BSW_REVFIELDS = prove(
-  `word_join (word_bytereverse (word_subword (x:int128) (64,64):int64):int64)
-             (word_bytereverse (word_subword (x:int128) (0,64):int64):int64):int128
-   = byteswap128 (word_reversefields 8 x)`,
-  GEN_REWRITE_TAC I [WORD_EQ_BITS_ALT] THEN X_GEN_TAC `k:num` THEN DISCH_TAC THEN
-  POP_ASSUM MP_TAC THEN SPEC_TAC(`k:num`,`k:num`) THEN
-  REWRITE_TAC[GSYM WORD_EQ_BITS_ALT] THEN REWRITE_TAC[byteswap128] THEN
-  CONV_TAC(BINOP_CONV(RAND_CONV(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV))) THEN CONV_TAC BITBLAST_RULE);;
-
-(* ---- extended-anchor keep-stepper (anchor sp-slot HIGH halves 168/184/200/216 too) ---- *)
-let is_spctr_read2 c = try
-    let l = lhs c in
-    fst(dest_const(fst(strip_comb l)))="read" && free_in `stackpointer:int64` l &&
-    (can (find_term (fun t -> match t with
-       | Comb(Comb(Const("word_add",_),sp),Comb(Const("word",_),n))
-           when (try fst(dest_var sp)="stackpointer" with _->false) ->
-             (let v=string_of_term n in
-              v="160"||v="176"||v="192"||v="208"||v="168"||v="184"||v="200"||v="216") | _ -> false)) l)
-  with _ -> false;;
-let gkeep2 keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
-  (fun (asl,w) -> let cs=map(fun(_,t)->concl t)asl in
-    let mx=map(fun r->(r,itlist(fun c m->match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m)cs(-1)))keeplist in
-    let anchored c = try (is_spctr_read2 c) ||
-        (fst(dest_const(fst(strip_comb(lhs c))))="read" &&
-         ((free_in `tag_p:int64` (lhs c)) || (free_in `ivec_p:int64` (lhs c)) || (free_in `htable_p:int64` (lhs c)) ||
-          (* anchor out_p STORE facts: the drain flushes 8 output blocks over 198 steps; without anchoring,
-             gkeep2 GCs the early-stored blocks (+5/+6/+7) before s198 and their out-store readback goals
-             dump (head=read, no store fact to fold).  Keeping them (8 facts) lets the close-time recon fire. *)
-          (free_in `out_p:int64` (lhs c)) ||
-          (* anchor in_p point READ facts (the primed `read(in_p+..)=inblock`).  The SWP schedule loads the
-             last group's blocks EARLY (s61/s100/s135); without anchoring, gkeep2 GCs the s0-primed facts
-             before those ldr's fire, so the loads produce RAW byte towers that freeze into Q30's value
-             (subgoal-B BITBLAST FALSE) and the out-store readbacks.  Keeping the primed facts lets each ldr
-             fold to `inblock`.  Excludes the quantified forall (already kept by the is_forall clause). *)
-          (free_in `in_p:int64` (lhs c))))
-      with _ -> false in
-    DISCARD_ASSUMPTIONS_TAC(fun th->let c=concl th in
-      if (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
-      then (try let _,args = strip_comb c in string_of_term(last args) <> sname with _ -> false) else
-      if is_forall c then
-        (if free_in `in_p:int64` c || free_in `out_p:int64` c then false
-         else (match state_of_forall c with Some nm -> nm <> sname | None -> false)) else
-      if anchored c then false else
-      match gc2 keeplist c with Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w));;
-
-(* ---- DRAIN goal: inv(loop_count-2) @ pc+0x510 -> 0xaa0 postcond ---- *)
-let abl_s = `aligned_bytes_loaded s (word pc) aes_gcm_dec_kernel_x4_scalar_iv_mem_late_tag_keep_htable_swp_mc`;;
-let drain_post_body = `read X0 s = word_add in_p (word (64 * loop_count)) /\
-   read X2 s = word_add out_p (word (64 * loop_count)) /\
-   read X3 s = tag_p /\ read X4 s = ivec_p /\ read X6 s = htable_p /\ read SP s = stackpointer /\
-   read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0 /\
-   read (memory :> bytes128 ivec_p) s = word_reversefields 8 (ctr_block nonce 2) /\
-   read Q18 s = word_reversefields 8 (EL 0 rk) /\ read Q19 s = word_reversefields 8 (EL 1 rk) /\
-   read Q20 s = word_reversefields 8 (EL 2 rk) /\ read Q21 s = word_reversefields 8 (EL 3 rk) /\
-   read Q22 s = word_reversefields 8 (EL 4 rk) /\ read Q23 s = word_reversefields 8 (EL 5 rk) /\
-   read Q24 s = word_reversefields 8 (EL 6 rk) /\ read Q25 s = word_reversefields 8 (EL 7 rk) /\
-   read Q26 s = word_reversefields 8 (EL 8 rk) /\ read Q27 s = word_reversefields 8 (EL 9 rk) /\
-   read Q28 s = word_reversefields 8 (EL 10 rk) /\
-   read Q12 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
-   read Q13 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
-   read Q14 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
-   read Q15 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2) /\
-   read Q16 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3) /\
-   read Q17 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2)) /\
-   read Q7 s = word 13979173243358019584 /\
-   read X11 s = word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
-   read X12 s = word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
-   read X13 s = word_zx (word (4 * loop_count + 2):int32):int64 /\
-   read X15 s = word(len_bits DIV 8) /\ read X1 s = word 0 /\ read X16 s = word loop_remain /\
-   read Q30 s = byteswap128 (nist_ghash (aes128_cipher (word 0) rk) tag0 (list_of_seq (nist_input_block inblock) (4 * loop_count))) /\
-   htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
-   (!j. j < nblocks ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s = inblock j) /\
-   (!j. j < 4 * loop_count ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s = word_xor (aes_ctr_block nonce rk j) (inblock j))`;;
-let drain_pre = mk_abs(`s:armstate`, mk_conj(abl_s,
-   mk_conj(`read PC s = word (pc + 0x514)`, ap swpS_inv8_dec_v8 `loop_count - 2` `s:armstate`)));;
-let drain_post = mk_abs(`s:armstate`, mk_conj(abl_s, mk_conj(`read PC s = word (pc + 0xaa0)`, drain_post_body)));;
-let drain_frame = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-    MAYCHANGE [X0;X1;X2;X7;X10;X11;X12;X13;X14;X17;X19;X20;X21;X22;X23;X24;X25;X26;X27;X28;X29;X30] ,,
-    MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q8;Q9;Q10;Q11;Q29;Q30;Q31] ,,
-    MAYCHANGE [memory :> bytes(out_p, 16 * nblocks); memory :> bytes(word_add stackpointer (word 160), 64)]`;;
-let drain_ens = list_mk_comb(`ensures arm`,[drain_pre;drain_post;drain_frame]);;
-let drain_hyps = subst [`2 <= loop_count`, `i < loop_count - 2`] bodyleg_hyps;;
-let vs_drain = filter (fun v -> v <> `i:num`) vs;;
-let drain_goal = list_mk_forall(vs_drain, mk_imp(drain_hyps, drain_ens));;
-
-(* ---- DRAIN stepper: gkeep2 + drain merge sites (step 1 = 0x510). cbz@0x510 (X1=word 0) auto-resolves. ---- *)
-(* MERGE_CTR128_TAC OFF sK must fire at the LDR state sK (after BOTH 64-bit stps to sp+OFF executed) so the
-   128-bit `ldr qM,[sp,#OFF]` resolves against the stores.  Drain counter sites (step = (addr-0x510)/4+1):
-     stp[sp,176]@0x524=step6  stp[sp,208]@0x544=step14  ldr q31,[sp,208]@0x558=step19
-     stp[sp,192]@0x570=step25  ldr q5,[sp,176]@0x5bc=step44  ldr q4,[sp,192]@0x5d4=step50
-     ldr q30,[sp,160]@0x6b8=step107 (the settled-Q30 acc reload).
-   The counter value in an out-store readback tower is `read(sp+OFF)s_{K-1}` (ARM_STEP records the ldr's
-   loaded value as the PRE-ldr memory), so MERGE must fire at the state the TOWER references -- captured from
-   the OUTSTORE STUCK dumps: block+5 uses read(sp+176)s43, block+6 read(sp+192)s49, block+7 read(sp+208)s18.
-   Merge at exactly those states (all after their stps: sp176@s6, sp208@s14, sp192@s25) so the tower's
-   counter read resolves.  (sp+160 = GHASH-acc reload, handled by DRAIN_Q30_TAC/inter, excluded.) *)
-(* Re-indexed -1 vs DRAIN (Part B enters at 0x514 = DRAIN's post-step-1 state, so DRAIN's step k is
-   Part B's step k-1): merges 18/43/49 -> 17/42/48; the settled-Q30 `inter` abbrev at DRAIN's s98 -> s97. *)
-let drain_merges = [(17,208);(42,176);(48,192)];;
-let drain_step_tac =
-  (fun (asl,w) -> (MAP_EVERY (fun k ->
-        gkeep2 REDSETX_DEC AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC ("s"^string_of_int k) THEN
-        RULE_ASSUM_TAC(REWRITE_RULE[COND_CLAUSES]) THEN
-        RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                 ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-        (if k = 97 then REABBREV_TAC (mk_eq(`inter:int128`, `read Q30 s97`)) else ALL_TAC) THEN
-        (if List.mem_assoc k drain_merges then MERGE_CTR128_TAC (List.assoc k drain_merges) ("s"^string_of_int k)
-         else ALL_TAC)) (1--197)) (asl,w));;
-
-(* ---- DRAIN closer: DIAGNOSTIC (dump unclosed conjuncts) for the first run; swap to plain FIRST[...] after.
-   Closers reuse FILL's set + BODYLEG's SWP_GHASH_CORE_TAC for the SETTLED final Q30 reduce. ---- *)
-(* SHAPE-GATED closer: only run the expensive SWP_GHASH_CORE_TAC / GHASH-BITBLAST on conjuncts whose RHS
-   actually mentions nist_ghash (the settled Q30 / GHASH-reduce); cheap tactics for everything else. This
-   avoids trying the ~117s BITBLAST on all 24 conjuncts. *)
-let rhs_has c w = try (is_eq w) && can (find_term (fun u -> try fst(dest_const(fst(strip_comb u)))=c with _->false)) (rhs w) with _->false;;
-
-(* ---- Parameterized single-group settled-Q30 closer (SWP_GHASH_CORE_TAC generalized to a drain index
-   term `mtm` and starting accumulator `sofartm`).  Closes
-     <machine 4-block reduce tower over sofartm, blocks mtm..mtm+3> = byteswap128(nist_ghash h sofartm [4 blocks])
-   via byteswap-split + ABBREV(sofar,cipherblock_k,hk) + RECONSTRUCT_POLYVAL_REDUCE_G2 + branch1(BITBLAST)
-   + SWP_GHASH_BRANCH2_GEN.  The RHS must already be byteswap128(nist_ghash h sofartm [the 4 explicit blocks]). *)
-(* ktm = the group index k such that the accumulator is the SETTLED nist_ghash..(list_of_seq..(4*k))
-   and the 4 blocks are 4*k..4*k+3, reducing to nist_ghash..(list_of_seq..(4*k+4)).  mtm=4*ktm,
-   sofartm=nist_ghash..(4*ktm) are derived from ktm so branch2 can use SWP_GHASH_BRANCH2_SETTLED. *)
-(* ktm: the SETTLED group index (acc = nist_ghash..(4*ktm), branch2 uses SWP_GHASH_BRANCH2_SETTLED ktm).
-   The ACTUAL block indices in the machine goal are `4*(loop_count-2) + (off+j)` (j=0..3), where off=0 for
-   subgoal B (blocks +0..+3) and off=4 for subgoal A (last group, blocks +4..+7).  4*(loop_count-2)+off = 4*ktm
-   (B: off=0,ktm=loop_count-2; A: off=4,ktm=loop_count-1) -- equal but written differently, so the cipherblock
-   ABBREVs use the goal's literal `4*(loop_count-2)+(off+j)` form (else they miss -> word_pmul survives ->
-   BITBLAST blows up).  A pre-branch2 arith bridge reconciles the base to 4*ktm for SWP_GHASH_BRANCH2_SETTLED. *)
-let GHASH_SETTLE_TAC (ktm:term) (off:int) : tactic =
-  let mtm = mk_binop `( * ):num->num->num` `4` ktm in
-  let basetm = `4 * (loop_count - 2)` in
-  let sofartm = subst [ktm, `k:num`]
-     `nist_ghash (aes128_cipher (word 0) rk) tag0 (list_of_seq (nist_input_block inblock) (4*k))` in
-  (* block index for lane j = basetm + (off+j), with (off+j) a literal numeral so it matches the goal.
-     When off+j=0 the goal writes just `basetm` (no `+0`), so emit basetm bare in that case. *)
-  let blkidx j = if off+j = 0 then basetm
-                 else mk_binop `(+):num->num->num` basetm (mk_small_numeral (off+j)) in
-  ALL_TAC THEN
-  DEC_GHASH_NORM_TAC THEN
-  REWRITE_TAC[SWP_JOIN_IS_BSW] THEN REWRITE_TAC[xor_rcancel] THEN
-  REWRITE_TAC [byteswap128; SWP_SUBWORD_JOIN_MID] THEN
-  MATCH_MP_TAC(BITBLAST_RULE
-     `x:int128 = y ==> word_join (word_subword x (0,64):int64) (word_subword x (64,64):int64):int128 =
-          word_join (word_subword y (0,64):int64) (word_subword y (64,64):int64):int128`) THEN
-  (* Fold raw mid-state block reads to nist_input_block (see below); then ABBREV using the GOAL's literal
-     base index (basetm+j), so all 4 cipherblocks are captured -> no surviving word_pmul into branch1. *)
-  INFOLD3 THEN REWRITE_TAC[INBLOCK_REASSEMBLE] THEN REWRITE_TAC[GSYM nist_input_block] THEN ASM_REWRITE_TAC[] THEN
-  MAP_EVERY ABBREV_TAC
-     [ mk_eq(`sofar:int128`, sofartm);
-       mk_eq(`cipherblock_0:int128`, mk_comb(`nist_input_block inblock`, blkidx 0));
-       mk_eq(`cipherblock_1:int128`, mk_comb(`nist_input_block inblock`, blkidx 1));
-       mk_eq(`cipherblock_2:int128`, mk_comb(`nist_input_block inblock`, blkidx 2));
-       mk_eq(`cipherblock_3:int128`, mk_comb(`nist_input_block inblock`, blkidx 3));
-       `h0 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 0`; `h1 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 1`;
-       `h2 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 2`; `h3 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 3`] THEN
-  REWRITE_TAC[GSYM WORD_SUBWORD_XOR] THEN REWRITE_TAC[RECONSTRUCT_POLYVAL_REDUCE_G2] THEN
-  TRANS_TAC EQ_TRANS
-     `polyval_reduce_prop3
-          (word_xor (word_pmul (cipherblock_3:int128) (h0:int128))
-          (word_xor (word_pmul (cipherblock_2:int128) (h1:int128))
-          (word_xor (word_pmul (cipherblock_1:int128) (h2:int128))
-          (word_pmul (word_xor (sofar:int128) cipherblock_0) (h3:int128)))))` THEN
-  CONJ_TAC THENL
-   [REWRITE_TAC[PMUL_KARATSUBA_JOIN_ALT] THEN REWRITE_TAC[byteswap128; WORD_SUBWORD_XOR] THEN
-    CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN REWRITE_TAC[karatsuba_mid] THEN ASM_REWRITE_TAC[] THEN
-    REPEAT(LET_TAC THEN ASM_REWRITE_TAC[]) THEN
-    (* fold any RAW mid-state block reads read(in_p+16*BLK)sK -> inblock BLK via the state-agnostic input
-       forall (INFOLD3).  The s0 priming only reaches blocks loaded at s0; the SWP schedule loads the last
-       group's blocks at mid-states (s61 etc.), whose raw byte towers otherwise survive into the BITBLAST
-       and make it FALSE (operand mismatch: `inblock (+4)` vs raw `read(..+112)s61`). *)
-    INFOLD3 THEN
-    REWRITE_TAC[INBLOCK_REASSEMBLE] THEN
-    REWRITE_TAC[GSYM nist_input_block] THEN ASM_REWRITE_TAC[] THEN
-    ONCE_REWRITE_TAC[MESON[WORD_XOR_SYM] `word_pmul (word_xor a b) (word_xor c d) = word_pmul (word_xor b a) (word_xor c d)`] THEN
-    ASM_REWRITE_TAC[] THEN REWRITE_TAC[POLYVAL_REDUCE_G2] THEN ASM_REWRITE_TAC[] THEN
-    MAP_EVERY EXPAND_TAC ["ks"; "ks'"; "ks''"; "ks'''"] THEN
-    CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN AP_TERM_TAC THEN POP_ASSUM_LIST(K ALL_TAC) THEN
-    ALL_TAC THEN
-    (* the goal here is a pure 256-bit word_join/word_subword/word_xor tautology (verified TRUE in MCP,
-       48129-node BDD).  BITBLAST_TAC folds ambient assumptions and can spuriously fail; CONV_TAC BITBLAST_RULE
-       proves it on the empty context.  Try the RULE form first, fall back to the TAC form. *)
-    ALL_TAC THEN
-    (CONV_TAC BITBLAST_RULE ORELSE BITBLAST_TAC) THEN
-    ALL_TAC ;
-    (* branch2: the generalized single-group reduce, then fold back the sofar/cipherblock/h abbrevs *)
-    ALL_TAC THEN
-    MAP_EVERY EXPAND_TAC ["sofar";"cipherblock_0";"cipherblock_1";"cipherblock_2";"cipherblock_3";"h0";"h1";"h2";"h3"] THEN
-    (* Bridge the goal's literal block indices `4*(loop_count-2)+(off+j)` to `4*ktm+j` for SWP_GHASH_BRANCH2_SETTLED.
-       off=0 (subgoal B): indices are already 4*(loop_count-2)+j = 4*ktm+j (no-op).  off=4 (subgoal A): rewrite
-       4*(loop_count-2)+{4,5,6,7} -> 4*(loop_count-1)+{0,1,2,3} = 4*ktm+{0,1,2,3} by arith (3<=loop_count). *)
-    (if off = 0 then ALL_TAC else
-       SUBGOAL_THEN
-         (list_mk_conj (map (fun j ->
-            mk_eq(mk_binop `(+):num->num->num` `4*(loop_count-2)` (mk_small_numeral (off+j)),
-                  if j = 0 then mtm else mk_binop `(+):num->num->num` mtm (mk_small_numeral j)))
-          [0;1;2;3]))
-         (fun th -> REWRITE_TAC[th]) THENL
-        [UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC]) THEN
-    (* branch2: the goal's RHS (from the byteswap-split of byteswap128(nist_ghash..(4*ktm+4))) is the SETTLED
-       accumulator form `nist_ghash..tag0 (list_of_seq..(4*ktm+4))`.  SWP_GHASH_BRANCH2_GEN yields the
-       non-settled `nist_ghash h acc [4 explicit blocks]` which does NOT syntactically match -> use the
-       SETTLED variant (acc = nist_ghash..(4*ktm)) which directly gives the list_of_seq..(4*ktm+4) form. *)
-    MP_TAC(ISPEC ktm SWP_GHASH_BRANCH2_SETTLED) THEN
-    REWRITE_TAC[] THEN DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
-    ALL_TAC];;
-
-(* The settled-Q30 conjunct closer (subgoal A + B via John's decomposition).
-   Precondition: `inter` was ABBREV'd at step 98 (REABBREV leaves `<1st-reduce expr> = inter` as an asm,
-   and the goal's LHS 2nd-reduce tower + downstream references are folded to `inter`).
-   Goal here: <2nd reduce over inter> = byteswap128(nist_ghash..(4*loop_count)). *)
-let DRAIN_Q30_TAC : tactic =
-  (* (B) inter = byteswap128(nist_ghash..(4*(loop_count-1))).  The `<1st-reduce expr> = inter` assumption,
-     reversed, is exactly the machine 1st-reduce = byteswap128(nist_ghash..(4*(loop_count-1))).  Rewrite the
-     RHS index 4*(loop_count-1) -> 4*(loop_count-2)+4 so GHASH_SETTLE_TAC (loop_count-2) sees the settled
-     4*k+4 form its SWP_GHASH_BRANCH2_SETTLED produces. *)
-  SUBGOAL_THEN `inter = byteswap128 (nist_ghash (aes128_cipher (word 0) rk) tag0
-                        (list_of_seq (nist_input_block inblock) (4 * (loop_count - 1))))`
-    ASSUME_TAC THENL
-   [FIRST_X_ASSUM(fun th -> if (try is_eq(concl th) && rhs(concl th) = `inter:int128`
-                                 with _ -> false) then MP_TAC th else NO_TAC) THEN
-    DISCH_THEN(SUBST1_TAC o SYM) THEN
-    (* RHS index -> 4*ktm+4 (ktm=loop_count-2): 4*(loop_count-1) = 4*(loop_count-2)+4. basetm=4*(loop_count-2). *)
-    SUBGOAL_THEN `4 * (loop_count - 1) = 4 * (loop_count - 2) + 4` SUBST1_TAC THENL
-     [UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
-    GHASH_SETTLE_TAC `loop_count - 2` 0;
-    ALL_TAC] THEN
-  (* (A) The 2nd-reduce machine goal is `<reduce over acc=inter, blocks base+{0..3}> = byteswap128(nist_ghash..(4*loop_count))`
-     where the machine block base is 4*(loop_count-2)+4 (the last group).  UNFOLD `inter` to
-     byteswap128(nist_ghash..(4*(loop_count-1))) so DEC_GHASH_NORM normalizes the acc byteswap; rewrite RHS index
-     4*loop_count -> 4*(loop_count-1)+4 = 4*ktm+4 (ktm=loop_count-1); pass basetm=4*(loop_count-2)+4 so the
-     cipherblock ABBREVs match the goal's literal block indices (the branch2 bridge then reconciles base->4*ktm). *)
-  FIRST_X_ASSUM(fun th -> if (try is_eq(concl th) && lhs(concl th) = `inter:int128` &&
-                                 can(find_term(fun u->try fst(dest_const(fst(strip_comb u)))="nist_ghash" with _->false))(rhs(concl th))
-                               with _ -> false) then SUBST1_TAC th else NO_TAC) THEN
-  SUBGOAL_THEN `4 * loop_count = 4 * (loop_count - 1) + 4` SUBST1_TAC THENL
-   [UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
-  GHASH_SETTLE_TAC `loop_count - 1` 4;;
-
-let DRAIN_CLOSE : tactic =
-  fun (asl,w) ->
-    (if not(is_eq w) then
-       (* frame / forall / non-eq *)
-       (FIRST[close_goal10; MUST OUT0_TAC; ASM_REWRITE_TAC[] THEN NO_TAC]) (asl,w)
-     else if rhs_has "nist_ghash" w then
-       (* the settled Q30 double-reduce: staged via DRAIN_Q30_TAC (subgoal A + B), NOT monolithic. *)
-       (FIRST[ (ASM_REWRITE_TAC[] THEN REFL_TAC THEN NO_TAC);
-               (DRAIN_Q30_TAC THEN NO_TAC) ]) (asl,w)
-     else if rhs_has "aes_ctr_block" w then
-       (* out-store readback for the drained blocks +4..+7.  Two shapes reach here:
-          (a) block +4 (CONJ 04): the read ALREADY folded (by ASM_REWRITE) to the AES eor3 tower
-              `word_xor (inblock J) (word_xor rk10 (aese-tower over word_reversefields 8 (ctr_block nonce (J+2))))`.
-          (b) blocks +5/+6/+7 (CONJ 05/06/07): the read is at a store-fact address `(64*(loop_count-2)+64)+K`
-              vs the goal's `64*(loop_count-2)+{80,96,112}`; addr-normalize + ASM_REWRITE folds it to the tower.
-          The completing recon (MCP-verified) = XOR_AES128_CIPHER_RECONSTRUCT_DEC + double-reversefields cancel +
-          aes_ctr_block unfold + counter NUM_REDUCE + ASM_REWRITE_TAC[] (folds [EL 0 rk;..;EL 10 rk]=rk via the
-          hyp).  EVERY option ends THEN NO_TAC (MUST allows residual -> silent Unsolved; guard with full closure). *)
-       (let RECON =
-          (* first-group blocks (+0/+1) have an `aes2c nonce rk (..+2)` precomputed-2-rounds base (SWP);
-             unfold it to the full AES tower.  No-op on last-group (+4..+7) towers (plain ctr_block base). *)
-          REWRITE_TAC[aes2c] THEN
-          REWRITE_TAC[XOR_AES128_CIPHER_RECONSTRUCT_DEC] THEN
-          REWRITE_TAC[WORD_REVERSEFIELDS_REVERSEFIELDS] THEN REWRITE_TAC[MAP] THEN
-          REWRITE_TAC[WORD_REVERSEFIELDS_REVERSEFIELDS] THEN
-          (* STACK-STAGED counter reconstruction (blocks +5/+6/+7 after MERGE_CTR128_TAC): the merged counter is
-             word_join(word_or(word_zx..(ctr_block nonce 2))(word_shl(word_bytereverse(word_zx-nest of counter idx))))..;
-             CTR_ZX_NORM collapses the zx-nest to word_add(word K)(word 2), GSYM WORD_ADD + arith fold it to a bare
-             word(K+2), then CTR_BLOCK_BUILD_INSERT recognises the whole word_join as word_reversefields 8 (ctr_block
-             nonce (K+2)).  (No-op on plain-ctr_block blocks +0..+4.) *)
-          REWRITE_TAC[ZX_COUNTER_UD; ZX_COUNTER_INC; CTR_ZX_NORM] THEN
-          CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
-          REWRITE_TAC[GSYM WORD_ADD] THEN
-          REWRITE_TAC[ARITH_RULE `(4*(loop_count-2)+4)+2 = 4*(loop_count-2)+6`;
-                      ARITH_RULE `(4*(loop_count-2)+5)+2 = 4*(loop_count-2)+7`;
-                      ARITH_RULE `(4*(loop_count-2)+6)+2 = 4*(loop_count-2)+8`;
-                      ARITH_RULE `(4*(loop_count-2)+7)+2 = 4*(loop_count-2)+9`] THEN
-          REWRITE_TAC[CTR_BLOCK_BUILD_INSERT] THEN
-          REWRITE_TAC[aes_ctr_block] THEN
-          (* counter (4*(loop_count-2)+J)+2 -> 4*(loop_count-2)+(J+2): assoc then reduce the J+2 numeral *)
-          REWRITE_TAC[GSYM ADD_ASSOC] THEN CONV_TAC(ONCE_DEPTH_CONV NUM_ADD_CONV) THEN
-          REWRITE_TAC[WORD_REVERSEFIELDS_REVERSEFIELDS] THEN
-          ASM_REWRITE_TAC[] in
-        let ADDRNORM = REWRITE_TAC[ARITH_RULE `64*(loop_count-2)+80 = (64*(loop_count-2)+64)+16`;
-                             ARITH_RULE `64*(loop_count-2)+96 = (64*(loop_count-2)+64)+32`;
-                             ARITH_RULE `64*(loop_count-2)+112 = (64*(loop_count-2)+64)+48`] in
-        FIRST[ (ASM_REWRITE_TAC[] THEN NO_TAC);
-               (* (a) block +4: read already folded to the tower -> just RECON *)
-               (RECON THEN NO_TAC);
-               (* (b) blocks +5/+6/+7: addr-normalize, ASM_REWRITE the store fact, then RECON (or INFOLD+RECON) *)
-               ((ADDRNORM THEN ASM_REWRITE_TAC[] THEN RECON) THEN NO_TAC);
-               ((ADDRNORM THEN ASM_REWRITE_TAC[] THEN INFOLD3 THEN RECON) THEN NO_TAC);
-               (* fallback: original AES2C_OUT_TAC path after addr-norm+fold *)
-               ((ADDRNORM THEN ASM_REWRITE_TAC[] THEN AES2C_OUT_TAC) THEN NO_TAC);
-             ]) (asl,w)
-     else if (try fst(dest_const(fst(strip_comb(lhs w))))="word_zx" with _->false) then
-       (* X13 scalar counter: word_zx(word_add(word_zx(word_zx(word K)))(word 4)) = word_zx(word(4*lc+2)).
-          The nested zx chain + the +word 4 increment must be normalized by the counter lemmas, then the
-          nat identity K+4 = 4*lc+2 discharged with the 3<=loop_count context.  The generic WORD_BLAST/
-          WORD_RULE fallbacks below THRASH on this symbolic-loop_count goal (the DRAIN CONJ-00 hang). *)
-       (REWRITE_TAC[ZX_COUNTER_UD; ZX_COUNTER_INC; CTR_ZX_NORM] THEN
-        REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC) (asl,w)
-     else
-       (* cheap: registers (post goal-level ptr-advance SUBGOAL these are REFL), counter slots, ctr_block folds *)
-       (FIRST[ (ASM_REWRITE_TAC[] THEN TRY REFL_TAC THEN NO_TAC);
-               (AP_TERM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC THEN NO_TAC);   (* X0/X2 ptr advance fallback *)
-               (ASM_REWRITE_TAC[] THEN REWRITE_TAC[ctr_block] THEN CONV_TAC NUM_REDUCE_CONV THEN CONV_TAC WORD_BLAST THEN NO_TAC);
-               (CONV_TAC WORD_RULE THEN NO_TAC);
-               (CLOSE_V8 THEN NO_TAC) ]) (asl,w));;
-let SWP_DEC_LC2_PARTB = prove(drain_goal,
-  REPEAT STRIP_TAC THEN ENSURES_INIT_TAC "s0" THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ARITH_RULE `loop_count - 2 - (loop_count - 2) = 0`]) THEN
-  (* --- PRIME the drained group's 4 input-block reads to `inblock` form (mirror BODYLEG
-     lines 268-279).  Without this the drain's ldr q,[x0] loads reach the settled-Q30 closer
-     as RAW byte-reassembly towers (2357 word_subword(read(mem..)) extractions) and the
-     branch1 BITBLAST blows up like the monolithic (>73 min).  With it, the loads fold to
-     the 4 cipherblock_k atoms and the BITBLAST matches BODYLEG's fast ~117s path. --- *)
-  SUBGOAL_THEN `4*(loop_count-2)+7 < nblocks` ASSUME_TAC THENL
-   [MP_TAC(SPECL [`nblocks:num`;`4`] DIVISION) THEN
-    UNDISCH_TAC `2 <= loop_count` THEN
-    SUBST1_TAC(SYM(ASSUME `nblocks DIV 4 = loop_count`)) THEN ARITH_TAC;
-    ALL_TAC] THEN
-  SUBGOAL_THEN
-   `read (memory :> bytes128 (word_add in_p (word (64*(loop_count-2)+64)))) s0 = inblock (4*(loop_count-2)+4) /\
-    read (memory :> bytes128 (word_add in_p (word (64*(loop_count-2)+80)))) s0 = inblock (4*(loop_count-2)+5) /\
-    read (memory :> bytes128 (word_add in_p (word (64*(loop_count-2)+96)))) s0 = inblock (4*(loop_count-2)+6) /\
-    read (memory :> bytes128 (word_add in_p (word (64*(loop_count-2)+112)))) s0 = inblock (4*(loop_count-2)+7)`
-  STRIP_ASSUME_TAC THENL
-   [REPEAT CONJ_TAC THENL
-     [SUBST1_TAC(WORD_RULE `word_add in_p (word (64*(loop_count-2)+64)):int64 = word_add in_p (word (16*(4*(loop_count-2)+4)))`);
-      SUBST1_TAC(WORD_RULE `word_add in_p (word (64*(loop_count-2)+80)):int64 = word_add in_p (word (16*(4*(loop_count-2)+5)))`);
-      SUBST1_TAC(WORD_RULE `word_add in_p (word (64*(loop_count-2)+96)):int64 = word_add in_p (word (16*(4*(loop_count-2)+6)))`);
-      SUBST1_TAC(WORD_RULE `word_add in_p (word (64*(loop_count-2)+112)):int64 = word_add in_p (word (16*(4*(loop_count-2)+7)))`)] THEN
-    FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC;
-    ALL_TAC] THEN
-  (* htable_mem_4 unfold so the 4 htable reads are anchored + survive *)
-  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4] THEN
-  ALL_TAC THEN
-  drain_step_tac THEN
-  ALL_TAC THEN
-  ENSURES_FINAL_STATE_TAC THEN
-  ASM_REWRITE_TAC[] THEN
-  ALL_TAC THEN
-  (* fold the X0/X2 pointer-advance arithmetic at goal level (SUBGOAL the two facts, guaranteed to fire) *)
-  SUBGOAL_THEN `64 * (loop_count - 2) + 128 = 64 * loop_count /\
-                (64 * (loop_count - 2) + 64) + 64 = 64 * loop_count`
-    (fun th -> REWRITE_TAC[th]) THENL
-   [MAP_EVERY UNDISCH_TAC [`2 <= loop_count`] THEN ARITH_TAC; ALL_TAC] THEN
-  ASM_REWRITE_TAC[] THEN
-  (* --- Split the out-store forall (post `j < 4*loop_count`) into the invariant's preserved
-     prefix `j < 4*(loop_count-2)` (closed from the incoming forall by ASM_REWRITE) + the 8
-     drained blocks 4*(loop_count-2)..+7 as explicit unwound equations (mirror BODYLEG's 4-way
-     split at 2-group depth).  Without this the whole forall reaches the broken OUT0_TAC (hardcoded
-     `j < 4*i`, no `i` in the drain) and thrashes.  Needs 3<=loop_count for the bound arithmetic. --- *)
-  SUBGOAL_THEN `!j:num. j < 4 * loop_count <=>
-      j < 4*(loop_count-2) \/ j = 4*(loop_count-2) \/ j = 4*(loop_count-2)+1 \/ j = 4*(loop_count-2)+2 \/
-      j = 4*(loop_count-2)+3 \/ j = 4*(loop_count-2)+4 \/ j = 4*(loop_count-2)+5 \/ j = 4*(loop_count-2)+6 \/
-      j = 4*(loop_count-2)+7`
-    (fun th -> REWRITE_TAC[th]) THENL
-   [UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
-  REWRITE_TAC[TAUT `p \/ q ==> r <=> (p ==> r) /\ (q ==> r)`] THEN
-  REWRITE_TAC[FORALL_AND_THM; FORALL_UNWIND_THM2] THEN
-  (* fold the 8 unwound out-store addresses 16*(4*(loop_count-2)+k) back to byte offsets, and the
-     counter/block indices, so the aes_ctr_block closer + ASM_REWRITE match the stored-block facts. *)
-  REWRITE_TAC[ARITH_RULE `16 * (4 * a + b) = 64 * a + 16 * b`; ARITH_RULE `16 * 4 * a = 64 * a`] THEN
-  CONV_TAC(DEPTH_CONV NUM_MULT_CONV) THEN ASM_REWRITE_TAC[] THEN
-  REPEAT CONJ_TAC THEN DRAIN_CLOSE);;
-
-(* ==================== COMPOSITION: PARTA + PARTB -> SWP_DEC_LC2 ==================== *)
+(* ==================== COMPOSITION: loop_count=2 = LC2-PARTA (0xa0 -> 0x514) + DRAIN514 (0x514 -> 0xaa0) ==================== *)
 let lc2_ens  = list_mk_comb(`ensures arm`,[fill_pre;drain_post;fill_frame]);;
-let lc2_goal = list_mk_forall(vs_fill, mk_imp(fill_hyps, lc2_ens));;
+let lc2_goal = list_mk_forall(vs_fill, mk_imp(fill_hyps_lc2, lc2_ens));;
 let SWP_DEC_LC2 = prove(lc2_goal,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
@@ -2874,11 +2360,11 @@ let SWP_DEC_LC2 = prove(lc2_goal,
    [REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
     MATCH_MP_TAC SWP_DEC_LC2_PARTA THEN EXISTS_TAC `key_p:int64` THEN ASM_REWRITE_TAC[];
     REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
-    ENSURES_PRECONDITION_TAC drain_pre THEN CONJ_TAC THENL
+    ENSURES_PRECONDITION_TAC drain514_pre THEN CONJ_TAC THENL
      [GEN_TAC THEN CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
       FIRST_ASSUM(fun th -> if lhs(concl th)=`loop_count:num` then REWRITE_TAC[th] else NO_TAC) THEN
       CONV_TAC NUM_REDUCE_CONV THEN REWRITE_TAC[];
-      MATCH_MP_TAC SWP_DEC_LC2_PARTB THEN EXISTS_TAC `key_p:int64` THEN
+      MATCH_MP_TAC SWP_DEC_DRAIN514 THEN EXISTS_TAC `key_p:int64` THEN
       REPEAT CONJ_TAC THEN TRY(FIRST_X_ASSUM ACCEPT_TAC) THEN
       TRY(ASM_REWRITE_TAC[] THEN NO_TAC) THEN (UNDISCH_TAC `loop_count = 2` THEN ARITH_TAC)]]);;
 
