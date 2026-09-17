@@ -171,33 +171,10 @@ let WORD_JOIN_COMBINE_LEMMA = prove
         DIMINDEX_8; DIMINDEX_16; DIMINDEX_32; DIMINDEX_64; DIMINDEX_128] THEN
   REWRITE_TAC[GSYM ADD_ASSOC] THEN CONV_TAC NUM_REDUCE_CONV);;
 
-let WORD_SUBWORD_REVERSEFIELDS_32 = prove
- (`word_subword (word_reversefields 32 x:int128) (0,32):int32 =
-   word_subword x (96,32) /\
-   word_subword (word_reversefields 32 x:int128) (32,32):int32 =
-   word_subword x (64,32) /\
-   word_subword (word_reversefields 32 x:int128) (64,32):int32 =
-   word_subword x (32,32) /\
-   word_subword (word_reversefields 32 x:int128) (96,32):int32 =
-   word_subword x (0,32)`,
-  CONV_TAC WORD_BLAST);;
-
 let WORD_SUBWORD_BYTESWAP128 = prove
  (`(!x. word_subword (byteswap128 x) (0,64):int64 = word_subword x (64,64)) /\
    (!x. word_subword (byteswap128 x) (64,64):int64 = word_subword x (0,64))`,
   REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-
-let WORD_SUBWORD_CTR_BLOCK_32 = prove
- (`word_subword (ctr_block nonce cnt) (0,32):int32 = word cnt /\
-   word_subword (ctr_block nonce cnt) (32,32):int32 =
-     word_subword nonce (0,32) /\
-   word_subword (ctr_block nonce cnt) (64,32):int32 =
-     word_subword nonce (32,32) /\
-   word_subword (ctr_block nonce cnt) (96,32):int32 =
-     word_subword nonce (64,32)`,
-  REWRITE_TAC[ctr_block] THEN
-  CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
-  REWRITE_TAC[]);;
 
 (* ------------------------------------------------------------------------- *)
 (* Scalar counter representation.  Unlike the vector-IV kernels, this variant *)
@@ -771,6 +748,3 @@ let LEAF2_SUB : tactic =
     else if can dest_eq w then (WSUB_ARITH ORELSE ADDR_RECON ORELSE CTR_RECON ORELSE MEM_PRESERVE)
     else (DEABBR THEN DISCHARGE_SAFE_ROBUST));;
 let CLOSE_R2_SUB : tactic = REPEAT CONJ_TAC THEN LEAF2_SUB;;
-
-(* mem@88 x30-save-slot preservation conjunct, appended to every invariant.    *)
-let m88 = `read (memory :> bytes64 (word_add stackpointer (word 88))) s = returnaddress`;;

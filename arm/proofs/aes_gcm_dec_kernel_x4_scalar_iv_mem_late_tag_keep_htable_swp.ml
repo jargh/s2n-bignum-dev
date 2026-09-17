@@ -421,12 +421,6 @@ let DISCHARGE_INP_READS : tactic =
        SUBGOAL_THEN (mk_eq(rd, mk_comb(`inblock:num->int128`, blk))) (fun th->REWRITE_TAC[th]) THENL
         [FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC; ALL_TAC]) reads) (asl,w);;
 
-let SWP_PARTIAL_TAC : tactic =
-  REWRITE_TAC[INBLOCK_REASSEMBLE] THEN REWRITE_TAC[GSYM nist_input_block] THEN ASM_REWRITE_TAC[] THEN
-  REWRITE_TAC[dewrap80; dewrap96; dewrap112] THEN
-  TRY DISCHARGE_INP_READS THEN
-  REWRITE_TAC[nist_input_block] THEN ASM_REWRITE_TAC[];;
-
 (* ===== counter-cluster closers ===== *)
 (* dec-swp counter-cluster closers (rebuilt from memory recipe after 2026-08-25 reboot).
    Requires: prelude (CTR_BLOCK_BUILD_INSERT, MERGE_CTR128_TAC, CTR_ZX_NORM, ZX_COUNTER_UD,
@@ -788,11 +782,6 @@ let bodyleg_goal = leg_goal (vs @ [`i:num`]) leg_hyps (inv_state `0x294` `i:num`
    Load AFTER RESTORE_dec_swp_session.ml (needs those + swp_closer_cleanhalf).
    ============================================================================ *)
 
-(* byteswap128 is an involution (peel/re-apply the machine byteswap). *)
-let BSW_INVOL = prove
- (`!x:int128. byteswap128 (byteswap128 x) = x`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-
 (* list_of_seq split: last 4 elements peel off as an explicit 4-list. *)
 let LIST_OF_SEQ_ADD4 = prove
  (`!(f:num->A) n. list_of_seq f (n + 4) =
@@ -803,44 +792,6 @@ let LIST_OF_SEQ_ADD4 = prove
   REWRITE_TAC[list_of_seq] THEN
   REWRITE_TAC[GSYM APPEND_ASSOC; APPEND] THEN
   REWRITE_TAC[ADD1; GSYM ADD_ASSOC] THEN CONV_TAC NUM_REDUCE_CONV);;
-
-(* The final accumulator = the last group reduced into the prefix accumulator. *)
-let GHASH_LASTGROUP_SPLIT = prove
- (`1 <= loop_count ==>
-   nist_ghash (aes128_cipher (word 0) rk) tag0 (list_of_seq (nist_input_block inblock) (4 * loop_count)) =
-   nist_ghash (aes128_cipher (word 0) rk)
-     (nist_ghash (aes128_cipher (word 0) rk) tag0 (list_of_seq (nist_input_block inblock) (4 * (loop_count - 1))))
-     [nist_input_block inblock (4*(loop_count-1)); nist_input_block inblock (4*(loop_count-1)+1);
-      nist_input_block inblock (4*(loop_count-1)+2); nist_input_block inblock (4*(loop_count-1)+3)]`,
-  DISCH_TAC THEN
-  SUBGOAL_THEN `4 * loop_count = 4 * (loop_count - 1) + 4` SUBST1_TAC THENL
-   [ASM_ARITH_TAC; ALL_TAC] THEN
-  REWRITE_TAC[LIST_OF_SEQ_ADD4] THEN REWRITE_TAC[NIST_GHASH_APPEND]);;
-
-(* Generalized branch2: the 4-product Karatsuba fold reduced = one nist_ghash group over ANY acc. *)
-let SWP_GHASH_BRANCH2_GEN = prove
- (`!acc:int128 m.
-     polyval_reduce_prop3
-       (word_xor (word_pmul (nist_input_block inblock (m+3):int128)
-                            (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0))
-       (word_xor (word_pmul (nist_input_block inblock (m+2))
-                            (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1))
-       (word_xor (word_pmul (nist_input_block inblock (m+1))
-                            (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2))
-       (word_pmul (word_xor (acc:int128) (nist_input_block inblock m))
-                  (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3)))))
-   = nist_ghash (aes128_cipher (word 0) rk) acc
-       [nist_input_block inblock m; nist_input_block inblock (m+1);
-        nist_input_block inblock (m+2); nist_input_block inblock (m+3)]`,
-  REPEAT GEN_TAC THEN
-  MP_TAC(ISPECL [`ghash_twist (aes128_cipher (word 0) rk)`;
-                 `[nist_input_block inblock (m+1); nist_input_block inblock (m+2); nist_input_block inblock (m+3)]:(int128)list`;
-                 `acc:int128`; `nist_input_block inblock m:int128`] GHASH_POLYVAL_ACC_BATCHED) THEN
-  REWRITE_TAC[LENGTH; ghash_wide] THEN CONV_TAC NUM_REDUCE_CONV THEN
-  REWRITE_TAC[NIST_GHASH_IS_POLYVAL] THEN
-  REWRITE_TAC[APPEND] THEN REWRITE_TAC[GHASH_ACC_APPEND] THEN
-  REWRITE_TAC[GSYM NIST_GHASH_IS_POLYVAL] THEN
-  DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN AP_TERM_TAC THEN CONV_TAC WORD_BITWISE_RULE);;
 
 (* SETTLED branch2: acc presented as the settled accumulator nist_ghash..(list_of_seq..(4*k)); RHS is the
    NEXT settled accumulator nist_ghash..(list_of_seq..(4*k+4)) -- exactly the byteswap-split goal's RHS form
@@ -931,17 +882,6 @@ let branch_lem = prove(
   SUBGOAL_THEN `val(word loop_count:int64) = loop_count` SUBST1_TAC THENL
    [MATCH_MP_TAC VAL_WORD_EQ THEN ASM_REWRITE_TAC[DIMINDEX_64]; ALL_TAC] THEN
   REWRITE_TAC[VAL_WORD_1] THEN UNDISCH_TAC `3 <= loop_count` THEN ARITH_TAC);;
-let branch_lem2 = prove(
-  `3 <= loop_count /\ loop_count < 2 EXP 64
-   ==> (val(word_sub (word loop_count:int64) (word 2)) = 0 <=> F)`,
-  STRIP_TAC THEN REWRITE_TAC[VAL_EQ_0; WORD_SUB_EQ_0] THEN
-  DISCH_THEN(MP_TAC o AP_TERM `val:int64->num`) THEN
-  SUBGOAL_THEN `val(word loop_count:int64) = loop_count` SUBST1_TAC THENL
-   [MATCH_MP_TAC VAL_WORD_EQ THEN ASM_REWRITE_TAC[DIMINDEX_64]; ALL_TAC] THEN
-  SUBGOAL_THEN `val(word 2:int64) = 2` SUBST1_TAC THENL
-   [REWRITE_TAC[VAL_WORD] THEN CONV_TAC NUM_REDUCE_CONV THEN
-    REWRITE_TAC[DIMINDEX_64] THEN CONV_TAC NUM_REDUCE_CONV; ALL_TAC] THEN
-  UNDISCH_TAC `3 <= loop_count` THEN ARITH_TAC);;
 
 (* bridge: the machine rev64.16b(block) = byteswap128(word_reversefields 8 block); needed to close the
    i=0 GHASH seed (Q11) whose FILL machine value is rev64.16b(inblock 0) but the invariant writes it as
@@ -959,20 +899,6 @@ let REV64_16B_IS_BSW_REVFIELDS = prove(
 (* FILL per-conjunct closer.  Applied AFTER the goal-level arith-normalization pass, so conjuncts
    are in `inblock k` / literal-offset form (same shape CLOSE_V8 expects from BODYLEG).  The Q11 seed
    at i=0 additionally needs nist_ghash..0 -> tag0 (empty Horner); handle it explicitly first. *)
-(* FILL out-store closer for the two stored-ahead blocks (2,3) at literal offsets 32/48
-   (X2 = out_p, not advanced during the fill).  Mirrors OUTBLK_TAC's reconstruction body but
-   with NO address-normalisation (offsets are already literal). *)
-let FILL_OUTBLK_TAC : tactic =
-  REWRITE_TAC[dewrap80;dewrap96;dewrap112] THEN INFOLD3 THEN ASM_REWRITE_TAC[] THEN
-  REWRITE_TAC[XOR_AES128_CIPHER_RECONSTRUCT_DEC] THEN
-  REWRITE_TAC[WORD_REVERSEFIELDS_REVERSEFIELDS] THEN ASM_REWRITE_TAC[] THEN
-  REWRITE_TAC[GSYM aes_ctr_block] THEN REWRITE_TAC[MAP] THEN
-  REWRITE_TAC[WORD_REVERSEFIELDS_REVERSEFIELDS] THEN ASM_REWRITE_TAC[] THEN
-  TRY(AP_THM_TAC THEN AP_TERM_TAC) THEN REWRITE_TAC[aes_ctr_block] THEN
-  CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
-  REWRITE_TAC[ZX_COUNTER_UD; CTR_ZX_NORM] THEN
-  REWRITE_TAC[CTR_BLOCK_BUILD_INSERT] THEN REWRITE_TAC[WORD_REVERSEFIELDS_REVERSEFIELDS] THEN
-  ASM_REWRITE_TAC[] THEN TRY REFL_TAC;;
 
 (* ks9 counter-base lemma: the inline staged-counter for block 3 (i=0) = revfields8(ctr_block nonce 3).
    Lets the machine Q5 keystream (base = read(sp+176) = revfields8(ctr_block nonce 3) via the invariant's
@@ -984,31 +910,6 @@ let KS9_CTRBASE_0 = prove(
      (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64):int128
    = word_reversefields 8 (ctr_block nonce 3)`,
   REWRITE_TAC[ctr_block] THEN CONV_TAC WORD_BLAST);;
-
-(* i=0 counter-base folds: the FILL staged counter-lane joins = word_reversefields 8 (ctr_block nonce K),
-   for K in {2,3,4,5,6}.  Proven uniformly by REWRITE[ctr_block] + WORD_BLAST (like KS9_CTRBASE_0). *)
-let CTR_LANE_FOLD_0 = prove(
-  `(word_join
-     (word_or (word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64)
-              (word_shl (word_zx (word_bytereverse (word (4*0+3):int32):int32):int64) 32:int64):int64)
-     (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64):int128
-    = word_reversefields 8 (ctr_block nonce (4*0+3))) /\
-   (word_join
-     (word_or (word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64)
-              (word_shl (word_zx (word_bytereverse (word (4*0+4):int32):int32):int64) 32:int64):int64)
-     (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64):int128
-    = word_reversefields 8 (ctr_block nonce (4*0+4))) /\
-   (word_join
-     (word_or (word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64)
-              (word_shl (word_zx (word_bytereverse (word (4*0+5):int32):int32):int64) 32:int64):int64)
-     (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64):int128
-    = word_reversefields 8 (ctr_block nonce (4*0+5))) /\
-   (word_join
-     (word_or (word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64)
-              (word_shl (word_zx (word_bytereverse (word (4*0+6):int32):int32):int64) 32:int64):int64)
-     (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64):int128
-    = word_reversefields 8 (ctr_block nonce (4*0+6)))`,
-  REWRITE_TAC[ctr_block] THEN CONV_TAC NUM_REDUCE_CONV THEN CONV_TAC WORD_BLAST);;
 
 (* counter-base folds with the REDUCED shl-numeral (the stepping reduces word_shl(word_bytereverse(word k))32
    to a numeral): the FILL staged counter-lane join = word_reversefields 8 (ctr_block nonce K) for K=2..6. *)
@@ -1415,7 +1316,6 @@ let ITER1_Q30_TAC : tactic =
 
 (* ---- out-store readback closer (RECON): blocks 0,1,2,3; counter base X13=word 2, so ctr = 2,3,4,5.
    Reuse DRAIN's RECON structure but with literal block/counter indices. ---- *)
-let iter1_stuck = ref 0;;
 let rhs_has c w = try (is_eq w) && can (find_term (fun u -> try fst(dest_const(fst(strip_comb u)))=c with _->false)) (rhs w) with _->false;;
 let ITER1_CLOSE : tactic =
   fun (asl,w) ->

@@ -38,28 +38,6 @@ needs "common/karatsuba_pmul.ml";;
 needs "arm/proofs/aes_gcm_utils.ml";;
 
 (* ------------------------------------------------------------------------- *)
-(* Reconstruction of high-level concepts from the computed expressions.      *)
-(* ------------------------------------------------------------------------- *)
-
-let CTR_BLOCK_RECONSTRUCT_REV8 = prove
- (`word_join
-    (word_join (word_reversefields 8 (word ctr):int32)
-               (word_reversefields 8 (word_subword nonce (0,32):int32)):int64)
-    (word_join (word_reversefields 8 (word_subword nonce (32,32):int32))
-               (word_reversefields 8 (word_subword nonce (64,32):int32)):int64)
-    = word_reversefields 8 (ctr_block nonce ctr)`,
-  REWRITE_TAC[ctr_block] THEN CONV_TAC WORD_BLAST);;
-
-let CTR_BLOCK_RECONSTRUCT_REV32 = prove
- (`word_join
-    (word_join (word ctr:int32)
-               (word_subword nonce (0,32):int32):int64)
-    (word_join (word_subword nonce (32,32):int32)
-               (word_subword nonce (64,32):int32):int64) =
-  word_reversefields 32 (ctr_block nonce ctr)`,
-  REWRITE_TAC[ctr_block] THEN CONV_TAC WORD_BLAST);;
-
-(* ------------------------------------------------------------------------- *)
 (* Scalar counter representation.  Unlike the vector-IV kernels, this variant *)
 (* keeps the counter block in scalar registers: after "ldp x11,x12,[x4]" the *)
 (* two 64-bit halves of the (little-endian) IV live in X11 (low) and X12      *)
@@ -67,13 +45,6 @@ let CTR_BLOCK_RECONSTRUCT_REV32 = prove
 (* X13.  The loop rebuilds the reversed counter block via                     *)
 (*   w14 = rev(w13);  x14 = orr x12 (w14 lsl 32);  Q0 = word_join x14 x11.     *)
 (* These lemmas connect that scalar reconstruction back to ctr_block.         *)
-
-let SUBWORD_WORD_LO32 = prove
- (`word_subword (word n:int64) (0,32):int32 = word n`,
-  SIMP_TAC[WORD_SUBWORD_WORD; DIMINDEX_64; ARITH_RULE `0 + 32 <= 64`] THEN
-  CONV_TAC NUM_REDUCE_CONV THEN REWRITE_TAC[DIV_1] THEN
-  ONCE_REWRITE_TAC[GSYM WORD_MOD_SIZE] THEN REWRITE_TAC[DIMINDEX_32] THEN
-  CONV_TAC NUM_REDUCE_CONV THEN REWRITE_TAC[MOD_MOD_REFL]);;
 
 (* Given the initial IV halves (join = reversed ctr_block for counter 2), the *)
 (* loop-built block for any counter value equals the reversed ctr_block.      *)
@@ -99,71 +70,21 @@ let JOIN_SUBWORD_ID = prove
    ctr_block for the canonical counter 2, the loop-built block for counter cval
    equals the reversed ctr_block for cval.  This is what the loop body invokes. *)
 
-let CTR_BLOCK_BUILD_CLOSED = prove
- (`word_join
-        (word_or
-          (word_zx ((word_zx (word_subword
-              (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64)):int32):int64)
-          (word_shl (word_zx (word_bytereverse (word cval:int32)):int64) 32))
-        (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64)
-        :int128
-   = word_reversefields 8 (ctr_block nonce cval)`,
-  MP_TAC(INST
-    [`word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64`,
-       `ivhi:int64`;
-     `word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64`,
-       `ivlo:int64`]
-    CTR_BLOCK_BUILD_V) THEN
-  REWRITE_TAC[JOIN_SUBWORD_ID]);;
-
 (* Epilogue byte-splice: the final "str w14,[x4,#12]" overwrites only the top 4 bytes *)
 (* of the ivec (the byte-reversed counter word); the low 12 bytes keep their initial  *)
 (* value (the reversed nonce from ctr_block nonce 2).  Recombining gives the reversed *)
 (* ctr_block for the final counter value.                                             *)
 
-let EPI_SPLICE = prove
- (`word_join (word_bytereverse (word cval:int32):int32)
-             (word_subword (word_reversefields 8 (ctr_block nonce 2):int128)
-                           (0,96):96 word)
-     :int128
-   = word_reversefields 8 (ctr_block nonce cval)`,
-  REWRITE_TAC[ctr_block] THEN CONV_TAC BITBLAST_RULE);;
-
 (* Same splice phrased for the 64/64 then 32/32 decomposition of the 128-bit ivec    *)
 (* read (which is how READ_MEMORY_BYTESIZED_SPLIT breaks it): the stored counter word *)
 (* is the top 32 bits of the high 64-bit half, the rest is the unchanged nonce.       *)
-
-let EPI_SPLICE_64 = prove
- (`word_join
-      (word_join (word_bytereverse (word cval:int32):int32)
-                 (word_subword (word_reversefields 8 (ctr_block nonce 2):int128)
-                               (64,32):int32):int64)
-      (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64)
-     :int128
-   = word_reversefields 8 (ctr_block nonce cval)`,
-  REWRITE_TAC[ctr_block] THEN CONV_TAC BITBLAST_RULE);;
 
 (* After the 32-bit-cell split (and collapsing the word_zx conversion chain with     *)
 (* ZX_COUNTER_UD), the counter cell (offset 12) is word_bytereverse(word c), which    *)
 (* equals the top 32 bits of the reversed ctr_block.                                  *)
 
-let COUNTER_CHUNK = prove
- (`word_zx (word_zx (word_bytereverse
-     (word_zx (word_zx (word (c:num):int32):int64):int32):int32):int64):int32 =
-   word_subword (word_reversefields 8 (ctr_block nonce c):int128) (96,32):int32`,
-  REWRITE_TAC[ctr_block] THEN CONV_TAC BITBLAST_RULE);;
-
 (* The low three 32-bit cells of the reversed ivec (the nonce) are independent of the *)
 (* counter value, so they still hold their initial (counter-2) contents.              *)
-
-let NONCE_CHUNK = prove
- (`word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,32):int32 =
-   word_subword (word_reversefields 8 (ctr_block nonce c):int128) (0,32):int32 /\
-   word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (32,32):int32 =
-   word_subword (word_reversefields 8 (ctr_block nonce c):int128) (32,32):int32 /\
-   word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,32):int32 =
-   word_subword (word_reversefields 8 (ctr_block nonce c):int128) (64,32):int32`,
-  REWRITE_TAC[ctr_block] THEN CONV_TAC BITBLAST_RULE);;
 
 (* Split a 128-bit input-block memory read into two 64-bit halves whose addresses  *)
 (* are folded back to the canonical "in_p + word(off)" form.  The scalar_rk final  *)
@@ -350,18 +271,6 @@ let CT_TO_NCB = prove
 let JOIN_SUBWORD_RECOMBINE = prove
  (`word_join (word_subword (x:int128) (64,64):int64) (word_subword x (0,64):int64) : int128 = x`,
   CONV_TAC WORD_BLAST);;
-let BLOCK1_FOLD_SUB = prove
- (`([EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk;
-     EL 7 rk; EL 8 rk; EL 9 rk; EL 10 rk]:(int128)list = rk) /\
-    (a:int64) = word_subword (word_xor (inblock (4*(i:num)+1)) (word_reversefields 8 (EL 10 rk)):int128) (64,64) /\
-    (b:int64) = word_subword (word_xor (inblock (4*i+1)) (word_reversefields 8 (EL 10 rk)):int128) (0,64)
-    ==> word_xor (aes10p nonce rk ((4*i+1)+2)) (word_join (a:int64) (b:int64):int128)
-        = word_reversefields 8 (nist_cipher_block nonce rk inblock (4*i+1))`,
-  STRIP_TAC THEN ASM_REWRITE_TAC[JOIN_SUBWORD_RECOMBINE] THEN
-  MP_TAC(INST [`(4*i+1)+2`,`c:num`; `inblock(4*i+1):int128`,`inb:int128`] KEYSTREAM_FOLD) THEN
-  ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN
-  MP_TAC(INST [`inblock:num->int128`,`inblock:num->int128`; `4*i+1`,`j:num`] CT_TO_NCB) THEN
-  DISCH_THEN(fun th -> REWRITE_TAC[th]));;
 
 let ZXZX32 = prove
  (`word_zx (word_zx (x:int32):int64):int32 = x`, CONV_TAC WORD_BLAST);;
@@ -820,26 +729,6 @@ let (MUST:tactic->tactic) = fun t (asl,w) ->
   let gs = t (asl,w) in
   let _,subs,_ = gs in
   if subs = [] then gs else failwith "MUST: goal not closed";;
-let close_one : tactic =
-  fun (asl,w) ->
-    let has c t = can (find_term (fun u -> try fst(dest_const(fst(strip_comb u)))=c with _->false)) t in
-    (* DEFER Q30-family goals (large reduce towers) to phase2 - they carry word_pmul/byteswap128 and
-       are far too big for the cheap WORD_RULE/WORD_BLAST closers (which would grind for minutes). *)
-    if String.length(string_of_term w) > 5000 then failwith "close_one: large Q30-family goal deferred"
-    else if is_eq w && has "nist_ghash" (rhs w) then failwith "close_one: Q30 deferred"
-    else
-      (FIRST (map MUST
-        [ close_ksfold;                                  (* output-block keystream identities (conj) *)
-          close_goal9;                                   (* output-forall *)
-          close_goal10;                                  (* MAYCHANGE frame *)
-          el 0 closers_0_6; el 1 closers_0_6;            (* ptr X0/X2 *)
-          el 2 closers_0_6; close_ctr176;                (* [sp+160]/[sp+176] counters *)
-          el 3 closers_0_6;                              (* X13 *)
-          el 4 closers_0_6; el 5 closers_0_6; el 6 closers_0_6;  (* aes7c/8c/10p *)
-          close_lanejoin;                                (* Q10/Q15/[sp+192/208] lane pins *)
-          close_subwordpin;                              (* X23/X28 subword pins *)
-          close_goal8;                                   (* X1 decrement *)
-          CONV_TAC WORD_RULE ])) (asl,w);;                (* misc arith *)
 
 (* ---- FINAL single-tactic dispatcher for the assembled prove(): applied to EACH conjunct after
    REPEAT CONJ_TAC.  Shape-gated so close_goal7 (expensive) runs only on the Q30 (NG) conjunct and
@@ -1699,11 +1588,6 @@ let swps_leg1_goal =
 (* the WHILE body-invariant (swpS_inv8 with the aligned_bytes_loaded folded in) used by ENSURES_WHILE_UP_TAC.
    The rule wants a num->armstate->bool; swpS_inv8 already is that (modulo the aligned/PC which the rule adds). *)
 let swps_while_inv = swpS_inv8;;
-
-(* helper: the inv-body at a given index, as an armstate->bool predicate (for ENSURES_SEQUENCE intermediate). *)
-let inv_at k = mk_abs(`s:armstate`, mk_conj(
-  mk_eq(`read PC s`, mk_comb(`word:num->int64`, mk_binop `+` `pc:num` k)),
-  list_mk_comb(swpS_inv8,[k;`s:armstate`])));;
 
 (* no-op tactic marking the WHILE-glue legs (FILL/g1..g5/DRAIN); a readable structural label. *)
 let LOG (_:string) : tactic = ALL_TAC;;
