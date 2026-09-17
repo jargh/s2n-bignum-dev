@@ -2061,41 +2061,6 @@ Printf.printf "MARKER: FILLLEG256 PROVEN axiom-free\n%!";;
 
 (* ========== LEG: bodyleg (post-937 tail of DEVEL_enc256_swp_bodyleg.ml) ========== *)
 
-(* --- helpers (verbatim from 128, mc-agnostic) --- *)
-let gc2 keeplist c = try let l=lhs c in let rd,st=dest_comb l in let rr,cc=dest_comb rd in
-   if is_const cc && mem (fst(dest_const cc)) keeplist then
-     (match st with Var(nm,_) when String.length nm>=2 && nm.[0]='s' ->
-        (try Some(fst(dest_const cc), int_of_string(String.sub nm 1 (String.length nm-1))) with _->None) |_->None) else None
-  with _->None;;
-let gkeepN keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
-  (fun (asl,w) -> let cs=map(fun(_,t)->concl t)asl in
-    let mx=map(fun r->(r,itlist(fun c m->match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m)cs(-1)))keeplist in
-    DISCARD_ASSUMPTIONS_TAC(fun th->let c=concl th in
-      if (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
-      then (try let _,args = strip_comb c in string_of_term(last args) <> sname with _ -> false) else
-      if (try free_in `in_p:int64` (lhs c) with _->false) then false else
-      match gc2 keeplist c with
-      Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w));;
-let IN_P_ADDR_FOLD_CONV : conv =
-  let inner = (REWR_CONV(GSYM ADD_ASSOC) THENC RAND_CONV NUM_ADD_CONV) in
-  ONCE_DEPTH_CONV(fun t -> match t with
-    | Comb(Comb(Const("word_add",_), v), Comb(Const("word",_), _))
-        when (try fst(dest_var v) = "in_p" with _ -> false)
-      -> RAND_CONV(RAND_CONV inner) t
-    | _ -> failwith "IN_P_ADDR_FOLD_CONV");;
-
-(* 256 carried/reduce reg-set: AES partials Q3/Q4/Q8 + reduce Q1/Q2/Q11/Q13/Q14/Q29/Q30 + h-powers
-   Q5/Q6/Q17/Q31 + const Q7 + counter/input X-lanes (from harvest). *)
-let REDSETX256 = ["Q1";"Q2";"Q3";"Q4";"Q5";"Q6";"Q7";"Q8";"Q11";"Q13";"Q14";"Q16";"Q17";"Q28";"Q29";"Q30";"Q31";
-                  "X7";"X8";"X10";"X11";"X13";"X14";"X17";"X22";"X23";"X24";"X25";"X26";"X28";"X29";"X30"];;
-(* 256 loop-head scalar lanes to GHOST_INTRO (harvest showed X7/X8/X17/X22/X23/X24/X25/X26/X28/X29/X30
-   carry values; add X10/X14/X19/X27 like 128). *)
-let ghost_lanes256 = ["X7";"X8";"X17";"X22";"X23";"X24";"X25";"X26";"X28";"X29";"X30";"X10";"X14";"X19";"X27"];;
-
-(* 256 counter-store MERGE sites (body-instr, [sp,#offset]) from disasm stp-to-sp in steady body. *)
-let merges256 = [(27,208);(49,160);(92,192);(98,208);(109,176);(118,192);(171,160);(179,176)];;
-
 (* input-split: blocks 4i+0..4i+7 (current group + prefetch), like 128. *)
 let INPUT_SPLIT_TAC256 =
   SUBGOAL_THEN
@@ -2119,15 +2084,6 @@ let INPUT_SPLIT_TAC256 =
   REPEAT(FIRST_X_ASSUM(STRIP_ASSUME_TAC o CONV_RULE SPLIT_INPUT_CONV o
      check (fun th -> let c = concl th in is_eq c && free_in `in_p:int64` (lhs c) &&
        can (find_term (fun t -> is_const t && fst(dest_const t) = "bytes128")) (lhs c))));;
-
-(* leg pre/post state builder (flat beta-reduced conjunction), verbatim from 128. *)
-let leg_state inv off idx =
-  let body = rhs(concl((TOP_DEPTH_CONV BETA_CONV THENC REWRITE_CONV[ADD_CLAUSES])
-                        (list_mk_comb(inv,[idx;`s:armstate`])))) in
-  mk_abs(`s:armstate`,
-    list_mk_conj(`aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp_mc` ::
-                 mk_eq(`read PC s`,mk_comb(`word:num->int64`,mk_binop `+` `pc:num` off)) ::
-                 conjuncts body));;
 
 Printf.printf "MARKER: BODYLEG helpers defined\n%!";;
 
@@ -2218,97 +2174,6 @@ Printf.printf "MARKER: setup+step_body_tac defined\n%!";;
 (* Closers (transplant of 128 swp_S lines 1075-1371, re-indexed +4 rounds).   *)
 (* ========================================================================= *)
 
-(* closers for the AES-partial conjuncts Q3=aes11c/Q4=aes7c/Q8=aes1c + ptrs/X13.
-   Order in the invariant: [X0 ptr][X2 ptr]...[X13]...[Q3=aes11c][Q4=aes7c][Q8=aes1c].
-   Each aesNc pin at i+1 = aesNc nonce rk (4*(i+1)+K); fold via the def + counter build. *)
-let close_ptr : tactic =
-  REWRITE_TAC[ARITH_RULE `64*(i+1)=64*i+64`; LEFT_ADD_DISTRIB] THEN CONV_TAC WORD_RULE;;
-let close_x13 : tactic =
-  REWRITE_TAC[ZXZX32] THEN AP_TERM_TAC THEN REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC;;
-(* aesNc closers: Q3=aes11c(4(i+1)+6), Q4=aes7c(4(i+1)+8), Q8=aes1c(4(i+1)+7).  The stepped value is the
-   aesNc def applied to the reassembled reversed-lane counter (word(4i+10)+K, X13 post +4); fold via mk_cbv.
-   +4-shifted from the original -4-consistent version (block base 4i+4, confirmed by objdump FILL trace). *)
-let close_aes11c : tactic =
-  REWRITE_TAC[aes11c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word (4*i+6):int32 = word(4*(i+1)+2)` SUBST1_TAC THENL
-   [AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+2`);;
-let close_aes7c : tactic =
-  REWRITE_TAC[aes7c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 2) = word(4*(i+1)+4):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+4`);;
-let close_aes1c : tactic =
-  REWRITE_TAC[aes1c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 1) = word(4*(i+1)+3):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+3`);;
-
-(* [sp+160] counter -> rev8(ctr(4(i+1)+2)); [sp+176] -> rev8(ctr(4(i+1)+3)) *)
-let close_ctr160 : tactic =
-  REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word (4*i+6):int32 = word(4*(i+1)+2):int32` SUBST1_TAC THENL
-   [AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+2`);;
-let close_ctr176 : tactic =
-  REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 1) = word(4*(i+1)+3):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+3`);;
-
-(* Normalize the fresh-read addresses word(64*(i+1)+K) to the split-input canonical word(64*i+(64+K)).
-   Body reads input at X0=in_p+64*(i+1); the ldp offsets 0/8/16/24/32/40/48/56 hit blocks 4i+4..7 halves. *)
-let SLOT_ADDR_NORM = [
-  ARITH_RULE `64*(i+1) = 64*i+64`; ARITH_RULE `64*(i+1)+8 = 64*i+72`;
-  ARITH_RULE `64*(i+1)+16 = 64*i+80`; ARITH_RULE `64*(i+1)+24 = 64*i+88`;
-  ARITH_RULE `64*(i+1)+32 = 64*i+96`; ARITH_RULE `64*(i+1)+40 = 64*i+104`;
-  ARITH_RULE `64*(i+1)+48 = 64*i+112`; ARITH_RULE `64*(i+1)+56 = 64*i+120`];;
-
-(* [sp160/176/192] input^rk14 lane pins.  Body LHS = word_join(word_xor(read bytes64 (in_p+64(i+2)+8k'))(rk14hi))
-   (word_xor(read bytes64 (in_p+64(i+2)+0))(rk14lo)); RHS = word_xor(inblock(4(i+1)+4+k))(rk14).  Fold the two
-   bytes64 half-reads to inblock via the split-input assumptions (block 4i+8+k = fresh read at X0=in_p+64(i+2)),
-   then combine lanes with WORD_BITWISE.  +4-shifted (block base 4i+4). *)
-let close_lanejoin : tactic =
-  fun (asl,w) ->
-    (* the split-input bytes64 assumptions the sim already derived (read bytes64 in_p+... = word_subword(inblock..)) *)
-    let inpfacts = List.filter_map (fun (_,th) ->
-      let c = concl th in
-      if is_eq c && (try can (find_term (fun t -> match t with
-             Comb(Const("read",_),Comb(Comb(Const((":>"),_),Const("memory",_)),
-                   Comb(Const("bytes64",_),_))) -> true | _ -> false)) (lhs c) with _->false)
-         && free_in `in_p:int64` (lhs c)
-      then Some th else None) asl in
-    (REWRITE_TAC[ARITH_RULE `4*(i+1) = 4*i+4`; ARITH_RULE `4*(i+1)+1 = 4*i+5`;
-                 ARITH_RULE `4*(i+1)+2 = 4*i+6`] THEN
-     REWRITE_TAC SLOT_ADDR_NORM THEN
-     REWRITE_TAC inpfacts THEN
-     REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-     (REFL_TAC ORELSE CONV_TAC WORD_BLAST ORELSE
-      (REWRITE_TAC[JOIN_XOR_LANES] THEN (REFL_TAC ORELSE CONV_TAC WORD_BLAST)))) (asl,w);;
-(* X23/X28 subword pins: block 4(i+1)+1 = 4i+5. *)
-let close_subwordpin : tactic =
-  REWRITE_TAC[ARITH_RULE `4*(i+1)+1 = 4*i+5`] THEN CONV_TAC WORD_BLAST;;
-
-(* X24/X26 = word_subword(word_xor(inblock(4(i+1)+3))(rk14rev))(0/64,64).  4(i+1)+3 = 4i+7.
-   Body LHS = word_xor(read bytes64 (in_p+64(i+1)+{48,56}))(subword(rk14rev)(0/64,64)); the bytes64 read is a
-   half of block 4i+7.  Fold via split-input assumptions, push subword through xor (WORD_SUBWORD_XOR). *)
-let close_x2426 : tactic =
-  fun (asl,w) ->
-    let inpfacts = List.filter_map (fun (_,th) ->
-      let c = concl th in
-      if is_eq c && (try can (find_term (fun t -> match t with
-             Comb(Const("read",_),Comb(Comb(Const((":>"),_),Const("memory",_)),
-                   Comb(Const("bytes64",_),_))) -> true | _ -> false)) (lhs c) with _->false)
-         && free_in `in_p:int64` (lhs c)
-      then Some th else None) asl in
-    (REWRITE_TAC[ARITH_RULE `4*(i+1)+3 = 4*i+7`] THEN
-     REWRITE_TAC SLOT_ADDR_NORM THEN
-     REWRITE_TAC inpfacts THEN
-     REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-     (REFL_TAC ORELSE CONV_TAC WORD_BLAST)) (asl,w);;
-
-(* Q31 = aes6c nonce rk (4(i+1)+5).  Mirror of close_aes1c/aes7c but at depth 6.  Dump showed the raw body
-   counter is word_add(word(4i+6))(word 3) = 4i+9 = 4(i+1)+5 (the least-advanced/last block of the group). *)
-let close_aes6c : tactic =
-  REWRITE_TAC[aes6c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 3) = word(4*(i+1)+5):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+5`);;
-
 (* X1 decrement: word_sub(word(loop_count-(i+1)))(word 1) = word(loop_count-((i+1)+1)). *)
 let close_goal8 : tactic =
   fun (asl,w) ->
@@ -2320,44 +2185,6 @@ let close_goal8 : tactic =
      ASM_REWRITE_TAC[] THEN ASM_SIMP_TAC[WORD_SUB; VAL_WORD_1] THEN
      REWRITE_TAC[GSYM VAL_WORD_1] THEN AP_TERM_TAC THEN
      MAP_EVERY (fun th -> MP_TAC th) bnds THEN ARITH_TAC) (asl,w);;
-
-(* rk-list hyp (15-elt for 256). *)
-let rk15 = `[EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk;
-             EL 8 rk; EL 9 rk; EL 10 rk; EL 11 rk; EL 12 rk; EL 13 rk; EL 14 rk]:(int128)list = rk`;;
-
-(* output-block keystream identities (the conj close_goal9 leaves). *)
-let close_ksfold : tactic =
-  fun (asl,w) ->
-    let rkth = try snd(find (fun (_,th) -> concl th = rk15) asl) with _ -> failwith "close_ksfold: no rk-hyp" in
-    (REPEAT CONJ_TAC THEN
-     REWRITE_TAC[JOIN_SUBWORD_RECOMBINE] THEN
-     REWRITE_TAC[GSYM AES14P_VIA_AES7C; GSYM AES14P_VIA_AES11C; GSYM AES14P_VIA_AES1C; GSYM AES14P_VIA_AES6C] THEN
-     REWRITE_TAC[MATCH_MP KEYSTREAM_FOLD256 rkth]) (asl,w);;
-
-(* output-forall j<4(i+2): split old(j<4(i+1))+4 new blocks 4(i+1)+0..3 = 4i+4..4i+7 (+4-shifted base),
-   reconstruct via XOR_AES256_CIPHER_RECONSTRUCT.  The new stored group is 4i+4..4i+7 (X2=out_p+64(i+1)). *)
-let close_goal9 : tactic =
-  fun (asl,w) ->
-    let rkth = try snd(find (fun (_,th) -> concl th = rk15) asl) with _ -> failwith "close_goal9: no rk-hyp" in
-    (REWRITE_TAC[ARITH_RULE `j < 4 * (i+1) <=>
-                          j < 4 * i \/ j = 4*i+0 \/ j = 4*i+1 \/ j = 4*i+2 \/ j = 4*i+3`] THEN
-     ASM_REWRITE_TAC[TAUT `p \/ q ==> r <=> (p ==> r) /\ (q ==> r)`] THEN
-     REWRITE_TAC[FORALL_AND_THM; FORALL_UNWIND_THM2] THEN
-     (* out_p store addresses: goal blocks 4i+0..3 -> 64*i+0/16/32/48 (X2=out_p+64*i, store fact form) *)
-     REWRITE_TAC[ARITH_RULE `16 * (4*i+0) = 64*i`; ARITH_RULE `16 * (4*i+1) = 64*i+16`;
-        ARITH_RULE `16 * (4*i+2) = 64*i+32`; ARITH_RULE `16 * (4*i+3) = 64*i+48`] THEN
-     ASM_REWRITE_TAC[] THEN
-     REWRITE_TAC[ARITH_RULE `4*i+0 = 4*i`] THEN ASM_REWRITE_TAC[] THEN
-     REWRITE_TAC[CTR_BLOCK_BUILD_INSERT] THEN
-     REWRITE_TAC[SCALAR_RK_RECONSTRUCT] THEN
-     REWRITE_TAC[XOR_AES256_CIPHER_RECONSTRUCT] THEN
-     ASM_REWRITE_TAC[MAP; WORD_REVERSEFIELDS_REVERSEFIELDS] THEN
-     REWRITE_TAC[aes_ctr_block; GSYM ADD_ASSOC] THEN
-     CONV_TAC(DEPTH_CONV NUM_ADD_CONV) THEN ASM_REWRITE_TAC[] THEN
-     REPEAT CONJ_TAC THEN
-     REWRITE_TAC[JOIN_SUBWORD_RECOMBINE] THEN
-     REWRITE_TAC[GSYM AES14P_VIA_AES7C; GSYM AES14P_VIA_AES11C; GSYM AES14P_VIA_AES1C; GSYM AES14P_VIA_AES6C] THEN
-     REWRITE_TAC[MATCH_MP KEYSTREAM_FOLD256 rkth]) (asl,w);;
 
 (* frame. *)
 let close_goal10 : tactic =
@@ -2374,139 +2201,9 @@ let close_goal10 : tactic =
              REWRITE_TAC[ETA_AX; MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
              SUBSUMED_MAYCHANGE_TAC) g) mcths)) (asl2,w2))) (asl,w);;
 
-(* HO-match artifact fix: the collapse's CT_TO_NCB on the accumulator-block 4*i leaves a constant-function
-   inblock arg `nist_cipher_block nonce rk (\x. inblock(4*i)) (4*i)`.  Since nist_cipher_block only reads the
-   j-th block (inblock i, here i=4*i), (\x. inblock(4*i)) 4*i = inblock(4*i) = the plain inblock at 4*i.  So
-   the const-fn form EQUALS the plain form.  Prove it (BETA after unfolding the two block defs). *)
-let NCB_CONST_FN = prove
- (`nist_cipher_block nonce rk (\x:num. inblock (4*i)) (4*i) =
-   nist_cipher_block nonce rk inblock (4*i)`,
-  REWRITE_TAC[nist_cipher_block; cipher_block] THEN CONV_TAC(DEPTH_CONV BETA_CONV) THEN REFL_TAC);;
-
-(* Predicate for DISCARD_ASSUMPTIONS_TAC in close_goal7's first CONJ: DISCARD every assumption EXCEPT the
-   reconstruction ABBREV defs (cipherblock/h/sofar/w1/w2/ks).  Keeping only these small defs stops the
-   subword-convs + ASM_REWRITE from folding the huge invariant assumptions (Q29 nist_ghash tower,
-   output-forall, aes partials) which caused a 30GB BITBLAST blowup. *)
-let abbrev_names = ["cipherblock_0";"cipherblock_1";"cipherblock_2";"cipherblock_3";
-                    "h0";"h1";"h2";"h3";"sofar";"w1";"w2";"ks";"ks'";"ks''";"ks'''"];;
-let keep_only_abbrev_defs th =
-  let c = concl th in
-  let is_abbrev = is_eq c && (match lhs c with
-     | Var(nm,_) -> List.mem nm abbrev_names
-     | _ -> false) in
-  not is_abbrev;;
-
 (* ABBREV every maximal `word_pmul a b` subterm of the goal as a fresh int128 var.  After this, BITBLAST sees
    only word_join/word_subword/word_xor SHUFFLE over abstract int128s (fast, ~0.5s, 385 BDD vars) instead of
    modelling the 64x64 carryless-multiply circuit (30GB blowup).  This is the key to the 256 reduce closer. *)
-(* Abstract every FULLY-APPLIED (2-arg) word_pmul subterm as a fresh int128/int256 var, so a subsequent
-   BITBLAST proves only the surrounding word_join/word_subword/word_xor SHUFFLE (fast, tiny BDD) instead of
-   modelling the 64x64 carryless-multiply circuit (30GB blowup).  CRITICAL: match only 2-arg pmuls -- the
-   bare `word_pmul` const and partial applications must NOT be abstracted (that only renames the head). *)
-let ABBREV_PMULS : tactic =
-  fun (asl,w) ->
-    let is_full_pmul t = match strip_comb t with Const("word_pmul",_),[_;_] -> true | _ -> false in
-    let pmuls = setify (find_terms is_full_pmul w) in
-    let mk i t = ABBREV_TAC (mk_eq(mk_var(Printf.sprintf "pm_%d" i, type_of t), t)) in
-    (EVERY (List.mapi mk pmuls)) (asl,w);;
-
-(* Karatsuba-mid folding lemmas: canonicalize BOTH word_xor orders of a subword-half pair to karatsuba_mid,
-   so the machine's alternating-order mid sub-pmuls and KARATSUBA_JOIN_ALT's mid coincide as atoms. *)
-let CMID_HILO = prove
- (`!a:int128. word_xor (word_subword a (64,64)) (word_subword a (0,64)):int64 = karatsuba_mid a`,
-  REWRITE_TAC[karatsuba_mid] THEN CONV_TAC WORD_BITWISE_RULE);;
-let CMID_LOHI = prove
- (`!a:int128. word_xor (word_subword a (0,64)) (word_subword a (64,64)):int64 = karatsuba_mid a`,
-  REWRITE_TAC[karatsuba_mid] THEN CONV_TAC WORD_BITWISE_RULE);;
-let KMID_FOLD_LOHI = GSYM karatsuba_mid;;
-let KMID_FOLD_HILO = CMID_HILO;;
-
-(* word_join (HI-FIRST) projections + injectivity -- for the SPLIT route on close_goal7: reduce_g2 P = word_join g f
-   (via POLYVAL_REDUCE_G2 -> reduce_prop3 output), RHS byteswap128(ng) = word_join(subword ng 0)(subword ng 64); then
-   WJ_INJ splits into two int64 half-equalities, making the byteswap explicit as subword indices (avoids the false
-   global byteswap/ghash commute). *)
-let WJ_LO = prove
- (`!(a:int64) (b:int64). word_subword (word_join a b :int128) (0,64):int64 = b`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let WJ_HI = prove
- (`!(a:int64) (b:int64). word_subword (word_join a b :int128) (64,64):int64 = a`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let WJ_INJ = prove
- (`!(a:int64) (b:int64) (c:int64) (d:int64). (word_join a b :int128 = word_join c d) <=> (a = c /\ b = d)`,
-  REPEAT GEN_TAC THEN EQ_TAC THENL
-   [DISCH_THEN(fun th -> MP_TAC(AP_TERM `\x:int128. word_subword x (64,64):int64` th) THEN
-                         MP_TAC(AP_TERM `\x:int128. word_subword x (0,64):int64` th)) THEN
-    CONV_TAC(DEPTH_CONV BETA_CONV) THEN REWRITE_TAC[WJ_LO; WJ_HI] THEN MESON_TAC[];
-    STRIP_TAC THEN ASM_REWRITE_TAC[]]);;
-
-(* byteswap128 is the 64-bit half-swap (def: word_join(subword x 0)(subword x 64)); it is an involution.  The
-   machine's reduce reads Q29 = byteswap128(nist_ghash) and the load-path forms word_join(subword _)(subword _)
-   again, so the accumulator entering the pmul is the DOUBLE byteswap = clean nist_ghash. *)
-let INVOL_BYTESWAP128 = prove
- (`!x:int128. byteswap128 (byteswap128 x) = x`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-(* acc double-byteswap: word_subword(word_join(byteswap128 ng)(byteswap128 ng))(64,128) = ng (clean). *)
-let ACC_CLEAN = prove
- (`!ng:int128. word_subword (word_join (byteswap128 ng) (byteswap128 ng) :int256) (64,128) :int128 = ng`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-
-(* The head-ext `ext v30,v29,v29` where Q29=swpgrp i (a fresh var, NOT a byteswap128 term) yields the acc
-   word_subword(word_join x x)(64,128) = byteswap128 x.  NB byteswap128 is a DEFINED const -- must expand it before
-   WORD_BLAST (bare WORD_BLAST on this FAILS: byteswap128 opaque).  Proven once here; REWRITE with it in close_goal7. *)
-let ACC_JOIN_BYTESWAP = prove
- (`!x:int128. word_subword (word_join x x :int256) (64,128) :int128 = byteswap128 x`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-
-(* word_join linearity over word_xor (both int256- and int128-level): folds the RHS product tower's xor-of-per-
-   lane-joins into a single join-of-xors so it matches reduce_g2's single-join packing.  THE multi-lane key. *)
-let JOIN_XOR_256 = prove
- (`!(a1:int128) (b1:int128) (a2:int128) (b2:int128).
-     word_xor (word_join a1 b1 :int256) (word_join a2 b2 :int256) =
-     word_join (word_xor a1 a2) (word_xor b1 b2) :int256`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let JOIN_XOR_128 = prove
- (`!(a1:int64) (b1:int64) (a2:int64) (b2:int64).
-     word_xor (word_join a1 b1 :int128) (word_join a2 b2 :int128) =
-     word_join (word_xor a1 a2) (word_xor b1 b2) :int128`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-
-(* CORE: the WHOLE 4-lane GHASH-reduce identity in one lemma (CONJ1 karatsuba shuffle + CONJ2 batched fused).
-   reduce_g2 of the karatsuba lo/hi/mid sums of lanes (cbb3,hp0)(cbb2,hp1)(cbb1,hp2)(word_xor A cbb0, hp3)
-   [hp k = h_power gt k] = ghash_polyval_acc gt A [cbb0;cbb1;cbb2;cbb3].  Proven axiom-free (~14s).  close_goal7,
-   after cleaning the acc (ACC double-byteswap -> A) and stripping the outer byteswap, MATCHes this with A:=nist_ghash 4i. *)
-let CORE_REDUCE_GHASH = prove
- (`polyval_reduce_g2
-     (word_xor (word_pmul (word_subword (cbb3:int128) (0,64):int64) (word_subword (h_power (gt:int128) 0) (0,64):int64))
-     (word_xor (word_pmul (word_subword (cbb2:int128) (0,64):int64) (word_subword (h_power gt 1) (0,64):int64))
-     (word_xor (word_pmul (word_subword (cbb1:int128) (0,64):int64) (word_subword (h_power gt 2) (0,64):int64))
-     (word_pmul (word_subword (word_xor (A:int128) cbb0) (0,64):int64) (word_subword (h_power gt 3) (0,64):int64)))))
-     (word_xor (word_pmul (word_subword cbb3 (64,64):int64) (word_subword (h_power gt 0) (64,64):int64))
-     (word_xor (word_pmul (word_subword cbb2 (64,64):int64) (word_subword (h_power gt 1) (64,64):int64))
-     (word_xor (word_pmul (word_subword cbb1 (64,64):int64) (word_subword (h_power gt 2) (64,64):int64))
-     (word_pmul (word_subword (word_xor A cbb0) (64,64):int64) (word_subword (h_power gt 3) (64,64):int64)))))
-     (word_xor (word_pmul (karatsuba_mid cbb3) (karatsuba_mid (h_power gt 0)))
-     (word_xor (word_pmul (karatsuba_mid cbb2) (karatsuba_mid (h_power gt 1)))
-     (word_xor (word_pmul (karatsuba_mid cbb1) (karatsuba_mid (h_power gt 2)))
-     (word_pmul (karatsuba_mid (word_xor A cbb0)) (karatsuba_mid (h_power gt 3))))))
-   = ghash_polyval_acc gt A [cbb0; cbb1; cbb2; cbb3]`,
-  TRANS_TAC EQ_TRANS
-   `polyval_reduce_prop3
-      (word_xor (word_pmul (cbb3:int128) (h_power gt 0))
-      (word_xor (word_pmul (cbb2:int128) (h_power gt 1))
-      (word_xor (word_pmul (cbb1:int128) (h_power gt 2))
-      (word_pmul (word_xor (A:int128) cbb0) (h_power gt 3)))) :int256)` THEN
-  CONJ_TAC THENL
-   [REWRITE_TAC[POLYVAL_REDUCE_G2] THEN
-    GEN_REWRITE_TAC (RAND_CONV o TOP_DEPTH_CONV) [PMUL_KARATSUBA_JOIN_ALT] THEN
-    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN REWRITE_TAC[karatsuba_mid] THEN
-    REWRITE_TAC[CMID_LOHI; CMID_HILO] THEN AP_TERM_TAC THEN
-    REWRITE_TAC[JOIN_XOR_256; JOIN_XOR_128] THEN
-    ABBREV_PMULS THEN POP_ASSUM_LIST(K ALL_TAC) THEN CONV_TAC BITBLAST_RULE;
-    MP_TAC(ISPECL [`gt:int128`; `[cbb1;cbb2;cbb3]:(int128)list`; `A:int128`; `cbb0:int128`]
-                  GHASH_POLYVAL_ACC_BATCHED) THEN
-    REWRITE_TAC[LENGTH; ghash_wide] THEN CONV_TAC NUM_REDUCE_CONV THEN
-    DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
-    AP_TERM_TAC THEN CONV_TAC WORD_BITWISE_RULE]);;
 
 (* collapse_q30 + close_goal7 (Q30 GHASH tag reduce reconstruction), 256 re-index. *)
 let collapse_q30 : tactic =
@@ -2651,10 +2348,6 @@ let close_goal7 : tactic =
          CONV_TAC WORD_BITWISE_RULE];
        (* CORE-LHS = ghash gt sofar [cbs]: exactly CORE_REDUCE_GHASH (A:=sofar). *)
        MATCH_ACCEPT_TAC CORE_REDUCE_GHASH]) (asl,w);;
-
-let (MUST:tactic->tactic) = fun t (asl,w) ->
-  let gs = t (asl,w) in let _,subs,_ = gs in
-  if subs = [] then gs else failwith "MUST: goal not closed";;
 
 let close_all_tac : tactic =
   fun (asl,w) ->
@@ -2858,41 +2551,6 @@ Printf.printf "MARKER: BODYLEG_LOOSE self-report done\n%!";;
 
 (* ========== LEG: drain (post-937 tail of DEVEL_enc256_swp_drain.ml) ========== *)
 
-(* --- helpers (verbatim from 128, mc-agnostic) --- *)
-let gc2 keeplist c = try let l=lhs c in let rd,st=dest_comb l in let rr,cc=dest_comb rd in
-   if is_const cc && mem (fst(dest_const cc)) keeplist then
-     (match st with Var(nm,_) when String.length nm>=2 && nm.[0]='s' ->
-        (try Some(fst(dest_const cc), int_of_string(String.sub nm 1 (String.length nm-1))) with _->None) |_->None) else None
-  with _->None;;
-let gkeepN keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
-  (fun (asl,w) -> let cs=map(fun(_,t)->concl t)asl in
-    let mx=map(fun r->(r,itlist(fun c m->match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m)cs(-1)))keeplist in
-    DISCARD_ASSUMPTIONS_TAC(fun th->let c=concl th in
-      if (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
-      then (try let _,args = strip_comb c in string_of_term(last args) <> sname with _ -> false) else
-      if (try free_in `in_p:int64` (lhs c) with _->false) then false else
-      match gc2 keeplist c with
-      Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w));;
-let IN_P_ADDR_FOLD_CONV : conv =
-  let inner = (REWR_CONV(GSYM ADD_ASSOC) THENC RAND_CONV NUM_ADD_CONV) in
-  ONCE_DEPTH_CONV(fun t -> match t with
-    | Comb(Comb(Const("word_add",_), v), Comb(Const("word",_), _))
-        when (try fst(dest_var v) = "in_p" with _ -> false)
-      -> RAND_CONV(RAND_CONV inner) t
-    | _ -> failwith "IN_P_ADDR_FOLD_CONV");;
-
-(* 256 carried/reduce reg-set: AES partials Q3/Q4/Q8 + reduce Q1/Q2/Q11/Q13/Q14/Q29/Q30 + h-powers
-   Q5/Q6/Q17/Q31 + const Q7 + counter/input X-lanes (from harvest). *)
-let REDSETX256 = ["Q1";"Q2";"Q3";"Q4";"Q5";"Q6";"Q7";"Q8";"Q11";"Q13";"Q14";"Q16";"Q17";"Q28";"Q29";"Q30";"Q31";
-                  "X7";"X8";"X10";"X11";"X13";"X14";"X17";"X22";"X23";"X24";"X25";"X26";"X28";"X29";"X30"];;
-(* 256 loop-head scalar lanes to GHOST_INTRO (harvest showed X7/X8/X17/X22/X23/X24/X25/X26/X28/X29/X30
-   carry values; add X10/X14/X19/X27 like 128). *)
-let ghost_lanes256 = ["X7";"X8";"X17";"X22";"X23";"X24";"X25";"X26";"X28";"X29";"X30";"X10";"X14";"X19";"X27"];;
-
-(* 256 counter-store MERGE sites (body-instr, [sp,#offset]) from disasm stp-to-sp in steady body. *)
-let merges256 = [(27,208);(49,160);(92,192);(98,208);(109,176);(118,192);(171,160);(179,176)];;
-
 (* input-split: blocks 4i+0..4i+7 (current group + prefetch), like 128. *)
 let INPUT_SPLIT_TAC256 =
   SUBGOAL_THEN
@@ -2916,15 +2574,6 @@ let INPUT_SPLIT_TAC256 =
   REPEAT(FIRST_X_ASSUM(STRIP_ASSUME_TAC o CONV_RULE SPLIT_INPUT_CONV o
      check (fun th -> let c = concl th in is_eq c && free_in `in_p:int64` (lhs c) &&
        can (find_term (fun t -> is_const t && fst(dest_const t) = "bytes128")) (lhs c))));;
-
-(* leg pre/post state builder (flat beta-reduced conjunction), verbatim from 128. *)
-let leg_state inv off idx =
-  let body = rhs(concl((TOP_DEPTH_CONV BETA_CONV THENC REWRITE_CONV[ADD_CLAUSES])
-                        (list_mk_comb(inv,[idx;`s:armstate`])))) in
-  mk_abs(`s:armstate`,
-    list_mk_conj(`aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp_mc` ::
-                 mk_eq(`read PC s`,mk_comb(`word:num->int64`,mk_binop `+` `pc:num` off)) ::
-                 conjuncts body));;
 
 Printf.printf "MARKER: BODYLEG helpers defined\n%!";;
 
@@ -3015,97 +2664,6 @@ Printf.printf "MARKER: setup+step_body_tac defined\n%!";;
 (* Closers (transplant of 128 swp_S lines 1075-1371, re-indexed +4 rounds).   *)
 (* ========================================================================= *)
 
-(* closers for the AES-partial conjuncts Q3=aes11c/Q4=aes7c/Q8=aes1c + ptrs/X13.
-   Order in the invariant: [X0 ptr][X2 ptr]...[X13]...[Q3=aes11c][Q4=aes7c][Q8=aes1c].
-   Each aesNc pin at i+1 = aesNc nonce rk (4*(i+1)+K); fold via the def + counter build. *)
-let close_ptr : tactic =
-  REWRITE_TAC[ARITH_RULE `64*(i+1)=64*i+64`; LEFT_ADD_DISTRIB] THEN CONV_TAC WORD_RULE;;
-let close_x13 : tactic =
-  REWRITE_TAC[ZXZX32] THEN AP_TERM_TAC THEN REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC;;
-(* aesNc closers: Q3=aes11c(4(i+1)+6), Q4=aes7c(4(i+1)+8), Q8=aes1c(4(i+1)+7).  The stepped value is the
-   aesNc def applied to the reassembled reversed-lane counter (word(4i+10)+K, X13 post +4); fold via mk_cbv.
-   +4-shifted from the original -4-consistent version (block base 4i+4, confirmed by objdump FILL trace). *)
-let close_aes11c : tactic =
-  REWRITE_TAC[aes11c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word (4*i+6):int32 = word(4*(i+1)+2)` SUBST1_TAC THENL
-   [AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+2`);;
-let close_aes7c : tactic =
-  REWRITE_TAC[aes7c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 2) = word(4*(i+1)+4):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+4`);;
-let close_aes1c : tactic =
-  REWRITE_TAC[aes1c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 1) = word(4*(i+1)+3):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+3`);;
-
-(* [sp+160] counter -> rev8(ctr(4(i+1)+2)); [sp+176] -> rev8(ctr(4(i+1)+3)) *)
-let close_ctr160 : tactic =
-  REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word (4*i+6):int32 = word(4*(i+1)+2):int32` SUBST1_TAC THENL
-   [AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+2`);;
-let close_ctr176 : tactic =
-  REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 1) = word(4*(i+1)+3):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+3`);;
-
-(* Normalize the fresh-read addresses word(64*(i+1)+K) to the split-input canonical word(64*i+(64+K)).
-   Body reads input at X0=in_p+64*(i+1); the ldp offsets 0/8/16/24/32/40/48/56 hit blocks 4i+4..7 halves. *)
-let SLOT_ADDR_NORM = [
-  ARITH_RULE `64*(i+1) = 64*i+64`; ARITH_RULE `64*(i+1)+8 = 64*i+72`;
-  ARITH_RULE `64*(i+1)+16 = 64*i+80`; ARITH_RULE `64*(i+1)+24 = 64*i+88`;
-  ARITH_RULE `64*(i+1)+32 = 64*i+96`; ARITH_RULE `64*(i+1)+40 = 64*i+104`;
-  ARITH_RULE `64*(i+1)+48 = 64*i+112`; ARITH_RULE `64*(i+1)+56 = 64*i+120`];;
-
-(* [sp160/176/192] input^rk14 lane pins.  Body LHS = word_join(word_xor(read bytes64 (in_p+64(i+2)+8k'))(rk14hi))
-   (word_xor(read bytes64 (in_p+64(i+2)+0))(rk14lo)); RHS = word_xor(inblock(4(i+1)+4+k))(rk14).  Fold the two
-   bytes64 half-reads to inblock via the split-input assumptions (block 4i+8+k = fresh read at X0=in_p+64(i+2)),
-   then combine lanes with WORD_BITWISE.  +4-shifted (block base 4i+4). *)
-let close_lanejoin : tactic =
-  fun (asl,w) ->
-    (* the split-input bytes64 assumptions the sim already derived (read bytes64 in_p+... = word_subword(inblock..)) *)
-    let inpfacts = List.filter_map (fun (_,th) ->
-      let c = concl th in
-      if is_eq c && (try can (find_term (fun t -> match t with
-             Comb(Const("read",_),Comb(Comb(Const((":>"),_),Const("memory",_)),
-                   Comb(Const("bytes64",_),_))) -> true | _ -> false)) (lhs c) with _->false)
-         && free_in `in_p:int64` (lhs c)
-      then Some th else None) asl in
-    (REWRITE_TAC[ARITH_RULE `4*(i+1) = 4*i+4`; ARITH_RULE `4*(i+1)+1 = 4*i+5`;
-                 ARITH_RULE `4*(i+1)+2 = 4*i+6`] THEN
-     REWRITE_TAC SLOT_ADDR_NORM THEN
-     REWRITE_TAC inpfacts THEN
-     REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-     (REFL_TAC ORELSE CONV_TAC WORD_BLAST ORELSE
-      (REWRITE_TAC[JOIN_XOR_LANES] THEN (REFL_TAC ORELSE CONV_TAC WORD_BLAST)))) (asl,w);;
-(* X23/X28 subword pins: block 4(i+1)+1 = 4i+5. *)
-let close_subwordpin : tactic =
-  REWRITE_TAC[ARITH_RULE `4*(i+1)+1 = 4*i+5`] THEN CONV_TAC WORD_BLAST;;
-
-(* X24/X26 = word_subword(word_xor(inblock(4(i+1)+3))(rk14rev))(0/64,64).  4(i+1)+3 = 4i+7.
-   Body LHS = word_xor(read bytes64 (in_p+64(i+1)+{48,56}))(subword(rk14rev)(0/64,64)); the bytes64 read is a
-   half of block 4i+7.  Fold via split-input assumptions, push subword through xor (WORD_SUBWORD_XOR). *)
-let close_x2426 : tactic =
-  fun (asl,w) ->
-    let inpfacts = List.filter_map (fun (_,th) ->
-      let c = concl th in
-      if is_eq c && (try can (find_term (fun t -> match t with
-             Comb(Const("read",_),Comb(Comb(Const((":>"),_),Const("memory",_)),
-                   Comb(Const("bytes64",_),_))) -> true | _ -> false)) (lhs c) with _->false)
-         && free_in `in_p:int64` (lhs c)
-      then Some th else None) asl in
-    (REWRITE_TAC[ARITH_RULE `4*(i+1)+3 = 4*i+7`] THEN
-     REWRITE_TAC SLOT_ADDR_NORM THEN
-     REWRITE_TAC inpfacts THEN
-     REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-     (REFL_TAC ORELSE CONV_TAC WORD_BLAST)) (asl,w);;
-
-(* Q31 = aes6c nonce rk (4(i+1)+5).  Mirror of close_aes1c/aes7c but at depth 6.  Dump showed the raw body
-   counter is word_add(word(4i+6))(word 3) = 4i+9 = 4(i+1)+5 (the least-advanced/last block of the group). *)
-let close_aes6c : tactic =
-  REWRITE_TAC[aes6c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 3) = word(4*(i+1)+5):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+5`);;
-
 (* X1 decrement: word_sub(word(loop_count-(i+1)))(word 1) = word(loop_count-((i+1)+1)). *)
 let close_goal8 : tactic =
   fun (asl,w) ->
@@ -3117,44 +2675,6 @@ let close_goal8 : tactic =
      ASM_REWRITE_TAC[] THEN ASM_SIMP_TAC[WORD_SUB; VAL_WORD_1] THEN
      REWRITE_TAC[GSYM VAL_WORD_1] THEN AP_TERM_TAC THEN
      MAP_EVERY (fun th -> MP_TAC th) bnds THEN ARITH_TAC) (asl,w);;
-
-(* rk-list hyp (15-elt for 256). *)
-let rk15 = `[EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk;
-             EL 8 rk; EL 9 rk; EL 10 rk; EL 11 rk; EL 12 rk; EL 13 rk; EL 14 rk]:(int128)list = rk`;;
-
-(* output-block keystream identities (the conj close_goal9 leaves). *)
-let close_ksfold : tactic =
-  fun (asl,w) ->
-    let rkth = try snd(find (fun (_,th) -> concl th = rk15) asl) with _ -> failwith "close_ksfold: no rk-hyp" in
-    (REPEAT CONJ_TAC THEN
-     REWRITE_TAC[JOIN_SUBWORD_RECOMBINE] THEN
-     REWRITE_TAC[GSYM AES14P_VIA_AES7C; GSYM AES14P_VIA_AES11C; GSYM AES14P_VIA_AES1C; GSYM AES14P_VIA_AES6C] THEN
-     REWRITE_TAC[MATCH_MP KEYSTREAM_FOLD256 rkth]) (asl,w);;
-
-(* output-forall j<4(i+2): split old(j<4(i+1))+4 new blocks 4(i+1)+0..3 = 4i+4..4i+7 (+4-shifted base),
-   reconstruct via XOR_AES256_CIPHER_RECONSTRUCT.  The new stored group is 4i+4..4i+7 (X2=out_p+64(i+1)). *)
-let close_goal9 : tactic =
-  fun (asl,w) ->
-    let rkth = try snd(find (fun (_,th) -> concl th = rk15) asl) with _ -> failwith "close_goal9: no rk-hyp" in
-    (REWRITE_TAC[ARITH_RULE `j < 4 * (i+1) <=>
-                          j < 4 * i \/ j = 4*i+0 \/ j = 4*i+1 \/ j = 4*i+2 \/ j = 4*i+3`] THEN
-     ASM_REWRITE_TAC[TAUT `p \/ q ==> r <=> (p ==> r) /\ (q ==> r)`] THEN
-     REWRITE_TAC[FORALL_AND_THM; FORALL_UNWIND_THM2] THEN
-     (* out_p store addresses: goal blocks 4i+0..3 -> 64*i+0/16/32/48 (X2=out_p+64*i, store fact form) *)
-     REWRITE_TAC[ARITH_RULE `16 * (4*i+0) = 64*i`; ARITH_RULE `16 * (4*i+1) = 64*i+16`;
-        ARITH_RULE `16 * (4*i+2) = 64*i+32`; ARITH_RULE `16 * (4*i+3) = 64*i+48`] THEN
-     ASM_REWRITE_TAC[] THEN
-     REWRITE_TAC[ARITH_RULE `4*i+0 = 4*i`] THEN ASM_REWRITE_TAC[] THEN
-     REWRITE_TAC[CTR_BLOCK_BUILD_INSERT] THEN
-     REWRITE_TAC[SCALAR_RK_RECONSTRUCT] THEN
-     REWRITE_TAC[XOR_AES256_CIPHER_RECONSTRUCT] THEN
-     ASM_REWRITE_TAC[MAP; WORD_REVERSEFIELDS_REVERSEFIELDS] THEN
-     REWRITE_TAC[aes_ctr_block; GSYM ADD_ASSOC] THEN
-     CONV_TAC(DEPTH_CONV NUM_ADD_CONV) THEN ASM_REWRITE_TAC[] THEN
-     REPEAT CONJ_TAC THEN
-     REWRITE_TAC[JOIN_SUBWORD_RECOMBINE] THEN
-     REWRITE_TAC[GSYM AES14P_VIA_AES7C; GSYM AES14P_VIA_AES11C; GSYM AES14P_VIA_AES1C; GSYM AES14P_VIA_AES6C] THEN
-     REWRITE_TAC[MATCH_MP KEYSTREAM_FOLD256 rkth]) (asl,w);;
 
 (* frame. *)
 let close_goal10 : tactic =
@@ -3171,139 +2691,9 @@ let close_goal10 : tactic =
              REWRITE_TAC[ETA_AX; MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
              SUBSUMED_MAYCHANGE_TAC) g) mcths)) (asl2,w2))) (asl,w);;
 
-(* HO-match artifact fix: the collapse's CT_TO_NCB on the accumulator-block 4*i leaves a constant-function
-   inblock arg `nist_cipher_block nonce rk (\x. inblock(4*i)) (4*i)`.  Since nist_cipher_block only reads the
-   j-th block (inblock i, here i=4*i), (\x. inblock(4*i)) 4*i = inblock(4*i) = the plain inblock at 4*i.  So
-   the const-fn form EQUALS the plain form.  Prove it (BETA after unfolding the two block defs). *)
-let NCB_CONST_FN = prove
- (`nist_cipher_block nonce rk (\x:num. inblock (4*i)) (4*i) =
-   nist_cipher_block nonce rk inblock (4*i)`,
-  REWRITE_TAC[nist_cipher_block; cipher_block] THEN CONV_TAC(DEPTH_CONV BETA_CONV) THEN REFL_TAC);;
-
-(* Predicate for DISCARD_ASSUMPTIONS_TAC in close_goal7's first CONJ: DISCARD every assumption EXCEPT the
-   reconstruction ABBREV defs (cipherblock/h/sofar/w1/w2/ks).  Keeping only these small defs stops the
-   subword-convs + ASM_REWRITE from folding the huge invariant assumptions (Q29 nist_ghash tower,
-   output-forall, aes partials) which caused a 30GB BITBLAST blowup. *)
-let abbrev_names = ["cipherblock_0";"cipherblock_1";"cipherblock_2";"cipherblock_3";
-                    "h0";"h1";"h2";"h3";"sofar";"w1";"w2";"ks";"ks'";"ks''";"ks'''"];;
-let keep_only_abbrev_defs th =
-  let c = concl th in
-  let is_abbrev = is_eq c && (match lhs c with
-     | Var(nm,_) -> List.mem nm abbrev_names
-     | _ -> false) in
-  not is_abbrev;;
-
 (* ABBREV every maximal `word_pmul a b` subterm of the goal as a fresh int128 var.  After this, BITBLAST sees
    only word_join/word_subword/word_xor SHUFFLE over abstract int128s (fast, ~0.5s, 385 BDD vars) instead of
    modelling the 64x64 carryless-multiply circuit (30GB blowup).  This is the key to the 256 reduce closer. *)
-(* Abstract every FULLY-APPLIED (2-arg) word_pmul subterm as a fresh int128/int256 var, so a subsequent
-   BITBLAST proves only the surrounding word_join/word_subword/word_xor SHUFFLE (fast, tiny BDD) instead of
-   modelling the 64x64 carryless-multiply circuit (30GB blowup).  CRITICAL: match only 2-arg pmuls -- the
-   bare `word_pmul` const and partial applications must NOT be abstracted (that only renames the head). *)
-let ABBREV_PMULS : tactic =
-  fun (asl,w) ->
-    let is_full_pmul t = match strip_comb t with Const("word_pmul",_),[_;_] -> true | _ -> false in
-    let pmuls = setify (find_terms is_full_pmul w) in
-    let mk i t = ABBREV_TAC (mk_eq(mk_var(Printf.sprintf "pm_%d" i, type_of t), t)) in
-    (EVERY (List.mapi mk pmuls)) (asl,w);;
-
-(* Karatsuba-mid folding lemmas: canonicalize BOTH word_xor orders of a subword-half pair to karatsuba_mid,
-   so the machine's alternating-order mid sub-pmuls and KARATSUBA_JOIN_ALT's mid coincide as atoms. *)
-let CMID_HILO = prove
- (`!a:int128. word_xor (word_subword a (64,64)) (word_subword a (0,64)):int64 = karatsuba_mid a`,
-  REWRITE_TAC[karatsuba_mid] THEN CONV_TAC WORD_BITWISE_RULE);;
-let CMID_LOHI = prove
- (`!a:int128. word_xor (word_subword a (0,64)) (word_subword a (64,64)):int64 = karatsuba_mid a`,
-  REWRITE_TAC[karatsuba_mid] THEN CONV_TAC WORD_BITWISE_RULE);;
-let KMID_FOLD_LOHI = GSYM karatsuba_mid;;
-let KMID_FOLD_HILO = CMID_HILO;;
-
-(* word_join (HI-FIRST) projections + injectivity -- for the SPLIT route on close_goal7: reduce_g2 P = word_join g f
-   (via POLYVAL_REDUCE_G2 -> reduce_prop3 output), RHS byteswap128(ng) = word_join(subword ng 0)(subword ng 64); then
-   WJ_INJ splits into two int64 half-equalities, making the byteswap explicit as subword indices (avoids the false
-   global byteswap/ghash commute). *)
-let WJ_LO = prove
- (`!(a:int64) (b:int64). word_subword (word_join a b :int128) (0,64):int64 = b`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let WJ_HI = prove
- (`!(a:int64) (b:int64). word_subword (word_join a b :int128) (64,64):int64 = a`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let WJ_INJ = prove
- (`!(a:int64) (b:int64) (c:int64) (d:int64). (word_join a b :int128 = word_join c d) <=> (a = c /\ b = d)`,
-  REPEAT GEN_TAC THEN EQ_TAC THENL
-   [DISCH_THEN(fun th -> MP_TAC(AP_TERM `\x:int128. word_subword x (64,64):int64` th) THEN
-                         MP_TAC(AP_TERM `\x:int128. word_subword x (0,64):int64` th)) THEN
-    CONV_TAC(DEPTH_CONV BETA_CONV) THEN REWRITE_TAC[WJ_LO; WJ_HI] THEN MESON_TAC[];
-    STRIP_TAC THEN ASM_REWRITE_TAC[]]);;
-
-(* byteswap128 is the 64-bit half-swap (def: word_join(subword x 0)(subword x 64)); it is an involution.  The
-   machine's reduce reads Q29 = byteswap128(nist_ghash) and the load-path forms word_join(subword _)(subword _)
-   again, so the accumulator entering the pmul is the DOUBLE byteswap = clean nist_ghash. *)
-let INVOL_BYTESWAP128 = prove
- (`!x:int128. byteswap128 (byteswap128 x) = x`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-(* acc double-byteswap: word_subword(word_join(byteswap128 ng)(byteswap128 ng))(64,128) = ng (clean). *)
-let ACC_CLEAN = prove
- (`!ng:int128. word_subword (word_join (byteswap128 ng) (byteswap128 ng) :int256) (64,128) :int128 = ng`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-
-(* The head-ext `ext v30,v29,v29` where Q29=swpgrp i (a fresh var, NOT a byteswap128 term) yields the acc
-   word_subword(word_join x x)(64,128) = byteswap128 x.  NB byteswap128 is a DEFINED const -- must expand it before
-   WORD_BLAST (bare WORD_BLAST on this FAILS: byteswap128 opaque).  Proven once here; REWRITE with it in close_goal7. *)
-let ACC_JOIN_BYTESWAP = prove
- (`!x:int128. word_subword (word_join x x :int256) (64,128) :int128 = byteswap128 x`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-
-(* word_join linearity over word_xor (both int256- and int128-level): folds the RHS product tower's xor-of-per-
-   lane-joins into a single join-of-xors so it matches reduce_g2's single-join packing.  THE multi-lane key. *)
-let JOIN_XOR_256 = prove
- (`!(a1:int128) (b1:int128) (a2:int128) (b2:int128).
-     word_xor (word_join a1 b1 :int256) (word_join a2 b2 :int256) =
-     word_join (word_xor a1 a2) (word_xor b1 b2) :int256`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let JOIN_XOR_128 = prove
- (`!(a1:int64) (b1:int64) (a2:int64) (b2:int64).
-     word_xor (word_join a1 b1 :int128) (word_join a2 b2 :int128) =
-     word_join (word_xor a1 a2) (word_xor b1 b2) :int128`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-
-(* CORE: the WHOLE 4-lane GHASH-reduce identity in one lemma (CONJ1 karatsuba shuffle + CONJ2 batched fused).
-   reduce_g2 of the karatsuba lo/hi/mid sums of lanes (cbb3,hp0)(cbb2,hp1)(cbb1,hp2)(word_xor A cbb0, hp3)
-   [hp k = h_power gt k] = ghash_polyval_acc gt A [cbb0;cbb1;cbb2;cbb3].  Proven axiom-free (~14s).  close_goal7,
-   after cleaning the acc (ACC double-byteswap -> A) and stripping the outer byteswap, MATCHes this with A:=nist_ghash 4i. *)
-let CORE_REDUCE_GHASH = prove
- (`polyval_reduce_g2
-     (word_xor (word_pmul (word_subword (cbb3:int128) (0,64):int64) (word_subword (h_power (gt:int128) 0) (0,64):int64))
-     (word_xor (word_pmul (word_subword (cbb2:int128) (0,64):int64) (word_subword (h_power gt 1) (0,64):int64))
-     (word_xor (word_pmul (word_subword (cbb1:int128) (0,64):int64) (word_subword (h_power gt 2) (0,64):int64))
-     (word_pmul (word_subword (word_xor (A:int128) cbb0) (0,64):int64) (word_subword (h_power gt 3) (0,64):int64)))))
-     (word_xor (word_pmul (word_subword cbb3 (64,64):int64) (word_subword (h_power gt 0) (64,64):int64))
-     (word_xor (word_pmul (word_subword cbb2 (64,64):int64) (word_subword (h_power gt 1) (64,64):int64))
-     (word_xor (word_pmul (word_subword cbb1 (64,64):int64) (word_subword (h_power gt 2) (64,64):int64))
-     (word_pmul (word_subword (word_xor A cbb0) (64,64):int64) (word_subword (h_power gt 3) (64,64):int64)))))
-     (word_xor (word_pmul (karatsuba_mid cbb3) (karatsuba_mid (h_power gt 0)))
-     (word_xor (word_pmul (karatsuba_mid cbb2) (karatsuba_mid (h_power gt 1)))
-     (word_xor (word_pmul (karatsuba_mid cbb1) (karatsuba_mid (h_power gt 2)))
-     (word_pmul (karatsuba_mid (word_xor A cbb0)) (karatsuba_mid (h_power gt 3))))))
-   = ghash_polyval_acc gt A [cbb0; cbb1; cbb2; cbb3]`,
-  TRANS_TAC EQ_TRANS
-   `polyval_reduce_prop3
-      (word_xor (word_pmul (cbb3:int128) (h_power gt 0))
-      (word_xor (word_pmul (cbb2:int128) (h_power gt 1))
-      (word_xor (word_pmul (cbb1:int128) (h_power gt 2))
-      (word_pmul (word_xor (A:int128) cbb0) (h_power gt 3)))) :int256)` THEN
-  CONJ_TAC THENL
-   [REWRITE_TAC[POLYVAL_REDUCE_G2] THEN
-    GEN_REWRITE_TAC (RAND_CONV o TOP_DEPTH_CONV) [PMUL_KARATSUBA_JOIN_ALT] THEN
-    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN REWRITE_TAC[karatsuba_mid] THEN
-    REWRITE_TAC[CMID_LOHI; CMID_HILO] THEN AP_TERM_TAC THEN
-    REWRITE_TAC[JOIN_XOR_256; JOIN_XOR_128] THEN
-    ABBREV_PMULS THEN POP_ASSUM_LIST(K ALL_TAC) THEN CONV_TAC BITBLAST_RULE;
-    MP_TAC(ISPECL [`gt:int128`; `[cbb1;cbb2;cbb3]:(int128)list`; `A:int128`; `cbb0:int128`]
-                  GHASH_POLYVAL_ACC_BATCHED) THEN
-    REWRITE_TAC[LENGTH; ghash_wide] THEN CONV_TAC NUM_REDUCE_CONV THEN
-    DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
-    AP_TERM_TAC THEN CONV_TAC WORD_BITWISE_RULE]);;
 
 (* collapse_q30 + close_goal7 (Q30 GHASH tag reduce reconstruction), 256 re-index. *)
 let collapse_q30 : tactic =
@@ -3448,10 +2838,6 @@ let close_goal7 : tactic =
          CONV_TAC WORD_BITWISE_RULE];
        (* CORE-LHS = ghash gt sofar [cbs]: exactly CORE_REDUCE_GHASH (A:=sofar). *)
        MATCH_ACCEPT_TAC CORE_REDUCE_GHASH]) (asl,w);;
-
-let (MUST:tactic->tactic) = fun t (asl,w) ->
-  let gs = t (asl,w) in let _,subs,_ = gs in
-  if subs = [] then gs else failwith "MUST: goal not closed";;
 
 let close_all_tac : tactic =
   fun (asl,w) ->
@@ -3770,41 +3156,6 @@ Printf.printf "MARKER: DRAINLEG256 PROVEN axiom-free\n%!";;
 
 (* ========== LEG: tail (post-937 tail of DEVEL_enc256_swp_tail.ml) ========== *)
 
-(* --- helpers (verbatim from 128, mc-agnostic) --- *)
-let gc2 keeplist c = try let l=lhs c in let rd,st=dest_comb l in let rr,cc=dest_comb rd in
-   if is_const cc && mem (fst(dest_const cc)) keeplist then
-     (match st with Var(nm,_) when String.length nm>=2 && nm.[0]='s' ->
-        (try Some(fst(dest_const cc), int_of_string(String.sub nm 1 (String.length nm-1))) with _->None) |_->None) else None
-  with _->None;;
-let gkeepN keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
-  (fun (asl,w) -> let cs=map(fun(_,t)->concl t)asl in
-    let mx=map(fun r->(r,itlist(fun c m->match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m)cs(-1)))keeplist in
-    DISCARD_ASSUMPTIONS_TAC(fun th->let c=concl th in
-      if (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
-      then (try let _,args = strip_comb c in string_of_term(last args) <> sname with _ -> false) else
-      if (try free_in `in_p:int64` (lhs c) with _->false) then false else
-      match gc2 keeplist c with
-      Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w));;
-let IN_P_ADDR_FOLD_CONV : conv =
-  let inner = (REWR_CONV(GSYM ADD_ASSOC) THENC RAND_CONV NUM_ADD_CONV) in
-  ONCE_DEPTH_CONV(fun t -> match t with
-    | Comb(Comb(Const("word_add",_), v), Comb(Const("word",_), _))
-        when (try fst(dest_var v) = "in_p" with _ -> false)
-      -> RAND_CONV(RAND_CONV inner) t
-    | _ -> failwith "IN_P_ADDR_FOLD_CONV");;
-
-(* 256 carried/reduce reg-set: AES partials Q3/Q4/Q8 + reduce Q1/Q2/Q11/Q13/Q14/Q29/Q30 + h-powers
-   Q5/Q6/Q17/Q31 + const Q7 + counter/input X-lanes (from harvest). *)
-let REDSETX256 = ["Q1";"Q2";"Q3";"Q4";"Q5";"Q6";"Q7";"Q8";"Q11";"Q13";"Q14";"Q16";"Q17";"Q28";"Q29";"Q30";"Q31";
-                  "X7";"X8";"X10";"X11";"X13";"X14";"X17";"X22";"X23";"X24";"X25";"X26";"X28";"X29";"X30"];;
-(* 256 loop-head scalar lanes to GHOST_INTRO (harvest showed X7/X8/X17/X22/X23/X24/X25/X26/X28/X29/X30
-   carry values; add X10/X14/X19/X27 like 128). *)
-let ghost_lanes256 = ["X7";"X8";"X17";"X22";"X23";"X24";"X25";"X26";"X28";"X29";"X30";"X10";"X14";"X19";"X27"];;
-
-(* 256 counter-store MERGE sites (body-instr, [sp,#offset]) from disasm stp-to-sp in steady body. *)
-let merges256 = [(27,208);(49,160);(92,192);(98,208);(109,176);(118,192);(171,160);(179,176)];;
-
 (* input-split: blocks 4i+0..4i+7 (current group + prefetch), like 128. *)
 let INPUT_SPLIT_TAC256 =
   SUBGOAL_THEN
@@ -3828,15 +3179,6 @@ let INPUT_SPLIT_TAC256 =
   REPEAT(FIRST_X_ASSUM(STRIP_ASSUME_TAC o CONV_RULE SPLIT_INPUT_CONV o
      check (fun th -> let c = concl th in is_eq c && free_in `in_p:int64` (lhs c) &&
        can (find_term (fun t -> is_const t && fst(dest_const t) = "bytes128")) (lhs c))));;
-
-(* leg pre/post state builder (flat beta-reduced conjunction), verbatim from 128. *)
-let leg_state inv off idx =
-  let body = rhs(concl((TOP_DEPTH_CONV BETA_CONV THENC REWRITE_CONV[ADD_CLAUSES])
-                        (list_mk_comb(inv,[idx;`s:armstate`])))) in
-  mk_abs(`s:armstate`,
-    list_mk_conj(`aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp_mc` ::
-                 mk_eq(`read PC s`,mk_comb(`word:num->int64`,mk_binop `+` `pc:num` off)) ::
-                 conjuncts body));;
 
 Printf.printf "MARKER: BODYLEG helpers defined\n%!";;
 
@@ -3927,97 +3269,6 @@ Printf.printf "MARKER: setup+step_body_tac defined\n%!";;
 (* Closers (transplant of 128 swp_S lines 1075-1371, re-indexed +4 rounds).   *)
 (* ========================================================================= *)
 
-(* closers for the AES-partial conjuncts Q3=aes11c/Q4=aes7c/Q8=aes1c + ptrs/X13.
-   Order in the invariant: [X0 ptr][X2 ptr]...[X13]...[Q3=aes11c][Q4=aes7c][Q8=aes1c].
-   Each aesNc pin at i+1 = aesNc nonce rk (4*(i+1)+K); fold via the def + counter build. *)
-let close_ptr : tactic =
-  REWRITE_TAC[ARITH_RULE `64*(i+1)=64*i+64`; LEFT_ADD_DISTRIB] THEN CONV_TAC WORD_RULE;;
-let close_x13 : tactic =
-  REWRITE_TAC[ZXZX32] THEN AP_TERM_TAC THEN REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC;;
-(* aesNc closers: Q3=aes11c(4(i+1)+6), Q4=aes7c(4(i+1)+8), Q8=aes1c(4(i+1)+7).  The stepped value is the
-   aesNc def applied to the reassembled reversed-lane counter (word(4i+10)+K, X13 post +4); fold via mk_cbv.
-   +4-shifted from the original -4-consistent version (block base 4i+4, confirmed by objdump FILL trace). *)
-let close_aes11c : tactic =
-  REWRITE_TAC[aes11c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word (4*i+6):int32 = word(4*(i+1)+2)` SUBST1_TAC THENL
-   [AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+2`);;
-let close_aes7c : tactic =
-  REWRITE_TAC[aes7c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 2) = word(4*(i+1)+4):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+4`);;
-let close_aes1c : tactic =
-  REWRITE_TAC[aes1c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 1) = word(4*(i+1)+3):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+3`);;
-
-(* [sp+160] counter -> rev8(ctr(4(i+1)+2)); [sp+176] -> rev8(ctr(4(i+1)+3)) *)
-let close_ctr160 : tactic =
-  REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word (4*i+6):int32 = word(4*(i+1)+2):int32` SUBST1_TAC THENL
-   [AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+2`);;
-let close_ctr176 : tactic =
-  REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 1) = word(4*(i+1)+3):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+3`);;
-
-(* Normalize the fresh-read addresses word(64*(i+1)+K) to the split-input canonical word(64*i+(64+K)).
-   Body reads input at X0=in_p+64*(i+1); the ldp offsets 0/8/16/24/32/40/48/56 hit blocks 4i+4..7 halves. *)
-let SLOT_ADDR_NORM = [
-  ARITH_RULE `64*(i+1) = 64*i+64`; ARITH_RULE `64*(i+1)+8 = 64*i+72`;
-  ARITH_RULE `64*(i+1)+16 = 64*i+80`; ARITH_RULE `64*(i+1)+24 = 64*i+88`;
-  ARITH_RULE `64*(i+1)+32 = 64*i+96`; ARITH_RULE `64*(i+1)+40 = 64*i+104`;
-  ARITH_RULE `64*(i+1)+48 = 64*i+112`; ARITH_RULE `64*(i+1)+56 = 64*i+120`];;
-
-(* [sp160/176/192] input^rk14 lane pins.  Body LHS = word_join(word_xor(read bytes64 (in_p+64(i+2)+8k'))(rk14hi))
-   (word_xor(read bytes64 (in_p+64(i+2)+0))(rk14lo)); RHS = word_xor(inblock(4(i+1)+4+k))(rk14).  Fold the two
-   bytes64 half-reads to inblock via the split-input assumptions (block 4i+8+k = fresh read at X0=in_p+64(i+2)),
-   then combine lanes with WORD_BITWISE.  +4-shifted (block base 4i+4). *)
-let close_lanejoin : tactic =
-  fun (asl,w) ->
-    (* the split-input bytes64 assumptions the sim already derived (read bytes64 in_p+... = word_subword(inblock..)) *)
-    let inpfacts = List.filter_map (fun (_,th) ->
-      let c = concl th in
-      if is_eq c && (try can (find_term (fun t -> match t with
-             Comb(Const("read",_),Comb(Comb(Const((":>"),_),Const("memory",_)),
-                   Comb(Const("bytes64",_),_))) -> true | _ -> false)) (lhs c) with _->false)
-         && free_in `in_p:int64` (lhs c)
-      then Some th else None) asl in
-    (REWRITE_TAC[ARITH_RULE `4*(i+1) = 4*i+4`; ARITH_RULE `4*(i+1)+1 = 4*i+5`;
-                 ARITH_RULE `4*(i+1)+2 = 4*i+6`] THEN
-     REWRITE_TAC SLOT_ADDR_NORM THEN
-     REWRITE_TAC inpfacts THEN
-     REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-     (REFL_TAC ORELSE CONV_TAC WORD_BLAST ORELSE
-      (REWRITE_TAC[JOIN_XOR_LANES] THEN (REFL_TAC ORELSE CONV_TAC WORD_BLAST)))) (asl,w);;
-(* X23/X28 subword pins: block 4(i+1)+1 = 4i+5. *)
-let close_subwordpin : tactic =
-  REWRITE_TAC[ARITH_RULE `4*(i+1)+1 = 4*i+5`] THEN CONV_TAC WORD_BLAST;;
-
-(* X24/X26 = word_subword(word_xor(inblock(4(i+1)+3))(rk14rev))(0/64,64).  4(i+1)+3 = 4i+7.
-   Body LHS = word_xor(read bytes64 (in_p+64(i+1)+{48,56}))(subword(rk14rev)(0/64,64)); the bytes64 read is a
-   half of block 4i+7.  Fold via split-input assumptions, push subword through xor (WORD_SUBWORD_XOR). *)
-let close_x2426 : tactic =
-  fun (asl,w) ->
-    let inpfacts = List.filter_map (fun (_,th) ->
-      let c = concl th in
-      if is_eq c && (try can (find_term (fun t -> match t with
-             Comb(Const("read",_),Comb(Comb(Const((":>"),_),Const("memory",_)),
-                   Comb(Const("bytes64",_),_))) -> true | _ -> false)) (lhs c) with _->false)
-         && free_in `in_p:int64` (lhs c)
-      then Some th else None) asl in
-    (REWRITE_TAC[ARITH_RULE `4*(i+1)+3 = 4*i+7`] THEN
-     REWRITE_TAC SLOT_ADDR_NORM THEN
-     REWRITE_TAC inpfacts THEN
-     REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-     (REFL_TAC ORELSE CONV_TAC WORD_BLAST)) (asl,w);;
-
-(* Q31 = aes6c nonce rk (4(i+1)+5).  Mirror of close_aes1c/aes7c but at depth 6.  Dump showed the raw body
-   counter is word_add(word(4i+6))(word 3) = 4i+9 = 4(i+1)+5 (the least-advanced/last block of the group). *)
-let close_aes6c : tactic =
-  REWRITE_TAC[aes6c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 3) = word(4*(i+1)+5):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+5`);;
-
 (* X1 decrement: word_sub(word(loop_count-(i+1)))(word 1) = word(loop_count-((i+1)+1)). *)
 let close_goal8 : tactic =
   fun (asl,w) ->
@@ -4029,44 +3280,6 @@ let close_goal8 : tactic =
      ASM_REWRITE_TAC[] THEN ASM_SIMP_TAC[WORD_SUB; VAL_WORD_1] THEN
      REWRITE_TAC[GSYM VAL_WORD_1] THEN AP_TERM_TAC THEN
      MAP_EVERY (fun th -> MP_TAC th) bnds THEN ARITH_TAC) (asl,w);;
-
-(* rk-list hyp (15-elt for 256). *)
-let rk15 = `[EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk;
-             EL 8 rk; EL 9 rk; EL 10 rk; EL 11 rk; EL 12 rk; EL 13 rk; EL 14 rk]:(int128)list = rk`;;
-
-(* output-block keystream identities (the conj close_goal9 leaves). *)
-let close_ksfold : tactic =
-  fun (asl,w) ->
-    let rkth = try snd(find (fun (_,th) -> concl th = rk15) asl) with _ -> failwith "close_ksfold: no rk-hyp" in
-    (REPEAT CONJ_TAC THEN
-     REWRITE_TAC[JOIN_SUBWORD_RECOMBINE] THEN
-     REWRITE_TAC[GSYM AES14P_VIA_AES7C; GSYM AES14P_VIA_AES11C; GSYM AES14P_VIA_AES1C; GSYM AES14P_VIA_AES6C] THEN
-     REWRITE_TAC[MATCH_MP KEYSTREAM_FOLD256 rkth]) (asl,w);;
-
-(* output-forall j<4(i+2): split old(j<4(i+1))+4 new blocks 4(i+1)+0..3 = 4i+4..4i+7 (+4-shifted base),
-   reconstruct via XOR_AES256_CIPHER_RECONSTRUCT.  The new stored group is 4i+4..4i+7 (X2=out_p+64(i+1)). *)
-let close_goal9 : tactic =
-  fun (asl,w) ->
-    let rkth = try snd(find (fun (_,th) -> concl th = rk15) asl) with _ -> failwith "close_goal9: no rk-hyp" in
-    (REWRITE_TAC[ARITH_RULE `j < 4 * (i+1) <=>
-                          j < 4 * i \/ j = 4*i+0 \/ j = 4*i+1 \/ j = 4*i+2 \/ j = 4*i+3`] THEN
-     ASM_REWRITE_TAC[TAUT `p \/ q ==> r <=> (p ==> r) /\ (q ==> r)`] THEN
-     REWRITE_TAC[FORALL_AND_THM; FORALL_UNWIND_THM2] THEN
-     (* out_p store addresses: goal blocks 4i+0..3 -> 64*i+0/16/32/48 (X2=out_p+64*i, store fact form) *)
-     REWRITE_TAC[ARITH_RULE `16 * (4*i+0) = 64*i`; ARITH_RULE `16 * (4*i+1) = 64*i+16`;
-        ARITH_RULE `16 * (4*i+2) = 64*i+32`; ARITH_RULE `16 * (4*i+3) = 64*i+48`] THEN
-     ASM_REWRITE_TAC[] THEN
-     REWRITE_TAC[ARITH_RULE `4*i+0 = 4*i`] THEN ASM_REWRITE_TAC[] THEN
-     REWRITE_TAC[CTR_BLOCK_BUILD_INSERT] THEN
-     REWRITE_TAC[SCALAR_RK_RECONSTRUCT] THEN
-     REWRITE_TAC[XOR_AES256_CIPHER_RECONSTRUCT] THEN
-     ASM_REWRITE_TAC[MAP; WORD_REVERSEFIELDS_REVERSEFIELDS] THEN
-     REWRITE_TAC[aes_ctr_block; GSYM ADD_ASSOC] THEN
-     CONV_TAC(DEPTH_CONV NUM_ADD_CONV) THEN ASM_REWRITE_TAC[] THEN
-     REPEAT CONJ_TAC THEN
-     REWRITE_TAC[JOIN_SUBWORD_RECOMBINE] THEN
-     REWRITE_TAC[GSYM AES14P_VIA_AES7C; GSYM AES14P_VIA_AES11C; GSYM AES14P_VIA_AES1C; GSYM AES14P_VIA_AES6C] THEN
-     REWRITE_TAC[MATCH_MP KEYSTREAM_FOLD256 rkth]) (asl,w);;
 
 (* frame. *)
 let close_goal10 : tactic =
@@ -4098,139 +3311,9 @@ let tail_final_close : tactic =
      REWRITE_TAC[ADD_ASSOC; ZX_COUNTER_UD; CTR_ZX_NORM] THEN
      CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN CONV_TAC WORD_BLAST)];;
 
-(* HO-match artifact fix: the collapse's CT_TO_NCB on the accumulator-block 4*i leaves a constant-function
-   inblock arg `nist_cipher_block nonce rk (\x. inblock(4*i)) (4*i)`.  Since nist_cipher_block only reads the
-   j-th block (inblock i, here i=4*i), (\x. inblock(4*i)) 4*i = inblock(4*i) = the plain inblock at 4*i.  So
-   the const-fn form EQUALS the plain form.  Prove it (BETA after unfolding the two block defs). *)
-let NCB_CONST_FN = prove
- (`nist_cipher_block nonce rk (\x:num. inblock (4*i)) (4*i) =
-   nist_cipher_block nonce rk inblock (4*i)`,
-  REWRITE_TAC[nist_cipher_block; cipher_block] THEN CONV_TAC(DEPTH_CONV BETA_CONV) THEN REFL_TAC);;
-
-(* Predicate for DISCARD_ASSUMPTIONS_TAC in close_goal7's first CONJ: DISCARD every assumption EXCEPT the
-   reconstruction ABBREV defs (cipherblock/h/sofar/w1/w2/ks).  Keeping only these small defs stops the
-   subword-convs + ASM_REWRITE from folding the huge invariant assumptions (Q29 nist_ghash tower,
-   output-forall, aes partials) which caused a 30GB BITBLAST blowup. *)
-let abbrev_names = ["cipherblock_0";"cipherblock_1";"cipherblock_2";"cipherblock_3";
-                    "h0";"h1";"h2";"h3";"sofar";"w1";"w2";"ks";"ks'";"ks''";"ks'''"];;
-let keep_only_abbrev_defs th =
-  let c = concl th in
-  let is_abbrev = is_eq c && (match lhs c with
-     | Var(nm,_) -> List.mem nm abbrev_names
-     | _ -> false) in
-  not is_abbrev;;
-
 (* ABBREV every maximal `word_pmul a b` subterm of the goal as a fresh int128 var.  After this, BITBLAST sees
    only word_join/word_subword/word_xor SHUFFLE over abstract int128s (fast, ~0.5s, 385 BDD vars) instead of
    modelling the 64x64 carryless-multiply circuit (30GB blowup).  This is the key to the 256 reduce closer. *)
-(* Abstract every FULLY-APPLIED (2-arg) word_pmul subterm as a fresh int128/int256 var, so a subsequent
-   BITBLAST proves only the surrounding word_join/word_subword/word_xor SHUFFLE (fast, tiny BDD) instead of
-   modelling the 64x64 carryless-multiply circuit (30GB blowup).  CRITICAL: match only 2-arg pmuls -- the
-   bare `word_pmul` const and partial applications must NOT be abstracted (that only renames the head). *)
-let ABBREV_PMULS : tactic =
-  fun (asl,w) ->
-    let is_full_pmul t = match strip_comb t with Const("word_pmul",_),[_;_] -> true | _ -> false in
-    let pmuls = setify (find_terms is_full_pmul w) in
-    let mk i t = ABBREV_TAC (mk_eq(mk_var(Printf.sprintf "pm_%d" i, type_of t), t)) in
-    (EVERY (List.mapi mk pmuls)) (asl,w);;
-
-(* Karatsuba-mid folding lemmas: canonicalize BOTH word_xor orders of a subword-half pair to karatsuba_mid,
-   so the machine's alternating-order mid sub-pmuls and KARATSUBA_JOIN_ALT's mid coincide as atoms. *)
-let CMID_HILO = prove
- (`!a:int128. word_xor (word_subword a (64,64)) (word_subword a (0,64)):int64 = karatsuba_mid a`,
-  REWRITE_TAC[karatsuba_mid] THEN CONV_TAC WORD_BITWISE_RULE);;
-let CMID_LOHI = prove
- (`!a:int128. word_xor (word_subword a (0,64)) (word_subword a (64,64)):int64 = karatsuba_mid a`,
-  REWRITE_TAC[karatsuba_mid] THEN CONV_TAC WORD_BITWISE_RULE);;
-let KMID_FOLD_LOHI = GSYM karatsuba_mid;;
-let KMID_FOLD_HILO = CMID_HILO;;
-
-(* word_join (HI-FIRST) projections + injectivity -- for the SPLIT route on close_goal7: reduce_g2 P = word_join g f
-   (via POLYVAL_REDUCE_G2 -> reduce_prop3 output), RHS byteswap128(ng) = word_join(subword ng 0)(subword ng 64); then
-   WJ_INJ splits into two int64 half-equalities, making the byteswap explicit as subword indices (avoids the false
-   global byteswap/ghash commute). *)
-let WJ_LO = prove
- (`!(a:int64) (b:int64). word_subword (word_join a b :int128) (0,64):int64 = b`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let WJ_HI = prove
- (`!(a:int64) (b:int64). word_subword (word_join a b :int128) (64,64):int64 = a`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let WJ_INJ = prove
- (`!(a:int64) (b:int64) (c:int64) (d:int64). (word_join a b :int128 = word_join c d) <=> (a = c /\ b = d)`,
-  REPEAT GEN_TAC THEN EQ_TAC THENL
-   [DISCH_THEN(fun th -> MP_TAC(AP_TERM `\x:int128. word_subword x (64,64):int64` th) THEN
-                         MP_TAC(AP_TERM `\x:int128. word_subword x (0,64):int64` th)) THEN
-    CONV_TAC(DEPTH_CONV BETA_CONV) THEN REWRITE_TAC[WJ_LO; WJ_HI] THEN MESON_TAC[];
-    STRIP_TAC THEN ASM_REWRITE_TAC[]]);;
-
-(* byteswap128 is the 64-bit half-swap (def: word_join(subword x 0)(subword x 64)); it is an involution.  The
-   machine's reduce reads Q29 = byteswap128(nist_ghash) and the load-path forms word_join(subword _)(subword _)
-   again, so the accumulator entering the pmul is the DOUBLE byteswap = clean nist_ghash. *)
-let INVOL_BYTESWAP128 = prove
- (`!x:int128. byteswap128 (byteswap128 x) = x`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-(* acc double-byteswap: word_subword(word_join(byteswap128 ng)(byteswap128 ng))(64,128) = ng (clean). *)
-let ACC_CLEAN = prove
- (`!ng:int128. word_subword (word_join (byteswap128 ng) (byteswap128 ng) :int256) (64,128) :int128 = ng`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-
-(* The head-ext `ext v30,v29,v29` where Q29=swpgrp i (a fresh var, NOT a byteswap128 term) yields the acc
-   word_subword(word_join x x)(64,128) = byteswap128 x.  NB byteswap128 is a DEFINED const -- must expand it before
-   WORD_BLAST (bare WORD_BLAST on this FAILS: byteswap128 opaque).  Proven once here; REWRITE with it in close_goal7. *)
-let ACC_JOIN_BYTESWAP = prove
- (`!x:int128. word_subword (word_join x x :int256) (64,128) :int128 = byteswap128 x`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-
-(* word_join linearity over word_xor (both int256- and int128-level): folds the RHS product tower's xor-of-per-
-   lane-joins into a single join-of-xors so it matches reduce_g2's single-join packing.  THE multi-lane key. *)
-let JOIN_XOR_256 = prove
- (`!(a1:int128) (b1:int128) (a2:int128) (b2:int128).
-     word_xor (word_join a1 b1 :int256) (word_join a2 b2 :int256) =
-     word_join (word_xor a1 a2) (word_xor b1 b2) :int256`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let JOIN_XOR_128 = prove
- (`!(a1:int64) (b1:int64) (a2:int64) (b2:int64).
-     word_xor (word_join a1 b1 :int128) (word_join a2 b2 :int128) =
-     word_join (word_xor a1 a2) (word_xor b1 b2) :int128`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-
-(* CORE: the WHOLE 4-lane GHASH-reduce identity in one lemma (CONJ1 karatsuba shuffle + CONJ2 batched fused).
-   reduce_g2 of the karatsuba lo/hi/mid sums of lanes (cbb3,hp0)(cbb2,hp1)(cbb1,hp2)(word_xor A cbb0, hp3)
-   [hp k = h_power gt k] = ghash_polyval_acc gt A [cbb0;cbb1;cbb2;cbb3].  Proven axiom-free (~14s).  close_goal7,
-   after cleaning the acc (ACC double-byteswap -> A) and stripping the outer byteswap, MATCHes this with A:=nist_ghash 4i. *)
-let CORE_REDUCE_GHASH = prove
- (`polyval_reduce_g2
-     (word_xor (word_pmul (word_subword (cbb3:int128) (0,64):int64) (word_subword (h_power (gt:int128) 0) (0,64):int64))
-     (word_xor (word_pmul (word_subword (cbb2:int128) (0,64):int64) (word_subword (h_power gt 1) (0,64):int64))
-     (word_xor (word_pmul (word_subword (cbb1:int128) (0,64):int64) (word_subword (h_power gt 2) (0,64):int64))
-     (word_pmul (word_subword (word_xor (A:int128) cbb0) (0,64):int64) (word_subword (h_power gt 3) (0,64):int64)))))
-     (word_xor (word_pmul (word_subword cbb3 (64,64):int64) (word_subword (h_power gt 0) (64,64):int64))
-     (word_xor (word_pmul (word_subword cbb2 (64,64):int64) (word_subword (h_power gt 1) (64,64):int64))
-     (word_xor (word_pmul (word_subword cbb1 (64,64):int64) (word_subword (h_power gt 2) (64,64):int64))
-     (word_pmul (word_subword (word_xor A cbb0) (64,64):int64) (word_subword (h_power gt 3) (64,64):int64)))))
-     (word_xor (word_pmul (karatsuba_mid cbb3) (karatsuba_mid (h_power gt 0)))
-     (word_xor (word_pmul (karatsuba_mid cbb2) (karatsuba_mid (h_power gt 1)))
-     (word_xor (word_pmul (karatsuba_mid cbb1) (karatsuba_mid (h_power gt 2)))
-     (word_pmul (karatsuba_mid (word_xor A cbb0)) (karatsuba_mid (h_power gt 3))))))
-   = ghash_polyval_acc gt A [cbb0; cbb1; cbb2; cbb3]`,
-  TRANS_TAC EQ_TRANS
-   `polyval_reduce_prop3
-      (word_xor (word_pmul (cbb3:int128) (h_power gt 0))
-      (word_xor (word_pmul (cbb2:int128) (h_power gt 1))
-      (word_xor (word_pmul (cbb1:int128) (h_power gt 2))
-      (word_pmul (word_xor (A:int128) cbb0) (h_power gt 3)))) :int256)` THEN
-  CONJ_TAC THENL
-   [REWRITE_TAC[POLYVAL_REDUCE_G2] THEN
-    GEN_REWRITE_TAC (RAND_CONV o TOP_DEPTH_CONV) [PMUL_KARATSUBA_JOIN_ALT] THEN
-    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN REWRITE_TAC[karatsuba_mid] THEN
-    REWRITE_TAC[CMID_LOHI; CMID_HILO] THEN AP_TERM_TAC THEN
-    REWRITE_TAC[JOIN_XOR_256; JOIN_XOR_128] THEN
-    ABBREV_PMULS THEN POP_ASSUM_LIST(K ALL_TAC) THEN CONV_TAC BITBLAST_RULE;
-    MP_TAC(ISPECL [`gt:int128`; `[cbb1;cbb2;cbb3]:(int128)list`; `A:int128`; `cbb0:int128`]
-                  GHASH_POLYVAL_ACC_BATCHED) THEN
-    REWRITE_TAC[LENGTH; ghash_wide] THEN CONV_TAC NUM_REDUCE_CONV THEN
-    DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
-    AP_TERM_TAC THEN CONV_TAC WORD_BITWISE_RULE]);;
 
 (* collapse_q30 + close_goal7 (Q30 GHASH tag reduce reconstruction), 256 re-index. *)
 let collapse_q30 : tactic =
@@ -4376,10 +3459,6 @@ let close_goal7 : tactic =
        (* CORE-LHS = ghash gt sofar [cbs]: exactly CORE_REDUCE_GHASH (A:=sofar). *)
        MATCH_ACCEPT_TAC CORE_REDUCE_GHASH]) (asl,w);;
 
-let (MUST:tactic->tactic) = fun t (asl,w) ->
-  let gs = t (asl,w) in let _,subs,_ = gs in
-  if subs = [] then gs else failwith "MUST: goal not closed";;
-
 let close_all_tac : tactic =
   fun (asl,w) ->
     let has c t = can (find_term (fun u -> try fst(dest_const(fst(strip_comb u)))=c with _->false)) t in
@@ -4413,61 +3492,8 @@ Printf.printf "MARKER: DRAIN machinery (body-leg prefix) loaded\\n%!";;
 (* Bridge @0xdd0 (Lloop_unrolled_end) = body-only enc256 0x3fc "break" state.  *)
 (* ========================================================================= *)
 
-(* drain bridge lemmas (list-split + swpgrp->nist_ghash). *)
-let LIST_OF_SEQ_APPEND = prove
- (`!n f m. list_of_seq f (m + n) =
-           APPEND (list_of_seq f m) (list_of_seq (\i. f(m+i)) n)`,
-  GEN_TAC THEN ONCE_REWRITE_TAC[SWAP_FORALL_THM] THEN INDUCT_TAC THEN
-  ASM_REWRITE_TAC[ADD_CLAUSES; LIST_OF_SEQ; APPEND; o_THM; ETA_AX]);;
-let SWPGRP_IS_NIST_GHASH = prove
- (`!h acc i blk.
-       swpgrp (ghash_twist h) acc i blk =
-       nist_ghash h acc (list_of_seq blk (4 * i))`,
-  GEN_TAC THEN GEN_TAC THEN INDUCT_TAC THEN GEN_TAC THENL
-   [REWRITE_TAC[swpgrp; MULT_CLAUSES; LIST_OF_SEQ; nist_ghash];
-    REWRITE_TAC[ARITH_RULE `4 * SUC i = 4 * i + 4`] THEN
-    REWRITE_TAC[LIST_OF_SEQ_APPEND] THEN REWRITE_TAC[NIST_GHASH_APPEND] THEN
-    ASM_REWRITE_TAC[] THEN REWRITE_TAC[swpgrp] THEN ASM_REWRITE_TAC[] THEN
-    REWRITE_TAC[LIST_OF_SEQ_CLAUSES] THEN REWRITE_TAC[ARITH_RULE `4*i+0 = 4*i`] THEN
-    REWRITE_TAC[NIST_GHASH_IS_POLYVAL]]);;
 Printf.printf "MARKER: DRAIN bridge lemmas proven\n%!";;
 
-(* bridge state @ 0xdd0 (= body-only enc256 0x3fc break state, indexed at 4*loop_count). *)
-let drain_bridge = mk_abs(`s:armstate`, list_mk_conj
- [`aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp_mc`;
-  `read PC s = word (pc + 0xdd0)`;
-  `read X0 s = word_add in_p (word (64 * loop_count))`;
-  `read X2 s = word_add out_p (word (64 * loop_count))`;
-  `read X3 s = tag_p`; `read X4 s = ivec_p`; `read X6 s = htable_p`; `read SP s = stackpointer`;
-  `read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0`;
-  `read (memory :> bytes128 ivec_p) s = word_reversefields 8 (ctr_block nonce 2)`;
-  `read X13 s = word_zx (word (4 * loop_count + 2):int32):int64`;
-  `read X15 s = word(len_bits DIV 8)`;
-  (* X1 NOT constrained: dead at this seam (tail uses X16; iter_1 leaves X1=1, drain leaves X1=0). *)
-  `read X16 s = word loop_remain`;
-  (* round-key + h-power + counter-lane registers held live at the drain->tail seam (the tail loop's AES + GHASH
-     need them; DRAIN preserves them from swpS256_inv).  tail_inv @ i=0 requires this exact set. *)
-  `read Q18 s = word_reversefields 8 (EL 0 rk)`; `read Q19 s = word_reversefields 8 (EL 1 rk)`;
-  `read Q20 s = word_reversefields 8 (EL 2 rk)`; `read Q21 s = word_reversefields 8 (EL 3 rk)`;
-  `read Q22 s = word_reversefields 8 (EL 4 rk)`; `read Q23 s = word_reversefields 8 (EL 5 rk)`;
-  `read Q24 s = word_reversefields 8 (EL 6 rk)`; `read Q25 s = word_reversefields 8 (EL 7 rk)`;
-  `read Q26 s = word_reversefields 8 (EL 8 rk)`; `read Q27 s = word_reversefields 8 (EL 9 rk)`;
-  `read Q28 s = word_reversefields 8 (EL 10 rk)`; `read Q15 s = word_reversefields 8 (EL 11 rk)`;
-  `read Q16 s = word_reversefields 8 (EL 12 rk)`; `read Q17 s = word_reversefields 8 (EL 13 rk)`;
-  `read X20 s = word_subword (word_reversefields 8 (EL 14 rk):int128) (0,64):int64`;
-  `read X21 s = word_subword (word_reversefields 8 (EL 14 rk):int128) (64,64):int64`;
-  `read Q7 s = word 13979173243358019584`;
-  `read X11 s = word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64`;
-  `read X12 s = word_zx (word_zx (word_subword
-       (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64`;
-  (* NB Q12/Q14 are NOT carried here: the TAIL RELOADS them from htable at its first two instrs
-     (ldr q12,[x6] @0xdd0 ; ldr q14,[x6,#16] @0xdd8); htable_mem_4 (below) supplies the values. *)
-  `read Q30 s = byteswap128 (nist_ghash (aes256_cipher (word 0) rk) tag0
-                  (list_of_seq (nist_cipher_block nonce rk inblock) (4 * loop_count)))`;
-  `htable_mem_4 (ghash_twist (aes256_cipher (word 0) rk)) htable_p s`;
-  `!j. j < nblocks ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s = inblock j`;
-  `!j. j < 4 * loop_count ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s =
-           word_xor (aes_ctr_block nonce rk j) (inblock j)`]);;
 Printf.printf "MARKER: drain_bridge defined, %d conjuncts\n%!" (length(conjuncts(snd(dest_abs drain_bridge))));;
 
 Printf.printf "MARKER: TAIL machinery loaded\\n%!";;
@@ -4768,41 +3794,6 @@ Printf.printf "MARKER: TAILLEG256 PROVEN axiom-free\n%!";;
 
 (* ========== LEG: iter1 (post-937 tail of DEVEL_enc256_swp_iter1.ml) ========== *)
 
-(* --- helpers (verbatim from 128, mc-agnostic) --- *)
-let gc2 keeplist c = try let l=lhs c in let rd,st=dest_comb l in let rr,cc=dest_comb rd in
-   if is_const cc && mem (fst(dest_const cc)) keeplist then
-     (match st with Var(nm,_) when String.length nm>=2 && nm.[0]='s' ->
-        (try Some(fst(dest_const cc), int_of_string(String.sub nm 1 (String.length nm-1))) with _->None) |_->None) else None
-  with _->None;;
-let gkeepN keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
-  (fun (asl,w) -> let cs=map(fun(_,t)->concl t)asl in
-    let mx=map(fun r->(r,itlist(fun c m->match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m)cs(-1)))keeplist in
-    DISCARD_ASSUMPTIONS_TAC(fun th->let c=concl th in
-      if (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
-      then (try let _,args = strip_comb c in string_of_term(last args) <> sname with _ -> false) else
-      if (try free_in `in_p:int64` (lhs c) with _->false) then false else
-      match gc2 keeplist c with
-      Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w));;
-let IN_P_ADDR_FOLD_CONV : conv =
-  let inner = (REWR_CONV(GSYM ADD_ASSOC) THENC RAND_CONV NUM_ADD_CONV) in
-  ONCE_DEPTH_CONV(fun t -> match t with
-    | Comb(Comb(Const("word_add",_), v), Comb(Const("word",_), _))
-        when (try fst(dest_var v) = "in_p" with _ -> false)
-      -> RAND_CONV(RAND_CONV inner) t
-    | _ -> failwith "IN_P_ADDR_FOLD_CONV");;
-
-(* 256 carried/reduce reg-set: AES partials Q3/Q4/Q8 + reduce Q1/Q2/Q11/Q13/Q14/Q29/Q30 + h-powers
-   Q5/Q6/Q17/Q31 + const Q7 + counter/input X-lanes (from harvest). *)
-let REDSETX256 = ["Q1";"Q2";"Q3";"Q4";"Q5";"Q6";"Q7";"Q8";"Q11";"Q13";"Q14";"Q16";"Q17";"Q28";"Q29";"Q30";"Q31";
-                  "X7";"X8";"X10";"X11";"X13";"X14";"X17";"X22";"X23";"X24";"X25";"X26";"X28";"X29";"X30"];;
-(* 256 loop-head scalar lanes to GHOST_INTRO (harvest showed X7/X8/X17/X22/X23/X24/X25/X26/X28/X29/X30
-   carry values; add X10/X14/X19/X27 like 128). *)
-let ghost_lanes256 = ["X7";"X8";"X17";"X22";"X23";"X24";"X25";"X26";"X28";"X29";"X30";"X10";"X14";"X19";"X27"];;
-
-(* 256 counter-store MERGE sites (body-instr, [sp,#offset]) from disasm stp-to-sp in steady body. *)
-let merges256 = [(27,208);(49,160);(92,192);(98,208);(109,176);(118,192);(171,160);(179,176)];;
-
 (* input-split: blocks 4i+0..4i+7 (current group + prefetch), like 128. *)
 let INPUT_SPLIT_TAC256 =
   SUBGOAL_THEN
@@ -4826,15 +3817,6 @@ let INPUT_SPLIT_TAC256 =
   REPEAT(FIRST_X_ASSUM(STRIP_ASSUME_TAC o CONV_RULE SPLIT_INPUT_CONV o
      check (fun th -> let c = concl th in is_eq c && free_in `in_p:int64` (lhs c) &&
        can (find_term (fun t -> is_const t && fst(dest_const t) = "bytes128")) (lhs c))));;
-
-(* leg pre/post state builder (flat beta-reduced conjunction), verbatim from 128. *)
-let leg_state inv off idx =
-  let body = rhs(concl((TOP_DEPTH_CONV BETA_CONV THENC REWRITE_CONV[ADD_CLAUSES])
-                        (list_mk_comb(inv,[idx;`s:armstate`])))) in
-  mk_abs(`s:armstate`,
-    list_mk_conj(`aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp_mc` ::
-                 mk_eq(`read PC s`,mk_comb(`word:num->int64`,mk_binop `+` `pc:num` off)) ::
-                 conjuncts body));;
 
 Printf.printf "MARKER: BODYLEG helpers defined\n%!";;
 
@@ -4925,97 +3907,6 @@ Printf.printf "MARKER: setup+step_body_tac defined\n%!";;
 (* Closers (transplant of 128 swp_S lines 1075-1371, re-indexed +4 rounds).   *)
 (* ========================================================================= *)
 
-(* closers for the AES-partial conjuncts Q3=aes11c/Q4=aes7c/Q8=aes1c + ptrs/X13.
-   Order in the invariant: [X0 ptr][X2 ptr]...[X13]...[Q3=aes11c][Q4=aes7c][Q8=aes1c].
-   Each aesNc pin at i+1 = aesNc nonce rk (4*(i+1)+K); fold via the def + counter build. *)
-let close_ptr : tactic =
-  REWRITE_TAC[ARITH_RULE `64*(i+1)=64*i+64`; LEFT_ADD_DISTRIB] THEN CONV_TAC WORD_RULE;;
-let close_x13 : tactic =
-  REWRITE_TAC[ZXZX32] THEN AP_TERM_TAC THEN REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC;;
-(* aesNc closers: Q3=aes11c(4(i+1)+6), Q4=aes7c(4(i+1)+8), Q8=aes1c(4(i+1)+7).  The stepped value is the
-   aesNc def applied to the reassembled reversed-lane counter (word(4i+10)+K, X13 post +4); fold via mk_cbv.
-   +4-shifted from the original -4-consistent version (block base 4i+4, confirmed by objdump FILL trace). *)
-let close_aes11c : tactic =
-  REWRITE_TAC[aes11c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word (4*i+6):int32 = word(4*(i+1)+2)` SUBST1_TAC THENL
-   [AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+2`);;
-let close_aes7c : tactic =
-  REWRITE_TAC[aes7c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 2) = word(4*(i+1)+4):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+4`);;
-let close_aes1c : tactic =
-  REWRITE_TAC[aes1c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 1) = word(4*(i+1)+3):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+3`);;
-
-(* [sp+160] counter -> rev8(ctr(4(i+1)+2)); [sp+176] -> rev8(ctr(4(i+1)+3)) *)
-let close_ctr160 : tactic =
-  REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word (4*i+6):int32 = word(4*(i+1)+2):int32` SUBST1_TAC THENL
-   [AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+2`);;
-let close_ctr176 : tactic =
-  REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 1) = word(4*(i+1)+3):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+3`);;
-
-(* Normalize the fresh-read addresses word(64*(i+1)+K) to the split-input canonical word(64*i+(64+K)).
-   Body reads input at X0=in_p+64*(i+1); the ldp offsets 0/8/16/24/32/40/48/56 hit blocks 4i+4..7 halves. *)
-let SLOT_ADDR_NORM = [
-  ARITH_RULE `64*(i+1) = 64*i+64`; ARITH_RULE `64*(i+1)+8 = 64*i+72`;
-  ARITH_RULE `64*(i+1)+16 = 64*i+80`; ARITH_RULE `64*(i+1)+24 = 64*i+88`;
-  ARITH_RULE `64*(i+1)+32 = 64*i+96`; ARITH_RULE `64*(i+1)+40 = 64*i+104`;
-  ARITH_RULE `64*(i+1)+48 = 64*i+112`; ARITH_RULE `64*(i+1)+56 = 64*i+120`];;
-
-(* [sp160/176/192] input^rk14 lane pins.  Body LHS = word_join(word_xor(read bytes64 (in_p+64(i+2)+8k'))(rk14hi))
-   (word_xor(read bytes64 (in_p+64(i+2)+0))(rk14lo)); RHS = word_xor(inblock(4(i+1)+4+k))(rk14).  Fold the two
-   bytes64 half-reads to inblock via the split-input assumptions (block 4i+8+k = fresh read at X0=in_p+64(i+2)),
-   then combine lanes with WORD_BITWISE.  +4-shifted (block base 4i+4). *)
-let close_lanejoin : tactic =
-  fun (asl,w) ->
-    (* the split-input bytes64 assumptions the sim already derived (read bytes64 in_p+... = word_subword(inblock..)) *)
-    let inpfacts = List.filter_map (fun (_,th) ->
-      let c = concl th in
-      if is_eq c && (try can (find_term (fun t -> match t with
-             Comb(Const("read",_),Comb(Comb(Const((":>"),_),Const("memory",_)),
-                   Comb(Const("bytes64",_),_))) -> true | _ -> false)) (lhs c) with _->false)
-         && free_in `in_p:int64` (lhs c)
-      then Some th else None) asl in
-    (REWRITE_TAC[ARITH_RULE `4*(i+1) = 4*i+4`; ARITH_RULE `4*(i+1)+1 = 4*i+5`;
-                 ARITH_RULE `4*(i+1)+2 = 4*i+6`] THEN
-     REWRITE_TAC SLOT_ADDR_NORM THEN
-     REWRITE_TAC inpfacts THEN
-     REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-     (REFL_TAC ORELSE CONV_TAC WORD_BLAST ORELSE
-      (REWRITE_TAC[JOIN_XOR_LANES] THEN (REFL_TAC ORELSE CONV_TAC WORD_BLAST)))) (asl,w);;
-(* X23/X28 subword pins: block 4(i+1)+1 = 4i+5. *)
-let close_subwordpin : tactic =
-  REWRITE_TAC[ARITH_RULE `4*(i+1)+1 = 4*i+5`] THEN CONV_TAC WORD_BLAST;;
-
-(* X24/X26 = word_subword(word_xor(inblock(4(i+1)+3))(rk14rev))(0/64,64).  4(i+1)+3 = 4i+7.
-   Body LHS = word_xor(read bytes64 (in_p+64(i+1)+{48,56}))(subword(rk14rev)(0/64,64)); the bytes64 read is a
-   half of block 4i+7.  Fold via split-input assumptions, push subword through xor (WORD_SUBWORD_XOR). *)
-let close_x2426 : tactic =
-  fun (asl,w) ->
-    let inpfacts = List.filter_map (fun (_,th) ->
-      let c = concl th in
-      if is_eq c && (try can (find_term (fun t -> match t with
-             Comb(Const("read",_),Comb(Comb(Const((":>"),_),Const("memory",_)),
-                   Comb(Const("bytes64",_),_))) -> true | _ -> false)) (lhs c) with _->false)
-         && free_in `in_p:int64` (lhs c)
-      then Some th else None) asl in
-    (REWRITE_TAC[ARITH_RULE `4*(i+1)+3 = 4*i+7`] THEN
-     REWRITE_TAC SLOT_ADDR_NORM THEN
-     REWRITE_TAC inpfacts THEN
-     REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-     (REFL_TAC ORELSE CONV_TAC WORD_BLAST)) (asl,w);;
-
-(* Q31 = aes6c nonce rk (4(i+1)+5).  Mirror of close_aes1c/aes7c but at depth 6.  Dump showed the raw body
-   counter is word_add(word(4i+6))(word 3) = 4i+9 = 4(i+1)+5 (the least-advanced/last block of the group). *)
-let close_aes6c : tactic =
-  REWRITE_TAC[aes6c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 3) = word(4*(i+1)+5):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+5`);;
-
 (* X1 decrement: word_sub(word(loop_count-(i+1)))(word 1) = word(loop_count-((i+1)+1)). *)
 let close_goal8 : tactic =
   fun (asl,w) ->
@@ -5027,44 +3918,6 @@ let close_goal8 : tactic =
      ASM_REWRITE_TAC[] THEN ASM_SIMP_TAC[WORD_SUB; VAL_WORD_1] THEN
      REWRITE_TAC[GSYM VAL_WORD_1] THEN AP_TERM_TAC THEN
      MAP_EVERY (fun th -> MP_TAC th) bnds THEN ARITH_TAC) (asl,w);;
-
-(* rk-list hyp (15-elt for 256). *)
-let rk15 = `[EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk;
-             EL 8 rk; EL 9 rk; EL 10 rk; EL 11 rk; EL 12 rk; EL 13 rk; EL 14 rk]:(int128)list = rk`;;
-
-(* output-block keystream identities (the conj close_goal9 leaves). *)
-let close_ksfold : tactic =
-  fun (asl,w) ->
-    let rkth = try snd(find (fun (_,th) -> concl th = rk15) asl) with _ -> failwith "close_ksfold: no rk-hyp" in
-    (REPEAT CONJ_TAC THEN
-     REWRITE_TAC[JOIN_SUBWORD_RECOMBINE] THEN
-     REWRITE_TAC[GSYM AES14P_VIA_AES7C; GSYM AES14P_VIA_AES11C; GSYM AES14P_VIA_AES1C; GSYM AES14P_VIA_AES6C] THEN
-     REWRITE_TAC[MATCH_MP KEYSTREAM_FOLD256 rkth]) (asl,w);;
-
-(* output-forall j<4(i+2): split old(j<4(i+1))+4 new blocks 4(i+1)+0..3 = 4i+4..4i+7 (+4-shifted base),
-   reconstruct via XOR_AES256_CIPHER_RECONSTRUCT.  The new stored group is 4i+4..4i+7 (X2=out_p+64(i+1)). *)
-let close_goal9 : tactic =
-  fun (asl,w) ->
-    let rkth = try snd(find (fun (_,th) -> concl th = rk15) asl) with _ -> failwith "close_goal9: no rk-hyp" in
-    (REWRITE_TAC[ARITH_RULE `j < 4 * (i+1) <=>
-                          j < 4 * i \/ j = 4*i+0 \/ j = 4*i+1 \/ j = 4*i+2 \/ j = 4*i+3`] THEN
-     ASM_REWRITE_TAC[TAUT `p \/ q ==> r <=> (p ==> r) /\ (q ==> r)`] THEN
-     REWRITE_TAC[FORALL_AND_THM; FORALL_UNWIND_THM2] THEN
-     (* out_p store addresses: goal blocks 4i+0..3 -> 64*i+0/16/32/48 (X2=out_p+64*i, store fact form) *)
-     REWRITE_TAC[ARITH_RULE `16 * (4*i+0) = 64*i`; ARITH_RULE `16 * (4*i+1) = 64*i+16`;
-        ARITH_RULE `16 * (4*i+2) = 64*i+32`; ARITH_RULE `16 * (4*i+3) = 64*i+48`] THEN
-     ASM_REWRITE_TAC[] THEN
-     REWRITE_TAC[ARITH_RULE `4*i+0 = 4*i`] THEN ASM_REWRITE_TAC[] THEN
-     REWRITE_TAC[CTR_BLOCK_BUILD_INSERT] THEN
-     REWRITE_TAC[SCALAR_RK_RECONSTRUCT] THEN
-     REWRITE_TAC[XOR_AES256_CIPHER_RECONSTRUCT] THEN
-     ASM_REWRITE_TAC[MAP; WORD_REVERSEFIELDS_REVERSEFIELDS] THEN
-     REWRITE_TAC[aes_ctr_block; GSYM ADD_ASSOC] THEN
-     CONV_TAC(DEPTH_CONV NUM_ADD_CONV) THEN ASM_REWRITE_TAC[] THEN
-     REPEAT CONJ_TAC THEN
-     REWRITE_TAC[JOIN_SUBWORD_RECOMBINE] THEN
-     REWRITE_TAC[GSYM AES14P_VIA_AES7C; GSYM AES14P_VIA_AES11C; GSYM AES14P_VIA_AES1C; GSYM AES14P_VIA_AES6C] THEN
-     REWRITE_TAC[MATCH_MP KEYSTREAM_FOLD256 rkth]) (asl,w);;
 
 (* frame. *)
 let close_goal10 : tactic =
@@ -5081,151 +3934,9 @@ let close_goal10 : tactic =
              REWRITE_TAC[ETA_AX; MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
              SUBSUMED_MAYCHANGE_TAC) g) mcths)) (asl2,w2))) (asl,w);;
 
-(* HO-match artifact fix: the collapse's CT_TO_NCB on the accumulator-block 4*i leaves a constant-function
-   inblock arg `nist_cipher_block nonce rk (\x. inblock(4*i)) (4*i)`.  Since nist_cipher_block only reads the
-   j-th block (inblock i, here i=4*i), (\x. inblock(4*i)) 4*i = inblock(4*i) = the plain inblock at 4*i.  So
-   the const-fn form EQUALS the plain form.  Prove it (BETA after unfolding the two block defs). *)
-let NCB_CONST_FN = prove
- (`nist_cipher_block nonce rk (\x:num. inblock (4*i)) (4*i) =
-   nist_cipher_block nonce rk inblock (4*i)`,
-  REWRITE_TAC[nist_cipher_block; cipher_block] THEN CONV_TAC(DEPTH_CONV BETA_CONV) THEN REFL_TAC);;
-
-(* Predicate for DISCARD_ASSUMPTIONS_TAC in close_goal7's first CONJ: DISCARD every assumption EXCEPT the
-   reconstruction ABBREV defs (cipherblock/h/sofar/w1/w2/ks).  Keeping only these small defs stops the
-   subword-convs + ASM_REWRITE from folding the huge invariant assumptions (Q29 nist_ghash tower,
-   output-forall, aes partials) which caused a 30GB BITBLAST blowup. *)
-let abbrev_names = ["cipherblock_0";"cipherblock_1";"cipherblock_2";"cipherblock_3";
-                    "h0";"h1";"h2";"h3";"sofar";"w1";"w2";"ks";"ks'";"ks''";"ks'''"];;
-let keep_only_abbrev_defs th =
-  let c = concl th in
-  let is_abbrev = is_eq c && (match lhs c with
-     | Var(nm,_) -> List.mem nm abbrev_names
-     | _ -> false) in
-  not is_abbrev;;
-
 (* ABBREV every maximal `word_pmul a b` subterm of the goal as a fresh int128 var.  After this, BITBLAST sees
    only word_join/word_subword/word_xor SHUFFLE over abstract int128s (fast, ~0.5s, 385 BDD vars) instead of
    modelling the 64x64 carryless-multiply circuit (30GB blowup).  This is the key to the 256 reduce closer. *)
-(* Abstract every FULLY-APPLIED (2-arg) word_pmul subterm as a fresh int128/int256 var, so a subsequent
-   BITBLAST proves only the surrounding word_join/word_subword/word_xor SHUFFLE (fast, tiny BDD) instead of
-   modelling the 64x64 carryless-multiply circuit (30GB blowup).  CRITICAL: match only 2-arg pmuls -- the
-   bare `word_pmul` const and partial applications must NOT be abstracted (that only renames the head). *)
-let ABBREV_PMULS : tactic =
-  fun (asl,w) ->
-    let is_full_pmul t = match strip_comb t with Const("word_pmul",_),[_;_] -> true | _ -> false in
-    let pmuls = setify (find_terms is_full_pmul w) in
-    let mk i t = ABBREV_TAC (mk_eq(mk_var(Printf.sprintf "pm_%d" i, type_of t), t)) in
-    (EVERY (List.mapi mk pmuls)) (asl,w);;
-
-(* Karatsuba-mid folding lemmas: canonicalize BOTH word_xor orders of a subword-half pair to karatsuba_mid,
-   so the machine's alternating-order mid sub-pmuls and KARATSUBA_JOIN_ALT's mid coincide as atoms. *)
-let CMID_HILO = prove
- (`!a:int128. word_xor (word_subword a (64,64)) (word_subword a (0,64)):int64 = karatsuba_mid a`,
-  REWRITE_TAC[karatsuba_mid] THEN CONV_TAC WORD_BITWISE_RULE);;
-let CMID_LOHI = prove
- (`!a:int128. word_xor (word_subword a (0,64)) (word_subword a (64,64)):int64 = karatsuba_mid a`,
-  REWRITE_TAC[karatsuba_mid] THEN CONV_TAC WORD_BITWISE_RULE);;
-let KMID_FOLD_LOHI = GSYM karatsuba_mid;;
-let KMID_FOLD_HILO = CMID_HILO;;
-
-(* word_join (HI-FIRST) projections + injectivity -- for the SPLIT route on close_goal7: reduce_g2 P = word_join g f
-   (via POLYVAL_REDUCE_G2 -> reduce_prop3 output), RHS byteswap128(ng) = word_join(subword ng 0)(subword ng 64); then
-   WJ_INJ splits into two int64 half-equalities, making the byteswap explicit as subword indices (avoids the false
-   global byteswap/ghash commute). *)
-let WJ_LO = prove
- (`!(a:int64) (b:int64). word_subword (word_join a b :int128) (0,64):int64 = b`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let WJ_HI = prove
- (`!(a:int64) (b:int64). word_subword (word_join a b :int128) (64,64):int64 = a`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let WJ_INJ = prove
- (`!(a:int64) (b:int64) (c:int64) (d:int64). (word_join a b :int128 = word_join c d) <=> (a = c /\ b = d)`,
-  REPEAT GEN_TAC THEN EQ_TAC THENL
-   [DISCH_THEN(fun th -> MP_TAC(AP_TERM `\x:int128. word_subword x (64,64):int64` th) THEN
-                         MP_TAC(AP_TERM `\x:int128. word_subword x (0,64):int64` th)) THEN
-    CONV_TAC(DEPTH_CONV BETA_CONV) THEN REWRITE_TAC[WJ_LO; WJ_HI] THEN MESON_TAC[];
-    STRIP_TAC THEN ASM_REWRITE_TAC[]]);;
-
-(* byteswap128 is the 64-bit half-swap (def: word_join(subword x 0)(subword x 64)); it is an involution.  The
-   machine's reduce reads Q29 = byteswap128(nist_ghash) and the load-path forms word_join(subword _)(subword _)
-   again, so the accumulator entering the pmul is the DOUBLE byteswap = clean nist_ghash. *)
-let INVOL_BYTESWAP128 = prove
- (`!x:int128. byteswap128 (byteswap128 x) = x`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-(* acc double-byteswap: word_subword(word_join(byteswap128 ng)(byteswap128 ng))(64,128) = ng (clean). *)
-let ACC_CLEAN = prove
- (`!ng:int128. word_subword (word_join (byteswap128 ng) (byteswap128 ng) :int256) (64,128) :int128 = ng`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-
-(* The head-ext `ext v30,v29,v29` where Q29=swpgrp i (a fresh var, NOT a byteswap128 term) yields the acc
-   word_subword(word_join x x)(64,128) = byteswap128 x.  NB byteswap128 is a DEFINED const -- must expand it before
-   WORD_BLAST (bare WORD_BLAST on this FAILS: byteswap128 opaque).  Proven once here; REWRITE with it in close_goal7. *)
-let ACC_JOIN_BYTESWAP = prove
- (`!x:int128. word_subword (word_join x x :int256) (64,128) :int128 = byteswap128 x`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-
-(* word_join linearity over word_xor (both int256- and int128-level): folds the RHS product tower's xor-of-per-
-   lane-joins into a single join-of-xors so it matches reduce_g2's single-join packing.  THE multi-lane key. *)
-let JOIN_XOR_256 = prove
- (`!(a1:int128) (b1:int128) (a2:int128) (b2:int128).
-     word_xor (word_join a1 b1 :int256) (word_join a2 b2 :int256) =
-     word_join (word_xor a1 a2) (word_xor b1 b2) :int256`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let JOIN_XOR_128 = prove
- (`!(a1:int64) (b1:int64) (a2:int64) (b2:int64).
-     word_xor (word_join a1 b1 :int128) (word_join a2 b2 :int128) =
-     word_join (word_xor a1 a2) (word_xor b1 b2) :int128`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-
-(* CORE: the WHOLE 4-lane GHASH-reduce identity in one lemma (CONJ1 karatsuba shuffle + CONJ2 batched fused).
-   reduce_g2 of the karatsuba lo/hi/mid sums of lanes (cbb3,hp0)(cbb2,hp1)(cbb1,hp2)(word_xor A cbb0, hp3)
-   [hp k = h_power gt k] = ghash_polyval_acc gt A [cbb0;cbb1;cbb2;cbb3].  Proven axiom-free (~14s).  close_goal7,
-   after cleaning the acc (ACC double-byteswap -> A) and stripping the outer byteswap, MATCHes this with A:=nist_ghash 4i. *)
-let CORE_REDUCE_GHASH = prove
- (`polyval_reduce_g2
-     (word_xor (word_pmul (word_subword (cbb3:int128) (0,64):int64) (word_subword (h_power (gt:int128) 0) (0,64):int64))
-     (word_xor (word_pmul (word_subword (cbb2:int128) (0,64):int64) (word_subword (h_power gt 1) (0,64):int64))
-     (word_xor (word_pmul (word_subword (cbb1:int128) (0,64):int64) (word_subword (h_power gt 2) (0,64):int64))
-     (word_pmul (word_subword (word_xor (A:int128) cbb0) (0,64):int64) (word_subword (h_power gt 3) (0,64):int64)))))
-     (word_xor (word_pmul (word_subword cbb3 (64,64):int64) (word_subword (h_power gt 0) (64,64):int64))
-     (word_xor (word_pmul (word_subword cbb2 (64,64):int64) (word_subword (h_power gt 1) (64,64):int64))
-     (word_xor (word_pmul (word_subword cbb1 (64,64):int64) (word_subword (h_power gt 2) (64,64):int64))
-     (word_pmul (word_subword (word_xor A cbb0) (64,64):int64) (word_subword (h_power gt 3) (64,64):int64)))))
-     (word_xor (word_pmul (karatsuba_mid cbb3) (karatsuba_mid (h_power gt 0)))
-     (word_xor (word_pmul (karatsuba_mid cbb2) (karatsuba_mid (h_power gt 1)))
-     (word_xor (word_pmul (karatsuba_mid cbb1) (karatsuba_mid (h_power gt 2)))
-     (word_pmul (karatsuba_mid (word_xor A cbb0)) (karatsuba_mid (h_power gt 3))))))
-   = ghash_polyval_acc gt A [cbb0; cbb1; cbb2; cbb3]`,
-  TRANS_TAC EQ_TRANS
-   `polyval_reduce_prop3
-      (word_xor (word_pmul (cbb3:int128) (h_power gt 0))
-      (word_xor (word_pmul (cbb2:int128) (h_power gt 1))
-      (word_xor (word_pmul (cbb1:int128) (h_power gt 2))
-      (word_pmul (word_xor (A:int128) cbb0) (h_power gt 3)))) :int256)` THEN
-  CONJ_TAC THENL
-   [REWRITE_TAC[POLYVAL_REDUCE_G2] THEN
-    GEN_REWRITE_TAC (RAND_CONV o TOP_DEPTH_CONV) [PMUL_KARATSUBA_JOIN_ALT] THEN
-    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN REWRITE_TAC[karatsuba_mid] THEN
-    REWRITE_TAC[CMID_LOHI; CMID_HILO] THEN AP_TERM_TAC THEN
-    REWRITE_TAC[JOIN_XOR_256; JOIN_XOR_128] THEN
-    ABBREV_PMULS THEN POP_ASSUM_LIST(K ALL_TAC) THEN CONV_TAC BITBLAST_RULE;
-    MP_TAC(ISPECL [`gt:int128`; `[cbb1;cbb2;cbb3]:(int128)list`; `A:int128`; `cbb0:int128`]
-                  GHASH_POLYVAL_ACC_BATCHED) THEN
-    REWRITE_TAC[LENGTH; ghash_wide] THEN CONV_TAC NUM_REDUCE_CONV THEN
-    DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
-    AP_TERM_TAC THEN CONV_TAC WORD_BITWISE_RULE]);;
-
-(* group-0 packed-counter bridges (const -> shl form) so CTR_BLOCK_BUILD_INSERT folds the merged-stack counter;
-   ct_ncb_concrete = literal-index CT_TO_NCB256 for blocks 0..3.  Both from FILL's group-0 fold (concrete i=0). *)
-let ctr0_bridges = [
-  prove(`(word 144115188075855872:int64) = word_shl (word_zx (word_bytereverse (word 2:int32)):int64) 32`, CONV_TAC WORD_BLAST);
-  prove(`(word 216172782113783808:int64) = word_shl (word_zx (word_bytereverse (word 3:int32)):int64) 32`, CONV_TAC WORD_BLAST);
-  prove(`(word 288230376151711744:int64) = word_shl (word_zx (word_bytereverse (word 4:int32)):int64) 32`, CONV_TAC WORD_BLAST);
-  prove(`(word 360287970189639680:int64) = word_shl (word_zx (word_bytereverse (word 5:int32)):int64) 32`, CONV_TAC WORD_BLAST)];;
-let ct_ncb_concrete = map (fun j ->
-    CONV_RULE(LAND_CONV(ONCE_DEPTH_CONV NUM_ADD_CONV))
-             (INST [mk_small_numeral j,`j:num`] (SPEC_ALL CT_TO_NCB256)))
-  [0;1;2;3];;
 
 (* collapse_q30 (Q30 GHASH tag reduce reconstruction), FILL's GROUP-0 version: adds the packed-counter fold
    (ctr0_bridges + CTR_BLOCK_BUILD_INSERT) + literal-index CT->NCB (ct_ncb_concrete) so the concrete-block-0..3
@@ -5378,10 +4089,6 @@ let close_goal7 : tactic =
        (* CORE-LHS = ghash gt sofar [cbs]: exactly CORE_REDUCE_GHASH (A:=sofar). *)
        MATCH_ACCEPT_TAC CORE_REDUCE_GHASH]) (asl,w);;
 
-let (MUST:tactic->tactic) = fun t (asl,w) ->
-  let gs = t (asl,w) in let _,subs,_ = gs in
-  if subs = [] then gs else failwith "MUST: goal not closed";;
-
 let close_all_tac : tactic =
   fun (asl,w) ->
     let has c t = can (find_term (fun u -> try fst(dest_const(fst(strip_comb u)))=c with _->false)) t in
@@ -5403,101 +4110,8 @@ let close_all_tac : tactic =
           ASM_REWRITE_TAC[] ])) (asl,w);;
 
 Printf.printf "MARKER: closers defined\n%!";;
-(* ===== leg GOAL defs (extracted from leg files) ===== *)
-let fill_goal = mk_imp
- (`([EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk; EL 8 rk; EL 9 rk;
-     EL 10 rk; EL 11 rk; EL 12 rk; EL 13 rk; EL 14 rk]:(int128)list = rk) /\
-   len_bits DIV 128 = nblocks /\ nblocks DIV 4 = loop_count /\ nblocks MOD 4 = loop_remain /\
-   3 <= loop_count /\ 16 * nblocks < 2 EXP 64 /\ aligned 16 (stackpointer:int64) /\
-   nonoverlapping (out_p:int64,16 * nblocks) (word pc:int64,3860) /\
-   nonoverlapping (out_p:int64,16 * nblocks) (in_p:int64,16 * nblocks) /\
-   nonoverlapping (out_p:int64,16 * nblocks) (htable_p:int64,192) /\
-   nonoverlapping (out_p:int64,16 * nblocks) (tag_p:int64,16) /\
-   nonoverlapping (out_p:int64,16 * nblocks) (ivec_p:int64,16) /\
-   nonoverlapping (out_p:int64,16*nblocks) (word_add stackpointer (word 160):int64,64) /\
-   nonoverlapping (tag_p:int64,16) (word pc:int64,3860) /\
-   nonoverlapping (tag_p:int64,16) (in_p:int64,16*nblocks) /\
-   nonoverlapping (tag_p:int64,16) (htable_p:int64,192) /\
-   nonoverlapping (tag_p:int64,16) (word_add stackpointer (word 160):int64,64) /\
-   nonoverlapping (ivec_p:int64,16) (word pc:int64,3860) /\
-   nonoverlapping (ivec_p:int64,16) (in_p:int64,16*nblocks) /\
-   nonoverlapping (ivec_p:int64,16) (htable_p:int64,192) /\
-   nonoverlapping (ivec_p:int64,16) (word_add stackpointer (word 160):int64,64) /\
-   nonoverlapping (tag_p:int64,16) (ivec_p:int64,16) /\
-   nonoverlapping (word_add stackpointer (word 160):int64,64) (word pc:int64,3860) /\
-   nonoverlapping (word_add stackpointer (word 160):int64,64) (in_p:int64,16*nblocks) /\
-   nonoverlapping (word_add stackpointer (word 160):int64,64) (htable_p:int64,192) /\
-   nonoverlapping (word_add stackpointer (word 160):int64,64) (out_p:int64,16*nblocks)`,
-  list_mk_icomb "ensures" [`arm`;
-    mk_abs(`s:armstate`, list_mk_conj
-      [`aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp_mc`;
-       `read PC s = word (pc + 0xbc)`;
-       `read X0 s = in_p`; `read X2 s = out_p`; `read X3 s = tag_p`; `read X4 s = ivec_p`;
-       `read X5 s = key_p`; `read X6 s = htable_p`; `read SP s = stackpointer`;
-       `read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0`;
-       `read (memory :> bytes128 ivec_p) s = word_reversefields 8 (ctr_block nonce 2)`;
-       `read Q18 s = word_reversefields 8 (EL 0 rk)`; `read Q19 s = word_reversefields 8 (EL 1 rk)`;
-       `read Q20 s = word_reversefields 8 (EL 2 rk)`; `read Q21 s = word_reversefields 8 (EL 3 rk)`;
-       `read Q22 s = word_reversefields 8 (EL 4 rk)`; `read Q23 s = word_reversefields 8 (EL 5 rk)`;
-       `read Q24 s = word_reversefields 8 (EL 6 rk)`; `read Q25 s = word_reversefields 8 (EL 7 rk)`;
-       `read Q26 s = word_reversefields 8 (EL 8 rk)`; `read Q27 s = word_reversefields 8 (EL 9 rk)`;
-       `read Q28 s = word_reversefields 8 (EL 10 rk)`; `read Q15 s = word_reversefields 8 (EL 11 rk)`;
-       `read Q16 s = word_reversefields 8 (EL 12 rk)`; `read Q17 s = word_reversefields 8 (EL 13 rk)`;
-       `read X20 s = word_subword (word_reversefields 8 (EL 14 rk):int128) (0,64):int64`;
-       `read X21 s = word_subword (word_reversefields 8 (EL 14 rk):int128) (64,64):int64`;
-       `read Q7 s = word 13979173243358019584`;
-       `read X11 s = word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64`;
-       `read X12 s = word_zx (word_zx (word_subword
-           (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64`;
-       `read X13 s = word_zx (word 2:int32):int64`; `read X15 s = word(len_bits DIV 8)`;
-       `read X1 s = word loop_count`; `read X7 s = word nblocks`; `read X16 s = word loop_remain`;
-       `read Q30 s = byteswap128 tag0`;
-       `htable_mem_4 (ghash_twist (aes256_cipher (word 0) rk)) htable_p s`;
-       `!j. j < nblocks ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s = inblock j`]) ;
-    leg_state swpS256_inv `0x560` `1` ;
-    `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-     MAYCHANGE [X19; X20; X21; X22; X23; X24; X25; X26; X27; X28; X29; X30] ,,
-     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q8; Q9; Q10; Q11; Q12; Q13; Q14; Q15; Q29; Q30; Q31] ,,
-     MAYCHANGE [memory :> bytes(out_p:int64, 16 * nblocks)] ,,
-     MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`]);;
 Printf.printf "MARKER: fill_goal built\n%!";;
 
-let drain_bridge = mk_abs(`s:armstate`, list_mk_conj
- [`aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp_mc`;
-  `read PC s = word (pc + 0xdd0)`;
-  `read X0 s = word_add in_p (word (64 * loop_count))`;
-  `read X2 s = word_add out_p (word (64 * loop_count))`;
-  `read X3 s = tag_p`; `read X4 s = ivec_p`; `read X6 s = htable_p`; `read SP s = stackpointer`;
-  `read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0`;
-  `read (memory :> bytes128 ivec_p) s = word_reversefields 8 (ctr_block nonce 2)`;
-  `read X13 s = word_zx (word (4 * loop_count + 2):int32):int64`;
-  `read X15 s = word(len_bits DIV 8)`;
-  (* X1 NOT constrained: dead at this seam (tail uses X16; iter_1 leaves X1=1). *)
-  `read X16 s = word loop_remain`;
-  (* round-key + h-power + counter-lane registers held live at the drain->tail seam (tail loop's AES+GHASH need
-     them; swpS256_inv carries them + the drain body preserves them).  tail_inv @ i=0 requires this exact set. *)
-  `read Q18 s = word_reversefields 8 (EL 0 rk)`; `read Q19 s = word_reversefields 8 (EL 1 rk)`;
-  `read Q20 s = word_reversefields 8 (EL 2 rk)`; `read Q21 s = word_reversefields 8 (EL 3 rk)`;
-  `read Q22 s = word_reversefields 8 (EL 4 rk)`; `read Q23 s = word_reversefields 8 (EL 5 rk)`;
-  `read Q24 s = word_reversefields 8 (EL 6 rk)`; `read Q25 s = word_reversefields 8 (EL 7 rk)`;
-  `read Q26 s = word_reversefields 8 (EL 8 rk)`; `read Q27 s = word_reversefields 8 (EL 9 rk)`;
-  `read Q28 s = word_reversefields 8 (EL 10 rk)`; `read Q15 s = word_reversefields 8 (EL 11 rk)`;
-  `read Q16 s = word_reversefields 8 (EL 12 rk)`; `read Q17 s = word_reversefields 8 (EL 13 rk)`;
-  `read X20 s = word_subword (word_reversefields 8 (EL 14 rk):int128) (0,64):int64`;
-  `read X21 s = word_subword (word_reversefields 8 (EL 14 rk):int128) (64,64):int64`;
-  `read Q7 s = word 13979173243358019584`;
-  `read X11 s = word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64`;
-  `read X12 s = word_zx (word_zx (word_subword
-       (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64`;
-  (* NB Q12/Q14 are NOT carried here: the drain leaves them as computed reduce-lane values, and the TAIL RELOADS
-     them from htable at its first two instrs (ldr q12,[x6] @0xdd0 ; ldr q14,[x6,#16] @0xdd8) -- htable_mem_4 (below)
-     supplies the values, so tail_inv's Q12/Q14 are established by the tail's own stepping, not by the bridge. *)
-  `read Q30 s = byteswap128 (nist_ghash (aes256_cipher (word 0) rk) tag0
-                  (list_of_seq (nist_cipher_block nonce rk inblock) (4 * loop_count)))`;
-  `htable_mem_4 (ghash_twist (aes256_cipher (word 0) rk)) htable_p s`;
-  `!j. j < nblocks ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s = inblock j`;
-  `!j. j < 4 * loop_count ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s =
-           word_xor (aes_ctr_block nonce rk j) (inblock j)`]);;
 Printf.printf "MARKER: drain_bridge defined, %d conjuncts\n%!" (length(conjuncts(snd(dest_abs drain_bridge))));;
 
 
@@ -5574,23 +4188,6 @@ let iter1_step_tac =
   iter1_block_step 1 211 THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];;
 
-(* swpgrp <-> nist_ghash bridge (from DRAIN leg) so Q30's nist_ghash(4*1) folds to swpgrp 1 for close_goal7. *)
-let LIST_OF_SEQ_APPEND = prove
- (`!n f m. list_of_seq f (m + n) =
-           APPEND (list_of_seq f m) (list_of_seq (\i. f(m+i)) n)`,
-  GEN_TAC THEN ONCE_REWRITE_TAC[SWAP_FORALL_THM] THEN INDUCT_TAC THEN
-  ASM_REWRITE_TAC[ADD_CLAUSES; LIST_OF_SEQ; APPEND; o_THM; ETA_AX]);;
-let SWPGRP_IS_NIST_GHASH = prove
- (`!h acc i blk.
-       swpgrp (ghash_twist h) acc i blk =
-       nist_ghash h acc (list_of_seq blk (4 * i))`,
-  GEN_TAC THEN GEN_TAC THEN INDUCT_TAC THEN GEN_TAC THENL
-   [REWRITE_TAC[swpgrp; MULT_CLAUSES; LIST_OF_SEQ; nist_ghash];
-    REWRITE_TAC[ARITH_RULE `4 * SUC i = 4 * i + 4`] THEN
-    REWRITE_TAC[LIST_OF_SEQ_APPEND] THEN REWRITE_TAC[NIST_GHASH_APPEND] THEN
-    ASM_REWRITE_TAC[] THEN REWRITE_TAC[swpgrp] THEN ASM_REWRITE_TAC[] THEN
-    REWRITE_TAC[LIST_OF_SEQ_CLAUSES] THEN REWRITE_TAC[ARITH_RULE `4*i+0 = 4*i`] THEN
-    REWRITE_TAC[NIST_GHASH_IS_POLYVAL]]);;
 Printf.printf "MARKER: iter1 bridge lemmas proven\n%!";;
 
 (* pre-closer normalization for the loop_count=1 literal final state:
@@ -5747,76 +4344,6 @@ Printf.printf "ITER1_LEG hyps (expect 0): %d\n%!" (List.length (hyp ITER1_LEG));
 
 (* ========== LEG: lc2 (post-937 tail of DEVEL_enc256_swp_lc2.ml) ========== *)
 
-(* --- helpers (verbatim from 128, mc-agnostic) --- *)
-let gc2 keeplist c = try let l=lhs c in let rd,st=dest_comb l in let rr,cc=dest_comb rd in
-   if is_const cc && mem (fst(dest_const cc)) keeplist then
-     (match st with Var(nm,_) when String.length nm>=2 && nm.[0]='s' ->
-        (try Some(fst(dest_const cc), int_of_string(String.sub nm 1 (String.length nm-1))) with _->None) |_->None) else None
-  with _->None;;
-let gkeepN keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
-  (fun (asl,w) -> let cs=map(fun(_,t)->concl t)asl in
-    let mx=map(fun r->(r,itlist(fun c m->match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m)cs(-1)))keeplist in
-    DISCARD_ASSUMPTIONS_TAC(fun th->let c=concl th in
-      if (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
-      then (try let _,args = strip_comb c in string_of_term(last args) <> sname with _ -> false) else
-      if (try free_in `in_p:int64` (lhs c) with _->false) then false else
-      match gc2 keeplist c with
-      Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w));;
-(* Extract (ptr-name, state-index) from a `read (memory :> bytes128 tag_p/ivec_p) sK = V` assumption. *)
-let get_membyteread c =
-  try let l = lhs c in
-      let rd, st = dest_comb l in
-      let _, comp = dest_comb rd in
-      let stname = (match st with Var(nm,_) when String.length nm>=2 && nm.[0]='s' ->
-                       int_of_string(String.sub nm 1 (String.length nm-1)) | _ -> raise Exit) in
-      if free_in `tag_p:int64` comp then Some("tag_p", stname)
-      else if free_in `ivec_p:int64` comp then Some("ivec_p", stname)
-      else None
-  with _ -> None;;
-(* FILL variant: keep the tag_p/ivec_p bytes128 reads (gkeepN drops them -> conj3,4 FAIL, the s297 read is absent),
-   BUT keep ONLY THE LATEST-state read per ptr (else ~600 stale reads accumulate -> 10.6GB RSS + hours-long close).
-   The latest read + the tag_p/ivec_p<->stack nonoverlaps (now in fill_goal precond) let ENSURES_FINAL_STATE_TAC
-   carry it forward across the [sp,#*] stores to s297.  (in_p reads still never-discarded, as gkeepN.) *)
-let gkeepF keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
-  (fun (asl,w) -> let cs=map(fun(_,t)->concl t)asl in
-    let mx=map(fun r->(r,itlist(fun c m->match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m)cs(-1)))keeplist in
-    (* per-ptr max state index over the tag_p/ivec_p bytes128 reads *)
-    let mmx=itlist (fun c acc -> match get_membyteread c with
-       | Some(p,k) -> (try let old=List.assoc p acc in
-                           if k>old then (p,k)::(List.remove_assoc p acc) else acc
-                       with Not_found -> (p,k)::acc)
-       | None -> acc) cs [] in
-    DISCARD_ASSUMPTIONS_TAC(fun th->let c=concl th in
-      if (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
-      then (try let _,args = strip_comb c in string_of_term(last args) <> sname with _ -> false) else
-      if (try free_in `in_p:int64` (lhs c) with _->false) then false else
-      (* tag_p/ivec_p bytes128 read: keep iff it is the latest-state one for its ptr; discard stale copies *)
-      (match get_membyteread c with
-       | Some(p,k) -> (try k < List.assoc p mmx with _ -> false)
-       | None ->
-         match gc2 keeplist c with
-         Some(r,k)->k<List.assoc r mx
-         |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false)))(asl,w));;
-let IN_P_ADDR_FOLD_CONV : conv =
-  let inner = (REWR_CONV(GSYM ADD_ASSOC) THENC RAND_CONV NUM_ADD_CONV) in
-  ONCE_DEPTH_CONV(fun t -> match t with
-    | Comb(Comb(Const("word_add",_), v), Comb(Const("word",_), _))
-        when (try fst(dest_var v) = "in_p" with _ -> false)
-      -> RAND_CONV(RAND_CONV inner) t
-    | _ -> failwith "IN_P_ADDR_FOLD_CONV");;
-
-(* 256 carried/reduce reg-set: AES partials Q3/Q4/Q8 + reduce Q1/Q2/Q11/Q13/Q14/Q29/Q30 + h-powers
-   Q5/Q6/Q17/Q31 + const Q7 + counter/input X-lanes (from harvest). *)
-let REDSETX256 = ["Q1";"Q2";"Q3";"Q4";"Q5";"Q6";"Q7";"Q8";"Q11";"Q13";"Q14";"Q16";"Q17";"Q28";"Q29";"Q30";"Q31";
-                  "X7";"X8";"X10";"X11";"X13";"X14";"X17";"X22";"X23";"X24";"X25";"X26";"X28";"X29";"X30"];;
-(* 256 loop-head scalar lanes to GHOST_INTRO (harvest showed X7/X8/X17/X22/X23/X24/X25/X26/X28/X29/X30
-   carry values; add X10/X14/X19/X27 like 128). *)
-let ghost_lanes256 = ["X7";"X8";"X17";"X22";"X23";"X24";"X25";"X26";"X28";"X29";"X30";"X10";"X14";"X19";"X27"];;
-
-(* 256 counter-store MERGE sites (body-instr, [sp,#offset]) from disasm stp-to-sp in steady body. *)
-let merges256 = [(27,208);(49,160);(92,192);(98,208);(109,176);(118,192);(171,160);(179,176)];;
-
 (* input-split: blocks 4i+0..4i+7 (current group + prefetch), like 128. *)
 let INPUT_SPLIT_TAC256 =
   SUBGOAL_THEN
@@ -5840,15 +4367,6 @@ let INPUT_SPLIT_TAC256 =
   REPEAT(FIRST_X_ASSUM(STRIP_ASSUME_TAC o CONV_RULE SPLIT_INPUT_CONV o
      check (fun th -> let c = concl th in is_eq c && free_in `in_p:int64` (lhs c) &&
        can (find_term (fun t -> is_const t && fst(dest_const t) = "bytes128")) (lhs c))));;
-
-(* leg pre/post state builder (flat beta-reduced conjunction), verbatim from 128. *)
-let leg_state inv off idx =
-  let body = rhs(concl((TOP_DEPTH_CONV BETA_CONV THENC REWRITE_CONV[ADD_CLAUSES])
-                        (list_mk_comb(inv,[idx;`s:armstate`])))) in
-  mk_abs(`s:armstate`,
-    list_mk_conj(`aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp_mc` ::
-                 mk_eq(`read PC s`,mk_comb(`word:num->int64`,mk_binop `+` `pc:num` off)) ::
-                 conjuncts body));;
 
 Printf.printf "MARKER: BODYLEG helpers defined\n%!";;
 
@@ -5939,97 +4457,6 @@ Printf.printf "MARKER: setup+step_body_tac defined\n%!";;
 (* Closers (transplant of 128 swp_S lines 1075-1371, re-indexed +4 rounds).   *)
 (* ========================================================================= *)
 
-(* closers for the AES-partial conjuncts Q3=aes11c/Q4=aes7c/Q8=aes1c + ptrs/X13.
-   Order in the invariant: [X0 ptr][X2 ptr]...[X13]...[Q3=aes11c][Q4=aes7c][Q8=aes1c].
-   Each aesNc pin at i+1 = aesNc nonce rk (4*(i+1)+K); fold via the def + counter build. *)
-let close_ptr : tactic =
-  REWRITE_TAC[ARITH_RULE `64*(i+1)=64*i+64`; LEFT_ADD_DISTRIB] THEN CONV_TAC WORD_RULE;;
-let close_x13 : tactic =
-  REWRITE_TAC[ZXZX32] THEN AP_TERM_TAC THEN REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC;;
-(* aesNc closers: Q3=aes11c(4(i+1)+6), Q4=aes7c(4(i+1)+8), Q8=aes1c(4(i+1)+7).  The stepped value is the
-   aesNc def applied to the reassembled reversed-lane counter (word(4i+10)+K, X13 post +4); fold via mk_cbv.
-   +4-shifted from the original -4-consistent version (block base 4i+4, confirmed by objdump FILL trace). *)
-let close_aes11c : tactic =
-  REWRITE_TAC[aes11c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word (4*i+6):int32 = word(4*(i+1)+2)` SUBST1_TAC THENL
-   [AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+2`);;
-let close_aes7c : tactic =
-  REWRITE_TAC[aes7c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 2) = word(4*(i+1)+4):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+4`);;
-let close_aes1c : tactic =
-  REWRITE_TAC[aes1c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 1) = word(4*(i+1)+3):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+3`);;
-
-(* [sp+160] counter -> rev8(ctr(4(i+1)+2)); [sp+176] -> rev8(ctr(4(i+1)+3)) *)
-let close_ctr160 : tactic =
-  REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word (4*i+6):int32 = word(4*(i+1)+2):int32` SUBST1_TAC THENL
-   [AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+2`);;
-let close_ctr176 : tactic =
-  REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 1) = word(4*(i+1)+3):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+3`);;
-
-(* Normalize the fresh-read addresses word(64*(i+1)+K) to the split-input canonical word(64*i+(64+K)).
-   Body reads input at X0=in_p+64*(i+1); the ldp offsets 0/8/16/24/32/40/48/56 hit blocks 4i+4..7 halves. *)
-let SLOT_ADDR_NORM = [
-  ARITH_RULE `64*(i+1) = 64*i+64`; ARITH_RULE `64*(i+1)+8 = 64*i+72`;
-  ARITH_RULE `64*(i+1)+16 = 64*i+80`; ARITH_RULE `64*(i+1)+24 = 64*i+88`;
-  ARITH_RULE `64*(i+1)+32 = 64*i+96`; ARITH_RULE `64*(i+1)+40 = 64*i+104`;
-  ARITH_RULE `64*(i+1)+48 = 64*i+112`; ARITH_RULE `64*(i+1)+56 = 64*i+120`];;
-
-(* [sp160/176/192] input^rk14 lane pins.  Body LHS = word_join(word_xor(read bytes64 (in_p+64(i+2)+8k'))(rk14hi))
-   (word_xor(read bytes64 (in_p+64(i+2)+0))(rk14lo)); RHS = word_xor(inblock(4(i+1)+4+k))(rk14).  Fold the two
-   bytes64 half-reads to inblock via the split-input assumptions (block 4i+8+k = fresh read at X0=in_p+64(i+2)),
-   then combine lanes with WORD_BITWISE.  +4-shifted (block base 4i+4). *)
-let close_lanejoin : tactic =
-  fun (asl,w) ->
-    (* the split-input bytes64 assumptions the sim already derived (read bytes64 in_p+... = word_subword(inblock..)) *)
-    let inpfacts = List.filter_map (fun (_,th) ->
-      let c = concl th in
-      if is_eq c && (try can (find_term (fun t -> match t with
-             Comb(Const("read",_),Comb(Comb(Const((":>"),_),Const("memory",_)),
-                   Comb(Const("bytes64",_),_))) -> true | _ -> false)) (lhs c) with _->false)
-         && free_in `in_p:int64` (lhs c)
-      then Some th else None) asl in
-    (REWRITE_TAC[ARITH_RULE `4*(i+1) = 4*i+4`; ARITH_RULE `4*(i+1)+1 = 4*i+5`;
-                 ARITH_RULE `4*(i+1)+2 = 4*i+6`] THEN
-     REWRITE_TAC SLOT_ADDR_NORM THEN
-     REWRITE_TAC inpfacts THEN
-     REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-     (REFL_TAC ORELSE CONV_TAC WORD_BLAST ORELSE
-      (REWRITE_TAC[JOIN_XOR_LANES] THEN (REFL_TAC ORELSE CONV_TAC WORD_BLAST)))) (asl,w);;
-(* X23/X28 subword pins: block 4(i+1)+1 = 4i+5. *)
-let close_subwordpin : tactic =
-  REWRITE_TAC[ARITH_RULE `4*(i+1)+1 = 4*i+5`] THEN CONV_TAC WORD_BLAST;;
-
-(* X24/X26 = word_subword(word_xor(inblock(4(i+1)+3))(rk14rev))(0/64,64).  4(i+1)+3 = 4i+7.
-   Body LHS = word_xor(read bytes64 (in_p+64(i+1)+{48,56}))(subword(rk14rev)(0/64,64)); the bytes64 read is a
-   half of block 4i+7.  Fold via split-input assumptions, push subword through xor (WORD_SUBWORD_XOR). *)
-let close_x2426 : tactic =
-  fun (asl,w) ->
-    let inpfacts = List.filter_map (fun (_,th) ->
-      let c = concl th in
-      if is_eq c && (try can (find_term (fun t -> match t with
-             Comb(Const("read",_),Comb(Comb(Const((":>"),_),Const("memory",_)),
-                   Comb(Const("bytes64",_),_))) -> true | _ -> false)) (lhs c) with _->false)
-         && free_in `in_p:int64` (lhs c)
-      then Some th else None) asl in
-    (REWRITE_TAC[ARITH_RULE `4*(i+1)+3 = 4*i+7`] THEN
-     REWRITE_TAC SLOT_ADDR_NORM THEN
-     REWRITE_TAC inpfacts THEN
-     REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-     (REFL_TAC ORELSE CONV_TAC WORD_BLAST)) (asl,w);;
-
-(* Q31 = aes6c nonce rk (4(i+1)+5).  Mirror of close_aes1c/aes7c but at depth 6.  Dump showed the raw body
-   counter is word_add(word(4i+6))(word 3) = 4i+9 = 4(i+1)+5 (the least-advanced/last block of the group). *)
-let close_aes6c : tactic =
-  REWRITE_TAC[aes6c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 3) = word(4*(i+1)+5):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+5`);;
-
 (* X1 decrement: word_sub(word(loop_count-(i+1)))(word 1) = word(loop_count-((i+1)+1)). *)
 let close_goal8 : tactic =
   fun (asl,w) ->
@@ -6041,91 +4468,6 @@ let close_goal8 : tactic =
      ASM_REWRITE_TAC[] THEN ASM_SIMP_TAC[WORD_SUB; VAL_WORD_1] THEN
      REWRITE_TAC[GSYM VAL_WORD_1] THEN AP_TERM_TAC THEN
      MAP_EVERY (fun th -> MP_TAC th) bnds THEN ARITH_TAC) (asl,w);;
-
-(* rk-list hyp (15-elt for 256). *)
-let rk15 = `[EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk;
-             EL 8 rk; EL 9 rk; EL 10 rk; EL 11 rk; EL 12 rk; EL 13 rk; EL 14 rk]:(int128)list = rk`;;
-
-(* output-block keystream identities (the conj close_goal9 leaves). *)
-let close_ksfold : tactic =
-  fun (asl,w) ->
-    let rkth = try snd(find (fun (_,th) -> concl th = rk15) asl) with _ -> failwith "close_ksfold: no rk-hyp" in
-    (REPEAT CONJ_TAC THEN
-     REWRITE_TAC[JOIN_SUBWORD_RECOMBINE] THEN
-     REWRITE_TAC[GSYM AES14P_VIA_AES7C; GSYM AES14P_VIA_AES11C; GSYM AES14P_VIA_AES1C; GSYM AES14P_VIA_AES6C] THEN
-     REWRITE_TAC[MATCH_MP KEYSTREAM_FOLD256 rkth]) (asl,w);;
-
-(* group-0 counter-block const->shl bridges (counters 2,3,4,5).  Defined here (before close_goal9/close_goal9_i0 and
-   collapse_q30, all of which use it): normalizes the packed-counter literal const (word 144115.../216.../288.../360...)
-   to word_shl(word_zx(word_bytereverse(word cval)))32 so CTR_BLOCK_BUILD_INSERT folds it to rev8(ctr_block nonce cval). *)
-let ctr0_bridges = [
-  prove(`(word 144115188075855872:int64) = word_shl (word_zx (word_bytereverse (word 2:int32)):int64) 32`, CONV_TAC WORD_BLAST);
-  prove(`(word 216172782113783808:int64) = word_shl (word_zx (word_bytereverse (word 3:int32)):int64) 32`, CONV_TAC WORD_BLAST);
-  prove(`(word 288230376151711744:int64) = word_shl (word_zx (word_bytereverse (word 4:int32)):int64) 32`, CONV_TAC WORD_BLAST);
-  prove(`(word 360287970189639680:int64) = word_shl (word_zx (word_bytereverse (word 5:int32)):int64) 32`, CONV_TAC WORD_BLAST)];;
-
-(* output-forall j<4(i+2): split old(j<4(i+1))+4 new blocks 4(i+1)+0..3 = 4i+4..4i+7 (+4-shifted base),
-   reconstruct via XOR_AES256_CIPHER_RECONSTRUCT.  The new stored group is 4i+4..4i+7 (X2=out_p+64(i+1)). *)
-let close_goal9 : tactic =
-  fun (asl,w) ->
-    let rkth = try snd(find (fun (_,th) -> concl th = rk15) asl) with _ -> failwith "close_goal9: no rk-hyp" in
-    (REWRITE_TAC[ARITH_RULE `j < 4 * (i+1) <=>
-                          j < 4 * i \/ j = 4*i+0 \/ j = 4*i+1 \/ j = 4*i+2 \/ j = 4*i+3`] THEN
-     ASM_REWRITE_TAC[TAUT `p \/ q ==> r <=> (p ==> r) /\ (q ==> r)`] THEN
-     REWRITE_TAC[FORALL_AND_THM; FORALL_UNWIND_THM2] THEN
-     (* out_p store addresses: goal blocks 4i+0..3 -> 64*i+0/16/32/48 (X2=out_p+64*i, store fact form) *)
-     REWRITE_TAC[ARITH_RULE `16 * (4*i+0) = 64*i`; ARITH_RULE `16 * (4*i+1) = 64*i+16`;
-        ARITH_RULE `16 * (4*i+2) = 64*i+32`; ARITH_RULE `16 * (4*i+3) = 64*i+48`] THEN
-     ASM_REWRITE_TAC[] THEN
-     REWRITE_TAC[ARITH_RULE `4*i+0 = 4*i`] THEN ASM_REWRITE_TAC[] THEN
-     REWRITE_TAC[CTR_BLOCK_BUILD_INSERT] THEN
-     REWRITE_TAC[SCALAR_RK_RECONSTRUCT] THEN
-     REWRITE_TAC[XOR_AES256_CIPHER_RECONSTRUCT] THEN
-     ASM_REWRITE_TAC[MAP; WORD_REVERSEFIELDS_REVERSEFIELDS] THEN
-     REWRITE_TAC[aes_ctr_block; GSYM ADD_ASSOC] THEN
-     CONV_TAC(DEPTH_CONV NUM_ADD_CONV) THEN ASM_REWRITE_TAC[] THEN
-     REPEAT CONJ_TAC THEN
-     REWRITE_TAC[JOIN_SUBWORD_RECOMBINE] THEN
-     REWRITE_TAC[GSYM AES14P_VIA_AES7C; GSYM AES14P_VIA_AES11C; GSYM AES14P_VIA_AES1C; GSYM AES14P_VIA_AES6C] THEN
-     REWRITE_TAC[MATCH_MP KEYSTREAM_FOLD256 rkth]) (asl,w);;
-
-(* 2026-09-13 FIX (part 6): FILL output-forall at i=0.  close_goal9's symbolic 64*i/4*i+k arith leaves 64*0/4*0+k
-   UNREDUCED at i=0 (its NUM_ADD_CONV doesn't collapse the 64*0 multiplication) -> addresses/indices don't match the
-   concrete out-store facts (out_p+0/16/32/48, inblock 0..3) -> PARTIAL residual.  This i=0 variant splits j<4
-   concretely, NUM_REDUCE_CONV collapses ALL arith to concrete, then the SAME store-fact ASM_REWRITE + reconstruct
-   chain (aes_ctr_block unfold + XOR_AES256_CIPHER_RECONSTRUCT + KEYSTREAM_FOLD256).  Validated in MCP: split+reduce
-   gives read(mem out_p+{0,16,32,48}) s297 = word_xor(aes_ctr_block nonce rk {0,1,2,3})(inblock {0,1,2,3}). *)
-let close_goal9_i0 : tactic =
-  fun (asl,w) ->
-    let rkth = try snd(find (fun (_,th) -> concl th = rk15) asl) with _ -> failwith "close_goal9_i0: no rk-hyp" in
-    (REWRITE_TAC[ARITH_RULE `j < 4 <=> j = 0 \/ j = 1 \/ j = 2 \/ j = 3`] THEN
-     REWRITE_TAC[TAUT `p \/ q ==> r <=> (p ==> r) /\ (q ==> r)`] THEN
-     REWRITE_TAC[FORALL_AND_THM; FORALL_UNWIND_THM2] THEN
-     CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
-     (* block 0's out-store is `str q1,[x2],#64` (post-indexed at x2=out_p) -> store fact reads bare `out_p`, but the
-        goal address is `word_add out_p (word 0)` (from 16*0=0).  WORD_ADD_0 normalizes word_add out_p (word 0) -> out_p
-        so the block-0 store fact matches (blocks 1,2,3 have nonzero offsets that match directly).  2026-09-13. *)
-     REWRITE_TAC[WORD_ADD_0] THEN
-     ASM_REWRITE_TAC[] THEN
-     REWRITE_TAC[CTR_BLOCK_BUILD_INSERT] THEN
-     REWRITE_TAC[SCALAR_RK_RECONSTRUCT] THEN
-     REWRITE_TAC[XOR_AES256_CIPHER_RECONSTRUCT] THEN
-     ASM_REWRITE_TAC[MAP; WORD_REVERSEFIELDS_REVERSEFIELDS] THEN
-     REWRITE_TAC[aes_ctr_block; GSYM ADD_ASSOC] THEN
-     CONV_TAC(DEPTH_CONV NUM_ADD_CONV) THEN ASM_REWRITE_TAC[] THEN
-     REPEAT CONJ_TAC THEN
-     REWRITE_TAC[JOIN_SUBWORD_RECOMBINE] THEN
-     REWRITE_TAC[GSYM AES14P_VIA_AES7C; GSYM AES14P_VIA_AES11C; GSYM AES14P_VIA_AES1C; GSYM AES14P_VIA_AES6C] THEN
-     REWRITE_TAC[MATCH_MP KEYSTREAM_FOLD256 rkth] THEN
-     (* block 0 (post-indexed store) goes through XOR_AES256_CIPHER_RECONSTRUCT which leaves its counter as the RAW
-        packed form rev8(word_join(word_or(...)(word 144115188075855872))(...)) inside aes256_cipher(rev8(..)); the
-        earlier CTR_BLOCK_BUILD_INSERT already ran so this literal-const packed counter wasn't folded.  Final pass:
-        ctr0_bridges (const->shl) + CTR_BLOCK_BUILD_INSERT (packed->rev8(ctr_block)) + WORD_REVERSEFIELDS_REVERSEFIELDS
-        (collapse the double rev8) folds block 0's counter -> ctr_block nonce 2.  Harmless no-op on blocks 1,2,3 (closed).
-        Validated in MCP 2026-09-13. *)
-     REWRITE_TAC ctr0_bridges THEN
-     REWRITE_TAC[CTR_BLOCK_BUILD_INSERT] THEN
-     REWRITE_TAC[WORD_REVERSEFIELDS_REVERSEFIELDS]) (asl,w);;
 
 (* frame. *)
 let close_goal10 : tactic =
@@ -6142,152 +4484,12 @@ let close_goal10 : tactic =
              REWRITE_TAC[ETA_AX; MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
              SUBSUMED_MAYCHANGE_TAC) g) mcths)) (asl2,w2))) (asl,w);;
 
-(* HO-match artifact fix: the collapse's CT_TO_NCB on the accumulator-block 4*i leaves a constant-function
-   inblock arg `nist_cipher_block nonce rk (\x. inblock(4*i)) (4*i)`.  Since nist_cipher_block only reads the
-   j-th block (inblock i, here i=4*i), (\x. inblock(4*i)) 4*i = inblock(4*i) = the plain inblock at 4*i.  So
-   the const-fn form EQUALS the plain form.  Prove it (BETA after unfolding the two block defs). *)
-let NCB_CONST_FN = prove
- (`nist_cipher_block nonce rk (\x:num. inblock (4*i)) (4*i) =
-   nist_cipher_block nonce rk inblock (4*i)`,
-  REWRITE_TAC[nist_cipher_block; cipher_block] THEN CONV_TAC(DEPTH_CONV BETA_CONV) THEN REFL_TAC);;
-
-(* Predicate for DISCARD_ASSUMPTIONS_TAC in close_goal7's first CONJ: DISCARD every assumption EXCEPT the
-   reconstruction ABBREV defs (cipherblock/h/sofar/w1/w2/ks).  Keeping only these small defs stops the
-   subword-convs + ASM_REWRITE from folding the huge invariant assumptions (Q29 nist_ghash tower,
-   output-forall, aes partials) which caused a 30GB BITBLAST blowup. *)
-let abbrev_names = ["cipherblock_0";"cipherblock_1";"cipherblock_2";"cipherblock_3";
-                    "h0";"h1";"h2";"h3";"sofar";"w1";"w2";"ks";"ks'";"ks''";"ks'''"];;
-let keep_only_abbrev_defs th =
-  let c = concl th in
-  let is_abbrev = is_eq c && (match lhs c with
-     | Var(nm,_) -> List.mem nm abbrev_names
-     | _ -> false) in
-  not is_abbrev;;
-
 (* ABBREV every maximal `word_pmul a b` subterm of the goal as a fresh int128 var.  After this, BITBLAST sees
    only word_join/word_subword/word_xor SHUFFLE over abstract int128s (fast, ~0.5s, 385 BDD vars) instead of
    modelling the 64x64 carryless-multiply circuit (30GB blowup).  This is the key to the 256 reduce closer. *)
-(* Abstract every FULLY-APPLIED (2-arg) word_pmul subterm as a fresh int128/int256 var, so a subsequent
-   BITBLAST proves only the surrounding word_join/word_subword/word_xor SHUFFLE (fast, tiny BDD) instead of
-   modelling the 64x64 carryless-multiply circuit (30GB blowup).  CRITICAL: match only 2-arg pmuls -- the
-   bare `word_pmul` const and partial applications must NOT be abstracted (that only renames the head). *)
-let ABBREV_PMULS : tactic =
-  fun (asl,w) ->
-    let is_full_pmul t = match strip_comb t with Const("word_pmul",_),[_;_] -> true | _ -> false in
-    let pmuls = setify (find_terms is_full_pmul w) in
-    let mk i t = ABBREV_TAC (mk_eq(mk_var(Printf.sprintf "pm_%d" i, type_of t), t)) in
-    (EVERY (List.mapi mk pmuls)) (asl,w);;
-
-(* Karatsuba-mid folding lemmas: canonicalize BOTH word_xor orders of a subword-half pair to karatsuba_mid,
-   so the machine's alternating-order mid sub-pmuls and KARATSUBA_JOIN_ALT's mid coincide as atoms. *)
-let CMID_HILO = prove
- (`!a:int128. word_xor (word_subword a (64,64)) (word_subword a (0,64)):int64 = karatsuba_mid a`,
-  REWRITE_TAC[karatsuba_mid] THEN CONV_TAC WORD_BITWISE_RULE);;
-let CMID_LOHI = prove
- (`!a:int128. word_xor (word_subword a (0,64)) (word_subword a (64,64)):int64 = karatsuba_mid a`,
-  REWRITE_TAC[karatsuba_mid] THEN CONV_TAC WORD_BITWISE_RULE);;
-let KMID_FOLD_LOHI = GSYM karatsuba_mid;;
-let KMID_FOLD_HILO = CMID_HILO;;
-
-(* word_join (HI-FIRST) projections + injectivity -- for the SPLIT route on close_goal7: reduce_g2 P = word_join g f
-   (via POLYVAL_REDUCE_G2 -> reduce_prop3 output), RHS byteswap128(ng) = word_join(subword ng 0)(subword ng 64); then
-   WJ_INJ splits into two int64 half-equalities, making the byteswap explicit as subword indices (avoids the false
-   global byteswap/ghash commute). *)
-let WJ_LO = prove
- (`!(a:int64) (b:int64). word_subword (word_join a b :int128) (0,64):int64 = b`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let WJ_HI = prove
- (`!(a:int64) (b:int64). word_subword (word_join a b :int128) (64,64):int64 = a`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let WJ_INJ = prove
- (`!(a:int64) (b:int64) (c:int64) (d:int64). (word_join a b :int128 = word_join c d) <=> (a = c /\ b = d)`,
-  REPEAT GEN_TAC THEN EQ_TAC THENL
-   [DISCH_THEN(fun th -> MP_TAC(AP_TERM `\x:int128. word_subword x (64,64):int64` th) THEN
-                         MP_TAC(AP_TERM `\x:int128. word_subword x (0,64):int64` th)) THEN
-    CONV_TAC(DEPTH_CONV BETA_CONV) THEN REWRITE_TAC[WJ_LO; WJ_HI] THEN MESON_TAC[];
-    STRIP_TAC THEN ASM_REWRITE_TAC[]]);;
-
-(* byteswap128 is the 64-bit half-swap (def: word_join(subword x 0)(subword x 64)); it is an involution.  The
-   machine's reduce reads Q29 = byteswap128(nist_ghash) and the load-path forms word_join(subword _)(subword _)
-   again, so the accumulator entering the pmul is the DOUBLE byteswap = clean nist_ghash. *)
-let INVOL_BYTESWAP128 = prove
- (`!x:int128. byteswap128 (byteswap128 x) = x`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-(* acc double-byteswap: word_subword(word_join(byteswap128 ng)(byteswap128 ng))(64,128) = ng (clean). *)
-let ACC_CLEAN = prove
- (`!ng:int128. word_subword (word_join (byteswap128 ng) (byteswap128 ng) :int256) (64,128) :int128 = ng`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-
-(* The head-ext `ext v30,v29,v29` where Q29=swpgrp i (a fresh var, NOT a byteswap128 term) yields the acc
-   word_subword(word_join x x)(64,128) = byteswap128 x.  NB byteswap128 is a DEFINED const -- must expand it before
-   WORD_BLAST (bare WORD_BLAST on this FAILS: byteswap128 opaque).  Proven once here; REWRITE with it in close_goal7. *)
-let ACC_JOIN_BYTESWAP = prove
- (`!x:int128. word_subword (word_join x x :int256) (64,128) :int128 = byteswap128 x`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-
-(* word_join linearity over word_xor (both int256- and int128-level): folds the RHS product tower's xor-of-per-
-   lane-joins into a single join-of-xors so it matches reduce_g2's single-join packing.  THE multi-lane key. *)
-let JOIN_XOR_256 = prove
- (`!(a1:int128) (b1:int128) (a2:int128) (b2:int128).
-     word_xor (word_join a1 b1 :int256) (word_join a2 b2 :int256) =
-     word_join (word_xor a1 a2) (word_xor b1 b2) :int256`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let JOIN_XOR_128 = prove
- (`!(a1:int64) (b1:int64) (a2:int64) (b2:int64).
-     word_xor (word_join a1 b1 :int128) (word_join a2 b2 :int128) =
-     word_join (word_xor a1 a2) (word_xor b1 b2) :int128`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-
-(* CORE: the WHOLE 4-lane GHASH-reduce identity in one lemma (CONJ1 karatsuba shuffle + CONJ2 batched fused).
-   reduce_g2 of the karatsuba lo/hi/mid sums of lanes (cbb3,hp0)(cbb2,hp1)(cbb1,hp2)(word_xor A cbb0, hp3)
-   [hp k = h_power gt k] = ghash_polyval_acc gt A [cbb0;cbb1;cbb2;cbb3].  Proven axiom-free (~14s).  close_goal7,
-   after cleaning the acc (ACC double-byteswap -> A) and stripping the outer byteswap, MATCHes this with A:=nist_ghash 4i. *)
-let CORE_REDUCE_GHASH = prove
- (`polyval_reduce_g2
-     (word_xor (word_pmul (word_subword (cbb3:int128) (0,64):int64) (word_subword (h_power (gt:int128) 0) (0,64):int64))
-     (word_xor (word_pmul (word_subword (cbb2:int128) (0,64):int64) (word_subword (h_power gt 1) (0,64):int64))
-     (word_xor (word_pmul (word_subword (cbb1:int128) (0,64):int64) (word_subword (h_power gt 2) (0,64):int64))
-     (word_pmul (word_subword (word_xor (A:int128) cbb0) (0,64):int64) (word_subword (h_power gt 3) (0,64):int64)))))
-     (word_xor (word_pmul (word_subword cbb3 (64,64):int64) (word_subword (h_power gt 0) (64,64):int64))
-     (word_xor (word_pmul (word_subword cbb2 (64,64):int64) (word_subword (h_power gt 1) (64,64):int64))
-     (word_xor (word_pmul (word_subword cbb1 (64,64):int64) (word_subword (h_power gt 2) (64,64):int64))
-     (word_pmul (word_subword (word_xor A cbb0) (64,64):int64) (word_subword (h_power gt 3) (64,64):int64)))))
-     (word_xor (word_pmul (karatsuba_mid cbb3) (karatsuba_mid (h_power gt 0)))
-     (word_xor (word_pmul (karatsuba_mid cbb2) (karatsuba_mid (h_power gt 1)))
-     (word_xor (word_pmul (karatsuba_mid cbb1) (karatsuba_mid (h_power gt 2)))
-     (word_pmul (karatsuba_mid (word_xor A cbb0)) (karatsuba_mid (h_power gt 3))))))
-   = ghash_polyval_acc gt A [cbb0; cbb1; cbb2; cbb3]`,
-  TRANS_TAC EQ_TRANS
-   `polyval_reduce_prop3
-      (word_xor (word_pmul (cbb3:int128) (h_power gt 0))
-      (word_xor (word_pmul (cbb2:int128) (h_power gt 1))
-      (word_xor (word_pmul (cbb1:int128) (h_power gt 2))
-      (word_pmul (word_xor (A:int128) cbb0) (h_power gt 3)))) :int256)` THEN
-  CONJ_TAC THENL
-   [REWRITE_TAC[POLYVAL_REDUCE_G2] THEN
-    GEN_REWRITE_TAC (RAND_CONV o TOP_DEPTH_CONV) [PMUL_KARATSUBA_JOIN_ALT] THEN
-    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN REWRITE_TAC[karatsuba_mid] THEN
-    REWRITE_TAC[CMID_LOHI; CMID_HILO] THEN AP_TERM_TAC THEN
-    REWRITE_TAC[JOIN_XOR_256; JOIN_XOR_128] THEN
-    ABBREV_PMULS THEN POP_ASSUM_LIST(K ALL_TAC) THEN CONV_TAC BITBLAST_RULE;
-    MP_TAC(ISPECL [`gt:int128`; `[cbb1;cbb2;cbb3]:(int128)list`; `A:int128`; `cbb0:int128`]
-                  GHASH_POLYVAL_ACC_BATCHED) THEN
-    REWRITE_TAC[LENGTH; ghash_wide] THEN CONV_TAC NUM_REDUCE_CONV THEN
-    DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
-    AP_TERM_TAC THEN CONV_TAC WORD_BITWISE_RULE]);;
 
 (* collapse_q30 + close_goal7 (Q30 GHASH tag reduce reconstruction), 256 re-index. *)
 (* NB ctr0_bridges is now defined earlier (before close_goal9), since close_goal9_i0 uses it. *)
-
-(* 2026-09-12 FIX (part 4): CT_TO_NCB256 folds word_xor(rev8(aes256_cipher(ctr_block nonce (j+2))rk))(inblock j) ->
-   rev8(nist_cipher_block .. j), but its pattern is (j+2).  FILL's close_goal7 runs at i=0 (reduces group 0), so the
-   folded blocks have LITERAL counters 2,3,4,5 (not (j+2)) and CT_TO_NCB256 won't match.  These 4 CONCRETE instances
-   (counter c, block j) close that gap; the LAND NUM_ADD_CONV reduces the (j+2) in the LHS to the literal c so the
-   rewrite matches the group-0 blocks.  Validated in MCP: all 4 fold to rev8(nist_cipher_block .. {0,1,2,3}). *)
-let ct_ncb_concrete = map (fun j ->
-    CONV_RULE(LAND_CONV(ONCE_DEPTH_CONV NUM_ADD_CONV))
-             (INST [mk_small_numeral j,`j:num`] (SPEC_ALL CT_TO_NCB256)))
-  [0;1;2;3];;
 
 let collapse_q30 : tactic =
   fun (asl,w) ->
@@ -6513,10 +4715,6 @@ let close_goal7 : tactic =
        (* CORE-LHS = ghash gt sofar [cbs]: exactly CORE_REDUCE_GHASH (A:=sofar). *)
        MATCH_ACCEPT_TAC CORE_REDUCE_GHASH]) (asl,w);;
 
-let (MUST:tactic->tactic) = fun t (asl,w) ->
-  let gs = t (asl,w) in let _,subs,_ = gs in
-  if subs = [] then gs else failwith "MUST: goal not closed";;
-
 let close_all_tac : tactic =
   fun (asl,w) ->
     let has c t = can (find_term (fun u -> try fst(dest_const(fst(strip_comb u)))=c with _->false)) t in
@@ -6556,99 +4754,8 @@ Printf.printf "MARKER: closers defined\n%!";;
    dropped after s11 and conj3,4 (the s297 invariant reads) fail.  Verified interactively: a 1-step ensures at 0xe8
    PROVES the read survives WITH the nonoverlap and leaves the exact conj3 goal unsolved WITHOUT it. *)
 Printf.printf "MARKER: building FILL leg goal\n%!";;
-let fill_goal = mk_imp
- (`([EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk; EL 8 rk; EL 9 rk;
-     EL 10 rk; EL 11 rk; EL 12 rk; EL 13 rk; EL 14 rk]:(int128)list = rk) /\
-   len_bits DIV 128 = nblocks /\ nblocks DIV 4 = loop_count /\ nblocks MOD 4 = loop_remain /\
-   3 <= loop_count /\ 16 * nblocks < 2 EXP 64 /\ aligned 16 (stackpointer:int64) /\
-   nonoverlapping (out_p:int64,16 * nblocks) (word pc:int64,3860) /\
-   nonoverlapping (out_p:int64,16 * nblocks) (in_p:int64,16 * nblocks) /\
-   nonoverlapping (out_p:int64,16 * nblocks) (htable_p:int64,192) /\
-   nonoverlapping (out_p:int64,16 * nblocks) (tag_p:int64,16) /\
-   nonoverlapping (out_p:int64,16 * nblocks) (ivec_p:int64,16) /\
-   nonoverlapping (out_p:int64,16*nblocks) (word_add stackpointer (word 160):int64,64) /\
-   nonoverlapping (tag_p:int64,16) (word pc:int64,3860) /\
-   nonoverlapping (tag_p:int64,16) (in_p:int64,16*nblocks) /\
-   nonoverlapping (tag_p:int64,16) (htable_p:int64,192) /\
-   nonoverlapping (tag_p:int64,16) (word_add stackpointer (word 160):int64,64) /\
-   nonoverlapping (ivec_p:int64,16) (word pc:int64,3860) /\
-   nonoverlapping (ivec_p:int64,16) (in_p:int64,16*nblocks) /\
-   nonoverlapping (ivec_p:int64,16) (htable_p:int64,192) /\
-   nonoverlapping (ivec_p:int64,16) (word_add stackpointer (word 160):int64,64) /\
-   nonoverlapping (tag_p:int64,16) (ivec_p:int64,16) /\
-   nonoverlapping (word_add stackpointer (word 160):int64,64) (word pc:int64,3860) /\
-   nonoverlapping (word_add stackpointer (word 160):int64,64) (in_p:int64,16*nblocks) /\
-   nonoverlapping (word_add stackpointer (word 160):int64,64) (htable_p:int64,192) /\
-   nonoverlapping (word_add stackpointer (word 160):int64,64) (out_p:int64,16*nblocks)`,
-  list_mk_icomb "ensures" [`arm`;
-    mk_abs(`s:armstate`, list_mk_conj
-      [`aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp_mc`;
-       `read PC s = word (pc + 0xbc)`;
-       `read X0 s = in_p`; `read X2 s = out_p`; `read X3 s = tag_p`; `read X4 s = ivec_p`;
-       `read X5 s = key_p`; `read X6 s = htable_p`; `read SP s = stackpointer`;
-       `read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0`;
-       `read (memory :> bytes128 ivec_p) s = word_reversefields 8 (ctr_block nonce 2)`;
-       `read Q18 s = word_reversefields 8 (EL 0 rk)`; `read Q19 s = word_reversefields 8 (EL 1 rk)`;
-       `read Q20 s = word_reversefields 8 (EL 2 rk)`; `read Q21 s = word_reversefields 8 (EL 3 rk)`;
-       `read Q22 s = word_reversefields 8 (EL 4 rk)`; `read Q23 s = word_reversefields 8 (EL 5 rk)`;
-       `read Q24 s = word_reversefields 8 (EL 6 rk)`; `read Q25 s = word_reversefields 8 (EL 7 rk)`;
-       `read Q26 s = word_reversefields 8 (EL 8 rk)`; `read Q27 s = word_reversefields 8 (EL 9 rk)`;
-       `read Q28 s = word_reversefields 8 (EL 10 rk)`; `read Q15 s = word_reversefields 8 (EL 11 rk)`;
-       `read Q16 s = word_reversefields 8 (EL 12 rk)`; `read Q17 s = word_reversefields 8 (EL 13 rk)`;
-       `read X20 s = word_subword (word_reversefields 8 (EL 14 rk):int128) (0,64):int64`;
-       `read X21 s = word_subword (word_reversefields 8 (EL 14 rk):int128) (64,64):int64`;
-       `read Q7 s = word 13979173243358019584`;
-       `read X11 s = word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64`;
-       `read X12 s = word_zx (word_zx (word_subword
-           (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64`;
-       `read X13 s = word_zx (word 2:int32):int64`; `read X15 s = word(len_bits DIV 8)`;
-       `read X1 s = word loop_count`; `read X7 s = word nblocks`; `read X16 s = word loop_remain`;
-       `read Q30 s = byteswap128 tag0`;
-       `htable_mem_4 (ghash_twist (aes256_cipher (word 0) rk)) htable_p s`;
-       `!j. j < nblocks ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s = inblock j`]) ;
-    leg_state swpS256_inv `0x560` `1` ;
-    `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-     MAYCHANGE [X19; X20; X21; X22; X23; X24; X25; X26; X27; X28; X29; X30] ,,
-     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q8; Q9; Q10; Q11; Q12; Q13; Q14; Q15; Q29; Q30; Q31] ,,
-     MAYCHANGE [memory :> bytes(out_p:int64, 16 * nblocks)] ,,
-     MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`]);;
 Printf.printf "MARKER: fill_goal built\n%!";;
 
-(* FILL input-split at i=0 form (blocks 0..7 = current group 0-3 + prefetch 4-7). *)
-let FILL_INPUT_SPLIT_TAC =
-  SUBGOAL_THEN
-   `read (memory :> bytes128 (word_add in_p (word (16 * 0)))) s0 = inblock 0 /\
-    read (memory :> bytes128 (word_add in_p (word (16 * 1)))) s0 = inblock 1 /\
-    read (memory :> bytes128 (word_add in_p (word (16 * 2)))) s0 = inblock 2 /\
-    read (memory :> bytes128 (word_add in_p (word (16 * 3)))) s0 = inblock 3 /\
-    read (memory :> bytes128 (word_add in_p (word (16 * 4)))) s0 = inblock 4 /\
-    read (memory :> bytes128 (word_add in_p (word (16 * 5)))) s0 = inblock 5 /\
-    read (memory :> bytes128 (word_add in_p (word (16 * 6)))) s0 = inblock 6 /\
-    read (memory :> bytes128 (word_add in_p (word (16 * 7)))) s0 = inblock 7`
-   STRIP_ASSUME_TAC THENL
-    [SUBGOAL_THEN `7 < nblocks` ASSUME_TAC THENL
-      [UNDISCH_TAC `nblocks DIV 4 = loop_count` THEN UNDISCH_TAC `3 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
-     REPEAT CONJ_TAC THEN FIRST_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ARITH_RULE `16 * 0 = 0`; ARITH_RULE `16 * 1 = 16`; ARITH_RULE `16 * 2 = 32`;
-     ARITH_RULE `16 * 3 = 48`; ARITH_RULE `16 * 4 = 64`; ARITH_RULE `16 * 5 = 80`;
-     ARITH_RULE `16 * 6 = 96`; ARITH_RULE `16 * 7 = 112`; WORD_ADD_0]) THEN
-  REPEAT(FIRST_X_ASSUM(STRIP_ASSUME_TAC o CONV_RULE SPLIT_INPUT_CONV o
-     check (fun th -> let c = concl th in is_eq c && free_in `in_p:int64` (lhs c) &&
-       can (find_term (fun t -> is_const t && fst(dest_const t) = "bytes128")) (lhs c))));;
-
-(* FILL setup: enter at 0xbc, ghost the lanes, THEN init-abbrev the constant s0-read RHSs (as the body's setup_tac
-   does).  This is ESSENTIAL for stepping perf: it abstracts the big constant lanes (word_reversefields 8 (EL k rk),
-   ctr_block, etc.) to opaque init_k vars so the per-step WORD_SIMPLE_SUBWORD_CONV stays cheap.  WITHOUT it the FILL
-   stepper crawls to a halt in the GHASH region (v5 stalled ~s180).  FIX vs the body's version (which hit DISCH_TAC
-   at FILL): only abbreviate RHS terms that are NOT already bare variables (FILL's precond has read X5 s0 = key_p and
-   ghost reads whose RHS is a var; ABBREV_TAC on a bare var fails). *)
-let fill_setup_tac =
-  STRIP_TAC THEN REWRITE_TAC[fst SWP256_EXEC] THEN
-  MAP_EVERY (fun rn -> GHOST_INTRO_TAC (mk_var("ghost_"^rn,`:int64`)) (parse_term("read "^rn))) ghost_lanes256 THEN
-  ENSURES_INIT_TAC "s0" THEN
-  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV BETA_CONV)) THEN CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4] THEN
-  FILL_INPUT_SPLIT_TAC;;
   (* NO init-abstraction (2026-09-10 strategic fix): abstracting rk-lanes to init_k created two problems -- (1) tag_p/
      ivec_p/rk14 conjuncts showed opaque init_k and needed un-abbrev, (2) the aese tower keys became init_k (unknown EL
      mapping) so the body's close_aesNc (which expects word_reversefields 8 (EL k rk)) could not match.  Dropping the
@@ -6669,41 +4776,10 @@ let fill_setup_tac =
    UNRESOLVED stack reads, so their AES towers stay raw (aese(...(read[sp+OFF] sK)...)) and collapse_q30's GSYM aes14p
    can't fold them -> close_goal7 WORD_BITWISE crash.  Body leg's merges256 fire at the STORE steps (verified: (27,208)
    = stp off208 @step27 etc.); FILL must do the same for group 0.  Added (12,160);(24,192);(25,208);(26,176). *)
-(* 2026-09-12 FIX (part 3): the group-0 INPUT^rk14 stores (scalar_rk final-round: eor input-half,rk14-half then
-   stp x,y,[sp,#OFF]) also need merging, else the block-completion read (word_xor(aes14p)(read[sp+OFF] s_late))
-   leaves read[sp+OFF] s_late unresolved -> AES14P_COMPLETE/SCALAR_RK_RECONSTRUCT can't fire.  Store steps (2nd stp
-   per slot): [sp160]@60 (ldr@89->s88), [sp176]@66 (ldr@141->s140), [sp192]@30 (ldr@95->s94).  Block 3's [sp208]@114
-   was ALREADY in the list (114,208) -- which is exactly why block 3 folded fully while 0,1,2 stuck.  Add the 3
-   missing group-0 input^rk14 merges to mirror block 3's working path. *)
-let fill_merges_guess = [(12,160);(24,192);(25,208);(26,176);       (* group-0 COUNTER stores (part 1 fix) *)
-                         (30,192);(60,160);(66,176);                (* group-0 INPUT^rk14 stores (part 3 fix; 208@114 below) *)
-                         (114,208);(136,160);(179,192);(185,208);(196,176);(205,192);(258,160);(266,176)];;
-let NSTEP_FILL = 297;;
 (* HARVEST-FAST stepper (q29harvest did 296 steps fast this way; all my per-step-conv variants crawled): the killer
    is per-step WORD_SIMPLE_SUBWORD_CONV over the growing explicit GHASH tower.  Do it ONLY every 15 steps.  Per step:
    just gkeepN-discard (keeps asl bounded) + the CHEAP address-normalization (needed so merges/input-reads match).
    Merges need the normalized counter reads -> run the merge (TRY) right after the cheap address fold. *)
-(* execution-time progress print: a tactic that (when RUN) prints step k, so the single-application MAP_EVERY
-   still emits per-step progress (a bare `Printf` in the lambda would fire at BUILD time, before any stepping). *)
-let PROGRESS k : tactic = fun g -> (if k mod 10 = 0 then Printf.printf "FILL exec step %d\n%!" k); ALL_TAC g;;
-let fill_step_prefix =
-  fill_setup_tac THEN
-  (fun (asl,w) ->
-     (MAP_EVERY (fun k ->
-        gkeepF REDSETX256 SWP256_EXEC ("s"^string_of_int k) THEN
-        (* BODY-IDENTICAL per-step conv (WORD_SIMPLE_SUBWORD + NORMALIZE_RELATIVE_ADDRESS + IN_P_ADDR_FOLD): the
-           earlier every-15 subword conv was a speed hack, but it DROPPED the tag_p/ivec_p bytes128 memory reads
-           (conj3,4 FAIL: the s297 read absent from asl -- /tmp/fillconj_memreads.txt).  The body keeps them with
-           per-step conv; no-abstraction run showed per-step speed is fine.  Restore per-step to retain mem reads. *)
-        RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                 ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-        (if List.mem_assoc k fill_merges_guess then TRY(MERGE_CTR128_TAC (List.assoc k fill_merges_guess) ("s"^string_of_int k))
-         else ALL_TAC) THEN
-        PROGRESS k)
-       (1--NSTEP_FILL)) (asl,w)) THEN
-  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                           ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC
-                           IN_P_ADDR_FOLD_CONV));;
 Printf.printf "MARKER: FILL stepper defined\n%!";;
 
 (* Diagnostic: step the FILL via the SINGLE-APPLICATION fill_step_prefix (body-identical fast path).  CRITICAL PERF
@@ -6712,24 +4788,6 @@ Printf.printf "MARKER: FILL stepper defined\n%!";;
    keeps NO intermediate history (exactly what step_body_prefix does over 209 steps in ~minutes). *)
 Printf.printf "MARKER: FILL stepper ready; proving FILL leg via single-pass leaf_prove...\n%!";;
 
-(* ---- fill_close_all_256: per-conjunct closer at CONCRETE i=1 (from the v10 probe: 19 conjuncts).  The FILL
-   endpoint is swpS256_inv 1.  First UN-ABBREV the init_k vars (setup abstracted word_reversefields lanes ->
-   init_k, which block the tag/ivec/rk14 closers), then dispatch per conjunct.  Concrete i=1 => 4*1+K reduces to
-   a numeral; counters via mk_cbv, aesNc via the def + mk_cbv, Q29 via close_goal7-tail (A:=tag0). ---- *)
-let unabbrev_init : tactic =
-  fun (asl,w) ->
-    let ivars = setify(filter (fun v -> try String.length(fst(dest_var v))>=5 && String.sub (fst(dest_var v)) 0 5 = "init_" with _->false)
-                              (frees w)) in
-    (MAP_EVERY (fun v -> TRY(EXPAND_TAC (fst(dest_var v)))) ivars) (asl,w);;
-(* aesNc counter-constant bridges: the sim's ctr-block high lane is the CONSTANT `word <K>` while mk_cbv N's is
-   `word_shl(word_zx(word_bytereverse(word N)))32`.  After AP_TERM peels the aese-tower, the residual counter-eq needs
-   the constant rewritten to the shl form so ACCEPT_TAC(mk_cbv N) matches.  Constants (int64) for N=6/7/8/9 computed
-   in MCP (2026-09-10).  This was THE missing piece: without it ACCEPT_TAC fails on const-vs-shl. *)
-let ctr_bridges = [
-  prove(`(word 432345564227567616:int64) = word_shl (word_zx (word_bytereverse (word 6:int32)):int64) 32`, CONV_TAC WORD_BLAST);
-  prove(`(word 504403158265495552:int64) = word_shl (word_zx (word_bytereverse (word 7:int32)):int64) 32`, CONV_TAC WORD_BLAST);
-  prove(`(word 576460752303423488:int64) = word_shl (word_zx (word_bytereverse (word 8:int32)):int64) 32`, CONV_TAC WORD_BLAST);
-  prove(`(word 648518346341351424:int64) = word_shl (word_zx (word_bytereverse (word 9:int32)):int64) 32`, CONV_TAC WORD_BLAST)];;
 let fill_close_all_256 : tactic =
   fun (asl,w) ->
     let has c t = can (find_term (fun u -> try fst(dest_const(fst(strip_comb u)))=c with _->false)) t in
@@ -6862,7 +4920,6 @@ let fill_diag_probe : tactic =
 (* PARTA diagnostic: step FILL to 0x8a8 (cbz TAKEN, lc=2), dump the state to determine   *)
 (* the waypoint invariant index for the PARTA/PARTB split.                               *)
 (* ================================================================= *)
-let fill_pre_state = el 1 (snd(strip_comb(snd(dest_imp fill_goal))));;
 (* PARTA precond: fill_goal's precond with (3<=loop_count) dropped, (loop_count=2) added *)
 let lc2a_precond =
   list_mk_conj ((filter (fun c -> c <> `3 <= loop_count`) (conjuncts (lhand fill_goal))) @ [`loop_count = 2`]);;
@@ -6958,41 +5015,6 @@ Printf.printf "LC2_PARTA hyps: %d\n%!" (List.length (hyp LC2_PARTA));;
 
 (* ========== LEG: lc2partb (post-937 tail of DEVEL_enc256_swp_lc2partb.ml) ========== *)
 
-(* --- helpers (verbatim from 128, mc-agnostic) --- *)
-let gc2 keeplist c = try let l=lhs c in let rd,st=dest_comb l in let rr,cc=dest_comb rd in
-   if is_const cc && mem (fst(dest_const cc)) keeplist then
-     (match st with Var(nm,_) when String.length nm>=2 && nm.[0]='s' ->
-        (try Some(fst(dest_const cc), int_of_string(String.sub nm 1 (String.length nm-1))) with _->None) |_->None) else None
-  with _->None;;
-let gkeepN keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
-  (fun (asl,w) -> let cs=map(fun(_,t)->concl t)asl in
-    let mx=map(fun r->(r,itlist(fun c m->match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m)cs(-1)))keeplist in
-    DISCARD_ASSUMPTIONS_TAC(fun th->let c=concl th in
-      if (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
-      then (try let _,args = strip_comb c in string_of_term(last args) <> sname with _ -> false) else
-      if (try free_in `in_p:int64` (lhs c) with _->false) then false else
-      match gc2 keeplist c with
-      Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w));;
-let IN_P_ADDR_FOLD_CONV : conv =
-  let inner = (REWR_CONV(GSYM ADD_ASSOC) THENC RAND_CONV NUM_ADD_CONV) in
-  ONCE_DEPTH_CONV(fun t -> match t with
-    | Comb(Comb(Const("word_add",_), v), Comb(Const("word",_), _))
-        when (try fst(dest_var v) = "in_p" with _ -> false)
-      -> RAND_CONV(RAND_CONV inner) t
-    | _ -> failwith "IN_P_ADDR_FOLD_CONV");;
-
-(* 256 carried/reduce reg-set: AES partials Q3/Q4/Q8 + reduce Q1/Q2/Q11/Q13/Q14/Q29/Q30 + h-powers
-   Q5/Q6/Q17/Q31 + const Q7 + counter/input X-lanes (from harvest). *)
-let REDSETX256 = ["Q1";"Q2";"Q3";"Q4";"Q5";"Q6";"Q7";"Q8";"Q11";"Q13";"Q14";"Q16";"Q17";"Q28";"Q29";"Q30";"Q31";
-                  "X7";"X8";"X10";"X11";"X13";"X14";"X17";"X22";"X23";"X24";"X25";"X26";"X28";"X29";"X30"];;
-(* 256 loop-head scalar lanes to GHOST_INTRO (harvest showed X7/X8/X17/X22/X23/X24/X25/X26/X28/X29/X30
-   carry values; add X10/X14/X19/X27 like 128). *)
-let ghost_lanes256 = ["X7";"X8";"X17";"X22";"X23";"X24";"X25";"X26";"X28";"X29";"X30";"X10";"X14";"X19";"X27"];;
-
-(* 256 counter-store MERGE sites (body-instr, [sp,#offset]) from disasm stp-to-sp in steady body. *)
-let merges256 = [(27,208);(49,160);(92,192);(98,208);(109,176);(118,192);(171,160);(179,176)];;
-
 (* input-split: blocks 4i+0..4i+7 (current group + prefetch), like 128. *)
 let INPUT_SPLIT_TAC256 =
   SUBGOAL_THEN
@@ -7016,15 +5038,6 @@ let INPUT_SPLIT_TAC256 =
   REPEAT(FIRST_X_ASSUM(STRIP_ASSUME_TAC o CONV_RULE SPLIT_INPUT_CONV o
      check (fun th -> let c = concl th in is_eq c && free_in `in_p:int64` (lhs c) &&
        can (find_term (fun t -> is_const t && fst(dest_const t) = "bytes128")) (lhs c))));;
-
-(* leg pre/post state builder (flat beta-reduced conjunction), verbatim from 128. *)
-let leg_state inv off idx =
-  let body = rhs(concl((TOP_DEPTH_CONV BETA_CONV THENC REWRITE_CONV[ADD_CLAUSES])
-                        (list_mk_comb(inv,[idx;`s:armstate`])))) in
-  mk_abs(`s:armstate`,
-    list_mk_conj(`aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp_mc` ::
-                 mk_eq(`read PC s`,mk_comb(`word:num->int64`,mk_binop `+` `pc:num` off)) ::
-                 conjuncts body));;
 
 Printf.printf "MARKER: BODYLEG helpers defined\n%!";;
 
@@ -7115,97 +5128,6 @@ Printf.printf "MARKER: setup+step_body_tac defined\n%!";;
 (* Closers (transplant of 128 swp_S lines 1075-1371, re-indexed +4 rounds).   *)
 (* ========================================================================= *)
 
-(* closers for the AES-partial conjuncts Q3=aes11c/Q4=aes7c/Q8=aes1c + ptrs/X13.
-   Order in the invariant: [X0 ptr][X2 ptr]...[X13]...[Q3=aes11c][Q4=aes7c][Q8=aes1c].
-   Each aesNc pin at i+1 = aesNc nonce rk (4*(i+1)+K); fold via the def + counter build. *)
-let close_ptr : tactic =
-  REWRITE_TAC[ARITH_RULE `64*(i+1)=64*i+64`; LEFT_ADD_DISTRIB] THEN CONV_TAC WORD_RULE;;
-let close_x13 : tactic =
-  REWRITE_TAC[ZXZX32] THEN AP_TERM_TAC THEN REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC;;
-(* aesNc closers: Q3=aes11c(4(i+1)+6), Q4=aes7c(4(i+1)+8), Q8=aes1c(4(i+1)+7).  The stepped value is the
-   aesNc def applied to the reassembled reversed-lane counter (word(4i+10)+K, X13 post +4); fold via mk_cbv.
-   +4-shifted from the original -4-consistent version (block base 4i+4, confirmed by objdump FILL trace). *)
-let close_aes11c : tactic =
-  REWRITE_TAC[aes11c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word (4*i+6):int32 = word(4*(i+1)+2)` SUBST1_TAC THENL
-   [AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+2`);;
-let close_aes7c : tactic =
-  REWRITE_TAC[aes7c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 2) = word(4*(i+1)+4):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+4`);;
-let close_aes1c : tactic =
-  REWRITE_TAC[aes1c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 1) = word(4*(i+1)+3):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+3`);;
-
-(* [sp+160] counter -> rev8(ctr(4(i+1)+2)); [sp+176] -> rev8(ctr(4(i+1)+3)) *)
-let close_ctr160 : tactic =
-  REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word (4*i+6):int32 = word(4*(i+1)+2):int32` SUBST1_TAC THENL
-   [AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+2`);;
-let close_ctr176 : tactic =
-  REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 1) = word(4*(i+1)+3):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+3`);;
-
-(* Normalize the fresh-read addresses word(64*(i+1)+K) to the split-input canonical word(64*i+(64+K)).
-   Body reads input at X0=in_p+64*(i+1); the ldp offsets 0/8/16/24/32/40/48/56 hit blocks 4i+4..7 halves. *)
-let SLOT_ADDR_NORM = [
-  ARITH_RULE `64*(i+1) = 64*i+64`; ARITH_RULE `64*(i+1)+8 = 64*i+72`;
-  ARITH_RULE `64*(i+1)+16 = 64*i+80`; ARITH_RULE `64*(i+1)+24 = 64*i+88`;
-  ARITH_RULE `64*(i+1)+32 = 64*i+96`; ARITH_RULE `64*(i+1)+40 = 64*i+104`;
-  ARITH_RULE `64*(i+1)+48 = 64*i+112`; ARITH_RULE `64*(i+1)+56 = 64*i+120`];;
-
-(* [sp160/176/192] input^rk14 lane pins.  Body LHS = word_join(word_xor(read bytes64 (in_p+64(i+2)+8k'))(rk14hi))
-   (word_xor(read bytes64 (in_p+64(i+2)+0))(rk14lo)); RHS = word_xor(inblock(4(i+1)+4+k))(rk14).  Fold the two
-   bytes64 half-reads to inblock via the split-input assumptions (block 4i+8+k = fresh read at X0=in_p+64(i+2)),
-   then combine lanes with WORD_BITWISE.  +4-shifted (block base 4i+4). *)
-let close_lanejoin : tactic =
-  fun (asl,w) ->
-    (* the split-input bytes64 assumptions the sim already derived (read bytes64 in_p+... = word_subword(inblock..)) *)
-    let inpfacts = List.filter_map (fun (_,th) ->
-      let c = concl th in
-      if is_eq c && (try can (find_term (fun t -> match t with
-             Comb(Const("read",_),Comb(Comb(Const((":>"),_),Const("memory",_)),
-                   Comb(Const("bytes64",_),_))) -> true | _ -> false)) (lhs c) with _->false)
-         && free_in `in_p:int64` (lhs c)
-      then Some th else None) asl in
-    (REWRITE_TAC[ARITH_RULE `4*(i+1) = 4*i+4`; ARITH_RULE `4*(i+1)+1 = 4*i+5`;
-                 ARITH_RULE `4*(i+1)+2 = 4*i+6`] THEN
-     REWRITE_TAC SLOT_ADDR_NORM THEN
-     REWRITE_TAC inpfacts THEN
-     REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-     (REFL_TAC ORELSE CONV_TAC WORD_BLAST ORELSE
-      (REWRITE_TAC[JOIN_XOR_LANES] THEN (REFL_TAC ORELSE CONV_TAC WORD_BLAST)))) (asl,w);;
-(* X23/X28 subword pins: block 4(i+1)+1 = 4i+5. *)
-let close_subwordpin : tactic =
-  REWRITE_TAC[ARITH_RULE `4*(i+1)+1 = 4*i+5`] THEN CONV_TAC WORD_BLAST;;
-
-(* X24/X26 = word_subword(word_xor(inblock(4(i+1)+3))(rk14rev))(0/64,64).  4(i+1)+3 = 4i+7.
-   Body LHS = word_xor(read bytes64 (in_p+64(i+1)+{48,56}))(subword(rk14rev)(0/64,64)); the bytes64 read is a
-   half of block 4i+7.  Fold via split-input assumptions, push subword through xor (WORD_SUBWORD_XOR). *)
-let close_x2426 : tactic =
-  fun (asl,w) ->
-    let inpfacts = List.filter_map (fun (_,th) ->
-      let c = concl th in
-      if is_eq c && (try can (find_term (fun t -> match t with
-             Comb(Const("read",_),Comb(Comb(Const((":>"),_),Const("memory",_)),
-                   Comb(Const("bytes64",_),_))) -> true | _ -> false)) (lhs c) with _->false)
-         && free_in `in_p:int64` (lhs c)
-      then Some th else None) asl in
-    (REWRITE_TAC[ARITH_RULE `4*(i+1)+3 = 4*i+7`] THEN
-     REWRITE_TAC SLOT_ADDR_NORM THEN
-     REWRITE_TAC inpfacts THEN
-     REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-     (REFL_TAC ORELSE CONV_TAC WORD_BLAST)) (asl,w);;
-
-(* Q31 = aes6c nonce rk (4(i+1)+5).  Mirror of close_aes1c/aes7c but at depth 6.  Dump showed the raw body
-   counter is word_add(word(4i+6))(word 3) = 4i+9 = 4(i+1)+5 (the least-advanced/last block of the group). *)
-let close_aes6c : tactic =
-  REWRITE_TAC[aes6c] THEN REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN REWRITE_TAC[ZXNEST4;ZXZX32] THEN
-  SUBGOAL_THEN `word_add (word (4*i+6):int32) (word 3) = word(4*(i+1)+5):int32` SUBST1_TAC THENL
-   [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+5`);;
-
 (* X1 decrement: word_sub(word(loop_count-(i+1)))(word 1) = word(loop_count-((i+1)+1)). *)
 let close_goal8 : tactic =
   fun (asl,w) ->
@@ -7217,44 +5139,6 @@ let close_goal8 : tactic =
      ASM_REWRITE_TAC[] THEN ASM_SIMP_TAC[WORD_SUB; VAL_WORD_1] THEN
      REWRITE_TAC[GSYM VAL_WORD_1] THEN AP_TERM_TAC THEN
      MAP_EVERY (fun th -> MP_TAC th) bnds THEN ARITH_TAC) (asl,w);;
-
-(* rk-list hyp (15-elt for 256). *)
-let rk15 = `[EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk;
-             EL 8 rk; EL 9 rk; EL 10 rk; EL 11 rk; EL 12 rk; EL 13 rk; EL 14 rk]:(int128)list = rk`;;
-
-(* output-block keystream identities (the conj close_goal9 leaves). *)
-let close_ksfold : tactic =
-  fun (asl,w) ->
-    let rkth = try snd(find (fun (_,th) -> concl th = rk15) asl) with _ -> failwith "close_ksfold: no rk-hyp" in
-    (REPEAT CONJ_TAC THEN
-     REWRITE_TAC[JOIN_SUBWORD_RECOMBINE] THEN
-     REWRITE_TAC[GSYM AES14P_VIA_AES7C; GSYM AES14P_VIA_AES11C; GSYM AES14P_VIA_AES1C; GSYM AES14P_VIA_AES6C] THEN
-     REWRITE_TAC[MATCH_MP KEYSTREAM_FOLD256 rkth]) (asl,w);;
-
-(* output-forall j<4(i+2): split old(j<4(i+1))+4 new blocks 4(i+1)+0..3 = 4i+4..4i+7 (+4-shifted base),
-   reconstruct via XOR_AES256_CIPHER_RECONSTRUCT.  The new stored group is 4i+4..4i+7 (X2=out_p+64(i+1)). *)
-let close_goal9 : tactic =
-  fun (asl,w) ->
-    let rkth = try snd(find (fun (_,th) -> concl th = rk15) asl) with _ -> failwith "close_goal9: no rk-hyp" in
-    (REWRITE_TAC[ARITH_RULE `j < 4 * (i+1) <=>
-                          j < 4 * i \/ j = 4*i+0 \/ j = 4*i+1 \/ j = 4*i+2 \/ j = 4*i+3`] THEN
-     ASM_REWRITE_TAC[TAUT `p \/ q ==> r <=> (p ==> r) /\ (q ==> r)`] THEN
-     REWRITE_TAC[FORALL_AND_THM; FORALL_UNWIND_THM2] THEN
-     (* out_p store addresses: goal blocks 4i+0..3 -> 64*i+0/16/32/48 (X2=out_p+64*i, store fact form) *)
-     REWRITE_TAC[ARITH_RULE `16 * (4*i+0) = 64*i`; ARITH_RULE `16 * (4*i+1) = 64*i+16`;
-        ARITH_RULE `16 * (4*i+2) = 64*i+32`; ARITH_RULE `16 * (4*i+3) = 64*i+48`] THEN
-     ASM_REWRITE_TAC[] THEN
-     REWRITE_TAC[ARITH_RULE `4*i+0 = 4*i`] THEN ASM_REWRITE_TAC[] THEN
-     REWRITE_TAC[CTR_BLOCK_BUILD_INSERT] THEN
-     REWRITE_TAC[SCALAR_RK_RECONSTRUCT] THEN
-     REWRITE_TAC[XOR_AES256_CIPHER_RECONSTRUCT] THEN
-     ASM_REWRITE_TAC[MAP; WORD_REVERSEFIELDS_REVERSEFIELDS] THEN
-     REWRITE_TAC[aes_ctr_block; GSYM ADD_ASSOC] THEN
-     CONV_TAC(DEPTH_CONV NUM_ADD_CONV) THEN ASM_REWRITE_TAC[] THEN
-     REPEAT CONJ_TAC THEN
-     REWRITE_TAC[JOIN_SUBWORD_RECOMBINE] THEN
-     REWRITE_TAC[GSYM AES14P_VIA_AES7C; GSYM AES14P_VIA_AES11C; GSYM AES14P_VIA_AES1C; GSYM AES14P_VIA_AES6C] THEN
-     REWRITE_TAC[MATCH_MP KEYSTREAM_FOLD256 rkth]) (asl,w);;
 
 (* frame. *)
 let close_goal10 : tactic =
@@ -7271,139 +5155,9 @@ let close_goal10 : tactic =
              REWRITE_TAC[ETA_AX; MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
              SUBSUMED_MAYCHANGE_TAC) g) mcths)) (asl2,w2))) (asl,w);;
 
-(* HO-match artifact fix: the collapse's CT_TO_NCB on the accumulator-block 4*i leaves a constant-function
-   inblock arg `nist_cipher_block nonce rk (\x. inblock(4*i)) (4*i)`.  Since nist_cipher_block only reads the
-   j-th block (inblock i, here i=4*i), (\x. inblock(4*i)) 4*i = inblock(4*i) = the plain inblock at 4*i.  So
-   the const-fn form EQUALS the plain form.  Prove it (BETA after unfolding the two block defs). *)
-let NCB_CONST_FN = prove
- (`nist_cipher_block nonce rk (\x:num. inblock (4*i)) (4*i) =
-   nist_cipher_block nonce rk inblock (4*i)`,
-  REWRITE_TAC[nist_cipher_block; cipher_block] THEN CONV_TAC(DEPTH_CONV BETA_CONV) THEN REFL_TAC);;
-
-(* Predicate for DISCARD_ASSUMPTIONS_TAC in close_goal7's first CONJ: DISCARD every assumption EXCEPT the
-   reconstruction ABBREV defs (cipherblock/h/sofar/w1/w2/ks).  Keeping only these small defs stops the
-   subword-convs + ASM_REWRITE from folding the huge invariant assumptions (Q29 nist_ghash tower,
-   output-forall, aes partials) which caused a 30GB BITBLAST blowup. *)
-let abbrev_names = ["cipherblock_0";"cipherblock_1";"cipherblock_2";"cipherblock_3";
-                    "h0";"h1";"h2";"h3";"sofar";"w1";"w2";"ks";"ks'";"ks''";"ks'''"];;
-let keep_only_abbrev_defs th =
-  let c = concl th in
-  let is_abbrev = is_eq c && (match lhs c with
-     | Var(nm,_) -> List.mem nm abbrev_names
-     | _ -> false) in
-  not is_abbrev;;
-
 (* ABBREV every maximal `word_pmul a b` subterm of the goal as a fresh int128 var.  After this, BITBLAST sees
    only word_join/word_subword/word_xor SHUFFLE over abstract int128s (fast, ~0.5s, 385 BDD vars) instead of
    modelling the 64x64 carryless-multiply circuit (30GB blowup).  This is the key to the 256 reduce closer. *)
-(* Abstract every FULLY-APPLIED (2-arg) word_pmul subterm as a fresh int128/int256 var, so a subsequent
-   BITBLAST proves only the surrounding word_join/word_subword/word_xor SHUFFLE (fast, tiny BDD) instead of
-   modelling the 64x64 carryless-multiply circuit (30GB blowup).  CRITICAL: match only 2-arg pmuls -- the
-   bare `word_pmul` const and partial applications must NOT be abstracted (that only renames the head). *)
-let ABBREV_PMULS : tactic =
-  fun (asl,w) ->
-    let is_full_pmul t = match strip_comb t with Const("word_pmul",_),[_;_] -> true | _ -> false in
-    let pmuls = setify (find_terms is_full_pmul w) in
-    let mk i t = ABBREV_TAC (mk_eq(mk_var(Printf.sprintf "pm_%d" i, type_of t), t)) in
-    (EVERY (List.mapi mk pmuls)) (asl,w);;
-
-(* Karatsuba-mid folding lemmas: canonicalize BOTH word_xor orders of a subword-half pair to karatsuba_mid,
-   so the machine's alternating-order mid sub-pmuls and KARATSUBA_JOIN_ALT's mid coincide as atoms. *)
-let CMID_HILO = prove
- (`!a:int128. word_xor (word_subword a (64,64)) (word_subword a (0,64)):int64 = karatsuba_mid a`,
-  REWRITE_TAC[karatsuba_mid] THEN CONV_TAC WORD_BITWISE_RULE);;
-let CMID_LOHI = prove
- (`!a:int128. word_xor (word_subword a (0,64)) (word_subword a (64,64)):int64 = karatsuba_mid a`,
-  REWRITE_TAC[karatsuba_mid] THEN CONV_TAC WORD_BITWISE_RULE);;
-let KMID_FOLD_LOHI = GSYM karatsuba_mid;;
-let KMID_FOLD_HILO = CMID_HILO;;
-
-(* word_join (HI-FIRST) projections + injectivity -- for the SPLIT route on close_goal7: reduce_g2 P = word_join g f
-   (via POLYVAL_REDUCE_G2 -> reduce_prop3 output), RHS byteswap128(ng) = word_join(subword ng 0)(subword ng 64); then
-   WJ_INJ splits into two int64 half-equalities, making the byteswap explicit as subword indices (avoids the false
-   global byteswap/ghash commute). *)
-let WJ_LO = prove
- (`!(a:int64) (b:int64). word_subword (word_join a b :int128) (0,64):int64 = b`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let WJ_HI = prove
- (`!(a:int64) (b:int64). word_subword (word_join a b :int128) (64,64):int64 = a`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let WJ_INJ = prove
- (`!(a:int64) (b:int64) (c:int64) (d:int64). (word_join a b :int128 = word_join c d) <=> (a = c /\ b = d)`,
-  REPEAT GEN_TAC THEN EQ_TAC THENL
-   [DISCH_THEN(fun th -> MP_TAC(AP_TERM `\x:int128. word_subword x (64,64):int64` th) THEN
-                         MP_TAC(AP_TERM `\x:int128. word_subword x (0,64):int64` th)) THEN
-    CONV_TAC(DEPTH_CONV BETA_CONV) THEN REWRITE_TAC[WJ_LO; WJ_HI] THEN MESON_TAC[];
-    STRIP_TAC THEN ASM_REWRITE_TAC[]]);;
-
-(* byteswap128 is the 64-bit half-swap (def: word_join(subword x 0)(subword x 64)); it is an involution.  The
-   machine's reduce reads Q29 = byteswap128(nist_ghash) and the load-path forms word_join(subword _)(subword _)
-   again, so the accumulator entering the pmul is the DOUBLE byteswap = clean nist_ghash. *)
-let INVOL_BYTESWAP128 = prove
- (`!x:int128. byteswap128 (byteswap128 x) = x`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-(* acc double-byteswap: word_subword(word_join(byteswap128 ng)(byteswap128 ng))(64,128) = ng (clean). *)
-let ACC_CLEAN = prove
- (`!ng:int128. word_subword (word_join (byteswap128 ng) (byteswap128 ng) :int256) (64,128) :int128 = ng`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-
-(* The head-ext `ext v30,v29,v29` where Q29=swpgrp i (a fresh var, NOT a byteswap128 term) yields the acc
-   word_subword(word_join x x)(64,128) = byteswap128 x.  NB byteswap128 is a DEFINED const -- must expand it before
-   WORD_BLAST (bare WORD_BLAST on this FAILS: byteswap128 opaque).  Proven once here; REWRITE with it in close_goal7. *)
-let ACC_JOIN_BYTESWAP = prove
- (`!x:int128. word_subword (word_join x x :int256) (64,128) :int128 = byteswap128 x`,
-  GEN_TAC THEN REWRITE_TAC[byteswap128] THEN CONV_TAC WORD_BLAST);;
-
-(* word_join linearity over word_xor (both int256- and int128-level): folds the RHS product tower's xor-of-per-
-   lane-joins into a single join-of-xors so it matches reduce_g2's single-join packing.  THE multi-lane key. *)
-let JOIN_XOR_256 = prove
- (`!(a1:int128) (b1:int128) (a2:int128) (b2:int128).
-     word_xor (word_join a1 b1 :int256) (word_join a2 b2 :int256) =
-     word_join (word_xor a1 a2) (word_xor b1 b2) :int256`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-let JOIN_XOR_128 = prove
- (`!(a1:int64) (b1:int64) (a2:int64) (b2:int64).
-     word_xor (word_join a1 b1 :int128) (word_join a2 b2 :int128) =
-     word_join (word_xor a1 a2) (word_xor b1 b2) :int128`,
-  REPEAT GEN_TAC THEN CONV_TAC WORD_BLAST);;
-
-(* CORE: the WHOLE 4-lane GHASH-reduce identity in one lemma (CONJ1 karatsuba shuffle + CONJ2 batched fused).
-   reduce_g2 of the karatsuba lo/hi/mid sums of lanes (cbb3,hp0)(cbb2,hp1)(cbb1,hp2)(word_xor A cbb0, hp3)
-   [hp k = h_power gt k] = ghash_polyval_acc gt A [cbb0;cbb1;cbb2;cbb3].  Proven axiom-free (~14s).  close_goal7,
-   after cleaning the acc (ACC double-byteswap -> A) and stripping the outer byteswap, MATCHes this with A:=nist_ghash 4i. *)
-let CORE_REDUCE_GHASH = prove
- (`polyval_reduce_g2
-     (word_xor (word_pmul (word_subword (cbb3:int128) (0,64):int64) (word_subword (h_power (gt:int128) 0) (0,64):int64))
-     (word_xor (word_pmul (word_subword (cbb2:int128) (0,64):int64) (word_subword (h_power gt 1) (0,64):int64))
-     (word_xor (word_pmul (word_subword (cbb1:int128) (0,64):int64) (word_subword (h_power gt 2) (0,64):int64))
-     (word_pmul (word_subword (word_xor (A:int128) cbb0) (0,64):int64) (word_subword (h_power gt 3) (0,64):int64)))))
-     (word_xor (word_pmul (word_subword cbb3 (64,64):int64) (word_subword (h_power gt 0) (64,64):int64))
-     (word_xor (word_pmul (word_subword cbb2 (64,64):int64) (word_subword (h_power gt 1) (64,64):int64))
-     (word_xor (word_pmul (word_subword cbb1 (64,64):int64) (word_subword (h_power gt 2) (64,64):int64))
-     (word_pmul (word_subword (word_xor A cbb0) (64,64):int64) (word_subword (h_power gt 3) (64,64):int64)))))
-     (word_xor (word_pmul (karatsuba_mid cbb3) (karatsuba_mid (h_power gt 0)))
-     (word_xor (word_pmul (karatsuba_mid cbb2) (karatsuba_mid (h_power gt 1)))
-     (word_xor (word_pmul (karatsuba_mid cbb1) (karatsuba_mid (h_power gt 2)))
-     (word_pmul (karatsuba_mid (word_xor A cbb0)) (karatsuba_mid (h_power gt 3))))))
-   = ghash_polyval_acc gt A [cbb0; cbb1; cbb2; cbb3]`,
-  TRANS_TAC EQ_TRANS
-   `polyval_reduce_prop3
-      (word_xor (word_pmul (cbb3:int128) (h_power gt 0))
-      (word_xor (word_pmul (cbb2:int128) (h_power gt 1))
-      (word_xor (word_pmul (cbb1:int128) (h_power gt 2))
-      (word_pmul (word_xor (A:int128) cbb0) (h_power gt 3)))) :int256)` THEN
-  CONJ_TAC THENL
-   [REWRITE_TAC[POLYVAL_REDUCE_G2] THEN
-    GEN_REWRITE_TAC (RAND_CONV o TOP_DEPTH_CONV) [PMUL_KARATSUBA_JOIN_ALT] THEN
-    CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN REWRITE_TAC[karatsuba_mid] THEN
-    REWRITE_TAC[CMID_LOHI; CMID_HILO] THEN AP_TERM_TAC THEN
-    REWRITE_TAC[JOIN_XOR_256; JOIN_XOR_128] THEN
-    ABBREV_PMULS THEN POP_ASSUM_LIST(K ALL_TAC) THEN CONV_TAC BITBLAST_RULE;
-    MP_TAC(ISPECL [`gt:int128`; `[cbb1;cbb2;cbb3]:(int128)list`; `A:int128`; `cbb0:int128`]
-                  GHASH_POLYVAL_ACC_BATCHED) THEN
-    REWRITE_TAC[LENGTH; ghash_wide] THEN CONV_TAC NUM_REDUCE_CONV THEN
-    DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
-    AP_TERM_TAC THEN CONV_TAC WORD_BITWISE_RULE]);;
 
 (* collapse_q30 + close_goal7 (Q30 GHASH tag reduce reconstruction), 256 re-index. *)
 let collapse_q30 : tactic =
@@ -7549,10 +5303,6 @@ let close_goal7 : tactic =
        (* CORE-LHS = ghash gt sofar [cbs]: exactly CORE_REDUCE_GHASH (A:=sofar). *)
        MATCH_ACCEPT_TAC CORE_REDUCE_GHASH]) (asl,w);;
 
-let (MUST:tactic->tactic) = fun t (asl,w) ->
-  let gs = t (asl,w) in let _,subs,_ = gs in
-  if subs = [] then gs else failwith "MUST: goal not closed";;
-
 let close_all_tac : tactic =
   fun (asl,w) ->
     let has c t = can (find_term (fun u -> try fst(dest_const(fst(strip_comb u)))=c with _->false)) t in
@@ -7586,155 +5336,14 @@ Printf.printf "MARKER: DRAIN machinery (body-leg prefix) loaded\\n%!";;
 (* Bridge @0xdd0 (Lloop_unrolled_end) = body-only enc256 0x3fc "break" state.  *)
 (* ========================================================================= *)
 
-(* drain bridge lemmas (list-split + swpgrp->nist_ghash). *)
-let LIST_OF_SEQ_APPEND = prove
- (`!n f m. list_of_seq f (m + n) =
-           APPEND (list_of_seq f m) (list_of_seq (\i. f(m+i)) n)`,
-  GEN_TAC THEN ONCE_REWRITE_TAC[SWAP_FORALL_THM] THEN INDUCT_TAC THEN
-  ASM_REWRITE_TAC[ADD_CLAUSES; LIST_OF_SEQ; APPEND; o_THM; ETA_AX]);;
-let SWPGRP_IS_NIST_GHASH = prove
- (`!h acc i blk.
-       swpgrp (ghash_twist h) acc i blk =
-       nist_ghash h acc (list_of_seq blk (4 * i))`,
-  GEN_TAC THEN GEN_TAC THEN INDUCT_TAC THEN GEN_TAC THENL
-   [REWRITE_TAC[swpgrp; MULT_CLAUSES; LIST_OF_SEQ; nist_ghash];
-    REWRITE_TAC[ARITH_RULE `4 * SUC i = 4 * i + 4`] THEN
-    REWRITE_TAC[LIST_OF_SEQ_APPEND] THEN REWRITE_TAC[NIST_GHASH_APPEND] THEN
-    ASM_REWRITE_TAC[] THEN REWRITE_TAC[swpgrp] THEN ASM_REWRITE_TAC[] THEN
-    REWRITE_TAC[LIST_OF_SEQ_CLAUSES] THEN REWRITE_TAC[ARITH_RULE `4*i+0 = 4*i`] THEN
-    REWRITE_TAC[NIST_GHASH_IS_POLYVAL]]);;
 Printf.printf "MARKER: DRAIN bridge lemmas proven\n%!";;
 
-(* bridge state @ 0xdd0 (= body-only enc256 0x3fc break state, indexed at 4*loop_count). *)
-let drain_bridge = mk_abs(`s:armstate`, list_mk_conj
- [`aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp_mc`;
-  `read PC s = word (pc + 0xdd0)`;
-  `read X0 s = word_add in_p (word (64 * loop_count))`;
-  `read X2 s = word_add out_p (word (64 * loop_count))`;
-  `read X3 s = tag_p`; `read X4 s = ivec_p`; `read X6 s = htable_p`; `read SP s = stackpointer`;
-  `read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0`;
-  `read (memory :> bytes128 ivec_p) s = word_reversefields 8 (ctr_block nonce 2)`;
-  `read X13 s = word_zx (word (4 * loop_count + 2):int32):int64`;
-  `read X15 s = word(len_bits DIV 8)`;
-  (* NB: X1 is NOT constrained here.  The steady/drain path leaves X1=word 0 (loop decremented it) but the
-     iter_1 (loop_count=1) path leaves X1=word 1, and the tail (0xdd0+) never reads X1 (tail_inv uses X16).
-     So X1 is dead at this seam; dropping it lets BOTH the drain and iter_1 legs reach this same bridge. *)
-  `read X16 s = word loop_remain`;
-  (* round-key + h-power + counter-lane registers held live at the drain->tail seam (tail loop's AES+GHASH need
-     them; swpS256_inv carries them + the drain body preserves them).  tail_inv @ i=0 requires this exact set. *)
-  `read Q18 s = word_reversefields 8 (EL 0 rk)`; `read Q19 s = word_reversefields 8 (EL 1 rk)`;
-  `read Q20 s = word_reversefields 8 (EL 2 rk)`; `read Q21 s = word_reversefields 8 (EL 3 rk)`;
-  `read Q22 s = word_reversefields 8 (EL 4 rk)`; `read Q23 s = word_reversefields 8 (EL 5 rk)`;
-  `read Q24 s = word_reversefields 8 (EL 6 rk)`; `read Q25 s = word_reversefields 8 (EL 7 rk)`;
-  `read Q26 s = word_reversefields 8 (EL 8 rk)`; `read Q27 s = word_reversefields 8 (EL 9 rk)`;
-  `read Q28 s = word_reversefields 8 (EL 10 rk)`; `read Q15 s = word_reversefields 8 (EL 11 rk)`;
-  `read Q16 s = word_reversefields 8 (EL 12 rk)`; `read Q17 s = word_reversefields 8 (EL 13 rk)`;
-  `read X20 s = word_subword (word_reversefields 8 (EL 14 rk):int128) (0,64):int64`;
-  `read X21 s = word_subword (word_reversefields 8 (EL 14 rk):int128) (64,64):int64`;
-  `read Q7 s = word 13979173243358019584`;
-  `read X11 s = word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64`;
-  `read X12 s = word_zx (word_zx (word_subword
-       (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64`;
-  (* NB Q12/Q14 are NOT carried here: the drain leaves them as computed reduce-lane values, and the TAIL RELOADS
-     them from htable at its first two instrs (ldr q12,[x6] @0xdd0 ; ldr q14,[x6,#16] @0xdd8) -- htable_mem_4 (below)
-     supplies the values, so tail_inv's Q12/Q14 are established by the tail's own stepping, not by the bridge. *)
-  `read Q30 s = byteswap128 (nist_ghash (aes256_cipher (word 0) rk) tag0
-                  (list_of_seq (nist_cipher_block nonce rk inblock) (4 * loop_count)))`;
-  `htable_mem_4 (ghash_twist (aes256_cipher (word 0) rk)) htable_p s`;
-  `!j. j < nblocks ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s = inblock j`;
-  `!j. j < 4 * loop_count ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s =
-           word_xor (aes_ctr_block nonce rk j) (inblock j)`]);;
 Printf.printf "MARKER: drain_bridge defined, %d conjuncts\n%!" (length(conjuncts(snd(dest_abs drain_bridge))));;
 
-(* ---- DRAIN goal: swpS256_inv (loop_count-1) @0x8a4 -> drain_bridge @0xdd0.  Broad frame (MAYCHANGEs the
-   speculative next-group AES partials Q3/Q4/Q8/Q31, all working regs, out_p bytes, stack). ---- *)
-let drain_goal = mk_imp
- (`([EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk;
-     EL 8 rk; EL 9 rk; EL 10 rk; EL 11 rk; EL 12 rk; EL 13 rk; EL 14 rk]:(int128)list = rk) /\
-   len_bits DIV 128 = nblocks /\ nblocks DIV 4 = loop_count /\ nblocks MOD 4 = loop_remain /\
-   2 <= loop_count /\ 16 * nblocks < 2 EXP 64 /\ aligned 16 (stackpointer:int64) /\
-   nonoverlapping (out_p:int64,16 * nblocks) (word pc:int64,3860) /\
-   nonoverlapping (out_p:int64,16 * nblocks) (in_p:int64,16 * nblocks) /\
-   nonoverlapping (out_p:int64,16 * nblocks) (htable_p:int64,192) /\
-   nonoverlapping (out_p:int64,16 * nblocks) (tag_p:int64,16) /\
-   nonoverlapping (out_p:int64,16 * nblocks) (ivec_p:int64,16) /\
-   nonoverlapping (out_p:int64,16*nblocks) (word_add stackpointer (word 160):int64,64) /\
-   nonoverlapping (tag_p:int64,16) (word pc:int64,3860) /\
-   nonoverlapping (tag_p:int64,16) (in_p:int64,16*nblocks) /\
-   nonoverlapping (tag_p:int64,16) (htable_p:int64,192) /\
-   nonoverlapping (tag_p:int64,16) (word_add stackpointer (word 160):int64,64) /\
-   nonoverlapping (ivec_p:int64,16) (word pc:int64,3860) /\
-   nonoverlapping (ivec_p:int64,16) (in_p:int64,16*nblocks) /\
-   nonoverlapping (ivec_p:int64,16) (htable_p:int64,192) /\
-   nonoverlapping (ivec_p:int64,16) (word_add stackpointer (word 160):int64,64) /\
-   nonoverlapping (tag_p:int64,16) (ivec_p:int64,16) /\
-   nonoverlapping (word_add stackpointer (word 160):int64,64) (word pc:int64,3860) /\
-   nonoverlapping (word_add stackpointer (word 160):int64,64) (in_p:int64,16*nblocks) /\
-   nonoverlapping (word_add stackpointer (word 160):int64,64) (htable_p:int64,192)`,
-  list_mk_icomb "ensures" [`arm`;
-    leg_state swpS256_inv `0x8a4` `loop_count - 1` ;
-    drain_bridge ;
-    `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-     MAYCHANGE [X19; X20; X21; X22; X23; X24; X25; X26; X27; X28; X29; X30] ,,
-     MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q8; Q9; Q10; Q11; Q12; Q13; Q14; Q15; Q29; Q30; Q31] ,,
-     MAYCHANGE [memory :> bytes(out_p:int64, 16 * nblocks)] ,,
-     MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`]);;
 Printf.printf "MARKER: drain_goal built\n%!";;
 
-(* drain counter-store merge sites (stp[sp,#OFF] steps, entry 0x8a4=step1=cbnz). *)
-let drain_merges = [(25,208)];;  (* drain = 0x8a4..0xa8c (b dd0) -> 0xdd0; ONLY 0x8xx stp[sp] site is step 25; the
-   134..186 sites are in the loop body 0xa90.. which the b dd0 SKIPS -- not executed by the drain. *)
-let NSTEP_DRAIN = 123;;  (* 0x8a4 (cbnz, step1) .. 0xa8c (b dd0, step123); after step 123 PC=0xdd0 (bridge).  The
-   unconditional `b dd0`@0xa8c skips the loop body 0xa90..0xdcc. *)
-
-(* DRAIN setup: enter at 0x8a4 with inv(loop_count-1).  m=loop_count-1, X1->word 0, input-split the LAST group
-   (blocks 4m..4m+3), step 1 = cbnz (X1=word 0 -> not taken -> 0x8a8). Mirrors 128 reducelast_step_tac. *)
-let drain_setup_tac =
-  STRIP_TAC THEN REWRITE_TAC[fst SWP256_EXEC] THEN
-  MAP_EVERY (fun rn -> GHOST_INTRO_TAC (mk_var("ghost_"^rn,`:int64`)) (parse_term("read "^rn))) ghost_lanes256 THEN
-  ENSURES_INIT_TAC "s0" THEN
-  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV BETA_CONV)) THEN CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4] THEN
-  ABBREV_TAC `m = loop_count - 1` THEN
-  SUBGOAL_THEN `loop_count = m + 1` ASSUME_TAC THENL
-   [EXPAND_TAC "m" THEN UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
-  FIRST_X_ASSUM(fun th ->
-    if can (term_match [] `read X1 s0 = word (loop_count - (m + 1))`) (concl th)
-    then ASSUME_TAC(REWRITE_RULE[ASSUME `loop_count = m + 1`; ARITH_RULE `(m + 1) - (m + 1) = 0`] th)
-    else NO_TAC) THEN
-  (* last-group input split: blocks 4m..4m+3 (the invariant's stack-buffered inblock^rk14 already cover them,
-     but the reduce reads the raw input blocks via ldp; split them like the body). *)
-  SUBGOAL_THEN
-   `read (memory :> bytes128 (word_add in_p (word (16 * (4*m+0))))) s0 = inblock (4*m+0) /\
-    read (memory :> bytes128 (word_add in_p (word (16 * (4*m+1))))) s0 = inblock (4*m+1) /\
-    read (memory :> bytes128 (word_add in_p (word (16 * (4*m+2))))) s0 = inblock (4*m+2) /\
-    read (memory :> bytes128 (word_add in_p (word (16 * (4*m+3))))) s0 = inblock (4*m+3)`
-   STRIP_ASSUME_TAC THENL
-    [SUBGOAL_THEN `4*m+3 < nblocks` ASSUME_TAC THENL
-      [MAP_EVERY (fun t -> TRY(UNDISCH_TAC t))
-         [`nblocks DIV 4 = loop_count`; `loop_count = m + 1`; `2 <= loop_count`] THEN ARITH_TAC; ALL_TAC] THEN
-     REPEAT CONJ_TAC THEN FIRST_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[ARITH_RULE `16 * (4*m+0) = 64*m`; ARITH_RULE `16 * (4*m+1) = 64*m+16`;
-     ARITH_RULE `16 * (4*m+2) = 64*m+32`; ARITH_RULE `16 * (4*m+3) = 64*m+48`]) THEN
-  REPEAT(FIRST_X_ASSUM(STRIP_ASSUME_TAC o CONV_RULE SPLIT_INPUT_CONV o
-     check (fun th -> let c = concl th in is_eq c && free_in `in_p:int64` (lhs c) &&
-       can (find_term (fun t -> is_const t && fst(dest_const t) = "bytes128")) (lhs c))));;
 Printf.printf "MARKER: drain_setup_tac defined\n%!";;
 
-let DRAIN_PROGRESS k : tactic = fun g -> (if k mod 20 = 0 then Printf.printf "DRAIN exec step %d\n%!" k); ALL_TAC g;;
-let drain_step_prefix =
-  drain_setup_tac THEN
-  (fun (asl,w) ->
-     (MAP_EVERY (fun k ->
-        gkeepN REDSETX256 SWP256_EXEC ("s"^string_of_int k) THEN
-        RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                 ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-        (if List.mem_assoc k drain_merges then TRY(MERGE_CTR128_TAC (List.assoc k drain_merges) ("s"^string_of_int k))
-         else ALL_TAC) THEN
-        DRAIN_PROGRESS k)
-       (1--NSTEP_DRAIN)) (asl,w)) THEN
-  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                           ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV));;
 Printf.printf "MARKER: drain_step_prefix defined\n%!";;
 
 (* DRAIN Q30 closer (conj 2): word_subword(word_join <hi> <lo>)(64,128) [outer Q30 byteswap of the reduce] =
@@ -7974,8 +5583,6 @@ let swps256_while_inv = mk_gabs(`k:num`, mk_comb(swpS256_inv, `k + 1`));;
 (* SWPS_LEG1 tactic to be developed against stubs next. *)
 Printf.printf "MARKER: swps256_while_inv defined (Stage 3 WIP)\n%!";;
 
-(* ===== SWPS_LEG1 (WIP): structure validated against stubs. 0xbc -> drain_bridge@0xdd0, loop_count>=3. ===== *)
-let fill_pre_state = el 1 (snd(strip_comb(snd(dest_imp fill_goal))));;
 let swps_leg1_goal =
   mk_imp(lhand fill_goal,
     list_mk_icomb "ensures" [`arm`; fill_pre_state; drain_bridge; swps_broad_frame]);;
@@ -7993,8 +5600,6 @@ let swps_leg1_goal =
    BODYLEG256 with i<loop_count-1, and the loop_count=2/1/0 degenerate legs + SWP256_CORRECT + wrapper. *)
 Printf.printf "MARKER: swps_leg1_goal defined (SWPS_LEG1 WIP)\n%!";;
 
-(* ===== SWPS_LEG1 PROVEN (against stubs) -- full main body 0xbc -> drain_bridge@0xdd0, loop_count>=3. ===== *)
-let swps256_while_inv = mk_gabs(`k:num`, mk_comb(swpS256_inv, `k + 1`));;
 let SWPS_LEG1 = prove(swps_leg1_goal,
   REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
   ENSURES_SEQUENCE_TAC `pc + 0x560` (rhs(concl((BETA_CONV THENC REWRITE_CONV[ADD_CLAUSES]) (mk_comb(swpS256_inv,`1`))))) THEN
