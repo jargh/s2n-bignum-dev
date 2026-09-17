@@ -232,8 +232,8 @@ let AES10P_COMPLETE = prove
          AES128_CIPHER_RECONSTRUCT] THEN
   REWRITE_TAC[WORD_REVERSEFIELDS_REVERSEFIELDS; MAP] THEN ASM_REWRITE_TAC[]);;
 
-(* ---- Q30 GHASH collapse lemmas (VALIDATED interactively: fold ALL 4 syntactic keystream forms in
-   the reduce tower to nist_cipher_block, so the deint g3-body reconstruction applies).  The keystreams
+(* ---- Q30 GHASH collapse lemmas (fold ALL 4 syntactic keystream forms in
+   the reduce tower to nist_cipher_block, so the g3-body reconstruction applies).  The keystreams
    appear as: (1) word_xor(aes10p c)(word_xor inb rk10); (2) aese-rounds over aes7c c; (3) over aes8c c;
    (4) fully-expanded 10-aese over rev8(ctr_block c); (5) lane-split word_join(word_xor lanes).  Each
    folds by a one-liner below; then CT_TO_NCB turns word_xor(rev8(aes128_cipher(ctr(j+2))))(inblock j)
@@ -488,8 +488,8 @@ let closers_0_6 =
        [REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC; ALL_TAC] THEN ACCEPT_TAC (mk_cbv `4*(i+1)+5`)];;
 
 (* ---- goal [7] closer: Q30 GHASH tag.  The stepped tower (0 orphans, ghost pins for X23/X28 in asms)
-   collapses all 4 keystreams to nist_cipher_block, then the deint g3-body reduce reconstruction folds
-   the pmull-Karatsuba tower to the settled nist_ghash..(4(i+1)).  VALIDATED interactively end-to-end.
+   collapses all 4 keystreams to nist_cipher_block, then the g3-body reduce reconstruction folds
+   the pmull-Karatsuba tower to the settled nist_ghash..(4(i+1)).
    ksf is built inside (MATCH_MP KEYSTREAM_FOLD the rk-list hyp, which is in the assumptions). *)
 (* collapse-only part of the Q30 closer (steps 0-4): fold ghost pins + all 4 keystreams to
    nist_cipher_block, leaving the deint g3-body pmull-Karatsuba tower over the settled cipherblocks.
@@ -606,7 +606,7 @@ let close_goal7 : tactic =
 
 
 (* ---- goal [8]: X1 = word_sub (word (loop_count - i)) (word 1) = word(loop_count - (i+1)).  Uses the
-   loop bounds (2<=loop_count, i<loop_count-2) in the assumptions.  Validated in MCP (hyps=0). ---- *)
+   loop bounds (2<=loop_count, i<loop_count-2) in the assumptions. ---- *)
 (* X1 body goal (with inv X1 = word(loop_count-(i+1))): word_sub(word(loop_count-(i+1)))(word 1) =
    word(loop_count-((i+1)+1)) = word(loop_count-(i+2)).  Needs loop_count-(i+2)=(loop_count-(i+1))-1 and
    1<=loop_count-(i+1) (from i<loop_count-2). *)
@@ -622,7 +622,7 @@ let close_goal8 : tactic =
      MAP_EVERY (fun th -> MP_TAC th) bnds THEN ARITH_TAC) (asl,w);;
 
 (* ---- carried-lane pin preservation closers (goals 3-9 in the dump), all pure word identities +
-   the block-index shift 4*(i+1)+k = 4*i+(k+4).  Validated in MCP (hyps=0). ---- *)
+   the block-index shift 4*(i+1)+k = 4*i+(k+4). ---- *)
 (* [sp+176] counter -> rev8(ctr_block(4(i+1)+3)) : reassembled reversed-lane counter, +1 increment. *)
 let close_ctr176 : tactic =
   REWRITE_TAC[ZXNEST4;ZXZX32] THEN
@@ -640,7 +640,7 @@ let close_subwordpin : tactic =
 (* output-block keystream identities (the 3-way conjunction close_goal9 leaves): each
    word_xor(<aesNc-tower/aes10p>)(input^rk10) = word_xor(rev8(aes128_cipher(ctr(4i+k))))(inblock).
    Fold: JOIN_SUBWORD_RECOMBINE (block-4i+1 lanes) + normalize aesNc->aes10p + KEYSTREAM_FOLD.  The RHS
-   is already in aes128_cipher form (NOT nist_cipher_block) so ksf lands directly. Validated in MCP. *)
+   is already in aes128_cipher form (NOT nist_cipher_block) so ksf lands directly. *)
 let close_ksfold : tactic =
   fun (asl,w) ->
     let rkth = try snd(find (fun (_,th) -> concl th =
@@ -708,7 +708,7 @@ let close_goal10 : tactic =
         Also try the shipped idiom (MONOTONE) + folding all maychange asms as fallbacks. *)
      (* the correct cumulative `bigR s0 s177` closes via MATCH_MP pth + REWRITE[ETA;ABI] + SUBSUMED.
         REWRITE ABI is ESSENTIAL: the declared frame's MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI must be
-        expanded to the register list so SUBSUMED can check per-reg containment (VERIFIED in MCP). *)
+        expanded to the register list so SUBSUMED can check per-reg containment. *)
      (fun (asl2,w2) ->
         let mcths = List.filter_map (fun (_,th) -> if is_mc(concl th) then Some th else None) asl2 in
         (FIRST (map (fun th -> fun g ->
@@ -757,11 +757,9 @@ let BODYLEG = prove(body_goal, body_leg_tac);;
 
 (* ============================================================================
    FILL leg: 0x88 -> 0x1ec establishing swpS_inv8 0 (i=0), for the steady case 2 <= loop_count.
-   swp_S's 0x88..0x1ec is byte-identical to deint's prefix; deint's FILL_LEG_LC2 stepping (swp_deint
-   1430-1511) transfers (89 instrs, guard cbz x1@0x88 not taken since loop_count>=1, sub x1@0x88... the
-   0x1e4 sub x1,#1 + cbz@0x1e8 is at the END - but FILL stops at 0x1ec which is AFTER that cbz falls
-   through for loop_count>=2).  Endpoint invariant = swpS_inv8 0 (mid-pipeline) so closers reconstruct
-   the i=0 partials.  Uses g/e diagnostic first (dump goals) like the body-leg, then assemble prove().
+   The fill 0x88..0x1ec runs 89 instructions: the guard cbz x1@0x88 is not taken (loop_count>=1), and
+   the 0x1e4 sub x1,#1 + cbz@0x1e8 fall through for loop_count>=2, with FILL stopping at 0x1ec just
+   after.  Endpoint invariant = swpS_inv8 0 (mid-pipeline) so the closers reconstruct the i=0 partials.
    ============================================================================ *)
 let mk_fill_goal inv =
   mk_imp(`([EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk;
@@ -969,7 +967,7 @@ let FILLLEG = leaf_prove "FILLLEG" fill_goal (fill_step_tac THEN REPEAT CONJ_TAC
    BODYLEG/FILLLEG (narrow frame) are widened to this broad frame at glue time via ENSURES_FRAME_SUBSUMED.
    ============================================================================ *)
 
-(* The shared BROAD frame (deint uses this uniformly across all legs, swp_deint 1755-1760). *)
+(* The shared BROAD frame, used uniformly across all legs. *)
 let swps_broad_frame =
   `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
    MAYCHANGE [X19; X20; X21; X22; X23; X24; X25; X26; X27; X28; X29; X30] ,,
@@ -1102,7 +1100,7 @@ let reducelast_step_tac =
 
 (* REDUCELAST closer: the bridge post @0x61c.  Indexing: precond is inv(m) with m=loop_count-1, so the
    bridge (indexed at loop_count = m+1) appears as "(m+1)"-forms.  Q30 settles 4m -> 4m+4 = 4*(m+1) via
-   deint's DRAIN reconstruction (swp_deint 1872-1969, the 4-block settled-acc tag-settle).  output-forall
+   the DRAIN reconstruction (the 4-block settled-acc tag-settle).  output-forall
    splits into OLD (j<4m, from inv) + the last group (4m+0..3).  Most other conjuncts are settled regs. *)
 let reducelast_close_ghash : tactic =
   (* Q30: word_subword(word_join(drain tower))(64,128) = byteswap128(nist_ghash..(4*(m+1))).  The 4 last
@@ -1251,12 +1249,11 @@ let REDUCELAST = leaf_prove "REDUCELAST" reducelast_goal
          (reducelast_step_tac THEN REPEAT CONJ_TAC THEN reducelast_close_all);;
 
 (* ============================================================================
-   SWPS_TAIL: BRIDGE @0x61c -> final spec @0x710.  The tail region 0x4b4..0x73c is BYTE-IDENTICAL to
-   deint, so this is deint's DEINT_TAIL (swp_deint 747-1042) ported verbatim with aes_gcm_deint_mc->swpS_mc
-   and AES_GCM_DEINT_EXEC->SWPS_EXEC.  Precond = swps_bridge_post's body (the 0x61c seam); post = the two
+   SWPS_TAIL: BRIDGE @0x61c -> final spec @0x710, over the tail region 0x4b4..0x73c.
+   Precond = swps_bridge_post's body (the 0x61c seam); post = the two
    memory facts (output blocks + settled tag + ivec writeback); broad frame.
    ============================================================================ *)
-(* per-step subword normalizer that leaves (forall j) region invariants untouched (deint 729). *)
+(* per-step subword normalizer that leaves (forall j) region invariants untouched. *)
 let SUBWORD_NONFORALL =
   RULE_ASSUM_TAC(fun th ->
     if is_forall (concl th) then th
@@ -1552,8 +1549,8 @@ let SWPS_DRAIN =
     th;;
 
 (* ============================================================================
-   SWPS_LEG1: the main body 0x88 -> 0x61c (FILL + software-pipelined WHILE + DRAIN).  Mirrors deint's
-   LEG1_LC2 (swp_deint 1972-2215), but with swp_S's DISTINCT-pc physical loop realized as a SEAM-TO-SEAM
+   SWPS_LEG1: the main body 0x88 -> 0x61c (FILL + software-pipelined WHILE + DRAIN), with the
+   DISTINCT-pc physical loop realized as a SEAM-TO-SEAM
    WHILE at 0x1ec (g3 body = 0x1ec->0x4b0 [BODYLEG_BROAD] ;; 0x4b0->0x1ec [backedge cbnz taken]; g4 trivial;
    g5 = DRAIN = BODYLEG_BROAD@(loop_count-2) ;; REDUCELAST).  Precond = swp_S 0x88 preamble-end; post = bridge.
    ============================================================================ *)
@@ -1611,13 +1608,12 @@ let swps_leg1_tac =
       [(* loop_count=2: WHILE runs 0 iters; DRAIN directly.  Pre = inv 0 (from FILL) but SWPS_DRAIN wants
           inv(loop_count-2); ENSURES_PRECONDITION_TAC changes the pre to inv(loop_count-2)@0x1ec, proving
           the FILL-post => it via the loop_count=2 rewrite (2-2=0, scoped to the whole predicate - safe).
-          Then MATCH_MP_TAC SWPS_DRAIN.  Mirrors deint LEG1_LC2 lc=2 (swp_deint 1984-2001). *)
+          Then MATCH_MP_TAC SWPS_DRAIN. *)
        LOG "lc2" THEN
        (fun (asl,w) ->
          (* dpre = aligned /\ PC=0x1ec /\ <inv(loop_count-2) body>, built with the SAME single-BETA_CONV
             +ADD_CLAUSES normalization as deint's dpre, so the impl-goal `!s. dpre s ==> FILL-post s`
-            (FILL-post = inv 0, same normalization) closes via loop_count->2, 2-2->0, REWRITE[] (X==>X).
-            Mirrors deint LEG1_LC2 lc=2 (swp_deint 1984-2001) EXACTLY. *)
+            (FILL-post = inv 0, same normalization) closes via loop_count->2, 2-2->0, REWRITE[] (X==>X). *)
          let sv = `s:armstate` in
          let invbody = rhs(concl((BETA_CONV THENC REWRITE_CONV[ADD_CLAUSES])
                          (mk_comb(swpS_inv8,`loop_count - 2`)))) in
@@ -1693,9 +1689,7 @@ let SWPS_LEG1 = GEN_ALL(prove(swps_leg1_goal, swps_leg1_tac));;
 
 (* ============================================================================
    SWPS_LEG1_LC1: loop_count=1 degenerate leg (0x88 -> 0x61c): A_0 ; reduce_last (B_0 as drain).
-   VERBATIM port of deint's LEG1_LC1 (swp_deint 1054-1324) with aes_gcm_deint_mc->swpS_mc,
-   AES_GCM_DEINT_EXEC->SWPS_EXEC.  swp_S's 0x88..0x1e4 (A_0) and 0x4b4..0x618 (reduce_last) are
-   byte-identical to deint, so the stepping recipe transfers exactly. ============================ *)
+   The two stepped regions are 0x88..0x1e4 (A_0) and 0x4b4..0x618 (reduce_last). ============================ *)
 let SWPS_LEG1_LC1 = prove
  (`!in_p out_p len_bits tag_p ivec_p key_p htable_p tag0 nonce rk inblock pc
      stackpointer nblocks loop_count loop_remain.

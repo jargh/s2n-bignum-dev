@@ -293,9 +293,8 @@ let swpS_inv8_dec_v8 : term =
         (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3)) (64,64):int64):int128`;;
 
 (* ===== GHASH-seed / reduce closers ===== *)
-(* dec-swp BODYLEG unified closer (reconstructed clean half: lemmas + GHASH/partial tactics).
-   dec-swp BODYLEG unified closer (2026-08-24). Applies AFTER:
-   preamble + body_step_tac_plain (110s) + back-edge resolve + ENSURES_FINAL_STATE_TAC.
+(* dec-swp BODYLEG unified closer, applied after the body stepping, the back-edge
+   resolution and ENSURES_FINAL_STATE_TAC.
    Strategy: normalize arith/counters globally, then REPEAT CONJ_TAC and route each
    residual subgoal through FIRST[...] of the verified per-conjunct closers.
    Requires v5 invariant + all swp-prelude lemmas + SWP_GHASH_CORE helpers + Q5 lemmas.
@@ -422,7 +421,7 @@ let DISCHARGE_INP_READS : tactic =
         [FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC; ALL_TAC]) reads) (asl,w);;
 
 (* ===== counter-cluster closers ===== *)
-(* dec-swp counter-cluster closers (rebuilt from memory recipe after 2026-08-25 reboot).
+(* dec-swp counter-cluster closers.
    Requires: prelude (CTR_BLOCK_BUILD_INSERT, MERGE_CTR128_TAC, CTR_ZX_NORM, ZX_COUNTER_UD,
    WORD_REVERSEFIELDS_REVERSEFIELDS, WORD_SIMPLE_SUBWORD_CONV) + aes2c defined. *)
 let SLOT_LANE_FOLDS = [
@@ -466,7 +465,7 @@ let CTRREG_TAC : tactic =
   REWRITE_TAC CTR_RHS_NORMS THEN REWRITE_TAC CTR_ADD_FOLDS THEN TRY REFL_TAC THEN TRY(CONV_TAC WORD_RULE);;
 
 (* ===== out-store orthogonality closers ===== *)
-(* dec-swp OUT-STORE tactics (BREAKTHROUGH 2026-08-25): close the [0] `forall j.j<4i` preservation.
+(* dec-swp OUT-STORE tactics: close the [0] `forall j.j<4i` preservation.
    KEY: needs `16 * nblocks <= 2 EXP 64` in scope (derivable from nblocks = len_bits DIV 128, since
    val len_bits < 2^64 => nblocks < 2^57).  Requires prelude. *)
 let pth128 = prove
@@ -926,7 +925,7 @@ let CTRBASEN =
                       mk_ctrbase 6 432345564227567616],
         REWRITE_TAC[ctr_block] THEN CONV_TAC WORD_BLAST);;
 
-(* FILL per-conjunct closer.  8 shape-specific branches (all validated interactively, 24/24). *)
+(* FILL per-conjunct closer.  8 shape-specific branches. *)
 let FILL_CLOSE : tactic =
   FIRST
    [ (* GHASH (seed Q11 + partials): reassembly + ghash-nil + UNFOLD byteswap128 + bridge + WORD_BLAST *)
@@ -1461,7 +1460,7 @@ let SWP_DEC_LC2 = prove(lc2_goal,
       TRY(ASM_REWRITE_TAC[] THEN NO_TAC) THEN (UNDISCH_TAC `loop_count = 2` THEN ARITH_TAC)]]);;
 
 (* ==================== leaf tactics wiring the 7 proven legs into the main theorem ==================== *)
-(* lc0 (0xa0->0xaa0, loop_count=0): the interactive recipe (no separate lemma). *)
+(* lc0 (0xa0->0xaa0, loop_count=0): closed inline (no separate lemma). *)
 let SWP_DEC_LC0_TAC : tactic =
   ENSURES_INIT_TAC "s0" THEN
   RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN
@@ -1498,7 +1497,7 @@ let LEG_HYPS_TAC : tactic =
 let APPLY_LEG (leg:thm) : tactic =
   MATCH_MP_TAC (leaf_form leg) THEN EXISTS_TAC `key_p:int64` THEN LEG_HYPS_TAC;;
 
-(* back-edge leaf (cbnz@0x510 -> 0x294 while i+1 < loop_count-2): interactive recipe. *)
+(* back-edge leaf (cbnz@0x510 -> 0x294 while i+1 < loop_count-2): closed inline. *)
 let SWP_DEC_BACKEDGE_LEAF_TAC : tactic =
   X_GEN_TAC `i:num` THEN STRIP_TAC THEN ENSURES_INIT_TAC "s0" THEN
   RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN
