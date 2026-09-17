@@ -406,20 +406,6 @@ let SWP_GHASH_CORE_TAC : tactic =
                       if j = 0 then `4 * i` else mk_binop `(+):num->num->num` `4 * i` (mk_small_numeral j)))
     (ACCEPT_TAC SWP_GHASH_BRANCH2);;
 
-(* generic discharge of wrapped in_p reads via the kept input-forall *)
-let DISCHARGE_INP_READS : tactic =
-  fun (asl,w) ->
-    let reads = setify(find_terms (fun t->match t with
-       Comb(Comb(Const("read",_),Comb(Comb(Const("(:>)",_),Const("memory",_)),
-         Comb(Comb(Const("word_add",_),v),Comb(Const("word",_),_)))),_)
-         when (try fst(dest_var v)="in_p" with _->false) -> true | _->false) w) in
-    if reads=[] then ALL_TAC (asl,w) else
-    (MAP_EVERY (fun rd ->
-       let off = rand(rand(rator rd)) in
-       let blk = (try rand off with _ -> off) in
-       SUBGOAL_THEN (mk_eq(rd, mk_comb(`inblock:num->int128`, blk))) (fun th->REWRITE_TAC[th]) THENL
-        [FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC; ALL_TAC]) reads) (asl,w);;
-
 (* ===== counter-cluster closers ===== *)
 (* dec-swp counter-cluster closers.
    Requires: prelude (CTR_BLOCK_BUILD_INSERT, MERGE_CTR128_TAC, CTR_ZX_NORM, ZX_COUNTER_UD,
@@ -780,17 +766,6 @@ let bodyleg_goal = leg_goal (vs @ [`i:num`]) leg_hyps (inv_state `0x294` `i:num`
    axiom-free from GHASH_POLYVAL_ACC_BATCHED / NIST_GHASH_APPEND / list_of_seq.
    Load AFTER RESTORE_dec_swp_session.ml (needs those + swp_closer_cleanhalf).
    ============================================================================ *)
-
-(* list_of_seq split: last 4 elements peel off as an explicit 4-list. *)
-let LIST_OF_SEQ_ADD4 = prove
- (`!(f:num->A) n. list_of_seq f (n + 4) =
-       APPEND (list_of_seq f n) [f n; f (n+1); f (n+2); f (n+3)]`,
-  REPEAT GEN_TAC THEN
-  REWRITE_TAC[ARITH_RULE `n + 4 = SUC(n+3)`; ARITH_RULE `n + 3 = SUC(n+2)`;
-              ARITH_RULE `n + 2 = SUC(n+1)`; ARITH_RULE `n + 1 = SUC n`] THEN
-  REWRITE_TAC[list_of_seq] THEN
-  REWRITE_TAC[GSYM APPEND_ASSOC; APPEND] THEN
-  REWRITE_TAC[ADD1; GSYM ADD_ASSOC] THEN CONV_TAC NUM_REDUCE_CONV);;
 
 (* SETTLED branch2: acc presented as the settled accumulator nist_ghash..(list_of_seq..(4*k)); RHS is the
    NEXT settled accumulator nist_ghash..(list_of_seq..(4*k+4)) -- exactly the byteswap-split goal's RHS form

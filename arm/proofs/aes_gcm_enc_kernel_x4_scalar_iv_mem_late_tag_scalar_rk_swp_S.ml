@@ -61,11 +61,6 @@ let CTR_BLOCK_BUILD_V = prove
   REWRITE_TAC[ctr_block] THEN DISCH_THEN(CONJUNCTS_THEN SUBST1_TAC) THEN
   CONV_TAC WORD_BLAST);;
 
-let JOIN_SUBWORD_ID = prove
- (`word_join (word_subword (w:int128) (64,64):int64)
-             (word_subword w (0,64):int64):int128 = w`,
-  CONV_TAC WORD_BLAST);;
-
 (* Closed form: with X11/X12 written as (counter-free) subwords of the reversed
    ctr_block for the canonical counter 2, the loop-built block for counter cval
    equals the reversed ctr_block for cval.  This is what the loop body invokes. *)
@@ -375,8 +370,8 @@ let mk_body_goal inv =
      leg_state inv `0x1ec` `i:num` ;
      leg_state inv `0x4b0` `i+1` ;
      (* Frame MUST also permit the callee-saved regs the body clobbers (preamble saved/restores them):
-        X19..X30 and the FULL Q8..Q15 (ABI only permits Q8..Q15 :> tophalf).  Matches deint's loop frame
-        (swp_deint.ml 825-828).  Without these, Q9/Q12/Q15/X23/X28 etc. aren't subsumed -> frame fails. *)
+        X19..X30 and the FULL Q8..Q15 (ABI only permits Q8..Q15 :> tophalf).
+        Without these, Q9/Q12/Q15/X23/X28 etc. aren't subsumed -> frame fails. *)
      `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
       MAYCHANGE [X19; X20; X21; X22; X23; X24; X25; X26; X27; X28; X29; X30] ,,
       MAYCHANGE [Q8; Q9; Q10; Q11; Q12; Q13; Q14; Q15] ,,
@@ -400,11 +395,11 @@ let enc_anchors = [`in_p:int64`];;
    which is exactly the equation the block-4i+1 keystream collapse needs. *)
 let ghost_lanes = ["X7";"X8";"X17";"X22";"X23";"X24";"X25";"X26";"X28";"X29";"X30";"X10";"X14";"X19";"X27"];;
 
-(* input-split preamble (deint recipe), EXTENDED to blocks 4i+0..4i+7: the body loads the current
+(* input-split preamble, EXTENDED to blocks 4i+0..4i+7: the body loads the current
    group (4i+0..3, ldp [x0]/[x0,#16/32/48]) AND prefetches the next group (4i+4..7) into the carried
    lanes X23/X28/Q10/Q15/[sp+192/208] for iteration i+1.  Splitting all 8 blocks into bytes64 halves
    lets both the current ciphertext AND the inv(i+1) carried-lane pins resolve.  Bound 4i+7<nblocks
-   needs i < loop_count-2 (the deint FILL/DRAIN steady range). *)
+   needs i < loop_count-2 (the FILL/DRAIN steady range). *)
 let INPUT_SPLIT_TAC =
   SUBGOAL_THEN
    `read (memory :> bytes128 (word_add in_p (word (16 * (4*i+0))))) s0 = inblock (4*i+0) /\
@@ -428,12 +423,6 @@ let INPUT_SPLIT_TAC =
      check (fun th -> let c = concl th in is_eq c && free_in `in_p:int64` (lhs c) &&
        can (find_term (fun t -> is_const t && fst(dest_const t) = "bytes128")) (lhs c))));;
 
-(* ============================================================================
-   DIAGNOSTIC HARNESS (stage 1): run setup + input-split + stepping + FINAL_STATE, close [0]-[6],
-   then DUMP goal [7] (the Q30 GHASH tag) + its orphan count to a file so we can (a) confirm the
-   stepping yields a clean tower (no read Qk sN orphans) and (b) develop the deint g3-body closer
-   against the concrete term.  Uses g/e (not prove) so it never hard-fails.  Native, no timeout.
-   ============================================================================ *)
 (* ABBREV-based setup (John's key fix): GHOST_INTRO the loop-head scalar lanes, then ENSURES_INIT +
    input-split, then ABBREV every remaining `read C s0` to init_ logic vars.  This makes every in-body
    value a stable init_-expression that DISCARD_OLDSTATE never drops, keeping the reduce towers BOUNDED
@@ -492,7 +481,7 @@ let closers_0_6 =
    the pmull-Karatsuba tower to the settled nist_ghash..(4(i+1)).
    ksf is built inside (MATCH_MP KEYSTREAM_FOLD the rk-list hyp, which is in the assumptions). *)
 (* collapse-only part of the Q30 closer (steps 0-4): fold ghost pins + all 4 keystreams to
-   nist_cipher_block, leaving the deint g3-body pmull-Karatsuba tower over the settled cipherblocks.
+   nist_cipher_block, leaving the g3-body pmull-Karatsuba tower over the settled cipherblocks.
    Split out so the harness can dump the post-collapse form (isolating collapse from reconstruction). *)
 let collapse_q30 : tactic =
   fun (asl,w) ->
@@ -513,7 +502,7 @@ let collapse_q30 : tactic =
     (* (1) fold X23/X28 ghost pins + recombine word_join(hi)(lo) -> word_xor(inblock(4i+1))(rk10). *)
     REWRITE_TAC(JOIN_SUBWORD_RECOMBINE :: ghostpins) THEN
     (* (2) NO byteswap-split here - leave the goal byteswap128-wrapped so the reconstruction (which does
-       deint's single byteswap-split + MATCH_MP verbatim) applies.  The keystream folds below reach the
+       a single byteswap-split + MATCH_MP) applies.  The keystream folds below reach the
        keystreams DEEP in the LHS tower regardless of the outer word_subword/byteswap wrapper. *)
     (* (3) normalize all 4 keystream syntactic forms -> aes10p, lane-join, ksf, counter-arith, CT_TO_NCB.
        NB the RHS tag is now 4*i+4; the `4*i+4=(4*i+2)+2` rewrite would hit it, but step (4)'s inverse
@@ -534,9 +523,9 @@ let close_goal7 : tactic =
   fun (asl,w) ->
     (
     collapse_q30 THEN
-    (* (5) deint g3-body reduce reconstruction (swp_deint.ml 2127-2209, VERBATIM, 4*i variant).  The goal
+    (* (5) g3-body reduce reconstruction (4*i variant).  The goal
        here is byteswap128-wrapped `word_subword(word_join(tower))(64,128) = byteswap128(nist_ghash..4*i+4)`
-       (collapse did NOT strip byteswap).  deint's normalize + SINGLE byteswap-split + MATCH_MP + ABBREV
+       (collapse did NOT strip byteswap).  normalize + SINGLE byteswap-split + MATCH_MP + ABBREV
        + RECONSTRUCT applies directly. *)
     REWRITE_TAC[WORD_SUBWORD_REVERSEFIELDS] THEN
     SIMP_TAC[WORD_JOIN_COMBINE_LEMMA; ARITH] THEN
@@ -654,7 +643,7 @@ let close_ksfold : tactic =
 
 (* ---- goal [9]: output-forall j < 4*(i+1).  Split into the OLD stores (j<4*i, from the invariant) and
    the 4 NEW stores (blocks 4*i+0..3, this group), each reconstructing to word_xor(aes_ctr_block j)(inblock j).
-   Re-indexed to swp_S's 4*i-based invariant (NOT deint's 4*(i+1)).  Candidate - refine post-dump. ---- *)
+   Re-indexed to swp_S's 4*i-based invariant. ---- *)
 let close_goal9 : tactic =
   fun (asl,w) ->
     let rkth = try snd(find (fun (_,th) -> concl th =
@@ -855,7 +844,7 @@ let fill_valfacts_tac =
   SUBGOAL_THEN `~(loop_count - 1 = 0)` ASSUME_TAC THENL
    [UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC];;
 
-(* FILL merge sites (from deint's first-89-instr prefix, byte-identical): (11,192)(12,176)(19,160)
+(* FILL merge sites (first-89-instruction prefix): (11,192)(12,176)(19,160)
    (24,208)(31,192)(37,208).  Verify by disasm if the diagnostic shows mis-merges. *)
 let fill_merges = [(11,192);(12,176);(19,160);(24,208);(31,192);(37,208)];;
 
@@ -883,7 +872,7 @@ let fill_step_tac =
 
 (* ---- FILL closers.  At i=0 the counters are built from CONSTANTS (word 144115188075855872 =
    shl(bytereverse 2)32, etc.) not X13-derived, so the counter/aesNc closers rewrite those constants to
-   the bytereverse form then use mk_cbv.  (deint FILL_LEG_LC2 lines 1527-1530.) ---- *)
+   the bytereverse form then use mk_cbv. ---- *)
 let fill_ctr_consts = [
   prove(`word 144115188075855872:int64 = word_shl (word_zx (word_bytereverse (word 2:int32)):int64) 32`, CONV_TAC WORD_BLAST);
   prove(`word 216172782113783808:int64 = word_shl (word_zx (word_bytereverse (word 3:int32)):int64) 32`, CONV_TAC WORD_BLAST);
@@ -960,8 +949,8 @@ let FILLLEG = leaf_prove "FILLLEG" fill_goal (fill_step_tac THEN REPEAT CONJ_TAC
      REDUCELAST : swpS_inv8(loop_count-1) @0x4b0 -> BRIDGE @0x61c
                   (cbnz@0x4b0 NOT taken since X1=word 0; reduce_last drains the in-flight GHASH,
                    settles Q30 4*(loop_count-1)->4*loop_count, stores the last group's 4 outputs.)
-     SWPS_TAIL  : BRIDGE @0x61c -> post @0x710  (byte-identical to deint's DEINT_TAIL, ported to swpS_mc).
-   The BRIDGE state is deint's LEG1 0x61c post (settled seam): X0/X2 = ptr+64*loop_count, X1=word 0,
+     SWPS_TAIL  : BRIDGE @0x61c -> post @0x710.
+   The BRIDGE state is the 0x61c post (settled seam): X0/X2 = ptr+64*loop_count, X1=word 0,
    X13=word(4*loop_count+2), Q30=byteswap128(nist_ghash..(4*loop_count)), all j<4*loop_count stored.
    Frame = the BROAD frame (adds tag_p, ivec_p) - the tail writes them; the WHILE needs ONE shared frame.
    BODYLEG/FILLLEG (narrow frame) are widened to this broad frame at glue time via ENSURES_FRAME_SUBSUMED.
@@ -976,7 +965,7 @@ let swps_broad_frame =
               memory :> bytes(tag_p:int64, 16); memory :> bytes(ivec_p:int64, 16);
               memory :> bytes(word_add stackpointer (word 160):int64, 64)]`;;
 
-(* The full nonoverlapping precondition shared by all legs (deint leg1_lc2_stmt antecedent, with key_p
+(* The full nonoverlapping precondition shared by all legs (with key_p
    dropped - swp_S has no key_p in the loop; matches mk_body_goal's set + adds the key-free ones). *)
 let swps_leg_precond =
   `([EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk;
@@ -1006,7 +995,7 @@ let swps_leg_precond =
      nonoverlapping (tag_p:int64,16) (word_add stackpointer (word 160):int64,64) /\
      nonoverlapping (ivec_p:int64,16) (word_add stackpointer (word 160):int64,64)`;;
 
-(* the BRIDGE state @0x61c (settled seam) = deint LEG1 post.  Everything indexed at 4*loop_count. *)
+(* the BRIDGE state @0x61c (settled seam).  Everything indexed at 4*loop_count. *)
 let swps_bridge_post =
   mk_abs(`s:armstate`, list_mk_conj
     [`aligned_bytes_loaded s (word pc) swpS_mc`; `read PC s = word (pc + 0x61c)`;
@@ -1104,7 +1093,7 @@ let reducelast_step_tac =
    splits into OLD (j<4m, from inv) + the last group (4m+0..3).  Most other conjuncts are settled regs. *)
 let reducelast_close_ghash : tactic =
   (* Q30: word_subword(word_join(drain tower))(64,128) = byteswap128(nist_ghash..(4*(m+1))).  The 4 last
-     cipherblocks fold from the pipeline pins (aes7c/8c/10p + fresh v0), then deint's reduce reconstruction
+     cipherblocks fold from the pipeline pins (aes7c/8c/10p + fresh v0), then the reduce reconstruction
      (settled sofar@4m + 4 blocks -> 4m+4).  Reuse close_goal7's body but with m-indexing (sofar@4m). *)
   fun (asl,w) ->
     let rkth = try snd(find (fun (_,th) -> concl th =
@@ -1131,7 +1120,7 @@ let reducelast_close_ghash : tactic =
     REWRITE_TAC[ARITH_RULE `(4*m+0)+2 = 4*m+2`; ARITH_RULE `(4*m+1)+2 = 4*m+3`;
                 ARITH_RULE `(4*m+2)+2 = 4*m+4`; ARITH_RULE `(4*m+3)+2 = 4*m+5`;
                 ARITH_RULE `4*m+0 = 4*m`] THEN
-    (* deint reduce reconstruction (4*m variant). *)
+    (* reduce reconstruction (4*m variant). *)
     REWRITE_TAC[WORD_SUBWORD_REVERSEFIELDS] THEN
     SIMP_TAC[WORD_JOIN_COMBINE_LEMMA; ARITH] THEN
     REWRITE_TAC[WORD_SUBWORD_XOR] THEN
@@ -1199,7 +1188,7 @@ let reducelast_close_ghash : tactic =
     ) (asl,w);;
 
 (* output-forall for the bridge: j < 4*(m+1) splits into OLD (j<4m, from inv's output-forall) + the last
-   group (4m+0..3).  Mirrors close_goal9 but at m/(m+1) indexing (deint DRAIN closer 1848-1865). *)
+   group (4m+0..3).  Mirrors close_goal9 but at m/(m+1) indexing. *)
 let reducelast_close_outputs : tactic =
   fun (asl,w) ->
     let rkth = try snd(find (fun (_,th) -> concl th =
@@ -1259,7 +1248,7 @@ let SUBWORD_NONFORALL =
     if is_forall (concl th) then th
     else CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) th);;
 
-(* the tail needs NO `2 <= loop_count` (it runs for any loop_count incl 0/1 - deint's DEINT_TAIL precond
+(* the tail needs NO `2 <= loop_count` (it runs for any loop_count incl 0/1, so its precondition
    omits it).  FROM88's leg-2 reaches SWPS_TAIL for ALL loop_count, so SWPS_TAIL must not require it, else
    the 2<=loop_count precond subgoal can't be discharged from FROM88's (case-split) context. *)
 let swps_tail_precond =
@@ -1513,7 +1502,7 @@ let FILLLEG_BROAD = widen_leg FILLLEG;;
 (* ============================================================================
    SWPS_DRAIN: the g5/lc2 DRAIN = inv(loop_count-2) @0x1ec -> bridge @0x61c, broad frame.  Composes
    BODYLEG_BROAD@(loop_count-2) (0x1ec->0x4b0, lands inv(loop_count-1)) ;; REDUCELAST (0x4b0->0x61c) via
-   ENSURES_SEQUENCE@0x4b0.  A SINGLE combined leg (deint's DRAIN_LEG_LC2_GEN analog) so both the WHILE g5
+   ENSURES_SEQUENCE@0x4b0.  A SINGLE combined leg so both the WHILE g5
    AND the loop_count=2 degenerate case dispatch to it uniformly (index loop_count-2), with no fragile
    goal-index rewrites.  BODYLEG_BROAD's post-index (loop_count-2)+1 is rewritten to loop_count-1 IN THE
    THEOREM (from 2<=loop_count arith), never in the goal. ============================================ *)
@@ -1612,7 +1601,7 @@ let swps_leg1_tac =
        LOG "lc2" THEN
        (fun (asl,w) ->
          (* dpre = aligned /\ PC=0x1ec /\ <inv(loop_count-2) body>, built with the SAME single-BETA_CONV
-            +ADD_CLAUSES normalization as deint's dpre, so the impl-goal `!s. dpre s ==> FILL-post s`
+            +ADD_CLAUSES normalization, so the impl-goal `!s. dpre s ==> FILL-post s`
             (FILL-post = inv 0, same normalization) closes via loop_count->2, 2-2->0, REWRITE[] (X==>X). *)
          let sv = `s:armstate` in
          let invbody = rhs(concl((BETA_CONV THENC REWRITE_CONV[ADD_CLAUSES])
@@ -1962,7 +1951,7 @@ let SWPS_LEG1_LC1 = prove
 
 
 (* ============================================================================
-   SWPS_FROM88: main body 0x88 -> 0x710.  Port of deint DEINT_FROM88 (leg1 case-split
+   SWPS_FROM88: main body 0x88 -> 0x710 (leg1 case-split
    loop_count 0/1/>=2 -> SWPS_LEG1_LC1/SWPS_LEG1 ; leg2 SWPS_TAIL). ============================ *)
 let swps_from88_stmt =
   `!in_p out_p len_bits tag_p ivec_p key_p htable_p tag0 nonce rk inblock pc
@@ -2127,7 +2116,7 @@ let SWPS_FROM88 = prove(swps_from88_stmt, swps_from88_tac);;
 
 (* ============================================================================
    AES_GCM_..._SWP_S_CORRECT: the full-function correctness 0x2c -> 0x710 (preamble + SWPS_FROM88).
-   Port of deint CORRECT wrapper. ============================ *)
+   ============================ *)
 let AES_GCM_ENC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_SWP_S_CORRECT = prove
  (`!in_p out_p len_bits tag_p ivec_p key_p htable_p tag0 nonce rk inblock pc
      stackpointer.
