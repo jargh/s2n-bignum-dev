@@ -694,20 +694,30 @@ let CLOSE_V8 : tactic =
     else if is_eq w && hd(lhs w)="word_join" then MUST (FIRST[SWP_BYTESWAP_REASSEMBLE_TAC; GHASH_PARTIAL_CLOSE]) (asl,w)
     else MUST (FIRST[GHASH_PARTIAL_CLOSE; AES2C_OUT_TAC; SWP_Q11_TAC; CTRREG_TAC; ASM_REWRITE_TAC[] THEN TRY REFL_TAC]) (asl,w);;
 
-(* ---- goal ---- *)
+(* ---- Leg goals ---- *)
+(* Every leg is stated with the main theorem's frame (swp_frame) and with state predicates of the form
+   \s. aligned_bytes_loaded s (word pc) mc /\ read PC s = word (pc + off) /\ <body>, which is how
+   ENSURES_SEQUENCE_TAC and ENSURES_WHILE_UP_TAC present the leaf goals of the main theorem; the entry
+   (0xa0) and exit (0xaa0) mid-conditions are shared with the main theorem below.  A leg then discharges
+   its leaf goal by MATCH_MP_TAC (see APPLY_LEG). *)
 let ap inv i s = rhs(concl(REDEPTH_CONV BETA_CONV (list_mk_comb(inv,[i;s]))));;
-let sv = `s:armstate` and iv = `i:num` and ip1 = `i+1`;;
-let abl = `aligned_bytes_loaded s (word pc) aes_gcm_dec_kernel_x4_scalar_iv_mem_late_tag_keep_htable_swp_mc`;;
-let pcpre = `read PC s = word (pc + 0x294)` and pcpost = `read PC s = word (pc + 0x510)`;;
-let bodyleg_pre  = mk_abs(sv, mk_conj(abl, mk_conj(pcpre,  ap swpS_inv8_dec_v8 iv  sv)));;
-let bodyleg_post = mk_abs(sv, mk_conj(abl, mk_conj(pcpost, ap swpS_inv8_dec_v8 ip1 sv)));;
-let bodyleg_frame = `(MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-       MAYCHANGE [X19; X20; X21; X22; X23; X24; X25; X26; X27; X28; X29; X30] ,,
-       MAYCHANGE [Q8; Q9; Q10; Q11; Q12; Q13; Q14; Q15] ,,
-       MAYCHANGE [memory :> bytes(out_p, 16 * nblocks);
-                  memory :> bytes(word_add stackpointer (word 160), 64)])`;;
-let bodyleg_ens = list_mk_comb(`ensures arm`,[bodyleg_pre;bodyleg_post;bodyleg_frame]);;
-let bodyleg_hyps = `aligned 16 (stackpointer:int64) /\
+let leg_state off body =
+  mk_abs(`s:armstate`,
+    list_mk_conj(`aligned_bytes_loaded s (word pc) aes_gcm_dec_kernel_x4_scalar_iv_mem_late_tag_keep_htable_swp_mc` ::
+                 mk_eq(`read PC s`, mk_comb(`word:num->int64`, mk_binop `+` `pc:num` off)) ::
+                 conjuncts body));;
+let inv_state off idx = leg_state off (ap swpS_inv8_dec_v8 idx `s:armstate`);;
+let swp_frame = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+    MAYCHANGE [X19; X20; X21; X22; X23; X24; X25; X26; X27; X28; X29; X30] ,,
+    MAYCHANGE [Q8; Q9; Q10; Q11; Q12; Q13; Q14; Q15] ,,
+    MAYCHANGE [memory :> bytes(out_p, 16 * nblocks); memory :> bytes(tag_p, 16);
+               memory :> bytes(ivec_p, 16); memory :> bytes(word_add stackpointer (word 160), 64)]`;;
+let leg_goal vars hyps pre post =
+  list_mk_forall(vars, mk_imp(hyps, list_mk_comb(`ensures arm`, [pre; post; swp_frame])));;
+
+(* The hypotheses of the steady body leg; the other legs replace the loop-index bound by their own
+   constraint on loop_count.  key_p occurs only here, so a leg applied by MATCH_MP_TAC leaves ?key_p. *)
+let leg_hyps = `aligned 16 (stackpointer:int64) /\
     nblocks DIV 4 = loop_count /\ nblocks MOD 4 = loop_remain /\
     16 * nblocks <= 2 EXP 64 /\
     ([EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk; EL 8 rk; EL 9 rk; EL 10 rk]:(int128)list = rk) /\
@@ -727,8 +737,67 @@ let bodyleg_hyps = `aligned 16 (stackpointer:int64) /\
     nonoverlapping ((htable_p:int64), 192) (word_add (stackpointer:int64) (word 160), 64)`;;
 let vs = [`in_p:int64`;`out_p:int64`;`len_bits:int64`;`tag_p:int64`;`ivec_p:int64`;`key_p:int64`;`htable_p:int64`;
           `tag0:int128`;`nonce:int128`;`rk:(int128)list`;`inblock:num->int128`;`pc:num`;
-          `stackpointer:int64`;`nblocks:num`;`loop_count:num`;`loop_remain:num`;`i:num`];;
-let bodyleg_goal_v8 = list_mk_forall(vs, mk_imp(bodyleg_hyps, bodyleg_ens));;
+          `stackpointer:int64`;`nblocks:num`;`loop_count:num`;`loop_remain:num`];;
+let base_hyps = filter (fun t -> not (t = `i < loop_count - 2`) && not (t = `3 <= loop_count`)) (conjuncts leg_hyps);;
+
+(* The 0xa0 entry state (after the register setup) and the 0xaa0 exit state (after the pipelined
+   loop, before the single-block tail loop), as used by the legs and by the main theorem. *)
+let entry_body = `read X0 s = in_p /\ read X2 s = out_p /\ read X3 s = tag_p /\ read X4 s = ivec_p /\
+    read X6 s = htable_p /\ read SP s = stackpointer /\
+    read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0 /\
+    read (memory :> bytes128 ivec_p) s = word_reversefields 8 (ctr_block nonce 2) /\
+    read Q18 s = word_reversefields 8 (EL 0 rk) /\ read Q19 s = word_reversefields 8 (EL 1 rk) /\
+    read Q20 s = word_reversefields 8 (EL 2 rk) /\ read Q21 s = word_reversefields 8 (EL 3 rk) /\
+    read Q22 s = word_reversefields 8 (EL 4 rk) /\ read Q23 s = word_reversefields 8 (EL 5 rk) /\
+    read Q24 s = word_reversefields 8 (EL 6 rk) /\ read Q25 s = word_reversefields 8 (EL 7 rk) /\
+    read Q26 s = word_reversefields 8 (EL 8 rk) /\ read Q27 s = word_reversefields 8 (EL 9 rk) /\
+    read Q28 s = word_reversefields 8 (EL 10 rk) /\
+    read Q12 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
+    read Q13 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
+    read Q14 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
+    read Q15 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2) /\
+    read Q16 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3) /\
+    read Q17 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2)) /\
+    read Q7 s = word 13979173243358019584 /\
+    read X11 s = word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
+    read X12 s = word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
+    read X13 s = word_zx (word 2:int32):int64 /\
+    read X15 s = word(len_bits DIV 8) /\ read X1 s = word loop_count /\
+    read X7 s = word nblocks /\ read X16 s = word loop_remain /\
+    read Q30 s = byteswap128 tag0 /\
+    htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
+    (!j. j < nblocks ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s = inblock j)`;;
+let entry_state = leg_state `0xa0` entry_body;;
+
+let exit_body = `read X0 s = word_add in_p (word (64 * loop_count)) /\
+   read X2 s = word_add out_p (word (64 * loop_count)) /\
+   read X3 s = tag_p /\ read X4 s = ivec_p /\ read X6 s = htable_p /\ read SP s = stackpointer /\
+   read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0 /\
+   read (memory :> bytes128 ivec_p) s = word_reversefields 8 (ctr_block nonce 2) /\
+   read Q18 s = word_reversefields 8 (EL 0 rk) /\ read Q19 s = word_reversefields 8 (EL 1 rk) /\
+   read Q20 s = word_reversefields 8 (EL 2 rk) /\ read Q21 s = word_reversefields 8 (EL 3 rk) /\
+   read Q22 s = word_reversefields 8 (EL 4 rk) /\ read Q23 s = word_reversefields 8 (EL 5 rk) /\
+   read Q24 s = word_reversefields 8 (EL 6 rk) /\ read Q25 s = word_reversefields 8 (EL 7 rk) /\
+   read Q26 s = word_reversefields 8 (EL 8 rk) /\ read Q27 s = word_reversefields 8 (EL 9 rk) /\
+   read Q28 s = word_reversefields 8 (EL 10 rk) /\
+   read Q12 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
+   read Q13 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
+   read Q14 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
+   read Q15 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2) /\
+   read Q16 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3) /\
+   read Q17 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2)) /\
+   read Q7 s = word 13979173243358019584 /\
+   read X11 s = word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
+   read X12 s = word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
+   read X13 s = word_zx (word (4 * loop_count + 2):int32):int64 /\
+   read X15 s = word(len_bits DIV 8) /\ read X16 s = word loop_remain /\
+   read Q30 s = byteswap128 (nist_ghash (aes128_cipher (word 0) rk) tag0 (list_of_seq (nist_input_block inblock) (4 * loop_count))) /\
+   htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
+   (!j. j < nblocks ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s = inblock j) /\
+   (!j. j < 4 * loop_count ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s = word_xor (aes_ctr_block nonce rk j) (inblock j))`;;
+let exit_state = leg_state `0xaa0` exit_body;;
+
+let bodyleg_goal = leg_goal (vs @ [`i:num`]) leg_hyps (inv_state `0x294` `i:num`) (inv_state `0x510` `i + 1`);;
 
 (* ===== drain GHASH composition lemmas ===== *)
 (* ============================================================================
@@ -825,7 +894,7 @@ let SWP_GHASH_BRANCH2_SETTLED = prove
   DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN AP_TERM_TAC THEN CONV_TAC WORD_BITWISE_RULE);;
 
 (* ================= BODYLEG: steady body  inv i -> inv (i+1)  (0x294 -> 0x510) ================= *)
-let SWP_DEC_BODYLEG = prove(bodyleg_goal_v8,
+let SWP_DEC_BODYLEG = prove(bodyleg_goal,
   REPEAT STRIP_TAC THEN ENSURES_INIT_TAC "s0" THEN
   SUBGOAL_THEN `4*i+7 < nblocks` ASSUME_TAC THENL
    [SUBST1_TAC(SYM(ASSUME `nblocks DIV 4 = loop_count`)) THEN
@@ -868,45 +937,9 @@ let SWP_DEC_BODYLEG = prove(bodyleg_goal_v8,
   REPEAT CONJ_TAC THEN CLOSE_V8);;
 
 (* ================= FILL: entry -> inv 0  (0xa0 -> 0x294) ================= *)
-(* shared with DRAIN: abl_s, REV64_16B_IS_BSW_REVFIELDS. *)
-let fill_pre_body = `read X0 s = in_p /\ read X2 s = out_p /\ read X3 s = tag_p /\ read X4 s = ivec_p /\
-    read X6 s = htable_p /\ read SP s = stackpointer /\
-    read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0 /\
-    read (memory :> bytes128 ivec_p) s = word_reversefields 8 (ctr_block nonce 2) /\
-    read Q18 s = word_reversefields 8 (EL 0 rk) /\ read Q19 s = word_reversefields 8 (EL 1 rk) /\
-    read Q20 s = word_reversefields 8 (EL 2 rk) /\ read Q21 s = word_reversefields 8 (EL 3 rk) /\
-    read Q22 s = word_reversefields 8 (EL 4 rk) /\ read Q23 s = word_reversefields 8 (EL 5 rk) /\
-    read Q24 s = word_reversefields 8 (EL 6 rk) /\ read Q25 s = word_reversefields 8 (EL 7 rk) /\
-    read Q26 s = word_reversefields 8 (EL 8 rk) /\ read Q27 s = word_reversefields 8 (EL 9 rk) /\
-    read Q28 s = word_reversefields 8 (EL 10 rk) /\
-    read Q12 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
-    read Q13 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
-    read Q14 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
-    read Q15 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2) /\
-    read Q16 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3) /\
-    read Q17 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2)) /\
-    read Q7 s = word 13979173243358019584 /\
-    read X11 s = word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
-    read X12 s = word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
-    read X13 s = word_zx (word 2:int32):int64 /\
-    read X15 s = word(len_bits DIV 8) /\ read X1 s = word loop_count /\
-    read X7 s = word nblocks /\ read X16 s = word loop_remain /\
-    read Q30 s = byteswap128 tag0 /\
-    htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
-    (!j. j < nblocks ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s = inblock j)`;;
-
-let abl_s = `aligned_bytes_loaded s (word pc) aes_gcm_dec_kernel_x4_scalar_iv_mem_late_tag_keep_htable_swp_mc`;;
-let fill_pre  = mk_abs(`s:armstate`, mk_conj(abl_s, mk_conj(`read PC s = word (pc + 0xa0)`, fill_pre_body)));;
-let fill_post = mk_abs(`s:armstate`, mk_conj(abl_s, mk_conj(`read PC s = word (pc + 0x294)`, ap swpS_inv8_dec_v8 `0` `s:armstate`)));;
-let fill_frame = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-    MAYCHANGE [X0;X1;X2;X7;X10;X11;X12;X13;X14;X17;X19;X20;X21;X22;X23;X24;X25;X26;X27;X28;X29;X30] ,,
-    MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q8;Q9;Q10;Q11;Q29;Q30;Q31] ,,
-    MAYCHANGE [memory :> bytes(out_p, 16 * nblocks);
-               memory :> bytes(word_add stackpointer (word 160), 64)]`;;
-let fill_ens = list_mk_comb(`ensures arm`,[fill_pre;fill_post;fill_frame]);;
-let fill_hyps = subst [`3 <= loop_count`, `i < loop_count - 2`] bodyleg_hyps;;
-let vs_fill = filter (fun v -> v <> `i:num`) vs;;
-let fill_goal = list_mk_forall(vs_fill, mk_imp(fill_hyps, fill_ens));;
+(* shared with DRAIN: REV64_16B_IS_BSW_REVFIELDS. *)
+let fill_hyps = subst [`3 <= loop_count`, `i < loop_count - 2`] leg_hyps;;
+let fill_goal = leg_goal vs fill_hyps entry_state (inv_state `0x294` `0`);;
 
 (* ---- branch-resolution lemmas for the two guards at 0xa4/0xa8 (b.eq iter_1) and 0x290 (cbz drain) ---- *)
 let branch_lem = prove(
@@ -1058,13 +1091,8 @@ let branch_lem_ge2 = prove(
    [MATCH_MP_TAC VAL_WORD_EQ THEN ASM_REWRITE_TAC[DIMINDEX_64]; ALL_TAC] THEN
   REWRITE_TAC[VAL_WORD_1] THEN UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC);;
 
-let fill290_post =
-  mk_abs(`s:armstate`,
-    mk_conj(abl_s,
-      mk_conj(`read PC s = word (pc + 0x290)`, ap swpS_inv8_dec_v8 `0` `s:armstate`)));;
-let fill290_ens  = list_mk_comb(`ensures arm`,[fill_pre; fill290_post; fill_frame]);;
 let fill290_hyps = subst [`2 <= loop_count`,`3 <= loop_count`] fill_hyps;;
-let fill290_goal = list_mk_forall(vs_fill, mk_imp(fill290_hyps, fill290_ens));;
+let fill290_goal = leg_goal vs fill290_hyps entry_state (inv_state `0x290` `0`);;
 
 let fill290_step n =
   SWP_STEPS_TAC dec_anchors ctr_slots_all REDSETX_DEC EXEC
@@ -1154,15 +1182,8 @@ let SWP_DEC_FILLLEG = prove(fill_goal,
 
 (* LC2-PARTA (0xa0 -> 0x514, loop_count = 2) = FILL290 followed by the cbz-taken bridge
    0x290 -> 0x514 (branch taken into the drain, X1 = word 0). *)
-let fill_post514 =
-  mk_abs(`s:armstate`,
-    mk_conj(abl_s, mk_conj(`read PC s = word (pc + 0x514)`, ap swpS_inv8_dec_v8 `0` `s:armstate`)));;
-let fill_ens514 = list_mk_comb(`ensures arm`,[fill_pre; fill_post514; fill_frame]);;
-let fill_hyps_lc2 = list_mk_conj
-  ((filter (fun t -> not (t = `i < loop_count - 2`) && not (t = `3 <= loop_count`))
-           (conjuncts bodyleg_hyps))
-   @ [`loop_count = 2`]);;
-let fill_goal_lc2 = list_mk_forall(vs_fill, mk_imp(fill_hyps_lc2, fill_ens514));;
+let fill_hyps_lc2 = list_mk_conj (base_hyps @ [`loop_count = 2`]);;
+let fill_goal_lc2 = leg_goal vs fill_hyps_lc2 entry_state (inv_state `0x514` `0`);;
 
 let SWP_DEC_LC2_PARTA = prove(fill_goal_lc2,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
@@ -1185,55 +1206,18 @@ let SWP_DEC_LC2_PARTA = prove(fill_goal_lc2,
     REPEAT CONJ_TAC THEN FILL_CLOSE]);;
 
 (* ================= DRAIN: inv (loop_count-2) -> postcondition  (0x510 -> 0xaa0) ================= *)
-(* Uses FILL's shared abl_s / REV64_16B_IS_BSW_REVFIELDS.  The drain also finishes the output, so its
+(* Uses FILL's shared REV64_16B_IS_BSW_REVFIELDS.  The drain also finishes the output, so its
    stepper anchors the input and output memory facts as well. *)
 
-let drain_post_body = `read X0 s = word_add in_p (word (64 * loop_count)) /\
-   read X2 s = word_add out_p (word (64 * loop_count)) /\
-   read X3 s = tag_p /\ read X4 s = ivec_p /\ read X6 s = htable_p /\ read SP s = stackpointer /\
-   read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0 /\
-   read (memory :> bytes128 ivec_p) s = word_reversefields 8 (ctr_block nonce 2) /\
-   read Q18 s = word_reversefields 8 (EL 0 rk) /\ read Q19 s = word_reversefields 8 (EL 1 rk) /\
-   read Q20 s = word_reversefields 8 (EL 2 rk) /\ read Q21 s = word_reversefields 8 (EL 3 rk) /\
-   read Q22 s = word_reversefields 8 (EL 4 rk) /\ read Q23 s = word_reversefields 8 (EL 5 rk) /\
-   read Q24 s = word_reversefields 8 (EL 6 rk) /\ read Q25 s = word_reversefields 8 (EL 7 rk) /\
-   read Q26 s = word_reversefields 8 (EL 8 rk) /\ read Q27 s = word_reversefields 8 (EL 9 rk) /\
-   read Q28 s = word_reversefields 8 (EL 10 rk) /\
-   read Q12 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
-   read Q13 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
-   read Q14 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
-   read Q15 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2) /\
-   read Q16 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3) /\
-   read Q17 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2)) /\
-   read Q7 s = word 13979173243358019584 /\
-   read X11 s = word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
-   read X12 s = word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
-   read X13 s = word_zx (word (4 * loop_count + 2):int32):int64 /\
-   read X15 s = word(len_bits DIV 8) /\ read X1 s = word 0 /\ read X16 s = word loop_remain /\
-   read Q30 s = byteswap128 (nist_ghash (aes128_cipher (word 0) rk) tag0 (list_of_seq (nist_input_block inblock) (4 * loop_count))) /\
-   htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
-   (!j. j < nblocks ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s = inblock j) /\
-   (!j. j < 4 * loop_count ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s = word_xor (aes_ctr_block nonce rk j) (inblock j))`;;
-let drain_pre = mk_abs(`s:armstate`, mk_conj(abl_s,
-   mk_conj(`read PC s = word (pc + 0x510)`, ap swpS_inv8_dec_v8 `loop_count - 2` `s:armstate`)));;
-let drain_post = mk_abs(`s:armstate`, mk_conj(abl_s, mk_conj(`read PC s = word (pc + 0xaa0)`, drain_post_body)));;
-let drain_frame = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-    MAYCHANGE [X0;X1;X2;X7;X10;X11;X12;X13;X14;X17;X19;X20;X21;X22;X23;X24;X25;X26;X27;X28;X29;X30] ,,
-    MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q8;Q9;Q10;Q11;Q29;Q30;Q31] ,,
-    MAYCHANGE [memory :> bytes(out_p, 16 * nblocks); memory :> bytes(word_add stackpointer (word 160), 64)]`;;
-let drain_ens = list_mk_comb(`ensures arm`,[drain_pre;drain_post;drain_frame]);;
-let drain_hyps = subst [`3 <= loop_count`, `i < loop_count - 2`] bodyleg_hyps;;
-let vs_drain = filter (fun v -> v <> `i:num`) vs;;
-let drain_goal = list_mk_forall(vs_drain, mk_imp(drain_hyps, drain_ens));;
+let drain_hyps = subst [`3 <= loop_count`, `i < loop_count - 2`] leg_hyps;;
+let drain_goal = leg_goal vs drain_hyps (inv_state `0x510` `loop_count - 2`) exit_state;;
 
 (* Shared drain leg (0x514 -> 0xaa0, hyp 2 <= loop_count): entered by the DRAINLEG leaf bridge and
    by the loop_count = 2 composition.  drain_hyps keeps 3 <= for the DRAINLEG leaf goal; drain514_hyps
    weakens it to 2 <= for this shared leg. *)
-let drain514_pre = mk_abs(`s:armstate`, mk_conj(abl_s,
-   mk_conj(`read PC s = word (pc + 0x514)`, ap swpS_inv8_dec_v8 `loop_count - 2` `s:armstate`)));;
-let drain514_ens = list_mk_comb(`ensures arm`,[drain514_pre; drain_post; drain_frame]);;
+let drain514_pre = inv_state `0x514` `loop_count - 2`;;
 let drain514_hyps = subst [`2 <= loop_count`, `3 <= loop_count`] drain_hyps;;
-let drain514_goal = list_mk_forall(vs_drain, mk_imp(drain514_hyps, drain514_ens));;
+let drain514_goal = leg_goal vs drain514_hyps drain514_pre exit_state;;
 
 (* stepper: counter merges at the tower-referenced ldr states.  Step 97 (0x694) is the first
    reduce's final `ext v30`: abbreviate the settled group-(loop_count-2) accumulator to `inter` so the second
@@ -1453,75 +1437,9 @@ let SWP_DEC_DRAINLEG = prove(drain_goal,
 
 (* ============================ iter_1 (loop_count=1) leg ============================ *)
 
-(* ---- iter_1 goal: 0xa0 precond -> 0xaa0 WEAKENED postcond (X1 dropped), loop_count = 1 ---- *)
-let abl_s = `aligned_bytes_loaded s (word pc) aes_gcm_dec_kernel_x4_scalar_iv_mem_late_tag_keep_htable_swp_mc`;;
-let iter1_pre_body = `read X0 s = in_p /\ read X2 s = out_p /\ read X3 s = tag_p /\ read X4 s = ivec_p /\
-    read X6 s = htable_p /\ read SP s = stackpointer /\
-    read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0 /\
-    read (memory :> bytes128 ivec_p) s = word_reversefields 8 (ctr_block nonce 2) /\
-    read Q18 s = word_reversefields 8 (EL 0 rk) /\ read Q19 s = word_reversefields 8 (EL 1 rk) /\
-    read Q20 s = word_reversefields 8 (EL 2 rk) /\ read Q21 s = word_reversefields 8 (EL 3 rk) /\
-    read Q22 s = word_reversefields 8 (EL 4 rk) /\ read Q23 s = word_reversefields 8 (EL 5 rk) /\
-    read Q24 s = word_reversefields 8 (EL 6 rk) /\ read Q25 s = word_reversefields 8 (EL 7 rk) /\
-    read Q26 s = word_reversefields 8 (EL 8 rk) /\ read Q27 s = word_reversefields 8 (EL 9 rk) /\
-    read Q28 s = word_reversefields 8 (EL 10 rk) /\
-    read Q12 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
-    read Q13 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
-    read Q14 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
-    read Q15 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2) /\
-    read Q16 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3) /\
-    read Q17 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2)) /\
-    read Q7 s = word 13979173243358019584 /\
-    read X11 s = word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
-    read X12 s = word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
-    read X13 s = word_zx (word 2:int32):int64 /\
-    read X15 s = word(len_bits DIV 8) /\ read X1 s = word loop_count /\ read X7 s = word nblocks /\
-    read X16 s = word loop_remain /\ read Q30 s = byteswap128 tag0 /\
-    htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
-    (!i. i < nblocks ==> read (memory :> bytes128 (word_add in_p (word(16*i)))) s = inblock i)`;;
-let iter1_post_body = `read X0 s = word_add in_p (word (64 * loop_count)) /\
-    read X2 s = word_add out_p (word (64 * loop_count)) /\
-    read X3 s = tag_p /\ read X4 s = ivec_p /\ read X6 s = htable_p /\ read SP s = stackpointer /\
-    read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0 /\
-    read (memory :> bytes128 ivec_p) s = word_reversefields 8 (ctr_block nonce 2) /\
-    read Q18 s = word_reversefields 8 (EL 0 rk) /\ read Q19 s = word_reversefields 8 (EL 1 rk) /\
-    read Q20 s = word_reversefields 8 (EL 2 rk) /\ read Q21 s = word_reversefields 8 (EL 3 rk) /\
-    read Q22 s = word_reversefields 8 (EL 4 rk) /\ read Q23 s = word_reversefields 8 (EL 5 rk) /\
-    read Q24 s = word_reversefields 8 (EL 6 rk) /\ read Q25 s = word_reversefields 8 (EL 7 rk) /\
-    read Q26 s = word_reversefields 8 (EL 8 rk) /\ read Q27 s = word_reversefields 8 (EL 9 rk) /\
-    read Q28 s = word_reversefields 8 (EL 10 rk) /\
-    read Q12 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
-    read Q13 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
-    read Q14 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
-    read Q15 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2) /\
-    read Q16 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3) /\
-    read Q17 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2)) /\
-    read Q7 s = word 13979173243358019584 /\
-    read X11 s = word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
-    read X12 s = word_zx (word_zx (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
-    read X13 s = word_zx (word (4 * loop_count + 2):int32):int64 /\
-    read X15 s = word(len_bits DIV 8) /\ read X16 s = word loop_remain /\
-    read Q30 s = byteswap128 (nist_ghash (aes128_cipher (word 0) rk) tag0 (list_of_seq (nist_input_block inblock) (4 * loop_count))) /\
-    htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
-    (!j. j < nblocks ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s = inblock j) /\
-    (!j. j < 4 * loop_count ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s = word_xor (aes_ctr_block nonce rk j) (inblock j))`;;
-let iter1_pre  = mk_abs(`s:armstate`, mk_conj(abl_s, mk_conj(`read PC s = word (pc + 0xa0)`, iter1_pre_body)));;
-let iter1_post = mk_abs(`s:armstate`, mk_conj(abl_s, mk_conj(`read PC s = word (pc + 0xaa0)`, iter1_post_body)));;
-(* main-theorem frame C_main *)
-let iter1_frame = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-    MAYCHANGE [X19;X20;X21;X22;X23;X24;X25;X26;X27;X28;X29;X30] ,,
-    MAYCHANGE [Q8;Q9;Q10;Q11;Q12;Q13;Q14;Q15] ,,
-    MAYCHANGE [memory :> bytes(out_p, 16 * nblocks); memory :> bytes(tag_p,16);
-               memory :> bytes(ivec_p,16); memory :> bytes(word_add stackpointer (word 160), 64)]`;;
-let iter1_ens = list_mk_comb(`ensures arm`,[iter1_pre;iter1_post;iter1_frame]);;
-(* hyps = bodyleg base with loop_count = 1 instead of the loop-index constraint *)
-let iter1_hyps = mk_conj(subst [`loop_count = 1`, `i < loop_count - 2`] bodyleg_hyps, `T`) ;;
-(* bodyleg_hyps already includes `3 <= loop_count`; for loop_count=1 that is FALSE, so instead build hyps
-   fresh from the base (drop 3<=loop_count and i<loop_count-2, add loop_count=1). *)
-let base_hyps = filter (fun t -> not (t = `i < loop_count - 2`) && not (t = `3 <= loop_count`)) (conjuncts bodyleg_hyps);;
+(* ---- iter_1 goal: entry state (0xa0) -> exit state (0xaa0), loop_count = 1 ---- *)
 let iter1_hyps = list_mk_conj (base_hyps @ [`loop_count = 1`]);;
-let vs_i1 = filter (fun v -> v <> `i:num`) vs;;
-let iter1_goal = list_mk_forall(vs_i1, mk_imp(iter1_hyps, iter1_ens));;
+let iter1_goal = leg_goal vs iter1_hyps entry_state exit_state;;
 
 (* ---- iter_1 stepper: 3 control-flow steps then 158 body steps.  Merges (stp x11,_/ldr q,[sp,#OFF]) at
    ABS step indices 16(208), 23(176), 27(160), 32(192) (body-relative 13/20/24/29 + 3 control prefix). ---- *)
@@ -1705,8 +1623,7 @@ let SWP_DEC_ITER1 = prove(iter1_goal,
   REPEAT CONJ_TAC THEN ITER1_CLOSE_ALL);;
 
 (* ==================== COMPOSITION: loop_count=2 = LC2-PARTA (0xa0 -> 0x514) + DRAIN514 (0x514 -> 0xaa0) ==================== *)
-let lc2_ens  = list_mk_comb(`ensures arm`,[fill_pre;drain_post;fill_frame]);;
-let lc2_goal = list_mk_forall(vs_fill, mk_imp(fill_hyps_lc2, lc2_ens));;
+let lc2_goal = leg_goal vs fill_hyps_lc2 entry_state exit_state;;
 let SWP_DEC_LC2 = prove(lc2_goal,
   REPEAT GEN_TAC THEN STRIP_TAC THEN
   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
@@ -1746,86 +1663,21 @@ let SWP_DEC_LC0_TAC : tactic =
   TRY(CONV_TAC NUM_REDUCE_CONV THEN CONV_TAC WORD_BLAST THEN NO_TAC) THEN
   MAYCHANGE_ABI_CLOSE;;
 
-(* lc1 (0xa0->0xaa0, loop_count=1): SWP_DEC_ITER1 (loop_count=1 in context). *)
-(* The main theorem's leaf goals present the ABI macro EXPANDED (line "REWRITE_TAC[...ABI]" up top) and
-   htable_mem_4 UNFOLDED (the 0xa0 precond expansion); the leg lemmas are stated with the folded ABI macro
-   and folded htable_mem_4.  So REWRITE_RULE[ABI; htable_mem_4] each leg to match before MATCH_MP_TAC. *)
-(* deint pattern: the leaf goal has ABI EXPANDED (early REWRITE) + htable UNFOLDED; the leg has ABI
-   FOLDED + htable FOLDED.  Re-FOLD the ABI macro in the GOAL frame (GSYM) right before MATCH_MP_TAC so
-   it matches the leg frame, and UNFOLD htable_mem_4 in the LEG (only its pre gains the 6 reads). *)
-let leg_htab th = REWRITE_RULE[htable_mem_4; GSYM CONJ_ASSOC] th;;
-let REFOLD_ABI = REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI];;
-(* Apply a proven leg to a leaf goal `ensures P Q C_leaf`.  The leg proves `ensures P Q C_leg`; C_leg may be
-   WIDER than C_leaf on the explicit register list (e.g. fill_frame lists X0..,Q0.. that C_leaf folds into the
-   ABI macro), but C_leg subsumed C_leaf (the ABI macro absorbs them; C_leg's mem subseteq C_leaf's mem).  So:
-   first try the direct MATCH_MP_TAC (works when C_leg = C_leaf, e.g. iter1/bodyleg narrow frame); on failure,
-   bridge via ENSURES_FRAME_SUBSUMED, discharging `C_leg subsumed C_leaf` with the ABI expanded. *)
-(* Apply a proven leg to a leaf goal `ensures P Q_leaf C_leaf`.  Three reconciliations may be needed:
-   (1) POST: the leg may prove a STRONGER post Q_leg (e.g. it establishes `read X1 s = word 0`, which the
-       shared 0xaa0 midcond had to DROP for iter_1).  Switch the goal's post to Q_leg via
-       ENSURES_POSTCONDITION_TAC, discharging `Q_leg ==> Q_leaf` (drop the extra conjunct).
-   (2) FRAME: C_leg may be WIDER than C_leaf on the explicit reg list (fill_frame lists X0.. that C_leaf
-       folds into the ABI macro); C_leg subsumed C_leaf, so bridge via ENSURES_FRAME_SUBSUMED.
-   (3) ABI/htable: REFOLD_ABI in the goal + leg_htab (unfold htable + GSYM CONJ_ASSOC) in the leg.
-   `TRY(EXISTS_TAC key_p)` since key_p (a hyp-only var) may or may not survive the ensures match. *)
-(* discharge a proven leg's side-hyps (nblocks arith, [EL..]=rk, nonoverlapping) from the main-theorem
-   context.  The nonoverlapping hyps often appear ARG-SWAPPED vs the ALLPAIRS-expanded assumptions
-   (leg wants `nonoverlapping (in_p,..) (sp+160,..)`, ctx has `(sp+160,..) (in_p,..)`), so ASM_REWRITE
-   alone won't close them -- fall back to NONOVERLAPPING_TAC (handles symmetry + arithmetic). *)
-let discharge_leg_hyps : tactic =
+(* The main theorem presents its leaf goals with the ABI macro expanded, htable_mem_4 unfolded and the
+   conjunctions right-associated (the family's REWRITE_TAC[htable_mem_4; GSYM CONJ_ASSOC] after each
+   ENSURES_SEQUENCE_TAC / ENSURES_WHILE_UP_TAC); leaf_form puts a leg lemma in the same form. *)
+let leaf_form th = REWRITE_RULE[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; htable_mem_4; GSYM CONJ_ASSOC] th;;
+
+(* Discharge a leg's hypotheses from the main theorem's context.  The nonoverlapping facts may appear
+   with their arguments swapped relative to the ALLPAIRS expansion, hence the NONOVERLAPPING_TAC fallback. *)
+let LEG_HYPS_TAC : tactic =
   ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THEN
   TRY(FIRST_ASSUM ACCEPT_TAC) THEN TRY(ASM_REWRITE_TAC[] THEN NO_TAC) THEN
   TRY(ASM_ARITH_TAC) THEN TRY NONOVERLAPPING_TAC;;
-let apply_leg_core (legn:thm) : tactic =
-  REFOLD_ABI THEN
-  ((MATCH_MP_TAC legn THEN TRY(EXISTS_TAC `key_p:int64`) THEN discharge_leg_hyps)
-   ORELSE
-   (MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN
-    EXISTS_TAC (el 3 (snd(strip_comb(snd(dest_imp(snd(strip_forall(concl legn)))))))) THEN
-    CONJ_TAC THENL
-     [REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN SUBSUMED_MAYCHANGE_TAC;
-      MATCH_MP_TAC legn THEN TRY(EXISTS_TAC `key_p:int64`) THEN discharge_leg_hyps]));;
-(* one attempt at a given leg form (legn): direct core, else post-bridge (for X1-stronger legs).
-   The post-bridge is guarded by `w`-is-ensures (ENSURES_POSTCONDITION_TAC errors on a non-ensures goal),
-   and phrased as a single `fun (asl,w)` so a failed direct core never leaves a half-rewritten goal for it. *)
-let apply_leg_1 (legn:thm) : tactic =
-  fun (asl,w) ->
-    ((apply_leg_core legn)
-     ORELSE
-     (fun (a2,w2) ->
-        if (try fst(dest_const(fst(strip_comb w2))) = "ensures" with _ -> false) then
-          (let lpost = el 2 (snd(strip_comb(snd(dest_imp(snd(strip_forall(concl legn))))))) in
-           (ENSURES_POSTCONDITION_TAC lpost THEN
-            CONJ_TAC THENL
-             [REPEAT GEN_TAC THEN REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
-              DISCH_THEN(fun th -> REPEAT CONJ_TAC THEN
-                 FIRST[ACCEPT_TAC th; (STRIP_ASSUME_TAC th THEN ASM_REWRITE_TAC[])]);
-              apply_leg_core legn]) (a2,w2))
-        else failwith "apply_leg_1: not ensures")) (asl,w);;
-(* The leg's pre/post invariant may keep htable_mem_4 FOLDED (BODY/FILL/DRAIN, whose leaf carries the flat
-   swpS_inv8_dec_v8 with htable folded inside) or UNFOLDED (LC1/LC2, whose leaf pre expands htable via the
-   0xa0-precond REWRITE).  Try WITH the htable unfold (leg_htab) first, then WITHOUT (leg unchanged, only
-   right-assoc). *)
+
+(* Close a leaf goal with a proven leg (key_p occurs only in the hypotheses). *)
 let APPLY_LEG (leg:thm) : tactic =
-  (apply_leg_1 (leg_htab leg))
-  ORELSE
-  (apply_leg_1 (REWRITE_RULE[GSYM CONJ_ASSOC] leg));;
-let SWP_DEC_LC1_TAC : tactic = APPLY_LEG SWP_DEC_ITER1;;
-
-(* lc2 (0xa0->0xaa0, loop_count=2): SWP_DEC_LC2. *)
-let SWP_DEC_LC2_TAC : tactic = APPLY_LEG SWP_DEC_LC2;;
-
-(* FILL leaf (0xa0->0x294, establish inv 0): SWP_DEC_FILLLEG.  MIXED htable fold-state -- leaf-PRE
-   (0xa0 precond) has htable UNFOLDED but leaf-POST (WHILE inv 0 = swpS_inv8_dec_v8 0) has it FOLDED.
-   Bare APPLY_LEG then needs an `unfolded ==> folded` post-bridge weakening that leaves a folded
-   htable_mem_4 leaf UNCLOSED under the native ASL iteration order (the leftover leaks past the WHILE ->
-   "neither ensures" downstream).  FIX: REWRITE_TAC[htable_mem_4] on the whole goal first (unfolds htable
-   in BOTH leaf-PRE and leaf-POST) so the fully-unfolded leg matches with NO post-bridge weakening. *)
-let SWP_DEC_FILL_LEAF_TAC : tactic = REWRITE_TAC[htable_mem_4] THEN APPLY_LEG SWP_DEC_FILLLEG;;
-
-(* BODY leaf (0x294->0x510, inv i -> inv (i+1)): SWP_DEC_BODYLEG. *)
-let SWP_DEC_BODY_LEAF_TAC : tactic =
-  X_GEN_TAC `i:num` THEN STRIP_TAC THEN APPLY_LEG SWP_DEC_BODYLEG;;
+  MATCH_MP_TAC (leaf_form leg) THEN EXISTS_TAC `key_p:int64` THEN LEG_HYPS_TAC;;
 
 (* back-edge leaf (cbnz@0x510 -> 0x294 while i+1 < loop_count-2): interactive recipe. *)
 let SWP_DEC_BACKEDGE_LEAF_TAC : tactic =
@@ -1848,62 +1700,6 @@ let SWP_DEC_BACKEDGE_LEAF_TAC : tactic =
   ARM_STEPS_TAC AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC [1] THEN
   ENSURES_FINAL_STATE_TAC THEN REWRITE_TAC[htable_mem_4] THEN ASM_REWRITE_TAC[] THEN
   REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MAYCHANGE_ABI_CLOSE;;
-
-(* DRAIN leaf (0x510->0xaa0, inv (loop_count-2) -> after-loop postcond): SWP_DEC_DRAINLEG.
-   DRAIN is the UNIQUE leg with a MIXED htable fold-state: its leaf PRE carries the FOLDED
-   swpS_inv8_dec_v8 (htable_mem_4 folded inside), matching the RAW leg's PRE, but its leaf POST is
-   the 0xaa0 midcond with htable_mem_4 UNFOLDED (line ~3797 REWRITE) and X1 DROPPED.  So we specialize:
-   (1) switch the goal post to the RAW leg's post (folded htable + X1=word 0) via ENSURES_POSTCONDITION_TAC,
-   (2) weaken that to the leaf post with REWRITE_TAC[htable_mem_4] (+ drop X1),
-   (3) discharge the residual `ensures P lpost C_leaf` by FORWARD-applying the leg: the leg's PRE is
-       alpha-equal to the goal PRE, so SPEC_ALL gives `hyps ==> ensures P lpost C_leg` directly; bridge the
-       narrow leg frame C_leg to the ABI-expanded leaf frame C_leaf via ENSURES_FRAME_SUBSUMED, then
-       ACCEPT_TAC the forward theorem MP'd with the hyps discharged as an ISOLATED subgoal.
-   This forward construction (ACCEPT of `MP (SPEC_ALL leg) hyps_thm`) avoids the generic apply_leg_core's
-   in-place `MATCH_MP_TAC leg` + `?key_p` existential + intertwined discharge, which -- while sound and
-   closing under the MCP interpreter -- diverged under the ocamlopt-native build ("neither ensures"). *)
-(* Targeted closer for the single `16 * nblocks <= 2 EXP 64` leg-hyp leaf: uses ONLY the two relevant
-   asl facts by EXACT concl-match (order-independent -- a `match .. when r=nblocks` OCaml pattern could
-   pick `val(word nblocks)=nblocks` first under a different native ASL iteration order).  Replaces
-   ASM_ARITH_TAC (whose full-36-assumption sweep, though sound + closing under the MCP interpreter,
-   left leaves unclosed under the ocamlopt-native build -> spurious "neither ensures" downstream). *)
-let close_nblocks_bound : tactic =
-  FIRST_ASSUM(fun th -> if concl th = `len_bits DIV 128 = nblocks` then SUBST1_TAC(SYM th) else failwith "no") THEN
-  FIRST_ASSUM(fun th -> if concl th = `len_bits < 2 EXP 64` then MP_TAC th else failwith "no") THEN
-  ARITH_TAC;;
-(* Discharge an arg-swapped `nonoverlapping (a,b) (c,d)` leaf directly from the asl's swapped form via
-   NONOVERLAPPING_SYM -- avoiding NONOVERLAPPING_TAC's full-ASL sweep (another divergence suspect). *)
-let close_nonov_sym : tactic =
-  FIRST_ASSUM ACCEPT_TAC ORELSE
-  FIRST_ASSUM(fun th -> ACCEPT_TAC(ONCE_REWRITE_RULE[NONOVERLAPPING_SYM] th));;
-let SWP_DEC_DRAIN_LEAF_TAC : tactic =
-  fun (asl,w) ->
-    let legn = REWRITE_RULE[GSYM CONJ_ASSOC] SWP_DEC_DRAINLEG in
-    let ens_args = snd(strip_comb(snd(dest_imp(snd(strip_forall(concl legn)))))) in
-    let lpost = el 2 ens_args and legframe = el 3 ens_args in
-    (ENSURES_POSTCONDITION_TAC lpost THEN
-     CONJ_TAC THENL
-      [ (*** weaken leg-post (folded htable, +X1) ==> leaf-post (unfolded htable, -X1): CONJUNCTS-based,
-            ORDER-INDEPENDENT.  After unfolding htable on both sides, DISCH the single hyp, take its
-            CONJUNCTS (fixed term-structural order, identical in MCP + native), and close each goal
-            conjunct by `FIRST(map ACCEPT_TAC cs)`.  This avoids ASM_REWRITE/FIRST_ASSUM ASL-iteration,
-            whose native order left an htable_mem_4 leaf unclosed (leaked past the WHILE -> "neither
-            ensures" when the tail-loop tactic hit it). ***)
-        REPEAT GEN_TAC THEN REWRITE_TAC[htable_mem_4] THEN
-        DISCH_THEN(fun th -> let cs = CONJUNCTS th in REPEAT CONJ_TAC THEN FIRST (map ACCEPT_TAC cs));
-        (*** ensures P lpost C_leaf : refold ABI, frame-subsume to C_leg, ACCEPT forward leg thm ***)
-        REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
-        MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN EXISTS_TAC legframe THEN
-        CONJ_TAC THENL
-         [ REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN SUBSUMED_MAYCHANGE_TAC;
-           (*** discharge the leg's hyps as an isolated subgoal using ONLY lightweight, ASL-sweep-free
-                closers (ACCEPT / ASM_REWRITE / NONOVERLAPPING_SYM / targeted arith) ***)
-           (let legi = SPEC_ALL legn in
-            let hyps' = fst(dest_imp(concl legi)) in
-            SUBGOAL_THEN hyps' (fun hth -> ACCEPT_TAC(MP legi hth))) THEN
-           ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THEN
-           REPEAT(FIRST[FIRST_ASSUM ACCEPT_TAC; (ASM_REWRITE_TAC[] THEN NO_TAC);
-                        close_nonov_sym; close_nblocks_bound; CONJ_TAC]) ]]) (asl,w);;
 
 (* ==================== MAIN THEOREM (7 legs wired) ==================== *)
 let AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_CORRECT = prove
@@ -1983,50 +1779,7 @@ let AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_CORRECT = prove
 
   (***** Initial state setup ****)
 
-  ENSURES_SEQUENCE_TAC `pc + 0xa0`
-   `\s. read X0 s = in_p /\
-        read X2 s = out_p /\
-        read X3 s = tag_p /\
-        read X4 s = ivec_p /\
-        read X6 s = htable_p /\
-        read SP s = stackpointer /\
-        read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0 /\
-        read (memory :> bytes128 ivec_p) s =
-          word_reversefields 8 (ctr_block nonce 2) /\
-        read Q18 s = word_reversefields 8 (EL 0 rk) /\
-        read Q19 s = word_reversefields 8 (EL 1 rk) /\
-        read Q20 s = word_reversefields 8 (EL 2 rk) /\
-        read Q21 s = word_reversefields 8 (EL 3 rk) /\
-        read Q22 s = word_reversefields 8 (EL 4 rk) /\
-        read Q23 s = word_reversefields 8 (EL 5 rk) /\
-        read Q24 s = word_reversefields 8 (EL 6 rk) /\
-        read Q25 s = word_reversefields 8 (EL 7 rk) /\
-        read Q26 s = word_reversefields 8 (EL 8 rk) /\
-        read Q27 s = word_reversefields 8 (EL 9 rk) /\
-        read Q28 s = word_reversefields 8 (EL 10 rk) /\
-        read Q12 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
-        read Q13 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
-        read Q14 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
-        read Q15 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2) /\
-        read Q16 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3) /\
-        read Q17 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2)) /\
-        read Q7 s = word 13979173243358019584 /\
-        read X11 s =
-          word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
-        read X12 s =
-          word_zx (word_zx (word_subword
-            (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
-        read X13 s = word_zx (word 2:int32):int64 /\
-        read X15 s = word(len_bits DIV 8) /\
-        read X1 s = word loop_count /\
-        read X7 s = word nblocks /\
-        read X16 s = word loop_remain /\
-        read Q30 s =
-          byteswap128 tag0 /\
-        htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
-        (!i. i < nblocks
-             ==> read (memory :> bytes128 (word_add in_p (word(16*i)))) s =
-                 inblock i)` THEN
+  ENSURES_SEQUENCE_TAC `pc + 0xa0` (mk_abs(`s:armstate`, entry_body)) THEN
   REWRITE_TAC[htable_mem_4; GSYM CONJ_ASSOC] THEN CONJ_TAC THENL
    [ENSURES_INIT_TAC "s0" THEN
     (*** Split + abbreviate the two 64-bit IV halves so the scalar counter    ***)
@@ -2093,54 +1846,7 @@ let AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_CORRECT = prove
 
   (*** Break code between main unrolled loop and tail loop ***)
 
-  ENSURES_SEQUENCE_TAC `pc + 0xaa0`
-   `\s. read X0 s = word_add in_p (word (64 * loop_count)) /\
-        read X2 s = word_add out_p (word (64 * loop_count)) /\
-        read X3 s = tag_p /\
-        read X4 s = ivec_p /\
-        read X6 s = htable_p /\
-        read SP s = stackpointer /\
-        read (memory :> bytes128 tag_p) s = word_reversefields 8 tag0 /\
-        read (memory :> bytes128 ivec_p) s =
-          word_reversefields 8 (ctr_block nonce 2) /\
-        read Q18 s = word_reversefields 8 (EL 0 rk) /\
-        read Q19 s = word_reversefields 8 (EL 1 rk) /\
-        read Q20 s = word_reversefields 8 (EL 2 rk) /\
-        read Q21 s = word_reversefields 8 (EL 3 rk) /\
-        read Q22 s = word_reversefields 8 (EL 4 rk) /\
-        read Q23 s = word_reversefields 8 (EL 5 rk) /\
-        read Q24 s = word_reversefields 8 (EL 6 rk) /\
-        read Q25 s = word_reversefields 8 (EL 7 rk) /\
-        read Q26 s = word_reversefields 8 (EL 8 rk) /\
-        read Q27 s = word_reversefields 8 (EL 9 rk) /\
-        read Q28 s = word_reversefields 8 (EL 10 rk) /\
-        read Q12 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0) /\
-        read Q13 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1) /\
-        read Q14 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 1)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 0)) /\
-        read Q15 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2) /\
-        read Q16 s = byteswap128 (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3) /\
-        read Q17 s = word_join (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 3)) (karatsuba_mid (h_power (ghash_twist (aes128_cipher (word 0) rk)) 2)) /\
-        read Q7 s = word 13979173243358019584 /\
-        read X11 s =
-          word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64 /\
-        read X12 s =
-          word_zx (word_zx (word_subword
-            (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64 /\
-        read X13 s = word_zx (word (4 * loop_count + 2):int32):int64 /\
-        read X15 s = word(len_bits DIV 8) /\
-        read X16 s = word loop_remain /\
-        read Q30 s =
-          byteswap128
-            (nist_ghash (aes128_cipher (word 0) rk) tag0
-               (list_of_seq (nist_input_block inblock)
-                            (4 * loop_count))) /\
-        htable_mem_4 (ghash_twist (aes128_cipher (word 0) rk)) htable_p s /\
-        (!j. j < nblocks
-             ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s =
-                 inblock j) /\
-        (!j. j < 4 * loop_count
-             ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s =
-                 word_xor (aes_ctr_block nonce rk j) (inblock j))` THEN
+  ENSURES_SEQUENCE_TAC `pc + 0xaa0` (mk_abs(`s:armstate`, exit_body)) THEN
   REWRITE_TAC[htable_mem_4; GSYM CONJ_ASSOC] THEN CONJ_TAC THENL
    [(*** MAIN LOOP (software-pipelined), 0xa0 -> 0xaa0, via the elaborated Q = P o [Y]
      *** invariant inlined at the ENSURES_WHILE_UP_TAC below.  Four control-flow paths
@@ -2160,18 +1866,18 @@ let AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_CORRECT = prove
      ***              steady body is the BODYLEG.
      *** Each leaf subgoal is discharged by its proven leg lemma (SWP_DEC_ITER1,     ***
      *** SWP_DEC_LC2, SWP_DEC_FILLLEG, SWP_DEC_BODYLEG, SWP_DEC_DRAINLEG) or an       ***
-     *** inline recipe (loop_count=0, back-edge), via the *_TAC wrappers above.       ***)
+     *** inline recipe (loop_count=0, back-edge), via APPLY_LEG.                      ***)
 
     ASM_CASES_TAC `loop_count = 0` THENL
      [POP_ASSUM SUBST_ALL_TAC THEN SWP_DEC_LC0_TAC;
       ALL_TAC] THEN
 
     ASM_CASES_TAC `loop_count = 1` THENL
-     [SWP_DEC_LC1_TAC;
+     [APPLY_LEG SWP_DEC_ITER1;
       ALL_TAC] THEN
 
     ASM_CASES_TAC `loop_count = 2` THENL
-     [SWP_DEC_LC2_TAC;
+     [APPLY_LEG SWP_DEC_LC2;
       ALL_TAC] THEN
 
     SUBGOAL_THEN `3 <= loop_count` ASSUME_TAC THENL
@@ -2179,17 +1885,17 @@ let AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_CORRECT = prove
 
     ENSURES_WHILE_UP_TAC `loop_count - 2` `pc + 0x294` `pc + 0x510`
       (mk_abs(`i:num`, mk_abs(`s:armstate`, ap swpS_inv8_dec_v8 `i:num` `s:armstate`))) THEN
-    REPEAT CONJ_TAC THENL
+    REWRITE_TAC[htable_mem_4; GSYM CONJ_ASSOC] THEN REPEAT CONJ_TAC THENL
      [(*** ~(loop_count - 2 = 0), from 3 <= loop_count. ***)
       ASM_ARITH_TAC;
       (*** FILL: 0xa0 -> 0x294, establish the inlined invariant at i = 0. ***)
-      SWP_DEC_FILL_LEAF_TAC;
+      APPLY_LEG SWP_DEC_FILLLEG;
       (*** BODY (BODYLEG): 0x294 -> 0x510, inv i -> inv (i+1). ***)
-      SWP_DEC_BODY_LEAF_TAC;
+      X_GEN_TAC `i:num` THEN STRIP_TAC THEN APPLY_LEG SWP_DEC_BODYLEG;
       (*** back-edge: cbnz x1 at 0x510 -> 0x294 while i+1 < loop_count-2. ***)
       SWP_DEC_BACKEDGE_LEAF_TAC;
       (*** DRAIN: 0x510 -> 0xaa0, inv (loop_count-2) -> after-loop postcondition. ***)
-      SWP_DEC_DRAIN_LEAF_TAC];
+      APPLY_LEG SWP_DEC_DRAINLEG];
     ALL_TAC] THEN
   (*** Trivial case of the tail loop ***)
 
