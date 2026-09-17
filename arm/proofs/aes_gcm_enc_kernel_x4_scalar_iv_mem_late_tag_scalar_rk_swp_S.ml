@@ -674,7 +674,7 @@ let close_goal7 : tactic =
       REWRITE_TAC[POLYVAL_REDUCE_G2] THEN ASM_REWRITE_TAC[] THEN
       MAP_EVERY EXPAND_TAC ["ks"; "ks'"; "ks''"; "ks'''"] THEN
       CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
-      AP_TERM_TAC THEN POP_ASSUM_LIST(K ALL_TAC) THEN BITBLAST_TAC;
+      AP_TERM_TAC THEN REWRITE_TAC[GSYM karatsuba_join] THEN MATCH_ACCEPT_TAC KARATSUBA_JOIN_XOR4;
       ALL_TAC] THEN
     MP_TAC(ISPECL [`ghash_twist (aes128_cipher (word 0) rk)`;
                    `[cipherblock_1;cipherblock_2;cipherblock_3]:(int128)list`;
@@ -1290,7 +1290,7 @@ let reducelast_close_ghash : tactic =
       REWRITE_TAC[POLYVAL_REDUCE_G2] THEN ASM_REWRITE_TAC[] THEN
       MAP_EVERY EXPAND_TAC ["ks"; "ks'"; "ks''"; "ks'''"] THEN
       CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
-      AP_TERM_TAC THEN POP_ASSUM_LIST(K ALL_TAC) THEN BITBLAST_TAC;
+      AP_TERM_TAC THEN REWRITE_TAC[GSYM karatsuba_join] THEN MATCH_ACCEPT_TAC KARATSUBA_JOIN_XOR4;
       ALL_TAC] THEN
     MP_TAC(ISPECL [`ghash_twist (aes128_cipher (word 0) rk)`;
                    `[cipherblock_1;cipherblock_2;cipherblock_3]:(int128)list`;
@@ -2063,7 +2063,7 @@ let SWPS_LEG1_LC1 = prove
     REWRITE_TAC[POLYVAL_REDUCE_G2] THEN ASM_REWRITE_TAC[] THEN
     MAP_EVERY EXPAND_TAC ["ks"; "ks'"; "ks''"; "ks'''"] THEN
     CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
-    AP_TERM_TAC THEN POP_ASSUM_LIST(K ALL_TAC) THEN BITBLAST_TAC;
+    AP_TERM_TAC THEN REWRITE_TAC[GSYM karatsuba_join] THEN MATCH_ACCEPT_TAC KARATSUBA_JOIN_XOR4;
     ALL_TAC] THEN
   MP_TAC(ISPECL [`ghash_twist (aes128_cipher (word 0) rk)`;
                  `[cipherblock_1;cipherblock_2;cipherblock_3]:(int128)list`;

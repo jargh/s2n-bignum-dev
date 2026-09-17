@@ -352,43 +352,60 @@ let SWP_GHASH_BRANCH2 = prove
   REWRITE_TAC[GSYM NIST_GHASH_IS_POLYVAL] THEN
   DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN AP_TERM_TAC THEN CONV_TAC WORD_BITWISE_RULE);;
 
-(* branch1+branch2 reconstruction of the reduce = nist_ghash..4i+4 (after the goal is that eq) *)
-let SWP_REDUCE_RECON : tactic =
+(* The settled-accumulator GHASH goals.  After DEC_GHASH_NORM_TAC the goal is
+   `word_xor <accumulator half> pending = word_xor (byteswap128 (nist_ghash h acc [four blocks])) pending`;
+   GHASH_SPLIT_TAC cancels the pending term and splits the 128-bit equation into its two 64-bit halves,
+   then GHASH_GROUP_TAC closes it for one group of four blocks: the accumulator acc and the blocks blk 0..3
+   are abbreviated, the goal is bridged through polyval_reduce_prop3, branch 1 is the Karatsuba
+   recombination of the four partial products (KARATSUBA_JOIN_XOR4 after normalizing), and branch 2 is the
+   GHASH step lemma supplied by the caller.  fold folds the input-block reads of the goal (nothing for the
+   steady body, whose blocks are already inblock terms). *)
+let WORD_JOIN_HALVES_CONG = prove
+ (`x:int128 = y ==> word_join (word_subword x (0,64):int64) (word_subword x (64,64):int64):int128 =
+                    word_join (word_subword y (0,64):int64) (word_subword y (64,64):int64):int128`,
+  DISCH_THEN SUBST1_TAC THEN REFL_TAC);;
+
+let GHASH_SPLIT_TAC : tactic =
+  REWRITE_TAC[SWP_JOIN_IS_BSW] THEN REWRITE_TAC[xor_rcancel] THEN
+  REWRITE_TAC [byteswap128; SWP_SUBWORD_JOIN_MID] THEN
+  MATCH_MP_TAC WORD_JOIN_HALVES_CONG;;
+
+let GHASH_GROUP_TAC (fold:tactic) (acc:term) (blk:int->term) (branch2:tactic) : tactic =
+  fold THEN
   MAP_EVERY ABBREV_TAC
-     [`sofar = (nist_ghash (aes128_cipher (word 0) rk) tag0 (list_of_seq (nist_input_block inblock) (4 * i)))`;
-      `cipherblock_0 = nist_input_block inblock (4 * i)`; `cipherblock_1 = nist_input_block inblock (4 * i + 1)`;
-      `cipherblock_2 = nist_input_block inblock (4 * i + 2)`; `cipherblock_3 = nist_input_block inblock (4 * i + 3)`;
+     [mk_eq(`sofar:int128`, acc);
+      mk_eq(`cipherblock_0:int128`, blk 0); mk_eq(`cipherblock_1:int128`, blk 1);
+      mk_eq(`cipherblock_2:int128`, blk 2); mk_eq(`cipherblock_3:int128`, blk 3);
       `h0 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 0`; `h1 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 1`;
       `h2 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 2`; `h3 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 3`] THEN
   REWRITE_TAC[GSYM WORD_SUBWORD_XOR] THEN REWRITE_TAC[RECONSTRUCT_POLYVAL_REDUCE_G2] THEN
   TRANS_TAC EQ_TRANS
-     `polyval_reduce_prop3 (word_xor (word_pmul (cipherblock_3:int128) (h0:int128))
-      (word_xor (word_pmul (cipherblock_2:int128) (h1:int128))
-      (word_xor (word_pmul (cipherblock_1:int128) (h2:int128))
-      (word_pmul (word_xor (sofar:int128) cipherblock_0) (h3:int128)))))` THEN
+     `polyval_reduce_prop3
+          (word_xor (word_pmul (cipherblock_3:int128) (h0:int128))
+          (word_xor (word_pmul (cipherblock_2:int128) (h1:int128))
+          (word_xor (word_pmul (cipherblock_1:int128) (h2:int128))
+          (word_pmul (word_xor (sofar:int128) cipherblock_0) (h3:int128)))))` THEN
   CONJ_TAC THENL
    [REWRITE_TAC[PMUL_KARATSUBA_JOIN_ALT] THEN REWRITE_TAC[byteswap128; WORD_SUBWORD_XOR] THEN
     CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN REWRITE_TAC[karatsuba_mid] THEN ASM_REWRITE_TAC[] THEN
-    REPEAT(LET_TAC THEN ASM_REWRITE_TAC[]) THEN REWRITE_TAC[INBLOCK_REASSEMBLE] THEN
-    REWRITE_TAC[GSYM nist_input_block] THEN ASM_REWRITE_TAC[] THEN
+    REPEAT(LET_TAC THEN ASM_REWRITE_TAC[]) THEN
+    fold THEN REWRITE_TAC[INBLOCK_REASSEMBLE] THEN REWRITE_TAC[GSYM nist_input_block] THEN ASM_REWRITE_TAC[] THEN
     ONCE_REWRITE_TAC[MESON[WORD_XOR_SYM] `word_pmul (word_xor a b) (word_xor c d) = word_pmul (word_xor b a) (word_xor c d)`] THEN
     ASM_REWRITE_TAC[] THEN REWRITE_TAC[POLYVAL_REDUCE_G2] THEN ASM_REWRITE_TAC[] THEN
     MAP_EVERY EXPAND_TAC ["ks"; "ks'"; "ks''"; "ks'''"] THEN
-    CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN AP_TERM_TAC THEN POP_ASSUM_LIST(K ALL_TAC) THEN BITBLAST_TAC ;
+    CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN AP_TERM_TAC THEN
+    REWRITE_TAC[GSYM karatsuba_join] THEN MATCH_ACCEPT_TAC KARATSUBA_JOIN_XOR4;
     MAP_EVERY EXPAND_TAC ["sofar";"cipherblock_0";"cipherblock_1";"cipherblock_2";"cipherblock_3";"h0";"h1";"h2";"h3"] THEN
-    ACCEPT_TAC SWP_GHASH_BRANCH2];;
+    branch2];;
 
-(* the seed-core: goal word_xor(acc-half)(pending) = word_xor(byteswap128 ghash..4i+4)(pending')  *)
-let SWP_SEED_CORE : tactic =
-  REWRITE_TAC[SWP_JOIN_IS_BSW] THEN REWRITE_TAC[xor_rcancel] THEN
-  REWRITE_TAC [byteswap128; SWP_SUBWORD_JOIN_MID] THEN
-  MATCH_MP_TAC(BITBLAST_RULE
-     `x:int128 = y ==> word_join (word_subword x (0,64):int64) (word_subword x (64,64):int64):int128 =
-          word_join (word_subword y (0,64):int64) (word_subword y (64,64):int64):int128`) THEN
-  SWP_REDUCE_RECON;;
-
-(* Q11 conjunct closer [8]: DISCH not needed (rk-fold in asl) *)
-let SWP_Q11_TAC : tactic = DEC_GHASH_NORM_TAC THEN SWP_SEED_CORE;;
+(* The steady body's GHASH closer: group i, accumulator nist_ghash..(4*i), blocks 4*i..4*i+3. *)
+let SWP_GHASH_CORE_TAC : tactic =
+  DEC_GHASH_NORM_TAC THEN GHASH_SPLIT_TAC THEN
+  GHASH_GROUP_TAC ALL_TAC
+    `nist_ghash (aes128_cipher (word 0) rk) tag0 (list_of_seq (nist_input_block inblock) (4 * i))`
+    (fun j -> mk_comb(`nist_input_block inblock`,
+                      if j = 0 then `4 * i` else mk_binop `(+):num->num->num` `4 * i` (mk_small_numeral j)))
+    (ACCEPT_TAC SWP_GHASH_BRANCH2);;
 
 (* generic discharge of wrapped in_p reads via the kept input-forall *)
 let DISCHARGE_INP_READS : tactic =
@@ -622,53 +639,17 @@ let OUTBLK_TAC (addr_rule:thm) : tactic =
 let close_outahead96 : tactic = OUTBLK_TAC (ARITH_RULE `64 * i + 96 = (64 * i + 64) + 32`);;
 let close_outahead112 : tactic = OUTBLK_TAC (ARITH_RULE `64 * i + 112 = (64 * i + 64) + 48`);;
 
-(* ---- SWP_GHASH_CORE_TAC : the crux GHASH-reduce closer (recovered PROVEN, 2026-08-25). NODISCH variant. ----
-   Closes a `word_xor(...)=word_xor(...byteswap128(nist_ghash..4i)...)` GHASH-seed eq via byteswap-split +
-   ABBREV + RECONSTRUCT_POLYVAL_REDUCE_G2 + TRANS through polyval_reduce_prop3 + branch1(Karatsuba+BITBLAST)
-   + branch2(SWP_GHASH_BRANCH2). The branch1 BITBLAST is ~1500-var (native-only, ~117s; exceeds 600s MCP cap). *)
-let SWP_GHASH_CORE_TAC : tactic =
-  DEC_GHASH_NORM_TAC THEN
-  REWRITE_TAC[SWP_JOIN_IS_BSW] THEN REWRITE_TAC[xor_rcancel] THEN
-  REWRITE_TAC [byteswap128; SWP_SUBWORD_JOIN_MID] THEN
-  MATCH_MP_TAC(BITBLAST_RULE
-     `x:int128 = y ==> word_join (word_subword x (0,64):int64) (word_subword x (64,64):int64):int128 =
-          word_join (word_subword y (0,64):int64) (word_subword y (64,64):int64):int128`) THEN
-  MAP_EVERY ABBREV_TAC
-     [`sofar = (nist_ghash (aes128_cipher (word 0) rk) tag0 (list_of_seq (nist_input_block inblock) (4 * i)))`;
-      `cipherblock_0 = nist_input_block inblock (4 * i)`; `cipherblock_1 = nist_input_block inblock (4 * i + 1)`;
-      `cipherblock_2 = nist_input_block inblock (4 * i + 2)`; `cipherblock_3 = nist_input_block inblock (4 * i + 3)`;
-      `h0 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 0`; `h1 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 1`;
-      `h2 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 2`; `h3 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 3`] THEN
-  REWRITE_TAC[GSYM WORD_SUBWORD_XOR] THEN REWRITE_TAC[RECONSTRUCT_POLYVAL_REDUCE_G2] THEN
-  TRANS_TAC EQ_TRANS
-     `polyval_reduce_prop3
-          (word_xor (word_pmul (cipherblock_3:int128) (h0:int128))
-          (word_xor (word_pmul (cipherblock_2:int128) (h1:int128))
-          (word_xor (word_pmul (cipherblock_1:int128) (h2:int128))
-          (word_pmul (word_xor (sofar:int128) cipherblock_0) (h3:int128)))))` THEN
-  CONJ_TAC THENL
-   [REWRITE_TAC[PMUL_KARATSUBA_JOIN_ALT] THEN REWRITE_TAC[byteswap128; WORD_SUBWORD_XOR] THEN
-    CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN REWRITE_TAC[karatsuba_mid] THEN ASM_REWRITE_TAC[] THEN
-    REPEAT(LET_TAC THEN ASM_REWRITE_TAC[]) THEN REWRITE_TAC[INBLOCK_REASSEMBLE] THEN
-    REWRITE_TAC[GSYM nist_input_block] THEN ASM_REWRITE_TAC[] THEN
-    ONCE_REWRITE_TAC[MESON[WORD_XOR_SYM] `word_pmul (word_xor a b) (word_xor c d) = word_pmul (word_xor b a) (word_xor c d)`] THEN
-    ASM_REWRITE_TAC[] THEN REWRITE_TAC[POLYVAL_REDUCE_G2] THEN ASM_REWRITE_TAC[] THEN
-    MAP_EVERY EXPAND_TAC ["ks"; "ks'"; "ks''"; "ks'''"] THEN
-    CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN AP_TERM_TAC THEN POP_ASSUM_LIST(K ALL_TAC) THEN BITBLAST_TAC ;
-    MAP_EVERY EXPAND_TAC ["sofar";"cipherblock_0";"cipherblock_1";"cipherblock_2";"cipherblock_3";"h0";"h1";"h2";"h3"] THEN
-    ACCEPT_TAC SWP_GHASH_BRANCH2];;
 (* Q8 settled partial (word_pmul head): peel the pmul(subword) on the RAW conjunct then core. *)
 let SWP_Q8_TAC : tactic = AP_THM_TAC THEN AP_TERM_TAC THEN AP_THM_TAC THEN AP_TERM_TAC THEN SWP_GHASH_CORE_TAC;;
 (* Q6 compound (word_xor head, seed appears twice): BINOP split -> g0 core, g1 subword-join -> AP_THM/AP_TERM
    then re-split to subword-level + core (or BINOP again). *)
-let SWP_Q6_TAC : tactic = SWP_GHASH_CORE_TAC;;
 let SWP_Q6_FULL_TAC : tactic =
   BINOP_TAC THENL
    [SWP_GHASH_CORE_TAC;
     AP_THM_TAC THEN AP_TERM_TAC THEN
     (SWP_GHASH_CORE_TAC ORELSE (BINOP_TAC THEN SWP_GHASH_CORE_TAC))];;
 
-(* master closer: shape-gated, most-specific first. SWP_Q11_TAC for the big GHASH reduces. *)
+(* master closer: shape-gated, most-specific first. SWP_GHASH_CORE_TAC for the big GHASH reduces. *)
 let CLOSE_V8 : tactic =
   fun (asl,w) ->
     let has c t = can (find_term (fun u -> try fst(dest_const(fst(strip_comb u)))=c with _->false)) t in
@@ -686,13 +667,13 @@ let CLOSE_V8 : tactic =
     else if is_eq w && hd(lhs w)="read" && rh "aes_ctr_block" then MUST (FIRST[close_outahead96; close_outahead112]) (asl,w)
     (* GHASH-reduce goals: RHS mentions nist_ghash (settled accumulator). Peel on RAW then SWP_GHASH_CORE_TAC. *)
     else if is_eq w && rh "nist_ghash" && hd(lhs w)="word_pmul" then MUST (FIRST[SWP_Q8_TAC; SWP_GHASH_CORE_TAC]) (asl,w)
-    else if is_eq w && rh "nist_ghash" && hd(lhs w)="word_xor" then MUST (FIRST[SWP_GHASH_CORE_TAC; SWP_Q6_FULL_TAC; SWP_Q11_TAC]) (asl,w)
-    else if is_eq w && rh "nist_ghash" then MUST (FIRST[SWP_GHASH_CORE_TAC; SWP_Q11_TAC]) (asl,w)
+    else if is_eq w && rh "nist_ghash" && hd(lhs w)="word_xor" then MUST (FIRST[SWP_GHASH_CORE_TAC; SWP_Q6_FULL_TAC]) (asl,w)
+    else if is_eq w && rh "nist_ghash" then MUST SWP_GHASH_CORE_TAC (asl,w)
     (* aes2c-based out-store readback: LHS = word_xor(inblock)(word_xor(rk10)(aese-tower)), RHS = word_xor(aes_ctr_block)(inblock) *)
     else if is_eq w && rh "aes_ctr_block" && (has "aes2c" w || has "aese" (lhs w)) then MUST AES2C_OUT_TAC (asl,w)
     (* byteswap reassembly / Karatsuba partials over reassembled input blocks *)
     else if is_eq w && hd(lhs w)="word_join" then MUST (FIRST[SWP_BYTESWAP_REASSEMBLE_TAC; GHASH_PARTIAL_CLOSE]) (asl,w)
-    else MUST (FIRST[GHASH_PARTIAL_CLOSE; AES2C_OUT_TAC; SWP_Q11_TAC; CTRREG_TAC; ASM_REWRITE_TAC[] THEN TRY REFL_TAC]) (asl,w);;
+    else MUST (FIRST[GHASH_PARTIAL_CLOSE; AES2C_OUT_TAC; SWP_GHASH_CORE_TAC; CTRREG_TAC; ASM_REWRITE_TAC[] THEN TRY REFL_TAC]) (asl,w);;
 
 (* ---- Leg goals ---- *)
 (* Every leg is stated with the main theorem's frame (swp_frame) and with state predicates of the form
@@ -1231,62 +1212,30 @@ let drain_step_tac =
 
 let rhs_has c w = try (is_eq w) && can (find_term (fun u -> try fst(dest_const(fst(strip_comb u)))=c with _->false)) (rhs w) with _->false;;
 
-(* Parameterized settled-Q30 single-group closer.  ktm = the SETTLED group index (acc = nist_ghash..(4*ktm),
-   branch2 uses SWP_GHASH_BRANCH2_SETTLED ktm); off = 0 for subgoal B (blocks 4*(loop_count-2)+0..3), 4 for
-   subgoal A (blocks +4..+7).  The cipherblock ABBREVs use the goal's LITERAL block index 4*(loop_count-2)+(off+j);
-   a pre-branch2 arith bridge reconciles that base to 4*ktm for the SETTLED lemma. *)
+(* The drain's settled-Q30 closer for one group.  ktm = the SETTLED group index (acc = nist_ghash..(4*ktm),
+   branch 2 uses SWP_GHASH_BRANCH2_SETTLED ktm); off = 0 for subgoal B (blocks 4*(loop_count-2)+0..3), 4 for
+   subgoal A (blocks +4..+7).  The block abbreviations use the goal's literal index 4*(loop_count-2)+(off+j);
+   an arithmetic bridge before branch 2 reconciles that base to 4*ktm for the SETTLED lemma. *)
 let GHASH_SETTLE_TAC (ktm:term) (off:int) : tactic =
   let mtm = mk_binop `( * ):num->num->num` `4` ktm in
   let basetm = `4 * (loop_count - 2)` in
-  let sofartm = subst [ktm, `k:num`]
-     `nist_ghash (aes128_cipher (word 0) rk) tag0 (list_of_seq (nist_input_block inblock) (4*k))` in
   let blkidx j = if off+j = 0 then basetm
                  else mk_binop `(+):num->num->num` basetm (mk_small_numeral (off+j)) in
-  DEC_GHASH_NORM_TAC THEN
-  REWRITE_TAC[SWP_JOIN_IS_BSW] THEN REWRITE_TAC[xor_rcancel] THEN
-  REWRITE_TAC [byteswap128; SWP_SUBWORD_JOIN_MID] THEN
-  MATCH_MP_TAC(BITBLAST_RULE
-     `x:int128 = y ==> word_join (word_subword x (0,64):int64) (word_subword x (64,64):int64):int128 =
-          word_join (word_subword y (0,64):int64) (word_subword y (64,64):int64):int128`) THEN
-  INFOLD3 THEN REWRITE_TAC[INBLOCK_REASSEMBLE] THEN REWRITE_TAC[GSYM nist_input_block] THEN ASM_REWRITE_TAC[] THEN
-  MAP_EVERY ABBREV_TAC
-     [ mk_eq(`sofar:int128`, sofartm);
-       mk_eq(`cipherblock_0:int128`, mk_comb(`nist_input_block inblock`, blkidx 0));
-       mk_eq(`cipherblock_1:int128`, mk_comb(`nist_input_block inblock`, blkidx 1));
-       mk_eq(`cipherblock_2:int128`, mk_comb(`nist_input_block inblock`, blkidx 2));
-       mk_eq(`cipherblock_3:int128`, mk_comb(`nist_input_block inblock`, blkidx 3));
-       `h0 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 0`; `h1 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 1`;
-       `h2 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 2`; `h3 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 3`] THEN
-  REWRITE_TAC[GSYM WORD_SUBWORD_XOR] THEN REWRITE_TAC[RECONSTRUCT_POLYVAL_REDUCE_G2] THEN
-  TRANS_TAC EQ_TRANS
-     `polyval_reduce_prop3
-          (word_xor (word_pmul (cipherblock_3:int128) (h0:int128))
-          (word_xor (word_pmul (cipherblock_2:int128) (h1:int128))
-          (word_xor (word_pmul (cipherblock_1:int128) (h2:int128))
-          (word_pmul (word_xor (sofar:int128) cipherblock_0) (h3:int128)))))` THEN
-  CONJ_TAC THENL
-   [REWRITE_TAC[PMUL_KARATSUBA_JOIN_ALT] THEN REWRITE_TAC[byteswap128; WORD_SUBWORD_XOR] THEN
-    CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN REWRITE_TAC[karatsuba_mid] THEN ASM_REWRITE_TAC[] THEN
-    REPEAT(LET_TAC THEN ASM_REWRITE_TAC[]) THEN
-    INFOLD3 THEN
-    REWRITE_TAC[INBLOCK_REASSEMBLE] THEN
-    REWRITE_TAC[GSYM nist_input_block] THEN ASM_REWRITE_TAC[] THEN
-    ONCE_REWRITE_TAC[MESON[WORD_XOR_SYM] `word_pmul (word_xor a b) (word_xor c d) = word_pmul (word_xor b a) (word_xor c d)`] THEN
-    ASM_REWRITE_TAC[] THEN REWRITE_TAC[POLYVAL_REDUCE_G2] THEN ASM_REWRITE_TAC[] THEN
-    MAP_EVERY EXPAND_TAC ["ks"; "ks'"; "ks''"; "ks'''"] THEN
-    CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN AP_TERM_TAC THEN POP_ASSUM_LIST(K ALL_TAC) THEN
-    (CONV_TAC BITBLAST_RULE ORELSE BITBLAST_TAC) ;
-    MAP_EVERY EXPAND_TAC ["sofar";"cipherblock_0";"cipherblock_1";"cipherblock_2";"cipherblock_3";"h0";"h1";"h2";"h3"] THEN
-    (if off = 0 then ALL_TAC else
-       SUBGOAL_THEN
-         (list_mk_conj (map (fun j ->
-            mk_eq(mk_binop `(+):num->num->num` `4*(loop_count-2)` (mk_small_numeral (off+j)),
-                  if j = 0 then mtm else mk_binop `(+):num->num->num` mtm (mk_small_numeral j)))
-          [0;1;2;3]))
-         (fun th -> REWRITE_TAC[th]) THENL
-        [UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC]) THEN
-    MP_TAC(ISPEC ktm SWP_GHASH_BRANCH2_SETTLED) THEN
-    REWRITE_TAC[] THEN DISCH_THEN(fun th -> REWRITE_TAC[th])];;
+  DEC_GHASH_NORM_TAC THEN GHASH_SPLIT_TAC THEN
+  GHASH_GROUP_TAC
+    (INFOLD3 THEN REWRITE_TAC[INBLOCK_REASSEMBLE] THEN REWRITE_TAC[GSYM nist_input_block] THEN ASM_REWRITE_TAC[])
+    (subst [ktm, `k:num`] `nist_ghash (aes128_cipher (word 0) rk) tag0 (list_of_seq (nist_input_block inblock) (4*k))`)
+    (fun j -> mk_comb(`nist_input_block inblock`, blkidx j))
+    ((if off = 0 then ALL_TAC else
+        SUBGOAL_THEN
+          (list_mk_conj (map (fun j ->
+             mk_eq(mk_binop `(+):num->num->num` `4*(loop_count-2)` (mk_small_numeral (off+j)),
+                   if j = 0 then mtm else mk_binop `(+):num->num->num` mtm (mk_small_numeral j)))
+           [0;1;2;3]))
+          (fun th -> REWRITE_TAC[th]) THENL
+         [UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC]) THEN
+     MP_TAC(ISPEC ktm SWP_GHASH_BRANCH2_SETTLED) THEN
+     REWRITE_TAC[] THEN DISCH_THEN(fun th -> REWRITE_TAC[th]));;
 
 (* The settled-Q30 conjunct closer (subgoal A + B via a two-single-group split).  `inter` was abbreviated at
    step 98 (the first reduce's settled accumulator); subgoal B proves inter = byteswap128(nist_ghash..(4*(loop_count-1))),
@@ -1449,50 +1398,20 @@ let iter1_step_tac =
     (K (RULE_ASSUM_TAC(REWRITE_RULE[COND_CLAUSES]))) iter1_merges (1--161);;
 
 (* ---- single-group settled-Q30 closer: acc = tag0 = nist_ghash..(0), blocks 0..3, reduces to
-   nist_ghash..(4).  (This is the clean-body i=0 closer / DRAIN GHASH_SETTLE with k=0, literal indices.) ---- *)
+   nist_ghash..(4).  With the s0 input priming the blocks are already `inblock j`, so the fold may find
+   nothing (TRY).  SWP_GHASH_BRANCH2_SETTLED @ k=0 has `nist_ghash..(4*0)` in the acc slot where the goal
+   has `tag0`; pre-prove nist_ghash..0 = tag0 and fold it into the (NUM_REDUCE'd) lemma. ---- *)
 let ITER1_Q30_TAC : tactic =
-  DEC_GHASH_NORM_TAC THEN
-  REWRITE_TAC[SWP_JOIN_IS_BSW] THEN REWRITE_TAC[xor_rcancel] THEN
-  REWRITE_TAC [byteswap128; SWP_SUBWORD_JOIN_MID] THEN
-  MATCH_MP_TAC(BITBLAST_RULE
-     `x:int128 = y ==> word_join (word_subword x (0,64):int64) (word_subword x (64,64):int64):int128 =
-          word_join (word_subword y (0,64):int64) (word_subword y (64,64):int64):int128`) THEN
-  (* with s0 input-priming the blocks are already `inblock j` (no raw byte towers) -> INFOLD3/INBLOCK_REASSEMBLE
-     may find nothing; guard with TRY. *)
-  TRY INFOLD3 THEN TRY(REWRITE_TAC[INBLOCK_REASSEMBLE]) THEN TRY(REWRITE_TAC[GSYM nist_input_block]) THEN ASM_REWRITE_TAC[] THEN
-  MAP_EVERY ABBREV_TAC
-     [ `sofar:int128 = tag0`;
-       `cipherblock_0:int128 = nist_input_block inblock 0`;
-       `cipherblock_1:int128 = nist_input_block inblock 1`;
-       `cipherblock_2:int128 = nist_input_block inblock 2`;
-       `cipherblock_3:int128 = nist_input_block inblock 3`;
-       `h0 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 0`; `h1 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 1`;
-       `h2 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 2`; `h3 = h_power (ghash_twist (aes128_cipher (word 0) rk)) 3`] THEN
-  REWRITE_TAC[GSYM WORD_SUBWORD_XOR] THEN REWRITE_TAC[RECONSTRUCT_POLYVAL_REDUCE_G2] THEN
-  TRANS_TAC EQ_TRANS
-     `polyval_reduce_prop3
-          (word_xor (word_pmul (cipherblock_3:int128) (h0:int128))
-          (word_xor (word_pmul (cipherblock_2:int128) (h1:int128))
-          (word_xor (word_pmul (cipherblock_1:int128) (h2:int128))
-          (word_pmul (word_xor (sofar:int128) cipherblock_0) (h3:int128)))))` THEN
-  CONJ_TAC THENL
-   [REWRITE_TAC[PMUL_KARATSUBA_JOIN_ALT] THEN REWRITE_TAC[byteswap128; WORD_SUBWORD_XOR] THEN
-    CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN REWRITE_TAC[karatsuba_mid] THEN ASM_REWRITE_TAC[] THEN
-    REPEAT(LET_TAC THEN ASM_REWRITE_TAC[]) THEN
-    TRY INFOLD3 THEN TRY(REWRITE_TAC[INBLOCK_REASSEMBLE]) THEN TRY(REWRITE_TAC[GSYM nist_input_block]) THEN ASM_REWRITE_TAC[] THEN
-    ONCE_REWRITE_TAC[MESON[WORD_XOR_SYM] `word_pmul (word_xor a b) (word_xor c d) = word_pmul (word_xor b a) (word_xor c d)`] THEN
-    ASM_REWRITE_TAC[] THEN REWRITE_TAC[POLYVAL_REDUCE_G2] THEN ASM_REWRITE_TAC[] THEN
-    MAP_EVERY EXPAND_TAC ["ks"; "ks'"; "ks''"; "ks'''"] THEN
-    CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN AP_TERM_TAC THEN POP_ASSUM_LIST(K ALL_TAC) THEN
-    (CONV_TAC BITBLAST_RULE ORELSE BITBLAST_TAC) ;
-    MAP_EVERY EXPAND_TAC ["sofar";"cipherblock_0";"cipherblock_1";"cipherblock_2";"cipherblock_3";"h0";"h1";"h2";"h3"] THEN
-    (* SWP_GHASH_BRANCH2_SETTLED @ k=0 has `nist_ghash..(4*0)` in the acc slot; the goal's acc is `tag0`.
-       Pre-prove nist_ghash..0 = tag0, fold it into the (NUM_REDUCE'd) lemma, then rewrite the goal. *)
-    MP_TAC(REWRITE_RULE
-            [prove(`nist_ghash (aes128_cipher (word 0) rk) tag0 (list_of_seq (nist_input_block inblock) 0) = tag0`,
-                   REWRITE_TAC[list_of_seq; nist_ghash])]
-            (CONV_RULE NUM_REDUCE_CONV (ISPEC `0` SWP_GHASH_BRANCH2_SETTLED))) THEN
-    DISCH_THEN(fun th -> REWRITE_TAC[th])];;
+  DEC_GHASH_NORM_TAC THEN GHASH_SPLIT_TAC THEN
+  GHASH_GROUP_TAC
+    (TRY INFOLD3 THEN REWRITE_TAC[INBLOCK_REASSEMBLE] THEN REWRITE_TAC[GSYM nist_input_block] THEN ASM_REWRITE_TAC[])
+    `tag0:int128`
+    (fun j -> mk_comb(`nist_input_block inblock`, mk_small_numeral j))
+    (MP_TAC(REWRITE_RULE
+             [prove(`nist_ghash (aes128_cipher (word 0) rk) tag0 (list_of_seq (nist_input_block inblock) 0) = tag0`,
+                    REWRITE_TAC[list_of_seq; nist_ghash])]
+             (CONV_RULE NUM_REDUCE_CONV (ISPEC `0` SWP_GHASH_BRANCH2_SETTLED))) THEN
+     DISCH_THEN(fun th -> REWRITE_TAC[th]));;
 
 (* ---- out-store readback closer (RECON): blocks 0,1,2,3; counter base X13=word 2, so ctr = 2,3,4,5.
    Reuse DRAIN's RECON structure but with literal block/counter indices. ---- *)

@@ -496,6 +496,27 @@ let PMUL_KARATSUBA_JOIN_ALT = prove
                  (word_subword p1 (0,64):int64) : int128)`,
   REWRITE_TAC[PMUL_KARATSUBA_JOIN] THEN REWRITE_TAC[WORD_XOR_SYM]);;
 
+(* The Karatsuba recombination of the three 128-bit partial products into the 256-bit product. *)
+let karatsuba_join = new_definition
+ `karatsuba_join (p1:int128) (p2:int128) (p3:int128) : 256 word =
+    word_join (word_join (word_subword p2 (64,64):int64)
+                         (word_xor (word_subword (word_xor (word_xor p1 p2) p3) (64,64):int64)
+                                   (word_subword p2 (0,64):int64)) : int128)
+              (word_join (word_xor (word_subword (word_xor (word_xor p1 p2) p3) (0,64):int64)
+                                   (word_subword p1 (64,64):int64))
+                         (word_subword p1 (0,64):int64) : int128)`;;
+
+(* It is linear over XOR, so the four blocks of a group may be recombined together or separately. *)
+let KARATSUBA_JOIN_XOR4 = prove
+ (`!p1 p2 p3 p1' p2' p3' p1'' p2'' p3'' p1''' p2''' p3''':int128.
+     karatsuba_join (word_xor p1 (word_xor p1' (word_xor p1'' p1''')))
+                    (word_xor p2 (word_xor p2' (word_xor p2'' p2''')))
+                    (word_xor p3 (word_xor p3' (word_xor p3'' p3'''))) =
+     word_xor (karatsuba_join p1''' p2''' p3''')
+              (word_xor (karatsuba_join p1'' p2'' p3'')
+                        (word_xor (karatsuba_join p1' p2' p3') (karatsuba_join p1 p2 p3)))`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[karatsuba_join] THEN BITBLAST_TAC);;
+
 (* ------------------------------------------------------------------------- *)
 (* Helpers for stepping the software-pipelined loop bodies.                  *)
 (* ------------------------------------------------------------------------- *)
