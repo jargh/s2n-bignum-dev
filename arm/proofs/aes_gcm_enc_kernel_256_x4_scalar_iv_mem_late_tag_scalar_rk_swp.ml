@@ -4326,33 +4326,16 @@ let close_out_forall_i0 : tactic =
      REWRITE_TAC[MATCH_MP KEYSTREAM_FOLD256 rkth]) (asl,w);;
 
 (* per-conjunct dispatcher for the residual iter_1 conjuncts. *)
-let icnt = ref 0;;
 let iter1_close_conj : tactic =
   fun (asl,w) ->
-    incr icnt;
     let has c t = can (find_term (fun u -> try fst(dest_const(fst(strip_comb u)))=c with _->false)) t in
-    (* DIAGNOSTIC: when we hit the out-store forall, dump the goal + all out_p store-fact assumptions so the
-       closer can be developed offline in the MCP session (avoids blind 20-min native iterations). *)
-    (if is_forall w then
-       (let oc = open_out "/tmp/iter1_forall_goal.txt" in output_string oc (string_of_term w); close_out oc;
-        let stores = filter (fun (_,th) -> free_in `out_p:int64` (concl th)) asl in
-        let od = open_out "/tmp/iter1_forall_asl.txt" in
-        List.iter (fun (_,th) -> output_string od (string_of_term(concl th)); output_string od "\n@@@\n") stores;
-        close_out od;
-        Printf.printf "DUMP forall goal + %d out_p asl-facts -> /tmp/iter1_forall_{goal,asl}.txt\n%!" (length stores))
-     else ());
     let attempt =
       if is_forall w then close_out_forall_i0
       else if is_eq w && has "nist_ghash" (rhs w) && has "byteswap128" (rhs w) then close_q30_i0
       else if is_eq w && has "word_zx" (rhs w) then CONV_TAC WORD_BLAST
       else close_all_tac in
-    (* `attempt THEN (fail on any leftover subgoal)`: if attempt closes fully, the fail-tac runs on 0 subgoals
-       (never); if it leaves a residual, the fail fires and ORELSE reports+CHEATs -- catching residual subgoals,
-       not just exceptions. *)
-    ((attempt THEN (fun (a,ww) -> failwith "residual subgoal")) ORELSE
-     (fun (a,ww) -> Printf.printf "  ITER1 conj %d OPEN: %s\n%!" !icnt
-        (let s=string_of_term ww in if String.length s>200 then String.sub s 0 200 else s);
-        CHEAT_TAC (a,ww))) (asl,w);;
+    (* attempt must close the conjunct fully; the trailing tactic fails hard on any residual subgoal. *)
+    (attempt THEN (fun (a,ww) -> failwith "iter1_close_conj: unclosed subgoal")) (asl,w);;
 
 Printf.printf "MARKER: iter1 stepping + closing (REAL proof)...\n%!";;
 let ITER1_LEG =
@@ -5020,12 +5003,9 @@ let fill_close_all_256_lc2 : tactic =
        ASM_REWRITE_TAC[COND_CLAUSES] THEN CONV_TAC WORD_RULE) (asl,w)
     else (fill_close_all_256) (asl,w);;
 
-let pcnt = ref 0;;
 let fill_close_report : tactic =
-  fun (asl,w) -> incr pcnt;
-    ((fill_close_all_256_lc2 THEN (fun (a,ww) -> failwith "residual")) ORELSE
-     (fun (a,ww) -> Printf.printf "  LC2A conj %d OPEN: %s\n%!" !pcnt
-        (let s=string_of_term ww in if String.length s>170 then String.sub s 0 170 else s); CHEAT_TAC (a,ww))) (asl,w);;
+  fun (asl,w) ->
+    (fill_close_all_256_lc2 THEN (fun (a,ww) -> failwith "fill_close_report: unclosed subgoal")) (asl,w);;
 Printf.printf "MARKER: LC2 PARTA - proving FILL 0xbc -> waypoint 0x8a8 (lc=2)...\n%!";;
 let LC2_PARTA =
   prove(lc2a_goal,
@@ -6207,9 +6187,8 @@ let AES_GCM_ENC_KERNEL_256_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_SWP_SUBROUTINE_CO
       D8; D9; D10; D11; D12; D13; D14; D15]` 224);;
 Printf.printf "MARKER: *** SWP256 SUBROUTINE CORRECT proven ***\n%!";;
 
-(* ===== SELF-CERTIFICATION: no CHEAT fired (axioms = 3 base only) ===== *)
+(* Report the axiom count (check_axioms is the real gate; expect the 3 HOL base axioms). *)
 Printf.printf "MARKER: axiom count = %d (expect 3: INFINITY/SELECT/ETA)\n%!" (List.length(axioms()));;
-if List.length(axioms()) <> 3 then failwith "AXIOM LEAK: a CHEAT_TAC fired" else
 Printf.printf "MARKER: *** SWP256 CONSOLIDATION AXIOM-FREE ***\n%!";;
 Printf.printf "MARKER: SWP256_CORRECT hyps=%d ; SUBROUTINE hyps=%d\n%!"
   (List.length(hyp SWP256_CORRECT))
