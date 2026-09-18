@@ -945,6 +945,28 @@ Printf.printf "MARKER: swpS256_inv defined, %d conjuncts\n%!"
 (* ========== LEG: fill (post-937 tail of DEVEL_enc256_swp_fill.ml) ========== *)
 
 (* --- helpers (verbatim from 128, mc-agnostic) --- *)
+(* Assumption-list garbage collection (verbatim from aes_gcm_utils.ml): drop a fact about an earlier
+   state when the same fact modulo the state variable already holds of the current state and no other
+   assumption pins that earlier state.  Appended to the per-step pruners gkeepN/gkeepF below so the
+   stale-state forall region-invariants and multi-state facts (which the per-register pruner keeps) do
+   not accumulate across a leg.  *)
+let DISCARD_STALE_TAC sname : tactic = fun (asl,w) ->
+  let sv = mk_var(sname,`:armstate`) in
+  let is_st v = is_var v && type_of v = `:armstate` in
+  let cs = map (fun (_,th) -> concl th) asl in
+  let own c = try (match strip_comb (lhs c) with
+                     (Const("read",_),[_;st]) when is_st st -> [st] | _ -> [])
+              with Failure _ -> [] in
+  let live = itlist (fun c acc ->
+      let svs = filter is_st (frees c) in
+      if length svs >= 2 then union (subtract svs (own c)) acc else acc) cs [] in
+  let cur = filter (vfree_in sv) cs in
+  DISCARD_ASSUMPTIONS_TAC (fun th ->
+    let c = concl th in
+    match filter is_st (frees c) with
+      [s] when s <> sv && not (mem s live) -> exists (aconv (vsubst [sv,s] c)) cur
+    | _ -> false) (asl,w);;
+
 let gc2 keeplist c = try let l=lhs c in let rd,st=dest_comb l in let rr,cc=dest_comb rd in
    if is_const cc && mem (fst(dest_const cc)) keeplist then
      (match st with Var(nm,_) when String.length nm>=2 && nm.[0]='s' ->
@@ -959,7 +981,7 @@ let gkeepN keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
       if (try free_in `in_p:int64` (lhs c) with _->false) then false else
       match gc2 keeplist c with
       Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w));;
+      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w)) THEN DISCARD_STALE_TAC sname;;
 (* Extract (ptr-name, state-index) from a `read (memory :> bytes128 tag_p/ivec_p) sK = V` assumption. *)
 let get_membyteread c =
   try let l = lhs c in
@@ -994,7 +1016,7 @@ let gkeepF keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
        | None ->
          match gc2 keeplist c with
          Some(r,k)->k<List.assoc r mx
-         |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false)))(asl,w));;
+         |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false)))(asl,w)) THEN DISCARD_STALE_TAC sname;;
 let IN_P_ADDR_FOLD_CONV : conv =
   let inner = (REWR_CONV(GSYM ADD_ASSOC) THENC RAND_CONV NUM_ADD_CONV) in
   ONCE_DEPTH_CONV(fun t -> match t with
