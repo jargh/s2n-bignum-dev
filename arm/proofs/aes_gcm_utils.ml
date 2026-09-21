@@ -28,20 +28,23 @@ let ctr_block = new_definition
  ****)
 
 let aes_ctr_block = new_definition
- `aes_ctr_block nonce rk i =
-    word_reversefields 8 (aes128_cipher (ctr_block nonce (i + 2)) rk)`;;
+ `aes_ctr_block (c:num) nonce rk i =
+    word_reversefields 8 (aes128_cipher (ctr_block nonce (i + c)) rk)`;;
 
-(* The i-th ciphertext block: keystream XOR plaintext - little-endian *)
+(* The i-th ciphertext block: keystream XOR plaintext - little-endian.
+   Here c is the initial counter value (the value in the input ivec block),
+   so the i-th block uses counter c + i.  Fixing c = 2 recovers the standard
+   AES-GCM schedule where the first data block uses counter 2. *)
 
 let cipher_block = new_definition
- `cipher_block nonce rk inblock i =
-    word_xor (aes_ctr_block nonce rk i) (inblock i)`;;
+ `cipher_block (c:num) nonce rk inblock i =
+    word_xor (aes_ctr_block c nonce rk i) (inblock i)`;;
 
 (* The NIST convention is big-endian, however *)
 
 let nist_cipher_block = new_definition
- `nist_cipher_block nonce rk inblock i =
-        word_reversefields 8 (cipher_block nonce rk inblock i)`;;
+ `nist_cipher_block (c:num) nonce rk inblock i =
+        word_reversefields 8 (cipher_block c nonce rk inblock i)`;;
 
 (* Restricted Htable predicate: only the entries the kernel actually reads.
    The x4-unrolled loop uses H^1..H^4 and their Karatsuba mid terms (the
@@ -196,23 +199,23 @@ let SCALAR_IV_SPLIT = prove
 
 let X11_SETUP = prove
  (`word_join (ivhi:int64) (ivlo:int64):int128 =
-     word_reversefields 8 (ctr_block nonce 2)
-   ==> ivlo = word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64`,
+     word_reversefields 8 (ctr_block nonce c)
+   ==> ivlo = word_subword (word_reversefields 8 (ctr_block nonce c):int128) (0,64):int64`,
   DISCH_THEN(fun th -> MP_TAC(MATCH_MP SCALAR_IV_SPLIT th)) THEN SIMP_TAC[]);;
 
 let X12_SETUP = prove
  (`word_join (ivhi:int64) (ivlo:int64):int128 =
-     word_reversefields 8 (ctr_block nonce 2)
+     word_reversefields 8 (ctr_block nonce c)
    ==> word_zx (word_zx ivhi:int32):int64 =
        word_zx (word_zx (word_subword
-         (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64):int32):int64`,
+         (word_reversefields 8 (ctr_block nonce c):int128) (64,64):int64):int32):int64`,
   DISCH_THEN(fun th -> MP_TAC(MATCH_MP SCALAR_IV_SPLIT th)) THEN SIMP_TAC[]);;
 
 let X13_SETUP = prove
  (`word_join (ivhi:int64) (ivlo:int64):int128 =
-     word_reversefields 8 (ctr_block nonce 2)
+     word_reversefields 8 (ctr_block nonce c)
    ==> word_zx (word_bytereverse (word_zx (word_ushr ivhi 32):int32):int32):int64
-       = word_zx (word 2:int32):int64`,
+       = word_zx (word c:int32):int64`,
   DISCH_THEN(fun th -> MP_TAC(MATCH_MP SCALAR_IV_SPLIT th)) THEN
   REWRITE_TAC[ctr_block] THEN DISCH_THEN(CONJUNCTS_THEN SUBST1_TAC) THEN
   CONV_TAC BITBLAST_RULE);;
@@ -241,9 +244,9 @@ let CTR_BLOCK_BUILD_INSERT = prove
  (`word_join
      (word_or
        (word_zx ((word_zx (word_subword
-          (word_reversefields 8 (ctr_block nonce 2):int128) (64,64):int64)):int32):int64)
+          (word_reversefields 8 (ctr_block nonce c):int128) (64,64):int64)):int32):int64)
        (word_shl (word_zx (word_bytereverse (word cval:int32)):int64) 32))
-     (word_subword (word_reversefields 8 (ctr_block nonce 2):int128) (0,64):int64)
+     (word_subword (word_reversefields 8 (ctr_block nonce c):int128) (0,64):int64)
      :int128
    = word_reversefields 8 (ctr_block nonce cval)`,
   REWRITE_TAC[ctr_block] THEN CONV_TAC BITBLAST_RULE);;
@@ -273,23 +276,24 @@ let MERGE_CTR128_TAC off sname =
                  mk_var(sname,`:armstate`)]
            (el 1 (CONJUNCTS READ_MEMORY_BYTESIZED_SPLIT))) THEN
   CONV_TAC(ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV) THEN
-  ASM_REWRITE_TAC[] THEN DISCH_TAC;;
+  ASM_REWRITE_TAC[] THEN TRY DISCH_TAC;;
 
 let AES_CTR_BLOCK_RECONSTRUCT = prove
- (`word_reversefields 8 (aes128_cipher (ctr_block nonce (i + 2)) rk) =
-   aes_ctr_block nonce rk i /\
-   word_reversefields 8 (aes128_cipher (ctr_block nonce (i + 3)) rk) =
-   aes_ctr_block nonce rk (i + 1) /\
-   word_reversefields 8 (aes128_cipher (ctr_block nonce (i + 4)) rk) =
-   aes_ctr_block nonce rk (i + 2) /\
-   word_reversefields 8 (aes128_cipher (ctr_block nonce (i + 5)) rk) =
-   aes_ctr_block nonce rk (i + 3)`,
-  REWRITE_TAC[aes_ctr_block; GSYM ADD_ASSOC] THEN
-  CONV_TAC NUM_REDUCE_CONV);;
+ (`word_reversefields 8 (aes128_cipher (ctr_block nonce (i + c)) rk) =
+   aes_ctr_block c nonce rk i /\
+   word_reversefields 8 (aes128_cipher (ctr_block nonce (i + c + 1)) rk) =
+   aes_ctr_block c nonce rk (i + 1) /\
+   word_reversefields 8 (aes128_cipher (ctr_block nonce (i + c + 2)) rk) =
+   aes_ctr_block c nonce rk (i + 2) /\
+   word_reversefields 8 (aes128_cipher (ctr_block nonce (i + c + 3)) rk) =
+   aes_ctr_block c nonce rk (i + 3)`,
+  REWRITE_TAC[aes_ctr_block] THEN
+  REWRITE_TAC[ARITH_RULE `(i+1)+c = i+c+1`; ARITH_RULE `(i+2)+c = i+c+2`;
+              ARITH_RULE `(i+3)+c = i+c+3`]);;
 
 let CIPHER_BLOCK_NIST = prove
- (`cipher_block nonce rk inblock i =
-        word_reversefields 8 (nist_cipher_block nonce rk inblock i)`,
+ (`cipher_block c nonce rk inblock i =
+        word_reversefields 8 (nist_cipher_block c nonce rk inblock i)`,
   REWRITE_TAC[nist_cipher_block; WORD_REVERSEFIELDS_REVERSEFIELDS]);;
 
 (*** Direct implementation of AES128 using the hardware primitives ***)
