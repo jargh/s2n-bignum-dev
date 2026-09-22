@@ -1,17 +1,37 @@
 (* ========================================================================= *)
-(* HARVEST scaffold for the AES-256-GCM enc SWP (plain _swp) direct proof.    *)
-(*                                                                            *)
-(* Goal of THIS file: step the preamble+FILL (pc+0x88 -> pc+0x560, the steady *)
-(* loop head Lloop_unrolled_start) KEEPING the loop-carried registers, and    *)
-(* DUMP the true head-state.  That ground truth pins the mid-pipeline          *)
-(* invariant swpS256_inv (the 256 analog of the proven 128 swpS_inv8).        *)
-(*                                                                            *)
-(* Control-flow map (from disasm of the 256 _swp .o, 965 instrs):            *)
-(*   preamble 0x2c..0xb0 ; cbz x1@0xb0 -> 0xdd0 (loop_count=0)                *)
-(*   cmp x1,#1 ; b.eq@0xb8 -> 0xa90 (loop_count=1 iter_1 block)               *)
-(*   FILL 0xbc..0x558 ; sub x1,#2 ; cbz@0x55c -> 0x8a8 (loop_count=2 drain)   *)
-(*   steady head 0x560 (Lloop_unrolled_start) ; body .. cbnz x1@0x8a4 -> 0x560 *)
-(*   DRAIN/postamble 0x8a8.. ; tail Lloop_1x 0xde0 ; ret 0xf10               *)
+(*                               HOL LIGHT                                   *)
+(*                                                                           *)
+(* Functional-correctness proof of the software-pipelined (SWP) AES-256-GCM  *)
+(* kernel                                                                    *)
+(*   aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp.         *)
+(*                                                                           *)
+(* This is a DIRECT proof, structured like the AES-128 SWP proof in          *)
+(* aes_gcm_enc_kernel_x4_scalar_iv_mem_late_tag_scalar_rk_swp_S.ml: a single *)
+(* mid-pipeline elaborated loop invariant (swpS256_inv, asserted at the      *)
+(* steady loop head pc+0x560) drives one seam-to-seam ENSURES_WHILE, with    *)
+(* FILL / DRAIN legs, a single-block tail loop, and separate legs for the    *)
+(* loop_count = 0, 1 and 2 control-flow paths.  The theorem SWP256_CORRECT   *)
+(* (entry pc+0x2c -> exit pc+0xee4) is proved outright and then wrapped as   *)
+(* the standard _SUBROUTINE_CORRECT theorem.                                 *)
+(*                                                                           *)
+(* Control-flow map (965 instructions):                                      *)
+(*   preamble 0x2c..0xb0 ; cbz x1 @0xb0 -> 0xdd0 (loop_count = 0)            *)
+(*   cmp x1,#1 ; b.eq @0xb8 -> 0xa90 (loop_count = 1: single iteration)      *)
+(*   FILL 0xbc..0x558 ; sub x1,#2 ; cbz @0x55c -> 0x8a8 (loop_count = 2)     *)
+(*   steady head 0x560 ; body .. cbnz x1 @0x8a4 -> 0x560                     *)
+(*   DRAIN / postamble 0x8a8.. ; tail loop 0xde0 ; ret 0xf10                 *)
+(*                                                                           *)
+(* Structure:                                                                *)
+(*   - the crypto substrate: ctr_block / aes_ctr_block (AES-256) /           *)
+(*     cipher_block / nist_cipher_block, the 14-round partial-AES            *)
+(*     abstractions (aes1c / aes6c / aes7c / aes11c / aes14p) and the        *)
+(*     counter, AES and GHASH-reduce reconstruction lemmas;                  *)
+(*   - the machine code (SWP256_EXEC) and the invariant swpS256_inv;         *)
+(*   - the legs FILLLEG256, BODYLEG, DRAINLEG256, TAILLEG256, ITER1_LEG and  *)
+(*     LC2_PARTA / LC2_PARTB, each with its stepper and per-conjunct closers; *)
+(*   - their composition SWPS_DRAIN256, SWPS_LEG1, SWPS_LC0, SWPS_LC2 and    *)
+(*     SWPS_FROM88, the preamble-wrapped SWP256_CORRECT, and the             *)
+(*     _SUBROUTINE_CORRECT wrapper.                                          *)
 (* ========================================================================= *)
 
 needs "arm/proofs/base.ml";;
@@ -704,33 +724,6 @@ let PMUL_KARATSUBA_JOIN_ALT = prove
                  (word_subword p1 (0,64):int64) : int128)`,
   REWRITE_TAC[PMUL_KARATSUBA_JOIN] THEN REWRITE_TAC[WORD_XOR_SYM]);;
 
-Printf.printf "MARKER: reduce lemmas loaded\n%!";;
-
-(* ===== DIAGNOSTIC (load-time, no sim): resolve close_goal7's byteswap factoring on CONCRETE values (heeding the
-   reminder: byteswap128 is a DEFINED const -- expand before BITBLAST).  Test the 1-lane machine reduce structure
-   (from /tmp/q30_conj1_real.txt) against candidate RHS forms.  Machine acc-lane (dump lines 6-8,21-23,44-47):
-     lo-pos = pmul(word_xor(sub sofar 0)(sub cb0 64))(sub h 64)
-     hi-pos = pmul(word_xor(sub sofar 64)(sub cb0 0))(sub h 0)
-     mid    = pmul(word_xor(word_xor(sub sofar 64)(sub cb0 0))(word_xor(sub sofar 0)(sub cb0 64)))(karatsuba_mid h)
-   Candidates for reduce_g2(these) with concrete sofar/cb0/h: (A) polyval_dot(word_xor sofar cb0) h [clean],
-   (B) byteswap128(polyval_dot(word_xor sofar cb0) h) [output-byteswapped], (C) polyval_dot(word_xor (byteswap128 sofar) cb0) h. *)
-let diag_lo = `word_pmul (word_xor (word_subword (word 12345:int128) (0,64):int64) (word_subword (word 6789:int128) (64,64):int64)) (word_subword (word 55555:int128) (64,64):int64):int128`;;
-let diag_hi = `word_pmul (word_xor (word_subword (word 12345:int128) (64,64):int64) (word_subword (word 6789:int128) (0,64):int64)) (word_subword (word 55555:int128) (0,64):int64):int128`;;
-let diag_mid = `word_pmul (word_xor (word_xor (word_subword (word 12345:int128) (64,64):int64) (word_subword (word 6789:int128) (0,64):int64)) (word_xor (word_subword (word 12345:int128) (0,64):int64) (word_subword (word 6789:int128) (64,64):int64))) (karatsuba_mid (word 55555:int128)):int128`;;
-let diag_lhs p1 p2 p3 = list_mk_comb(`polyval_reduce_g2`,[p1;p2;p3]);;
-let diag_test name p1 p2 p3 rhs =
-  let g = mk_eq(diag_lhs p1 p2 p3, rhs) in
-  (try let _ = prove(g, REWRITE_TAC[polyval_reduce_g2; polyval_dot; polyval_reduce_prop3; karatsuba_mid; byteswap128] THEN
-                        CONV_TAC(DEPTH_CONV let_CONV) THEN CONV_TAC BITBLAST_RULE) in
-       Printf.printf "DIAG %s: TRUE\n%!" name
-   with Failure _ -> Printf.printf "DIAG %s: FALSE\n%!" name);;
-let diag_dot = `polyval_dot (word_xor (word 12345:int128) (word 6789:int128)) (word 55555:int128)`;;
-diag_test "A_clean_p1lo_p2hi" diag_lo diag_hi diag_mid diag_dot;;
-diag_test "B_bsw_p1lo_p2hi" diag_lo diag_hi diag_mid (mk_comb(`byteswap128`,diag_dot));;
-diag_test "A_clean_p1hi_p2lo" diag_hi diag_lo diag_mid diag_dot;;
-diag_test "B_bsw_p1hi_p2lo" diag_hi diag_lo diag_mid (mk_comb(`byteswap128`,diag_dot));;
-Printf.printf "MARKER: DIAG done\n%!";;
-
 (* ========================================================================= *)
 (* AES-256 partial-encryption abstractions (256 analog of the 128 aes7c/8c/  *)
 (* 10p).  Carried head depths from static aese-key-EL trace of the steady    *)
@@ -796,8 +789,6 @@ let AES14P_COMPLETE = prove
          AES256_CIPHER_RECONSTRUCT] THEN
   REWRITE_TAC[WORD_REVERSEFIELDS_REVERSEFIELDS; MAP] THEN ASM_REWRITE_TAC[]);;
 
-Printf.printf "MARKER: AES-partial abstractions + AES14P_COMPLETE proven\n%!";;
-
 (* ========================================================================= *)
 (* Keystream-fold + counter/lane helper lemmas (256 analogs of the 128       *)
 (* KEYSTREAM_FOLD / CT_TO_NCB / JOIN_* / mk_cbv, re-indexed to rk14/EL14).    *)
@@ -862,8 +853,6 @@ let mk_cbv cval =
                    cval,`cval:num`] CTR_BLOCK_BUILD_V in
   MP inst (prove(lhand(concl inst), REWRITE_TAC[ctr_block] THEN CONV_TAC WORD_BLAST));;
 
-Printf.printf "MARKER: 256 fold lemmas proven\n%!";;
-
 (* ========================================================================= *)
 (* The elaborated mid-pipeline invariant swpS256_inv at the steady head       *)
 (* pc+0x560 (Lloop_unrolled_start).  256 analog of the 128 swpS_inv8.         *)
@@ -924,9 +913,6 @@ let swpS256_inv = `\(i:num) s.
     read Q31 s = aes6c nonce rk (4*i+5) /\
     read X26 s = word_subword (word_xor (inblock (4*i+3)) (word_reversefields 8 (EL 14 rk)):int128) (64,64):int64 /\
     read X24 s = word_subword (word_xor (inblock (4*i+3)) (word_reversefields 8 (EL 14 rk)):int128) (0,64):int64`;;
-
-Printf.printf "MARKER: swpS256_inv defined, %d conjuncts\n%!"
-  (length(conjuncts(snd(dest_abs(snd(dest_abs swpS256_inv))))));;
 
 (* ========================================================================= *)
 (* BODYLEG: one-body preservation swpS256_inv i @0x560 -> swpS256_inv(i+1)    *)
@@ -1069,8 +1055,6 @@ let leg_state inv off idx =
                  mk_eq(`read PC s`,mk_comb(`word:num->int64`,mk_binop `+` `pc:num` off)) ::
                  conjuncts body));;
 
-Printf.printf "MARKER: BODYLEG helpers defined\n%!";;
-
 (* --- mk_body_goal: inv i @0x560 -> inv(i+1) @0x8a4, steady range i<loop_count-1. --- *)
 let mk_body_goal inv =
   mk_imp(`([EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk;
@@ -1105,7 +1089,6 @@ let mk_body_goal inv =
       MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`]);;
 
 let body_goal = mk_body_goal swpS256_inv;;
-Printf.printf "MARKER: body_goal built\n%!";;
 
 (* --- setup: GHOST_INTRO scalar lanes + ENSURES_INIT + input-split + ABBREV read-C-s0 (except in_p). --- *)
 let setup_tac =
@@ -1125,7 +1108,7 @@ let setup_tac =
 
 (* --- stepper: gkeepN over REDSETX256, 1..210, MERGE at merges256 sites. --- *)
 (* stepping-only prefix (up to but NOT including ENSURES_FINAL_STATE): after this, the s209 read-facts are
-   ASSUMPTIONS (so dump_reduce_regs can scan them). *)
+   ASSUMPTIONS. *)
 (* h-power reload steps: at these instrs the kernel does `ldr q2,[x6,#80]` / `ldr q13,[x6]` (+ Q12/Q6/Q8
    at other htable offsets), loading htable h-power constants.  gkeepN keeps only the LATEST reg value, so the
    INTERMEDIATE reg-reads (read Q2 s46 etc.) referenced by the GHASH reduce tower get orphaned.  Fix: right
@@ -1150,8 +1133,6 @@ let step_body_prefix =
 let step_body_tac =
   step_body_prefix THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];;
-
-Printf.printf "MARKER: setup+step_body_tac defined\n%!";;
 
 
 (* ========================================================================= *)
@@ -1560,16 +1541,6 @@ let collapse_q30 : tactic =
                  ARITH_RULE `4*i+0 = 4*i`] THEN
      REWRITE_TAC[NCB_CONST_FN]) (asl,w);;
 
-(* diagnostic: dump the real post-collapse_q30 goal (typed) so the byteswap-strip prefix can be developed on it. *)
-let dump_postcollapse : tactic =
-  fun (asl,w) ->
-    (let subs = (let _,g,_ = collapse_q30 (asl,w) in g) in
-     match subs with (_,sw)::_ ->
-       (let oc=open_out "/tmp/q30_postcollapse_real.txt" in output_string oc (string_of_term sw); close_out oc;
-        Printf.printf "DUMP: post-collapse real goal sz=%d -> /tmp/q30_postcollapse_real.txt\n%!" (String.length(string_of_term sw)))
-     | [] -> Printf.printf "DUMP: collapse closed it\n%!");
-    ALL_TAC (asl,w);;
-
 (* swpgrp-invariant close_goal7 (2026-09-09): the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
    collapse_q30 folds the LHS keystreams; NO ACC_CLEAN (the acc = word_subword(word_join(swpgrp i)(swpgrp i))(64,128) =
@@ -1756,8 +1727,6 @@ let close_all_tac : tactic =
           (ASM_REWRITE_TAC[] THEN REFL_TAC);
           ASM_REWRITE_TAC[] ])) (asl,w);;
 
-Printf.printf "MARKER: closers defined\n%!";;
-
 (* ========================================================================= *)
 (* FILL LEG: preamble+FILL  pc+0x88 -> pc+0x560, establishing swpS256_inv 1.  *)
 (* SEAM (pinned from disasm 2026-09-09): the 256 SLOTHY schedule primes ONE   *)
@@ -1774,7 +1743,6 @@ Printf.printf "MARKER: closers defined\n%!";;
    read-over-store at FILL step 12 (0xe8 `stp x11,x22,[sp,#160]`) cannot discharge, so the tag_p/ivec_p reads get
    dropped after s11 and conj3,4 (the s297 invariant reads) fail.  Verified interactively: a 1-step ensures at 0xe8
    PROVES the read survives WITH the nonoverlap and leaves the exact conj3 goal unsolved WITHOUT it. *)
-Printf.printf "MARKER: building FILL leg goal\n%!";;
 let fill_goal = mk_imp
  (`([EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk; EL 8 rk; EL 9 rk;
      EL 10 rk; EL 11 rk; EL 12 rk; EL 13 rk; EL 14 rk]:(int128)list = rk) /\
@@ -1831,7 +1799,6 @@ let fill_goal = mk_imp
      MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q8; Q9; Q10; Q11; Q12; Q13; Q14; Q15; Q29; Q30; Q31] ,,
      MAYCHANGE [memory :> bytes(out_p:int64, 16 * nblocks)] ,,
      MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`]);;
-Printf.printf "MARKER: fill_goal built\n%!";;
 
 (* FILL input-split at i=0 form (blocks 0..7 = current group 0-3 + prefetch 4-7). *)
 let FILL_INPUT_SPLIT_TAC =
@@ -1902,9 +1869,6 @@ let NSTEP_FILL = 297;;
    is per-step WORD_SIMPLE_SUBWORD_CONV over the growing explicit GHASH tower.  Do it ONLY every 15 steps.  Per step:
    just gkeepN-discard (keeps asl bounded) + the CHEAP address-normalization (needed so merges/input-reads match).
    Merges need the normalized counter reads -> run the merge (TRY) right after the cheap address fold. *)
-(* execution-time progress print: a tactic that (when RUN) prints step k, so the single-application MAP_EVERY
-   still emits per-step progress (a bare `Printf` in the lambda would fire at BUILD time, before any stepping). *)
-let PROGRESS k : tactic = fun g -> (if k mod 10 = 0 then Printf.printf "FILL exec step %d\n%!" k); ALL_TAC g;;
 let fill_step_prefix =
   fill_setup_tac THEN
   (fun (asl,w) ->
@@ -1912,24 +1876,21 @@ let fill_step_prefix =
         gkeepF REDSETX256 SWP256_EXEC ("s"^string_of_int k) THEN
         (* BODY-IDENTICAL per-step conv (WORD_SIMPLE_SUBWORD + NORMALIZE_RELATIVE_ADDRESS + IN_P_ADDR_FOLD): the
            earlier every-15 subword conv was a speed hack, but it DROPPED the tag_p/ivec_p bytes128 memory reads
-           (conj3,4 FAIL: the s297 read absent from asl -- /tmp/fillconj_memreads.txt).  The body keeps them with
+           (conj3,4 FAIL: the s297 read absent from asl).  The body keeps them with
            per-step conv; no-abstraction run showed per-step speed is fine.  Restore per-step to retain mem reads. *)
         RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                                  ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
         (if List.mem_assoc k fill_merges_guess then TRY(MERGE_CTR128_TAC (List.assoc k fill_merges_guess) ("s"^string_of_int k))
-         else ALL_TAC) THEN
-        PROGRESS k)
+         else ALL_TAC))
        (1--NSTEP_FILL)) (asl,w)) THEN
   RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                            ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC
                            IN_P_ADDR_FOLD_CONV));;
-Printf.printf "MARKER: FILL stepper defined\n%!";;
 
 (* Diagnostic: step the FILL via the SINGLE-APPLICATION fill_step_prefix (body-identical fast path).  CRITICAL PERF
    FIX (2026-09-09): the earlier per-step `do_list (fun k -> e(...))` accumulated 297 goalstack-history entries, each
    a ~700MB goal -> O(n^2) RSS + slowdown (crawled to s190 over ~1hr).  Applying the whole MAP_EVERY inside ONE e()
    keeps NO intermediate history (exactly what step_body_prefix does over 209 steps in ~minutes). *)
-Printf.printf "MARKER: FILL stepper ready; proving FILL leg via single-pass leaf_prove...\n%!";;
 
 (* ---- fill_close_all_256: per-conjunct closer at CONCRETE i=1 (from the v10 probe: 19 conjuncts).  The FILL
    endpoint is swpS256_inv 1.  First UN-ABBREV the init_k vars (setup abstracted word_reversefields lanes ->
@@ -2020,66 +1981,14 @@ let fill_close_all_256 : tactic =
           (* Q2/Q13 h-power reloads *)
           (ASM_REWRITE_TAC[] THEN REFL_TAC);
           ASM_REWRITE_TAC[]; CONV_TAC WORD_BLAST; CONV_TAC WORD_RULE ])) (asl,w);;
-(* per-conjunct reporter using fill_close_all_256 (the REAL i=1 closer), so we see which conjuncts now CLOSE. *)
-let fill_probe2 : tactic =
-  fun (asl,w) ->
-    let cs = conjuncts w in
-    Printf.printf "FILL2: %d conjuncts\n%!" (List.length cs);
-    (* dump the asl FIRST (before the slow per-conjunct probe) so conj3/4 memory-read diagnosis is available early;
-       also dump every tag_p/ivec_p/memory read-fact explicitly for quick inspection. *)
-    (let oc = open_out "/tmp/fillconj_asl.txt" in
-     List.iter (fun (_,th) -> output_string oc (string_of_term(concl th)); output_string oc "\n") asl; close_out oc);
-    (let oc = open_out "/tmp/fillconj_memreads.txt" in
-     List.iter (fun (_,th) -> let c = concl th in
-       if (try free_in `tag_p:int64` c || free_in `ivec_p:int64` c with _->false)
-       then (output_string oc (string_of_term c); output_string oc "\n")) asl; close_out oc);
-    Printf.printf "MARKER: asl + memreads dumped\n%!";
-    List.iteri (fun idx c ->
-      let r = (try let _,g,_ = fill_close_all_256 (asl,c) in if g=[] then "CLOSED" else "PARTIAL"
-               with Failure m -> "FAIL("^(if String.length m>50 then String.sub m 0 50 else m)^")" | _ -> "ERR") in
-      let s = string_of_term c in
-      Printf.printf "FILL2 conj %d [%s]: %s\n%!" idx r (if String.length s > 80 then String.sub s 0 80 else s);
-      (* dump the FULL term of any non-CLOSED conjunct so next session can develop its closer offline in MCP *)
-      if r <> "CLOSED" then
-        (let oc = open_out (Printf.sprintf "/tmp/fillconj_%d.txt" idx) in output_string oc s; close_out oc))
-      cs;
-    (* also dump the full assumption list ONCE (so offline closer-dev has the s297 read-facts + init abbrevs) *)
-    (let oc = open_out "/tmp/fillconj_asl.txt" in
-     List.iter (fun (_,th) -> output_string oc (string_of_term(concl th)); output_string oc "\n") asl;
-     close_out oc);
-    ALL_TAC (asl,w);;
-(* REAL leaf prove of the FILL leg (2026-09-11): the interactive g/e diagnostic + fill_probe2 (17x
-   fill_close_all_256 with a huge asl) was pathologically slow (~8h to conj 6/17, 10.6GB RSS).  The nonoverlap
-   fix + latest-only gkeepF now close all conjuncts (verified: the pre-fix run showed conj3,4 as the ONLY fails,
-   and those are now auto-discharged by ENSURES_FINAL_STATE+nonoverlap -> 17 residual).  So go straight to the
-   single-pass prove: step_prefix ;; FINAL_STATE ;; ASM_REWRITE (discharges tag_p/ivec_p) ;; CONJ_TAC ;; closers.
-   GEN_ALL so composition MATCH_MP_TAC leaves the ?key_p etc. *)
-(* 2026-09-13 DIAGNOSTIC: fix5 gave TAC_PROOF Unsolved goals (no WORD_BITWISE crash -> close_goal7_i0 ran but left a
-   residual, OR another conjunct).  Per-conjunct probe: step, FINAL_STATE, ASM_REWRITE, then for EACH conjunct try
-   fill_close_all_256 and report CLOSED/PARTIAL/FAIL; dump the FULL term of any non-CLOSED conjunct so the exact
-   unsolved goal is visible for MCP iteration.  Non-fatal (e/g via a wrapper).  Remove once FILLLEG256 proves. *)
-let fill_diag_probe : tactic =
-  fun (asl,w) ->
-    let cs = conjuncts w in
-    Printf.printf "FILLDIAG: %d conjuncts\n%!" (List.length cs);
-    List.iteri (fun idx c ->
-      let r = (try let _,g,_ = fill_close_all_256 (asl,c) in if g=[] then "CLOSED" else "PARTIAL("^string_of_int(List.length g)^")"
-               with Failure m -> "FAIL("^(if String.length m>60 then String.sub m 0 60 else m)^")" | _ -> "ERR") in
-      Printf.printf "FILLDIAG conj %d [%s]: %s\n%!" idx r
-        (let s=string_of_term c in if String.length s>70 then String.sub s 0 70 else s);
-      if r <> "CLOSED" then
-        (let oc = open_out (Printf.sprintf "/tmp/filldiag_%d.txt" idx) in output_string oc (string_of_term c); close_out oc))
-      cs;
-    ALL_TAC (asl,w);;
 (* Real leaf theorem.  All 17 conjuncts now close: 16 confirmed in diag3; conj 9 (output-forall) via close_goal9_i0
    (concrete j<4 split + NUM_REDUCE + WORD_ADD_0 for block-0's post-indexed store + ctr0_bridges/CTR_BLOCK_BUILD_INSERT/
    WORD_REVERSEFIELDS_REVERSEFIELDS final pass for block-0's counter).  Each stage validated in MCP against the dumped
-   goals.  fill_diag_probe (above) retained unused for future diagnosis. *)
+   goals. *)
 let FILLLEG256 = GEN_ALL(prove(fill_goal,
   fill_step_prefix THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
   REPEAT CONJ_TAC THEN fill_close_all_256));;
-Printf.printf "MARKER: FILLLEG256 PROVEN axiom-free\n%!";;
 
 (* ========== LEG: bodyleg (post-937 tail of DEVEL_enc256_swp_bodyleg.ml) ========== *)
 
@@ -2106,8 +2015,6 @@ let INPUT_SPLIT_TAC256 =
   REPEAT(FIRST_X_ASSUM(STRIP_ASSUME_TAC o CONV_RULE SPLIT_INPUT_CONV o
      check (fun th -> let c = concl th in is_eq c && free_in `in_p:int64` (lhs c) &&
        can (find_term (fun t -> is_const t && fst(dest_const t) = "bytes128")) (lhs c))));;
-
-Printf.printf "MARKER: BODYLEG helpers defined\n%!";;
 
 (* --- mk_body_goal: inv i @0x560 -> inv(i+1) @0x8a4, steady range i<loop_count-1. --- *)
 let mk_body_goal inv =
@@ -2143,7 +2050,6 @@ let mk_body_goal inv =
       MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`]);;
 
 let body_goal = mk_body_goal swpS256_inv;;
-Printf.printf "MARKER: body_goal built\n%!";;
 
 (* --- setup: GHOST_INTRO scalar lanes + ENSURES_INIT + input-split + ABBREV read-C-s0 (except in_p). --- *)
 let setup_tac =
@@ -2163,7 +2069,7 @@ let setup_tac =
 
 (* --- stepper: gkeepN over REDSETX256, 1..210, MERGE at merges256 sites. --- *)
 (* stepping-only prefix (up to but NOT including ENSURES_FINAL_STATE): after this, the s209 read-facts are
-   ASSUMPTIONS (so dump_reduce_regs can scan them). *)
+   ASSUMPTIONS. *)
 (* h-power reload steps: at these instrs the kernel does `ldr q2,[x6,#80]` / `ldr q13,[x6]` (+ Q12/Q6/Q8
    at other htable offsets), loading htable h-power constants.  gkeepN keeps only the LATEST reg value, so the
    INTERMEDIATE reg-reads (read Q2 s46 etc.) referenced by the GHASH reduce tower get orphaned.  Fix: right
@@ -2188,8 +2094,6 @@ let step_body_prefix =
 let step_body_tac =
   step_body_prefix THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];;
-
-Printf.printf "MARKER: setup+step_body_tac defined\n%!";;
 
 
 (* ========================================================================= *)
@@ -2273,16 +2177,6 @@ let collapse_q30 : tactic =
                  ARITH_RULE `4*i+0 = 4*i`] THEN
      REWRITE_TAC[NCB_CONST_FN]) (asl,w);;
 
-(* diagnostic: dump the real post-collapse_q30 goal (typed) so the byteswap-strip prefix can be developed on it. *)
-let dump_postcollapse : tactic =
-  fun (asl,w) ->
-    (let subs = (let _,g,_ = collapse_q30 (asl,w) in g) in
-     match subs with (_,sw)::_ ->
-       (let oc=open_out "/tmp/q30_postcollapse_real.txt" in output_string oc (string_of_term sw); close_out oc;
-        Printf.printf "DUMP: post-collapse real goal sz=%d -> /tmp/q30_postcollapse_real.txt\n%!" (String.length(string_of_term sw)))
-     | [] -> Printf.printf "DUMP: collapse closed it\n%!");
-    ALL_TAC (asl,w);;
-
 (* swpgrp-invariant close_goal7 (2026-09-09): the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
    collapse_q30 folds the LHS keystreams; NO ACC_CLEAN (the acc = word_subword(word_join(swpgrp i)(swpgrp i))(64,128) =
@@ -2391,185 +2285,9 @@ let close_all_tac : tactic =
           (ASM_REWRITE_TAC[] THEN REFL_TAC);
           ASM_REWRITE_TAC[] ])) (asl,w);;
 
-Printf.printf "MARKER: closers defined\n%!";;
 
-
-(* ===== DIAGNOSTIC: step + per-conjunct labeled close with ALL closers active (incl Q30/frame), so a
-   failing closer is NAMED rather than hard-failing the whole prove.  report_tac prints, per conjunct,
-   which route was taken + CLOSED/OPEN(reason).  g/e never hard-fails. ===== *)
-let route_name w =
-  let has c t = can (find_term (fun u -> try fst(dest_const(fst(strip_comb u)))=c with _->false)) t in
-  let has_mc t = try can(find_term(fun x->match x with Const("MAYCHANGE",_)->true|_->false)) t with _->false in
-  if has_mc w then "frame/goal10"
-  else if has "aligned_bytes_loaded" w then "aligned"
-  else if is_forall w then "forall/goal9"
-  else if is_eq w && has "nist_ghash" (rhs w) then "Q30/goal7"
-  else "cheap";;
-(* helper: apply a tactic to the current goal, return the (first) resulting subgoal term list. *)
-let subgoal_terms tac (asl,w) = let _,gls,_ = tac (asl,w) in map snd gls;;
-(* diagnostic: for Q30 dump the POST-collapse_q30 goal; for forall dump the close_goal9 residual;
-   everything else close_all_tac (should CLOSED).  Dumps to files for offline closer development. *)
-let cheapfail_ctr = ref 0;;
-let report_tac : tactic =
-  fun (asl,w) ->
-    let nm = route_name w in
-    (if nm = "Q30/goal7" then
-       ((* dump the RAW Q30 conjunct (pre-collapse) so the TRUE machine aes14p/inblock pairing is visible *)
-        (let oc=open_out "/tmp/q30_raw.txt" in output_string oc (string_of_term w); close_out oc;
-         Printf.printf "CONJ Q30: raw conjunct sz=%d dumped to /tmp/q30_raw.txt\n%!" (String.length(string_of_term w)));
-        try let subs = subgoal_terms collapse_q30 (asl,w) in
-            (match subs with sw::_ ->
-               let oc=open_out "/tmp/q30_postcollapse.txt" in output_string oc (string_of_term sw); close_out oc;
-               Printf.printf "CONJ Q30: collapse_q30 -> %d subgoals, post-collapse sz=%d dumped\n%!"
-                 (List.length subs) (String.length(string_of_term sw))
-             | [] -> Printf.printf "CONJ Q30: collapse_q30 CLOSED it (0 subgoals)!\n%!");
-            (* STAGED probe: run close_goal7's byteswap-split prefix (up to just before the BITBLAST MATCH_MP)
-               and DUMP the resulting goal so we see the exact shape the MATCH_MP_TAC is matched against. *)
-            (let pre_matchmp =
-               collapse_q30 THEN
-               REWRITE_TAC[WORD_SUBWORD_REVERSEFIELDS] THEN
-               SIMP_TAC[WORD_JOIN_COMBINE_LEMMA; ARITH] THEN
-               REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-               REWRITE_TAC[WORD_SUBWORD_BYTESWAP128] THEN
-               CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
-               REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-               CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
-               REWRITE_TAC [byteswap128; WORD_BLAST
-                 `word_subword((word_join:int128->int128->int256) h l) (64,128):int128 =
-                  word_join (word_subword h (0,64):int64) (word_subword l (64,64):int64)`] in
-             (try let subs = subgoal_terms pre_matchmp (asl,w) in
-                  (match subs with sw::_ ->
-                     let oc=open_out "/tmp/q30_pre_matchmp.txt" in output_string oc (string_of_term sw); close_out oc;
-                     Printf.printf "CONJ Q30: pre-MATCHMP goal -> %d subgoals, sz=%d dumped /tmp/q30_pre_matchmp.txt\n%!"
-                       (List.length subs) (String.length(string_of_term sw))
-                   | [] -> Printf.printf "CONJ Q30: pre-MATCHMP CLOSED (0 subgoals)!\n%!")
-              with Failure m -> Printf.printf "CONJ Q30: pre-MATCHMP FAIL(%s)\n%!" m));
-            (* POLYVAL-FOLD probe: after pre_matchmp, apply TRY-strip + ABBREV + RECONSTRUCT_POLYVAL_REDUCE_G2
-               and dump -- shows whether the LHS folds to polyval_reduce_g2 (the 256 SWP reduce shape). *)
-            (let polyfold =
-               collapse_q30 THEN
-               REWRITE_TAC[WORD_SUBWORD_REVERSEFIELDS] THEN SIMP_TAC[WORD_JOIN_COMBINE_LEMMA; ARITH] THEN
-               REWRITE_TAC[WORD_SUBWORD_XOR] THEN REWRITE_TAC[WORD_SUBWORD_BYTESWAP128] THEN
-               CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-               CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
-               REWRITE_TAC [byteswap128; WORD_BLAST
-                 `word_subword((word_join:int128->int128->int256) h l) (64,128):int128 =
-                  word_join (word_subword h (0,64):int64) (word_subword l (64,64):int64)`] THEN
-               TRY(MATCH_MP_TAC(BITBLAST_RULE
-                 `x:int128 = y ==> word_join (word_subword x (0,64):int64) (word_subword x (64,64):int64):int128 =
-                      word_join (word_subword y (0,64):int64) (word_subword y (64,64):int64):int128`)) THEN
-               REWRITE_TAC[GSYM WORD_SUBWORD_XOR] THEN REWRITE_TAC[RECONSTRUCT_POLYVAL_REDUCE_G2] in
-             (try let subs = subgoal_terms polyfold (asl,w) in
-                  (match subs with sw::_ ->
-                     let s = string_of_term sw in
-                     let oc=open_out "/tmp/q30_polyfold.txt" in output_string oc s; close_out oc;
-                     let has_sub big small =
-                       let nb=String.length big and ns=String.length small in
-                       let rec go k = if k+ns>nb then false
-                                      else if String.sub big k ns = small then true else go (k+1) in
-                       go 0 in
-                     Printf.printf "CONJ Q30: polyfold -> %d subgoals, sz=%d, has polyval_reduce_g2=%b, dumped\n%!"
-                       (List.length subs) (String.length s) (has_sub s "polyval_reduce_g2")
-                   | [] -> Printf.printf "CONJ Q30: polyfold CLOSED (0 subgoals)!\n%!")
-              with Failure m -> Printf.printf "CONJ Q30: polyfold FAIL(%s)\n%!" m));
-            (* STAGED close_goal7 probe: run polyfold + each subsequent stage and report #subgoals + max
-               goal-size, to PINPOINT which reconstruction step blows up (avoids the 30GB whole-close_goal7). *)
-            (let base =
-               collapse_q30 THEN
-               REWRITE_TAC[WORD_SUBWORD_REVERSEFIELDS] THEN SIMP_TAC[WORD_JOIN_COMBINE_LEMMA; ARITH] THEN
-               REWRITE_TAC[WORD_SUBWORD_XOR] THEN REWRITE_TAC[WORD_SUBWORD_BYTESWAP128] THEN
-               CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-               CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV) THEN
-               REWRITE_TAC [byteswap128; WORD_BLAST
-                 `word_subword((word_join:int128->int128->int256) h l) (64,128):int128 =
-                  word_join (word_subword h (0,64):int64) (word_subword l (64,64):int64)`] THEN
-               TRY(MATCH_MP_TAC(BITBLAST_RULE
-                 `x:int128 = y ==> word_join (word_subword x (0,64):int64) (word_subword x (64,64):int64):int128 =
-                      word_join (word_subword y (0,64):int64) (word_subword y (64,64):int64):int128`)) THEN
-               MAP_EVERY ABBREV_TAC
-                [`sofar = (nist_ghash (aes256_cipher (word 0) rk) tag0
-                            (list_of_seq (nist_cipher_block nonce rk inblock) (4 * i)))`;
-                 `cipherblock_0 = nist_cipher_block nonce rk inblock (4 * i)`;
-                 `cipherblock_1 = nist_cipher_block nonce rk inblock (4 * i + 1)`;
-                 `cipherblock_2 = nist_cipher_block nonce rk inblock (4 * i + 2)`;
-                 `cipherblock_3 = nist_cipher_block nonce rk inblock (4 * i + 3)`;
-                 `h0 = h_power (ghash_twist (aes256_cipher (word 0) rk)) 0`;
-                 `h1 = h_power (ghash_twist (aes256_cipher (word 0) rk)) 1`;
-                 `h2 = h_power (ghash_twist (aes256_cipher (word 0) rk)) 2`;
-                 `h3 = h_power (ghash_twist (aes256_cipher (word 0) rk)) 3`] THEN
-               REWRITE_TAC[GSYM WORD_SUBWORD_XOR] THEN REWRITE_TAC[RECONSTRUCT_POLYVAL_REDUCE_G2] in
-             let stagesz nm tac =
-               (try let subs = subgoal_terms tac (asl,w) in
-                    let mx = List.fold_left (fun a t -> max a (String.length(string_of_term t))) 0 subs in
-                    Printf.printf "CONJ Q30 STAGE %s: %d subgoals, maxsz=%d\n%!" nm (List.length subs) mx
-                with Failure m -> Printf.printf "CONJ Q30 STAGE %s: FAIL(%s)\n%!" nm m) in
-             stagesz "afterABBREV" base;
-             stagesz "afterTRANS" (base THEN
-               TRANS_TAC EQ_TRANS
-                `polyval_reduce_prop3
-                     (word_xor (word_pmul (cipherblock_3:int128) (h0:int128))
-                     (word_xor (word_pmul (cipherblock_2:int128) (h1:int128))
-                     (word_xor (word_pmul (cipherblock_1:int128) (h2:int128))
-                     (word_pmul (word_xor (sofar:int128) cipherblock_0) (h3:int128)))))`);
-             stagesz "afterCONJsplit" (base THEN
-               TRANS_TAC EQ_TRANS
-                `polyval_reduce_prop3
-                     (word_xor (word_pmul (cipherblock_3:int128) (h0:int128))
-                     (word_xor (word_pmul (cipherblock_2:int128) (h1:int128))
-                     (word_xor (word_pmul (cipherblock_1:int128) (h2:int128))
-                     (word_pmul (word_xor (sofar:int128) cipherblock_0) (h3:int128)))))` THEN CONJ_TAC));
-             (* NOTE: NOT running full close_goal7 here -- it OOMs (30GB).  The stage sizes above pinpoint the
-                blowup step; fix that step, then re-enable the real close in close_all_tac. *)
-             Printf.printf "CONJ Q30: (full close_goal7 SKIPPED in probe to avoid OOM)\n%!"
-        with Failure m -> Printf.printf "CONJ Q30: collapse_q30 FAIL(%s)\n%!" m)
-     else if nm = "forall/goal9" then
-       (try let subs = subgoal_terms close_goal9 (asl,w) in
-            Printf.printf "CONJ forall: close_goal9 -> %d subgoals\n%!" (List.length subs);
-            List.iteri (fun k sw ->
-              let s = string_of_term sw in
-              let oc=open_out (Printf.sprintf "/tmp/goal9_resid_%d.txt" k) in
-              output_string oc s; close_out oc;
-              Printf.printf "  goal9 resid %d sz=%d: %s\n%!" k (String.length s)
-                (if String.length s>240 then String.sub s 0 240 else s)) subs
-        with Failure m -> Printf.printf "CONJ forall: close_goal9 FAIL(%s)\n%!" m)
-     else
-       (let r=(try let _,g,_=close_all_tac (asl,w) in if g=[] then "CLOSED" else "PARTIAL"
-               with Failure m->"FAIL("^m^")" | _->"ERR") in
-        Printf.printf "CONJ route=%s sz=%d => %s\n%!" nm (String.length(string_of_term w)) r;
-        if String.length r >= 4 && String.sub r 0 4 = "FAIL" then
-          (cheapfail_ctr := !cheapfail_ctr + 1;
-           let oc=open_out (Printf.sprintf "/tmp/cheapfail_%d.txt" !cheapfail_ctr) in
-           output_string oc (string_of_term w); close_out oc;
-           Printf.printf "  cheapfail %d dumped (sz=%d)\n%!" !cheapfail_ctr (String.length(string_of_term w)))));
-    (TRY close_all_tac) (asl,w);;
-Printf.printf "MARKER: proving BODYLEG (diagnostic report_tac + Q30/forall dump)...\n%!";;
-(* ORACLE dump: after stepping, dump the s209 (final-state) values of the reduce regs Q1/Q2/Q11/Q13/Q14/Q29/Q30
-   from the kept assumptions.  These reveal the SWP split-GHASH carry structure (which reg holds the running
-   accumulator vs a fresh partial), so we can pin them correctly next.  Runs BEFORE ENSURES_FINAL_STATE. *)
-let dump_reduce_regs () =
-  let asl = fst(top_goal()) in     (* NB: here assumptions are bare TERMS, not theorems *)
-  List.iter (fun c ->
-    (try
-       if is_eq c then
-         (let l = lhs c in
-          let rd,st = dest_comb l in let _,cc = dest_comb rd in
-          match st, cc with
-          | Var(nm,_), Const(rn,_) when nm = "s209" &&
-              List.mem rn ["Q1";"Q2";"Q11";"Q13";"Q14";"Q29";"Q30"] ->
-             let s = string_of_term (rhs c) in
-             let oc = open_out (Printf.sprintf "/tmp/reduce_%s.txt" rn) in output_string oc s; close_out oc;
-             Printf.printf "REDUCE %s s209 sz=%d dumped\n%!" rn (String.length s)
-          | _ -> ())
-     with _ -> ())) asl;;
-(* REAL prove of the body leg: step + close every conjunct via close_all_tac (128-verbatim CONJ1 in close_goal7).
-   If this succeeds, BODYLEG is proven axiom-free. *)
 let BODYLEG = prove(body_goal, step_body_tac THEN REPEAT CONJ_TAC THEN close_all_tac);;
-Printf.printf "MARKER: BODYLEG PROVEN axiom-free\n%!";;
 (* self-report: confirm the loosened bound i < loop_count - 1 is in the goal, and no axioms crept in. *)
-Printf.printf "BODYLEG bound check (expect true): %b\n%!"
-  (can (find_term (fun t -> t = `i < loop_count - 1`)) (concl BODYLEG));;
-Printf.printf "BODYLEG hyps (expect 0): %d\n%!" (List.length (hyp BODYLEG));;
-Printf.printf "MARKER: BODYLEG_LOOSE self-report done\n%!";;
 
 (* ========== LEG: drain (post-937 tail of DEVEL_enc256_swp_drain.ml) ========== *)
 
@@ -2596,8 +2314,6 @@ let INPUT_SPLIT_TAC256 =
   REPEAT(FIRST_X_ASSUM(STRIP_ASSUME_TAC o CONV_RULE SPLIT_INPUT_CONV o
      check (fun th -> let c = concl th in is_eq c && free_in `in_p:int64` (lhs c) &&
        can (find_term (fun t -> is_const t && fst(dest_const t) = "bytes128")) (lhs c))));;
-
-Printf.printf "MARKER: BODYLEG helpers defined\n%!";;
 
 (* --- mk_body_goal: inv i @0x560 -> inv(i+1) @0x8a4, steady range i<loop_count-1. --- *)
 let mk_body_goal inv =
@@ -2633,7 +2349,6 @@ let mk_body_goal inv =
       MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`]);;
 
 let body_goal = mk_body_goal swpS256_inv;;
-Printf.printf "MARKER: body_goal built\n%!";;
 
 (* --- setup: GHOST_INTRO scalar lanes + ENSURES_INIT + input-split + ABBREV read-C-s0 (except in_p). --- *)
 let setup_tac =
@@ -2653,7 +2368,7 @@ let setup_tac =
 
 (* --- stepper: gkeepN over REDSETX256, 1..210, MERGE at merges256 sites. --- *)
 (* stepping-only prefix (up to but NOT including ENSURES_FINAL_STATE): after this, the s209 read-facts are
-   ASSUMPTIONS (so dump_reduce_regs can scan them). *)
+   ASSUMPTIONS. *)
 (* h-power reload steps: at these instrs the kernel does `ldr q2,[x6,#80]` / `ldr q13,[x6]` (+ Q12/Q6/Q8
    at other htable offsets), loading htable h-power constants.  gkeepN keeps only the LATEST reg value, so the
    INTERMEDIATE reg-reads (read Q2 s46 etc.) referenced by the GHASH reduce tower get orphaned.  Fix: right
@@ -2678,8 +2393,6 @@ let step_body_prefix =
 let step_body_tac =
   step_body_prefix THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];;
-
-Printf.printf "MARKER: setup+step_body_tac defined\n%!";;
 
 
 (* ========================================================================= *)
@@ -2763,16 +2476,6 @@ let collapse_q30 : tactic =
                  ARITH_RULE `4*i+0 = 4*i`] THEN
      REWRITE_TAC[NCB_CONST_FN]) (asl,w);;
 
-(* diagnostic: dump the real post-collapse_q30 goal (typed) so the byteswap-strip prefix can be developed on it. *)
-let dump_postcollapse : tactic =
-  fun (asl,w) ->
-    (let subs = (let _,g,_ = collapse_q30 (asl,w) in g) in
-     match subs with (_,sw)::_ ->
-       (let oc=open_out "/tmp/q30_postcollapse_real.txt" in output_string oc (string_of_term sw); close_out oc;
-        Printf.printf "DUMP: post-collapse real goal sz=%d -> /tmp/q30_postcollapse_real.txt\n%!" (String.length(string_of_term sw)))
-     | [] -> Printf.printf "DUMP: collapse closed it\n%!");
-    ALL_TAC (asl,w);;
-
 (* swpgrp-invariant close_goal7 (2026-09-09): the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
    collapse_q30 folds the LHS keystreams; NO ACC_CLEAN (the acc = word_subword(word_join(swpgrp i)(swpgrp i))(64,128) =
@@ -2881,10 +2584,6 @@ let close_all_tac : tactic =
           (ASM_REWRITE_TAC[] THEN REFL_TAC);
           ASM_REWRITE_TAC[] ])) (asl,w);;
 
-Printf.printf "MARKER: closers defined\n%!";;
-
-Printf.printf "MARKER: DRAIN machinery (body-leg prefix) loaded\\n%!";;
-
 (* ========================================================================= *)
 (* DRAIN leg: swpS256_inv (loop_count-1) @ 0x8a8  ->  bridge @ 0xdd0.          *)
 (* The WHILE exits with the last body landing inv(loop_count-1)@0x8a4; cbnz    *)
@@ -2911,7 +2610,6 @@ let SWPGRP_IS_NIST_GHASH = prove
     ASM_REWRITE_TAC[] THEN REWRITE_TAC[swpgrp] THEN ASM_REWRITE_TAC[] THEN
     REWRITE_TAC[LIST_OF_SEQ_CLAUSES] THEN REWRITE_TAC[ARITH_RULE `4*i+0 = 4*i`] THEN
     REWRITE_TAC[NIST_GHASH_IS_POLYVAL]]);;
-Printf.printf "MARKER: DRAIN bridge lemmas proven\n%!";;
 
 (* bridge state @ 0xdd0 (= body-only enc256 0x3fc break state, indexed at 4*loop_count). *)
 let drain_bridge = mk_abs(`s:armstate`, list_mk_conj
@@ -2952,7 +2650,6 @@ let drain_bridge = mk_abs(`s:armstate`, list_mk_conj
   `!j. j < nblocks ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s = inblock j`;
   `!j. j < 4 * loop_count ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s =
            word_xor (aes_ctr_block nonce rk j) (inblock j)`]);;
-Printf.printf "MARKER: drain_bridge defined, %d conjuncts\n%!" (length(conjuncts(snd(dest_abs drain_bridge))));;
 
 (* ---- DRAIN goal: swpS256_inv (loop_count-1) @0x8a4 -> drain_bridge @0xdd0.  Broad frame (MAYCHANGEs the
    speculative next-group AES partials Q3/Q4/Q8/Q31, all working regs, out_p bytes, stack). ---- *)
@@ -2987,7 +2684,6 @@ let drain_goal = mk_imp
      MAYCHANGE [Q0;Q1;Q2;Q3;Q4;Q5;Q6;Q8; Q9; Q10; Q11; Q12; Q13; Q14; Q15; Q29; Q30; Q31] ,,
      MAYCHANGE [memory :> bytes(out_p:int64, 16 * nblocks)] ,,
      MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`]);;
-Printf.printf "MARKER: drain_goal built\n%!";;
 
 (* drain counter-store merge sites (stp[sp,#OFF] steps, entry 0x8a4=step1=cbnz). *)
 let drain_merges = [(25,208)];;  (* drain = 0x8a4..0xa8c (b dd0) -> 0xdd0; ONLY 0x8xx stp[sp] site is step 25; the
@@ -3027,9 +2723,7 @@ let drain_setup_tac =
   REPEAT(FIRST_X_ASSUM(STRIP_ASSUME_TAC o CONV_RULE SPLIT_INPUT_CONV o
      check (fun th -> let c = concl th in is_eq c && free_in `in_p:int64` (lhs c) &&
        can (find_term (fun t -> is_const t && fst(dest_const t) = "bytes128")) (lhs c))));;
-Printf.printf "MARKER: drain_setup_tac defined\n%!";;
 
-let DRAIN_PROGRESS k : tactic = fun g -> (if k mod 20 = 0 then Printf.printf "DRAIN exec step %d\n%!" k); ALL_TAC g;;
 let drain_step_prefix =
   drain_setup_tac THEN
   (fun (asl,w) ->
@@ -3038,12 +2732,10 @@ let drain_step_prefix =
         RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                                  ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
         (if List.mem_assoc k drain_merges then TRY(MERGE_CTR128_TAC (List.assoc k drain_merges) ("s"^string_of_int k))
-         else ALL_TAC) THEN
-        DRAIN_PROGRESS k)
+         else ALL_TAC))
        (1--NSTEP_DRAIN)) (asl,w)) THEN
   RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                            ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV));;
-Printf.printf "MARKER: drain_step_prefix defined\n%!";;
 
 (* DRAIN Q30 closer (conj 2): word_subword(word_join <hi> <lo>)(64,128) [outer Q30 byteswap of the reduce] =
    byteswap128(nist_ghash..(4*(m+1))).  The INNER reduce (acc seed byteswap128(swpgrp m), last group blocks) is exactly
@@ -3133,7 +2825,6 @@ let drain_close_q30 : tactic =
            CONV_TAC WORD_BITWISE_RULE];
          CONV_TAC WORD_BITWISE_RULE];
        MATCH_ACCEPT_TAC CORE_REDUCE_GHASH]) (asl,w);;
-Printf.printf "MARKER: drain_close_q30 (v3, self-contained reducelast port) defined\n%!";;
 
 (* drain per-conjunct closer: route the Q30 conjunct (rhs has byteswap128 + nist_ghash) to drain_close_q30; else close_all_tac.
    PERF: the round-key/scalar/h-power register conjuncts added to drain_bridge (read Qk = word_reversefields 8 (EL k rk),
@@ -3151,30 +2842,12 @@ let drain_close_all : tactic =
     then (FIRST_ASSUM ACCEPT_TAC ORELSE ASM_REWRITE_TAC[] ORELSE close_all_tac) (asl,w)
     else close_all_tac (asl,w);;
 
-(* DRAIN DIAGNOSTIC: step, FINAL_STATE, then per-conjunct report using drain_close_all + dump
-   non-closed conjuncts to /tmp/draindiag_N.txt so we see exactly what the bridge closers must handle. *)
-let drain_diag_probe : tactic =
-  fun (asl,w) ->
-    let cs = conjuncts w in
-    Printf.printf "DRAINDIAG: %d conjuncts\n%!" (List.length cs);
-    (let oc=open_out "/tmp/draindiag_asl.txt" in
-     List.iter (fun (_,th) -> output_string oc (string_of_term(concl th)); output_string oc "\n") asl; close_out oc);
-    List.iteri (fun idx c ->
-      let r = (try let _,g,_ = drain_close_all (asl,c) in if g=[] then "CLOSED" else "PARTIAL("^string_of_int(List.length g)^")"
-               with Failure m -> "FAIL("^(if String.length m>50 then String.sub m 0 50 else m)^")" | _ -> "ERR") in
-      Printf.printf "DRAINDIAG conj %d [%s]: %s\n%!" idx r
-        (let s=string_of_term c in if String.length s>72 then String.sub s 0 72 else s);
-      if r <> "CLOSED" then
-        (let oc=open_out (Printf.sprintf "/tmp/draindiag_%d.txt" idx) in output_string oc (string_of_term c); close_out oc))
-      cs;
-    ALL_TAC (asl,w);;
 (* Real leaf theorem: all 5 conjuncts close (diagnostic by1nj6eaz confirmed conj0..4 CLOSED with drain_close_all,
    conj2 via drain_close_q30 v3).  GEN_ALL so composition MATCH_MP_TAC leaves the ?key_p etc. *)
 let DRAINLEG256 = GEN_ALL(prove(drain_goal,
   drain_step_prefix THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
   REPEAT CONJ_TAC THEN drain_close_all));;
-Printf.printf "MARKER: DRAINLEG256 PROVEN axiom-free\n%!";;
 
 (* ========== LEG: tail (post-937 tail of DEVEL_enc256_swp_tail.ml) ========== *)
 
@@ -3201,8 +2874,6 @@ let INPUT_SPLIT_TAC256 =
   REPEAT(FIRST_X_ASSUM(STRIP_ASSUME_TAC o CONV_RULE SPLIT_INPUT_CONV o
      check (fun th -> let c = concl th in is_eq c && free_in `in_p:int64` (lhs c) &&
        can (find_term (fun t -> is_const t && fst(dest_const t) = "bytes128")) (lhs c))));;
-
-Printf.printf "MARKER: BODYLEG helpers defined\n%!";;
 
 (* --- mk_body_goal: inv i @0x560 -> inv(i+1) @0x8a4, steady range i<loop_count-1. --- *)
 let mk_body_goal inv =
@@ -3238,7 +2909,6 @@ let mk_body_goal inv =
       MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`]);;
 
 let body_goal = mk_body_goal swpS256_inv;;
-Printf.printf "MARKER: body_goal built\n%!";;
 
 (* --- setup: GHOST_INTRO scalar lanes + ENSURES_INIT + input-split + ABBREV read-C-s0 (except in_p). --- *)
 let setup_tac =
@@ -3258,7 +2928,7 @@ let setup_tac =
 
 (* --- stepper: gkeepN over REDSETX256, 1..210, MERGE at merges256 sites. --- *)
 (* stepping-only prefix (up to but NOT including ENSURES_FINAL_STATE): after this, the s209 read-facts are
-   ASSUMPTIONS (so dump_reduce_regs can scan them). *)
+   ASSUMPTIONS. *)
 (* h-power reload steps: at these instrs the kernel does `ldr q2,[x6,#80]` / `ldr q13,[x6]` (+ Q12/Q6/Q8
    at other htable offsets), loading htable h-power constants.  gkeepN keeps only the LATEST reg value, so the
    INTERMEDIATE reg-reads (read Q2 s46 etc.) referenced by the GHASH reduce tower get orphaned.  Fix: right
@@ -3283,8 +2953,6 @@ let step_body_prefix =
 let step_body_tac =
   step_body_prefix THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];;
-
-Printf.printf "MARKER: setup+step_body_tac defined\n%!";;
 
 
 (* ========================================================================= *)
@@ -3383,16 +3051,6 @@ let collapse_q30 : tactic =
                  ARITH_RULE `4*i+0 = 4*i`] THEN
      REWRITE_TAC[NCB_CONST_FN]) (asl,w);;
 
-(* diagnostic: dump the real post-collapse_q30 goal (typed) so the byteswap-strip prefix can be developed on it. *)
-let dump_postcollapse : tactic =
-  fun (asl,w) ->
-    (let subs = (let _,g,_ = collapse_q30 (asl,w) in g) in
-     match subs with (_,sw)::_ ->
-       (let oc=open_out "/tmp/q30_postcollapse_real.txt" in output_string oc (string_of_term sw); close_out oc;
-        Printf.printf "DUMP: post-collapse real goal sz=%d -> /tmp/q30_postcollapse_real.txt\n%!" (String.length(string_of_term sw)))
-     | [] -> Printf.printf "DUMP: collapse closed it\n%!");
-    ALL_TAC (asl,w);;
-
 (* swpgrp-invariant close_goal7 (2026-09-09): the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
    collapse_q30 folds the LHS keystreams; NO ACC_CLEAN (the acc = word_subword(word_join(swpgrp i)(swpgrp i))(64,128) =
@@ -3501,10 +3159,6 @@ let close_all_tac : tactic =
           (ASM_REWRITE_TAC[] THEN REFL_TAC);
           ASM_REWRITE_TAC[] ])) (asl,w);;
 
-Printf.printf "MARKER: closers defined\n%!";;
-
-Printf.printf "MARKER: DRAIN machinery (body-leg prefix) loaded\\n%!";;
-
 (* ========================================================================= *)
 (* DRAIN leg: swpS256_inv (loop_count-1) @ 0x8a8  ->  bridge @ 0xdd0.          *)
 (* The WHILE exits with the last body landing inv(loop_count-1)@0x8a4; cbnz    *)
@@ -3513,12 +3167,6 @@ Printf.printf "MARKER: DRAIN machinery (body-leg prefix) loaded\\n%!";;
 (* -> Q30 = byteswap128(nist_ghash..(4*loop_count)); stores last-group ct.     *)
 (* Bridge @0xdd0 (Lloop_unrolled_end) = body-only enc256 0x3fc "break" state.  *)
 (* ========================================================================= *)
-
-Printf.printf "MARKER: DRAIN bridge lemmas proven\n%!";;
-
-Printf.printf "MARKER: drain_bridge defined, %d conjuncts\n%!" (length(conjuncts(snd(dest_abs drain_bridge))));;
-
-Printf.printf "MARKER: TAIL machinery loaded\\n%!";;
 
 (* ========================================================================= *)
 (* TAIL leg: drain_bridge @0xdd0 -> crypto-complete @0xee4 (tag+ivec+out stored, pre-epilogue). *)
@@ -3568,8 +3216,6 @@ let tail_post = mk_abs(`s:armstate`, list_mk_conj
   `read (memory :> bytes128 ivec_p) s = word_reversefields 8 (ctr_block nonce (nblocks + 2))`;
   `!j. j < nblocks ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s =
            word_xor (aes_ctr_block nonce rk j) (inblock j)`]);;
-Printf.printf "MARKER: tail_inv + tail_post defined (%d inv conjuncts, %d post conjuncts)\n%!"
-  (length(conjuncts(snd(dest_abs tail_inv)))) (length(conjuncts(snd(dest_abs tail_post))));;
 
 (* tail goal: precond (loop_count>=2 comes from being reached post-drain; tail is general in loop_remain<4) -> the
    ensures from drain_bridge @0xdd0 to tail_post @0xee4.  We take drain_bridge AS the precondition state (it's the
@@ -3608,7 +3254,6 @@ let tail_goal = mk_imp
      MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,,
      MAYCHANGE [memory :> bytes(ivec_p:int64, 16)] ,,
      MAYCHANGE [memory :> bytes(tag_p:int64, 16)] ,, MAYCHANGE [events]`]);;
-Printf.printf "MARKER: tail_goal built\n%!";;
 
 (* g3 frame discharge: the WHILE-body preservation frame C s0 sN (a MAYCHANGE relation, the last conjunct of
    tail_inv(i+1)).  MONOTONE_MAYCHANGE_TAC's SUBSUMED_MAYCHANGE_TAC needs the out-block bound
@@ -3702,7 +3347,6 @@ let tail_g3_close : tactic = tail_ghash_close;;
 
 let tail_stepconv n =
   ARM_STEPS_TAC SWP256_EXEC [n] THEN RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV));;
-Printf.printf "MARKER: tail_ghash_close + tail_stepconv defined\n%!";;
 
 (* ---- tail_tac: drain_bridge@0xdd0 -> tail_post@0xee4.  Port body-only enc256 tail (scalar_rk.ml 1258-1508). ---- *)
 (* The bridge state feeds directly; 3 htable-reload steps (ldr q12/q13/q14) then cbz x16@0xddc guards the loop. *)
@@ -3809,10 +3453,8 @@ let tail_tac =
       CONV_TAC(ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV) THEN
       REWRITE_TAC[ZX_COUNTER_UD] THEN ASM_REWRITE_TAC[] THEN
       tail_final_close]];;
-Printf.printf "MARKER: tail_tac defined\n%!";;
 
 let TAILLEG256 = GEN_ALL(prove(tail_goal, tail_tac));;
-Printf.printf "MARKER: TAILLEG256 PROVEN axiom-free\n%!";;
 
 (* ========== LEG: iter1 (post-937 tail of DEVEL_enc256_swp_iter1.ml) ========== *)
 
@@ -3839,8 +3481,6 @@ let INPUT_SPLIT_TAC256 =
   REPEAT(FIRST_X_ASSUM(STRIP_ASSUME_TAC o CONV_RULE SPLIT_INPUT_CONV o
      check (fun th -> let c = concl th in is_eq c && free_in `in_p:int64` (lhs c) &&
        can (find_term (fun t -> is_const t && fst(dest_const t) = "bytes128")) (lhs c))));;
-
-Printf.printf "MARKER: BODYLEG helpers defined\n%!";;
 
 (* --- mk_body_goal: inv i @0x560 -> inv(i+1) @0x8a4, steady range i<loop_count-1. --- *)
 let mk_body_goal inv =
@@ -3876,7 +3516,6 @@ let mk_body_goal inv =
       MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`]);;
 
 let body_goal = mk_body_goal swpS256_inv;;
-Printf.printf "MARKER: body_goal built\n%!";;
 
 (* --- setup: GHOST_INTRO scalar lanes + ENSURES_INIT + input-split + ABBREV read-C-s0 (except in_p). --- *)
 let setup_tac =
@@ -3896,7 +3535,7 @@ let setup_tac =
 
 (* --- stepper: gkeepN over REDSETX256, 1..210, MERGE at merges256 sites. --- *)
 (* stepping-only prefix (up to but NOT including ENSURES_FINAL_STATE): after this, the s209 read-facts are
-   ASSUMPTIONS (so dump_reduce_regs can scan them). *)
+   ASSUMPTIONS. *)
 (* h-power reload steps: at these instrs the kernel does `ldr q2,[x6,#80]` / `ldr q13,[x6]` (+ Q12/Q6/Q8
    at other htable offsets), loading htable h-power constants.  gkeepN keeps only the LATEST reg value, so the
    INTERMEDIATE reg-reads (read Q2 s46 etc.) referenced by the GHASH reduce tower get orphaned.  Fix: right
@@ -3921,8 +3560,6 @@ let step_body_prefix =
 let step_body_tac =
   step_body_prefix THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];;
-
-Printf.printf "MARKER: setup+step_body_tac defined\n%!";;
 
 
 (* ========================================================================= *)
@@ -4012,16 +3649,6 @@ let collapse_q30 : tactic =
                  ARITH_RULE `(4*i+2)+2 = 4*i+4`; ARITH_RULE `(4*i+3)+2 = 4*i+5`;
                  ARITH_RULE `4*i+0 = 4*i`] THEN
      REWRITE_TAC[NCB_CONST_FN]) (asl,w);;
-
-(* diagnostic: dump the real post-collapse_q30 goal (typed) so the byteswap-strip prefix can be developed on it. *)
-let dump_postcollapse : tactic =
-  fun (asl,w) ->
-    (let subs = (let _,g,_ = collapse_q30 (asl,w) in g) in
-     match subs with (_,sw)::_ ->
-       (let oc=open_out "/tmp/q30_postcollapse_real.txt" in output_string oc (string_of_term sw); close_out oc;
-        Printf.printf "DUMP: post-collapse real goal sz=%d -> /tmp/q30_postcollapse_real.txt\n%!" (String.length(string_of_term sw)))
-     | [] -> Printf.printf "DUMP: collapse closed it\n%!");
-    ALL_TAC (asl,w);;
 
 (* swpgrp-invariant close_goal7 (2026-09-09): the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
@@ -4131,11 +3758,6 @@ let close_all_tac : tactic =
           (ASM_REWRITE_TAC[] THEN REFL_TAC);
           ASM_REWRITE_TAC[] ])) (asl,w);;
 
-Printf.printf "MARKER: closers defined\n%!";;
-Printf.printf "MARKER: fill_goal built\n%!";;
-
-Printf.printf "MARKER: drain_bridge defined, %d conjuncts\n%!" (length(conjuncts(snd(dest_abs drain_bridge))));;
-
 
 (* ================================================================= *)
 (* iter_1 (loop_count=1) leg: from88 entry @0xb0 -> drain_bridge@0xdd0 *)
@@ -4144,10 +3766,7 @@ Printf.printf "MARKER: drain_bridge defined, %d conjuncts\n%!" (length(conjuncts
 (* ================================================================= *)
 
 (* pre-state @0xb0 = fill_pre_state (fill_goal's ensures-pre) with PC 0xbc -> 0xb0 *)
-Printf.printf "DBG fill_goal is_imp: %b, top=%s\n%!" (is_imp fill_goal)
-  (try fst(dest_const(fst(strip_comb fill_goal))) with _ -> "notconst");;
 let fill_pre_state = el 1 (snd(strip_comb(snd(dest_imp fill_goal))));;
-Printf.printf "DBG fill_pre_state OK\n%!";;
 let iter1_entry = mk_abs(`s:armstate`,
   subst [`word (pc + 0xb0):int64`, `word (pc + 188):int64`] (snd(dest_abs fill_pre_state)));;
 
@@ -4159,7 +3778,6 @@ let iter1_precond =
 let iter1_frame = last(snd(strip_comb(snd(dest_imp fill_goal))));;
 let iter1_goal = mk_imp(iter1_precond,
   list_mk_icomb "ensures" [`arm`; iter1_entry; drain_bridge; iter1_frame]);;
-Printf.printf "MARKER: iter1_goal built (%d precond conjuncts)\n%!" (length(conjuncts iter1_precond));;
 
 (* priming for blocks 0..3 (loop_count=1) *)
 let iter1_prime =
@@ -4209,8 +3827,6 @@ let iter1_step_tac =
   iter1_head THEN
   iter1_block_step 1 211 THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];;
-
-Printf.printf "MARKER: iter1 bridge lemmas proven\n%!";;
 
 (* pre-closer normalization for the loop_count=1 literal final state:
    - reduce 4*1 -> 4, 64*1 -> 64 (ptr/counter conjuncts)
@@ -4337,15 +3953,12 @@ let iter1_close_conj : tactic =
     (* attempt must close the conjunct fully; the trailing tactic fails hard on any residual subgoal. *)
     (attempt THEN (fun (a,ww) -> failwith "iter1_close_conj: unclosed subgoal")) (asl,w);;
 
-Printf.printf "MARKER: iter1 stepping + closing (REAL proof)...\n%!";;
 let ITER1_LEG =
   prove(iter1_goal,
     iter1_head THEN iter1_block_step 1 211 THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
     ITER1_PRE_CLOSE THEN
     REPEAT CONJ_TAC THEN iter1_close_conj);;
-Printf.printf "MARKER: ITER1_LEG PROVEN axiom-free\n%!";;
-Printf.printf "ITER1_LEG hyps (expect 0): %d\n%!" (List.length (hyp ITER1_LEG));;
 
 (* ========== LEG: lc2 (post-937 tail of DEVEL_enc256_swp_lc2.ml) ========== *)
 
@@ -4372,8 +3985,6 @@ let INPUT_SPLIT_TAC256 =
   REPEAT(FIRST_X_ASSUM(STRIP_ASSUME_TAC o CONV_RULE SPLIT_INPUT_CONV o
      check (fun th -> let c = concl th in is_eq c && free_in `in_p:int64` (lhs c) &&
        can (find_term (fun t -> is_const t && fst(dest_const t) = "bytes128")) (lhs c))));;
-
-Printf.printf "MARKER: BODYLEG helpers defined\n%!";;
 
 (* --- mk_body_goal: inv i @0x560 -> inv(i+1) @0x8a4, steady range i<loop_count-1. --- *)
 let mk_body_goal inv =
@@ -4409,7 +4020,6 @@ let mk_body_goal inv =
       MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`]);;
 
 let body_goal = mk_body_goal swpS256_inv;;
-Printf.printf "MARKER: body_goal built\n%!";;
 
 (* --- setup: GHOST_INTRO scalar lanes + ENSURES_INIT + input-split + ABBREV read-C-s0 (except in_p). --- *)
 let setup_tac =
@@ -4429,7 +4039,7 @@ let setup_tac =
 
 (* --- stepper: gkeepN over REDSETX256, 1..210, MERGE at merges256 sites. --- *)
 (* stepping-only prefix (up to but NOT including ENSURES_FINAL_STATE): after this, the s209 read-facts are
-   ASSUMPTIONS (so dump_reduce_regs can scan them). *)
+   ASSUMPTIONS. *)
 (* h-power reload steps: at these instrs the kernel does `ldr q2,[x6,#80]` / `ldr q13,[x6]` (+ Q12/Q6/Q8
    at other htable offsets), loading htable h-power constants.  gkeepN keeps only the LATEST reg value, so the
    INTERMEDIATE reg-reads (read Q2 s46 etc.) referenced by the GHASH reduce tower get orphaned.  Fix: right
@@ -4454,8 +4064,6 @@ let step_body_prefix =
 let step_body_tac =
   step_body_prefix THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];;
-
-Printf.printf "MARKER: setup+step_body_tac defined\n%!";;
 
 
 (* ========================================================================= *)
@@ -4547,16 +4155,6 @@ let collapse_q30 : tactic =
                  ARITH_RULE `(4*i+2)+2 = 4*i+4`; ARITH_RULE `(4*i+3)+2 = 4*i+5`;
                  ARITH_RULE `4*i+0 = 4*i`] THEN
      REWRITE_TAC[NCB_CONST_FN]) (asl,w);;
-
-(* diagnostic: dump the real post-collapse_q30 goal (typed) so the byteswap-strip prefix can be developed on it. *)
-let dump_postcollapse : tactic =
-  fun (asl,w) ->
-    (let subs = (let _,g,_ = collapse_q30 (asl,w) in g) in
-     match subs with (_,sw)::_ ->
-       (let oc=open_out "/tmp/q30_postcollapse_real.txt" in output_string oc (string_of_term sw); close_out oc;
-        Printf.printf "DUMP: post-collapse real goal sz=%d -> /tmp/q30_postcollapse_real.txt\n%!" (String.length(string_of_term sw)))
-     | [] -> Printf.printf "DUMP: collapse closed it\n%!");
-    ALL_TAC (asl,w);;
 
 (* swpgrp-invariant close_goal7 (2026-09-09): the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
@@ -4740,8 +4338,6 @@ let close_all_tac : tactic =
           (ASM_REWRITE_TAC[] THEN REFL_TAC);
           ASM_REWRITE_TAC[] ])) (asl,w);;
 
-Printf.printf "MARKER: closers defined\n%!";;
-
 (* ========================================================================= *)
 (* FILL LEG: preamble+FILL  pc+0x88 -> pc+0x560, establishing swpS256_inv 1.  *)
 (* SEAM (pinned from disasm 2026-09-09): the 256 SLOTHY schedule primes ONE   *)
@@ -4758,8 +4354,6 @@ Printf.printf "MARKER: closers defined\n%!";;
    read-over-store at FILL step 12 (0xe8 `stp x11,x22,[sp,#160]`) cannot discharge, so the tag_p/ivec_p reads get
    dropped after s11 and conj3,4 (the s297 invariant reads) fail.  Verified interactively: a 1-step ensures at 0xe8
    PROVES the read survives WITH the nonoverlap and leaves the exact conj3 goal unsolved WITHOUT it. *)
-Printf.printf "MARKER: building FILL leg goal\n%!";;
-Printf.printf "MARKER: fill_goal built\n%!";;
 
   (* NO init-abstraction (2026-09-10 strategic fix): abstracting rk-lanes to init_k created two problems -- (1) tag_p/
      ivec_p/rk14 conjuncts showed opaque init_k and needed un-abbrev, (2) the aese tower keys became init_k (unknown EL
@@ -4785,13 +4379,11 @@ Printf.printf "MARKER: fill_goal built\n%!";;
    is per-step WORD_SIMPLE_SUBWORD_CONV over the growing explicit GHASH tower.  Do it ONLY every 15 steps.  Per step:
    just gkeepN-discard (keeps asl bounded) + the CHEAP address-normalization (needed so merges/input-reads match).
    Merges need the normalized counter reads -> run the merge (TRY) right after the cheap address fold. *)
-Printf.printf "MARKER: FILL stepper defined\n%!";;
 
 (* Diagnostic: step the FILL via the SINGLE-APPLICATION fill_step_prefix (body-identical fast path).  CRITICAL PERF
    FIX (2026-09-09): the earlier per-step `do_list (fun k -> e(...))` accumulated 297 goalstack-history entries, each
    a ~700MB goal -> O(n^2) RSS + slowdown (crawled to s190 over ~1hr).  Applying the whole MAP_EVERY inside ONE e()
    keeps NO intermediate history (exactly what step_body_prefix does over 209 steps in ~minutes). *)
-Printf.printf "MARKER: FILL stepper ready; proving FILL leg via single-pass leaf_prove...\n%!";;
 
 let fill_close_all_256 : tactic =
   fun (asl,w) ->
@@ -4864,61 +4456,10 @@ let fill_close_all_256 : tactic =
           (* Q2/Q13 h-power reloads *)
           (ASM_REWRITE_TAC[] THEN REFL_TAC);
           ASM_REWRITE_TAC[]; CONV_TAC WORD_BLAST; CONV_TAC WORD_RULE ])) (asl,w);;
-(* per-conjunct reporter using fill_close_all_256 (the REAL i=1 closer), so we see which conjuncts now CLOSE. *)
-let fill_probe2 : tactic =
-  fun (asl,w) ->
-    let cs = conjuncts w in
-    Printf.printf "FILL2: %d conjuncts\n%!" (List.length cs);
-    (* dump the asl FIRST (before the slow per-conjunct probe) so conj3/4 memory-read diagnosis is available early;
-       also dump every tag_p/ivec_p/memory read-fact explicitly for quick inspection. *)
-    (let oc = open_out "/tmp/fillconj_asl.txt" in
-     List.iter (fun (_,th) -> output_string oc (string_of_term(concl th)); output_string oc "\n") asl; close_out oc);
-    (let oc = open_out "/tmp/fillconj_memreads.txt" in
-     List.iter (fun (_,th) -> let c = concl th in
-       if (try free_in `tag_p:int64` c || free_in `ivec_p:int64` c with _->false)
-       then (output_string oc (string_of_term c); output_string oc "\n")) asl; close_out oc);
-    Printf.printf "MARKER: asl + memreads dumped\n%!";
-    List.iteri (fun idx c ->
-      let r = (try let _,g,_ = fill_close_all_256 (asl,c) in if g=[] then "CLOSED" else "PARTIAL"
-               with Failure m -> "FAIL("^(if String.length m>50 then String.sub m 0 50 else m)^")" | _ -> "ERR") in
-      let s = string_of_term c in
-      Printf.printf "FILL2 conj %d [%s]: %s\n%!" idx r (if String.length s > 80 then String.sub s 0 80 else s);
-      (* dump the FULL term of any non-CLOSED conjunct so next session can develop its closer offline in MCP *)
-      if r <> "CLOSED" then
-        (let oc = open_out (Printf.sprintf "/tmp/fillconj_%d.txt" idx) in output_string oc s; close_out oc))
-      cs;
-    (* also dump the full assumption list ONCE (so offline closer-dev has the s297 read-facts + init abbrevs) *)
-    (let oc = open_out "/tmp/fillconj_asl.txt" in
-     List.iter (fun (_,th) -> output_string oc (string_of_term(concl th)); output_string oc "\n") asl;
-     close_out oc);
-    ALL_TAC (asl,w);;
-(* REAL leaf prove of the FILL leg (2026-09-11): the interactive g/e diagnostic + fill_probe2 (17x
-   fill_close_all_256 with a huge asl) was pathologically slow (~8h to conj 6/17, 10.6GB RSS).  The nonoverlap
-   fix + latest-only gkeepF now close all conjuncts (verified: the pre-fix run showed conj3,4 as the ONLY fails,
-   and those are now auto-discharged by ENSURES_FINAL_STATE+nonoverlap -> 17 residual).  So go straight to the
-   single-pass prove: step_prefix ;; FINAL_STATE ;; ASM_REWRITE (discharges tag_p/ivec_p) ;; CONJ_TAC ;; closers.
-   GEN_ALL so composition MATCH_MP_TAC leaves the ?key_p etc. *)
-(* 2026-09-13 DIAGNOSTIC: fix5 gave TAC_PROOF Unsolved goals (no WORD_BITWISE crash -> close_goal7_i0 ran but left a
-   residual, OR another conjunct).  Per-conjunct probe: step, FINAL_STATE, ASM_REWRITE, then for EACH conjunct try
-   fill_close_all_256 and report CLOSED/PARTIAL/FAIL; dump the FULL term of any non-CLOSED conjunct so the exact
-   unsolved goal is visible for MCP iteration.  Non-fatal (e/g via a wrapper).  Remove once FILLLEG256 proves. *)
-let fill_diag_probe : tactic =
-  fun (asl,w) ->
-    let cs = conjuncts w in
-    Printf.printf "FILLDIAG: %d conjuncts\n%!" (List.length cs);
-    List.iteri (fun idx c ->
-      let r = (try let _,g,_ = fill_close_all_256 (asl,c) in if g=[] then "CLOSED" else "PARTIAL("^string_of_int(List.length g)^")"
-               with Failure m -> "FAIL("^(if String.length m>60 then String.sub m 0 60 else m)^")" | _ -> "ERR") in
-      Printf.printf "FILLDIAG conj %d [%s]: %s\n%!" idx r
-        (let s=string_of_term c in if String.length s>70 then String.sub s 0 70 else s);
-      if r <> "CLOSED" then
-        (let oc = open_out (Printf.sprintf "/tmp/filldiag_%d.txt" idx) in output_string oc (string_of_term c); close_out oc))
-      cs;
-    ALL_TAC (asl,w);;
 (* Real leaf theorem.  All 17 conjuncts now close: 16 confirmed in diag3; conj 9 (output-forall) via close_goal9_i0
    (concrete j<4 split + NUM_REDUCE + WORD_ADD_0 for block-0's post-indexed store + ctr0_bridges/CTR_BLOCK_BUILD_INSERT/
    WORD_REVERSEFIELDS_REVERSEFIELDS final pass for block-0's counter).  Each stage validated in MCP against the dumped
-   goals.  fill_diag_probe (above) retained unused for future diagnosis. *)
+   goals. *)
 
 (* ================================================================= *)
 (* LC2 (loop_count=2): FILL 0xbc -> cbz-taken@0x55c -> DRAIN 0x8a8 -> drain_bridge.  *)
@@ -4966,7 +4507,7 @@ let fill_step_prefix_lc2 =
         RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                                  ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
         (if List.mem_assoc k fill_merges_guess then TRY(MERGE_CTR128_TAC (List.assoc k fill_merges_guess) ("s"^string_of_int k))
-         else ALL_TAC) THEN PROGRESS k)
+         else ALL_TAC))
        (1--NSTEP_FILL)) (asl,w)) THEN
   RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                            ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV));;
@@ -5003,17 +4544,11 @@ let fill_close_all_256_lc2 : tactic =
        ASM_REWRITE_TAC[COND_CLAUSES] THEN CONV_TAC WORD_RULE) (asl,w)
     else (fill_close_all_256) (asl,w);;
 
-let fill_close_report : tactic =
-  fun (asl,w) ->
-    (fill_close_all_256_lc2 THEN (fun (a,ww) -> failwith "fill_close_report: unclosed subgoal")) (asl,w);;
-Printf.printf "MARKER: LC2 PARTA - proving FILL 0xbc -> waypoint 0x8a8 (lc=2)...\n%!";;
 let LC2_PARTA =
   prove(lc2a_goal,
     fill_step_prefix_lc2 THEN
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-    REPEAT CONJ_TAC THEN fill_close_report);;
-Printf.printf "MARKER: LC2_PARTA done (see LC2A conj OPEN lines for any failures)\n%!";;
-Printf.printf "LC2_PARTA hyps: %d\n%!" (List.length (hyp LC2_PARTA));;
+    REPEAT CONJ_TAC THEN fill_close_all_256_lc2);;
 
 (* ========== LEG: lc2partb (post-937 tail of DEVEL_enc256_swp_lc2partb.ml) ========== *)
 
@@ -5040,8 +4575,6 @@ let INPUT_SPLIT_TAC256 =
   REPEAT(FIRST_X_ASSUM(STRIP_ASSUME_TAC o CONV_RULE SPLIT_INPUT_CONV o
      check (fun th -> let c = concl th in is_eq c && free_in `in_p:int64` (lhs c) &&
        can (find_term (fun t -> is_const t && fst(dest_const t) = "bytes128")) (lhs c))));;
-
-Printf.printf "MARKER: BODYLEG helpers defined\n%!";;
 
 (* --- mk_body_goal: inv i @0x560 -> inv(i+1) @0x8a4, steady range i<loop_count-1. --- *)
 let mk_body_goal inv =
@@ -5077,7 +4610,6 @@ let mk_body_goal inv =
       MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`]);;
 
 let body_goal = mk_body_goal swpS256_inv;;
-Printf.printf "MARKER: body_goal built\n%!";;
 
 (* --- setup: GHOST_INTRO scalar lanes + ENSURES_INIT + input-split + ABBREV read-C-s0 (except in_p). --- *)
 let setup_tac =
@@ -5097,7 +4629,7 @@ let setup_tac =
 
 (* --- stepper: gkeepN over REDSETX256, 1..210, MERGE at merges256 sites. --- *)
 (* stepping-only prefix (up to but NOT including ENSURES_FINAL_STATE): after this, the s209 read-facts are
-   ASSUMPTIONS (so dump_reduce_regs can scan them). *)
+   ASSUMPTIONS. *)
 (* h-power reload steps: at these instrs the kernel does `ldr q2,[x6,#80]` / `ldr q13,[x6]` (+ Q12/Q6/Q8
    at other htable offsets), loading htable h-power constants.  gkeepN keeps only the LATEST reg value, so the
    INTERMEDIATE reg-reads (read Q2 s46 etc.) referenced by the GHASH reduce tower get orphaned.  Fix: right
@@ -5122,8 +4654,6 @@ let step_body_prefix =
 let step_body_tac =
   step_body_prefix THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];;
-
-Printf.printf "MARKER: setup+step_body_tac defined\n%!";;
 
 
 (* ========================================================================= *)
@@ -5206,16 +4736,6 @@ let collapse_q30 : tactic =
                  ARITH_RULE `(4*i+2)+2 = 4*i+4`; ARITH_RULE `(4*i+3)+2 = 4*i+5`;
                  ARITH_RULE `4*i+0 = 4*i`] THEN
      REWRITE_TAC[NCB_CONST_FN]) (asl,w);;
-
-(* diagnostic: dump the real post-collapse_q30 goal (typed) so the byteswap-strip prefix can be developed on it. *)
-let dump_postcollapse : tactic =
-  fun (asl,w) ->
-    (let subs = (let _,g,_ = collapse_q30 (asl,w) in g) in
-     match subs with (_,sw)::_ ->
-       (let oc=open_out "/tmp/q30_postcollapse_real.txt" in output_string oc (string_of_term sw); close_out oc;
-        Printf.printf "DUMP: post-collapse real goal sz=%d -> /tmp/q30_postcollapse_real.txt\n%!" (String.length(string_of_term sw)))
-     | [] -> Printf.printf "DUMP: collapse closed it\n%!");
-    ALL_TAC (asl,w);;
 
 (* swpgrp-invariant close_goal7 (2026-09-09): the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
@@ -5325,10 +4845,6 @@ let close_all_tac : tactic =
           (ASM_REWRITE_TAC[] THEN REFL_TAC);
           ASM_REWRITE_TAC[] ])) (asl,w);;
 
-Printf.printf "MARKER: closers defined\n%!";;
-
-Printf.printf "MARKER: DRAIN machinery (body-leg prefix) loaded\\n%!";;
-
 (* ========================================================================= *)
 (* DRAIN leg: swpS256_inv (loop_count-1) @ 0x8a8  ->  bridge @ 0xdd0.          *)
 (* The WHILE exits with the last body landing inv(loop_count-1)@0x8a4; cbnz    *)
@@ -5337,16 +4853,6 @@ Printf.printf "MARKER: DRAIN machinery (body-leg prefix) loaded\\n%!";;
 (* -> Q30 = byteswap128(nist_ghash..(4*loop_count)); stores last-group ct.     *)
 (* Bridge @0xdd0 (Lloop_unrolled_end) = body-only enc256 0x3fc "break" state.  *)
 (* ========================================================================= *)
-
-Printf.printf "MARKER: DRAIN bridge lemmas proven\n%!";;
-
-Printf.printf "MARKER: drain_bridge defined, %d conjuncts\n%!" (length(conjuncts(snd(dest_abs drain_bridge))));;
-
-Printf.printf "MARKER: drain_goal built\n%!";;
-
-Printf.printf "MARKER: drain_setup_tac defined\n%!";;
-
-Printf.printf "MARKER: drain_step_prefix defined\n%!";;
 
 (* DRAIN Q30 closer (conj 2): word_subword(word_join <hi> <lo>)(64,128) [outer Q30 byteswap of the reduce] =
    byteswap128(nist_ghash..(4*(m+1))).  The INNER reduce (acc seed byteswap128(swpgrp m), last group blocks) is exactly
@@ -5436,7 +4942,6 @@ let drain_close_q30 : tactic =
            CONV_TAC WORD_BITWISE_RULE];
          CONV_TAC WORD_BITWISE_RULE];
        MATCH_ACCEPT_TAC CORE_REDUCE_GHASH]) (asl,w);;
-Printf.printf "MARKER: drain_close_q30 (v3, self-contained reducelast port) defined\n%!";;
 
 (* drain per-conjunct closer: route the Q30 conjunct (rhs has byteswap128 + nist_ghash) to drain_close_q30; else close_all_tac.
    PERF: the round-key/scalar/h-power register conjuncts added to drain_bridge (read Qk = word_reversefields 8 (EL k rk),
@@ -5454,23 +4959,6 @@ let drain_close_all : tactic =
     then (FIRST_ASSUM ACCEPT_TAC ORELSE ASM_REWRITE_TAC[] ORELSE close_all_tac) (asl,w)
     else close_all_tac (asl,w);;
 
-(* DRAIN DIAGNOSTIC: step, FINAL_STATE, then per-conjunct report using drain_close_all + dump
-   non-closed conjuncts to /tmp/draindiag_N.txt so we see exactly what the bridge closers must handle. *)
-let drain_diag_probe : tactic =
-  fun (asl,w) ->
-    let cs = conjuncts w in
-    Printf.printf "DRAINDIAG: %d conjuncts\n%!" (List.length cs);
-    (let oc=open_out "/tmp/draindiag_asl.txt" in
-     List.iter (fun (_,th) -> output_string oc (string_of_term(concl th)); output_string oc "\n") asl; close_out oc);
-    List.iteri (fun idx c ->
-      let r = (try let _,g,_ = drain_close_all (asl,c) in if g=[] then "CLOSED" else "PARTIAL("^string_of_int(List.length g)^")"
-               with Failure m -> "FAIL("^(if String.length m>50 then String.sub m 0 50 else m)^")" | _ -> "ERR") in
-      Printf.printf "DRAINDIAG conj %d [%s]: %s\n%!" idx r
-        (let s=string_of_term c in if String.length s>72 then String.sub s 0 72 else s);
-      if r <> "CLOSED" then
-        (let oc=open_out (Printf.sprintf "/tmp/draindiag_%d.txt" idx) in output_string oc (string_of_term c); close_out oc))
-      cs;
-    ALL_TAC (asl,w);;
 (* Real leaf theorem: all 5 conjuncts close (diagnostic by1nj6eaz confirmed conj0..4 CLOSED with drain_close_all,
    conj2 via drain_close_q30 v3).  GEN_ALL so composition MATCH_MP_TAC leaves the ?key_p etc. *)
 
@@ -5485,7 +4973,6 @@ let drain_goal_8a8 =
   mk_imp(lhand drain_goal,
     list_mk_icomb "ensures" [`arm`; pre8a8; drain_bridge;
       last(snd(strip_comb(snd(dest_imp drain_goal))))]);;
-Printf.printf "MARKER: drain_goal_8a8 built\n%!";;
 
 (* setup for 0x8a8 entry: same as drain_setup_tac but NO cbnz step (X1 already word 0 in the inv). *)
 let drain_setup_tac_8a8 =
@@ -5527,17 +5014,14 @@ let drain_step_prefix_8a8 =
         RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                                  ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
         (if List.mem_assoc k drain_merges_8a8 then TRY(MERGE_CTR128_TAC (List.assoc k drain_merges_8a8) ("s"^string_of_int k))
-         else ALL_TAC) THEN DRAIN_PROGRESS k)
+         else ALL_TAC))
        (1--NSTEP_DRAIN_8a8)) (asl,w)) THEN
   RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                            ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV));;
-Printf.printf "MARKER: LC2 PARTB - proving drain-from-0x8a8...\n%!";;
 let LC2_PARTB = GEN_ALL(prove(drain_goal_8a8,
   drain_step_prefix_8a8 THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
   REPEAT CONJ_TAC THEN drain_close_all));;
-Printf.printf "MARKER: LC2_PARTB PROVEN\n%!";;
-Printf.printf "LC2_PARTB hyps: %d\n%!" (List.length (hyp LC2_PARTB));;
 
 (* ===== COMPOSITION APPARATUS (compose 1790-1940, stubs excluded) ===== *)
 
@@ -5576,14 +5060,12 @@ let SWPS_DRAIN256 = prove(swps_drain256_goal,
      UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC;
      REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
      MATCH_MP_TAC DRAINLEG256 THEN ASM_REWRITE_TAC[]]);;
-Printf.printf "MARKER: SWPS_DRAIN256 proven (stubs)\n%!";;
 
 (* ===== Stage 3 WIP: SWPS_LEG1 (FILL + seam-to-seam WHILE + SWPS_DRAIN256) ===== *)
 (* WHILE reindex: base k=0 -> inv1 (FILL post); body maps inv(k+1)@0x560 -> inv(k+2)@0x8a4 -> backedge.
    Loop = ENSURES_WHILE_UP (loop_count-2) @0x560 @0x8a4 swps256_while_inv, exit at inv(loop_count-2)@0x560 -> SWPS_DRAIN256. *)
 let swps256_while_inv = mk_gabs(`k:num`, mk_comb(swpS256_inv, `k + 1`));;
 (* SWPS_LEG1 tactic to be developed against stubs next. *)
-Printf.printf "MARKER: swps256_while_inv defined (Stage 3 WIP)\n%!";;
 
 let swps_leg1_goal =
   mk_imp(lhand fill_goal,
@@ -5600,7 +5082,6 @@ let swps_leg1_goal =
    normalization); g5 exit (SUBGOAL (loop_count-3)+1=loop_count-2 then close); g3 body = ENSURES_SEQUENCE 0x8a4
    (BODYLEG_BROAD@(k+1)) + cbnz@0x8a4 backedge->0x560 (port 128 g3 2296-2321).  Then swap real legs + re-prove
    BODYLEG256 with i<loop_count-1, and the loop_count=2/1/0 degenerate legs + SWP256_CORRECT + wrapper. *)
-Printf.printf "MARKER: swps_leg1_goal defined (SWPS_LEG1 WIP)\n%!";;
 
 let SWPS_LEG1 = prove(swps_leg1_goal,
   REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
@@ -5650,7 +5131,6 @@ let SWPS_LEG1 = prove(swps_leg1_goal,
       ENSURES_INIT_TAC "s0" THEN ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[ADD_CLAUSES]];
     REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MATCH_MP_TAC SWPS_DRAIN256 THEN ASM_REWRITE_TAC[] THEN
     MAP_EVERY (fun t -> TRY(UNDISCH_TAC t)) [`3 <= loop_count`] THEN ARITH_TAC]);;
-Printf.printf "MARKER: SWPS_LEG1 proven (against stubs)\n%!";;
 
 (* ===== SWPS_FROM88 apparatus (WIP against stubs) ===== *)
 (* from88 frame = TAIL's frame (widest: out_p+stack+ivec+tag); widen drain-reaching legs to it. *)
@@ -5687,7 +5167,6 @@ let SWPS_LC0 = GEN_ALL(prove(mk_lcN_goal 0,
   ENSURES_FINAL_STATE_TAC THEN
   ASM_REWRITE_TAC[LIST_OF_SEQ; nist_ghash; MULT_CLAUSES; ADD_CLAUSES; WORD_ADD_0; LT] THEN
   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN TRY MONOTONE_MAYCHANGE_TAC));;
-Printf.printf "MARKER: SWPS_LC0 proven (real)\n%!";;
 
 (* ===== from88 body-form state helpers (compose 1945-1965) ===== *)
 (* ===== SWPS_FROM88 full assembly: whole main-body 0xb0 -> tail_post ===== *)
@@ -5714,7 +5193,6 @@ let from88_entry_flat = unfold_htable_in from88_entry;;
 
 (* ===== SWPS_LC1 / SWPS_LC2 real degenerate legs (replacing compose stubs) ===== *)
 let SWPS_LC1 = ITER1_LEG;;
-Printf.printf "MARKER: SWPS_LC1 = ITER1_LEG (real)\n%!";;
 let widen_leg_to bigframe th =
   let vars,_ = strip_forall (concl th) in
   let leg0 = SPEC_ALL th in
@@ -5792,7 +5270,6 @@ let SWPS_LC2 = GEN_ALL(prove(mk_lcN_goal 2,
         FIRST_ASSUM(fun th -> if lhs(concl th)=`loop_count:num` then REWRITE_TAC[th] else NO_TAC) THEN
         CONV_TAC NUM_REDUCE_CONV THEN REWRITE_TAC[];
         REFOLD_ABI THEN MATCH_MP_TAC LC2_PARTB THEN ASM_REWRITE_TAC[] THEN ARITH_TAC]]]));;
-Printf.printf "MARKER: SWPS_LC2 (real, PARTA+PARTB composition)\n%!";;
 
 (* ===== widen degenerate legs + leg_precond_close (compose 1967-1977) ===== *)
 (* Widen every drain-reaching degenerate leg + SWPS_LEG1 to the from88 (widest) frame. *)
@@ -5846,10 +5323,8 @@ let SWPS_FROM88 = prove(swps_from88_goal,
     (* drain_bridge@0xdd0 -> tail_post@0xee4 *)
     REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
     MATCH_MP_TAC TAILLEG256 THEN leg_precond_close]);;
-Printf.printf "MARKER: SWPS_FROM88 proven (against stubs)\n%!";;
 
 (* ===== SWP256_CORRECT (full function 0x2c -> 0xee4) ===== *)
-Printf.printf "MARKER: proving SWP256_CORRECT...\n%!";;
 (* Witness for ENSURES_POSTCONDITION_THM: the (stronger) from88 postcondition, extracted
    from SWPS_FROM88 with htable_mem_4 unfolded+flattened to match the goal pre form. *)
 let swp_from88_post =
@@ -6068,7 +5543,6 @@ let SWP256_CORRECT = prove
     ASM_REWRITE_TAC[] THEN
     MAP_EVERY UNDISCH_TAC [`len_bits < 2 EXP 64`; `len_bits DIV 128 = nblocks`] THEN
     ARITH_TAC]);;
-Printf.printf "MARKER: SWP256_CORRECT PROVEN, hyps %d\n%!" (List.length (hyp SWP256_CORRECT));;
 
 
 (* ============================================================================ *)
@@ -6128,7 +5602,6 @@ let KEY15_SPLIT = prove
     DISCH_THEN(MP_TAC o AP_TERM `LENGTH:int128 list->num`) THEN
     REWRITE_TAC[LENGTH; LENGTH_MAP] THEN CONV_TAC NUM_REDUCE_CONV THEN
     ASM_REWRITE_TAC[]]);;
-Printf.printf "MARKER: KEY15_SPLIT proven\n%!";;
 
 let AES_GCM_ENC_KERNEL_256_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_SWP_SUBROUTINE_CORRECT = prove
  (`!in_p out_p len_bits tag_p ivec_p key_p htable_p tag0 nonce rk inblock
@@ -6185,11 +5658,5 @@ let AES_GCM_ENC_KERNEL_256_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_SWP_SUBROUTINE_CO
        (REWRITE_RULE[fst SWP256_EXEC; htable_mem_4] SWP256_CORRECT))
     `[X19; X20; X21; X22; X23; X24; X25; X26; X27; X28; X29; X30;
       D8; D9; D10; D11; D12; D13; D14; D15]` 224);;
-Printf.printf "MARKER: *** SWP256 SUBROUTINE CORRECT proven ***\n%!";;
 
 (* Report the axiom count (check_axioms is the real gate; expect the 3 HOL base axioms). *)
-Printf.printf "MARKER: axiom count = %d (expect 3: INFINITY/SELECT/ETA)\n%!" (List.length(axioms()));;
-Printf.printf "MARKER: *** SWP256 CONSOLIDATION AXIOM-FREE ***\n%!";;
-Printf.printf "MARKER: SWP256_CORRECT hyps=%d ; SUBROUTINE hyps=%d\n%!"
-  (List.length(hyp SWP256_CORRECT))
-  (List.length(hyp AES_GCM_ENC_KERNEL_256_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_SWP_SUBROUTINE_CORRECT));;
