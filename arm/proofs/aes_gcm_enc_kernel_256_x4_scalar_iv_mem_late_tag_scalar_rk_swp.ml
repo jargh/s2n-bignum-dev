@@ -411,7 +411,7 @@ let mk_cbv cval =
 (* the BODYLEG fold-forward (must land inv(i+1) with counters +4).            *)
 (* ========================================================================= *)
 
-(* swpgrp: the loop-carried GHASH accumulator for the 256 SWP schedule.  KEY FINDING (2026-09-09, from the CONJ1
+(* swpgrp: the loop-carried GHASH accumulator for the 256 SWP schedule.  KEY FINDING (from the CONJ1
    WORD_BITWISE ground truth): the head-ext `ext v30,v29,v29` byteswaps Q29 into register form, but the reduce's
    Karatsuba packing reads the two 64-bit halves in the SWAPPED order, so the two half-swaps CANCEL.  Net: the
    recurrence is BYTESWAP-FREE -- Q29(i+1) = ghash gt (Q29(i)) [cbs] -- and Q29 IS the clean Horner accumulator
@@ -789,12 +789,11 @@ let close_goal9 : tactic =
      REWRITE_TAC[GSYM AES14P_VIA_AES7C; GSYM AES14P_VIA_AES11C; GSYM AES14P_VIA_AES1C; GSYM AES14P_VIA_AES6C] THEN
      REWRITE_TAC[MATCH_MP KEYSTREAM_FOLD256 rkth]) (asl,w);;
 
-(* 2026-09-13 FIX (part 6): FILL output-forall at i=0.  close_goal9's symbolic 64*i/4*i+k arith leaves 64*0/4*0+k
+(* FILL output-forall at i=0.  close_goal9's symbolic 64*i/4*i+k arith leaves 64*0/4*0+k
    UNREDUCED at i=0 (its NUM_ADD_CONV doesn't collapse the 64*0 multiplication) -> addresses/indices don't match the
    concrete out-store facts (out_p+0/16/32/48, inblock 0..3) -> PARTIAL residual.  This i=0 variant splits j<4
    concretely, NUM_REDUCE_CONV collapses ALL arith to concrete, then the SAME store-fact ASM_REWRITE + reconstruct
-   chain (aes256_ctr_block unfold + XOR_AES256_CIPHER_RECONSTRUCT + KEYSTREAM_FOLD256).  Validated in MCP: split+reduce
-   gives read(mem out_p+{0,16,32,48}) s297 = word_xor(aes256_ctr_block c nonce rk {0,1,2,3})(inblock {0,1,2,3}). *)
+   chain (aes256_ctr_block unfold + XOR_AES256_CIPHER_RECONSTRUCT + KEYSTREAM_FOLD256). *)
 let close_goal9_i0 : tactic =
   fun (asl,w) ->
     let rkth = try snd(find (fun (_,th) -> concl th = rk15) asl) with _ -> failwith "close_goal9_i0: no rk-hyp" in
@@ -804,7 +803,7 @@ let close_goal9_i0 : tactic =
      CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
      (* block 0's out-store is `str q1,[x2],#64` (post-indexed at x2=out_p) -> store fact reads bare `out_p`, but the
         goal address is `word_add out_p (word 0)` (from 16*0=0).  WORD_ADD_0 normalizes word_add out_p (word 0) -> out_p
-        so the block-0 store fact matches (blocks 1,2,3 have nonzero offsets that match directly).  2026-09-13. *)
+        so the block-0 store fact matches (blocks 1,2,3 have nonzero offsets that match directly). *)
      REWRITE_TAC[WORD_ADD_0] THEN
      ASM_REWRITE_TAC[] THEN
      REWRITE_TAC[CTR_BLOCK_BUILD_INSERT] THEN
@@ -824,8 +823,7 @@ let close_goal9_i0 : tactic =
         packed form rev8(word_join(word_or(...)(zx-nest of word c))(...)) inside aes256_cipher(rev8(..)); the
         earlier CTR_BLOCK_BUILD_INSERT already ran so this packed counter wasn't folded.  Final pass:
         zx-normalise (ZXNEST4/ZX_COUNTER_UD/GSYM WORD_ADD) + CTR_BLOCK_BUILD_INSERT (packed->rev8(ctr_block)) + WORD_REVERSEFIELDS_REVERSEFIELDS
-        (collapse the double rev8) folds block 0's counter -> ctr_block nonce c.  Harmless no-op on blocks 1,2,3 (closed).
-        Validated in MCP 2026-09-13. *)
+        (collapse the double rev8) folds block 0's counter -> ctr_block nonce c.  Harmless no-op on blocks 1,2,3 (closed). *)
      REWRITE_TAC[ZXNEST4; ZX_COUNTER_UD; GSYM WORD_ADD] THEN
      REWRITE_TAC[CTR_BLOCK_BUILD_INSERT] THEN
      REWRITE_TAC[WORD_REVERSEFIELDS_REVERSEFIELDS]) (asl,w);;
@@ -942,7 +940,7 @@ let CORE_REDUCE_GHASH = prove
    rev8(aes256_nist_cipher_block .. j), pattern (j + c).  FILL's close_goal7 runs at i=0 (reduces group 0), so the
    folded group-0 blocks have counters c,c+1,c+2,c+3 and plain CT_TO_NCB256 higher-order MIS-fires on them.  These 4
    CONCRETE instances (j pre-instantiated to 0,1,2,3, counter base c+K) close that gap so the
-   rewrite matches the group-0 blocks.  Validated in MCP: all 4 fold to rev8(aes256_nist_cipher_block .. {0,1,2,3}). *)
+   rewrite matches the group-0 blocks. *)
 let ct_ncb_concrete =
   [ REWRITE_RULE[ARITH_RULE `(0:num) + c = c`]     (INST [`0`,`j:num`] (SPEC_ALL CT_TO_NCB256));
     REWRITE_RULE[ARITH_RULE `(1:num) + c = c + 1`] (INST [`1`,`j:num`] (SPEC_ALL CT_TO_NCB256));
@@ -1004,20 +1002,20 @@ let collapse_q30_g g0 : tactic =
      REWRITE_TAC[NCB_CONST_FN]) (asl,w);;
 let collapse_q30 = collapse_q30_g true;;
 
-(* swpgrp-invariant close_goal7 (2026-09-09): the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
+(* swpgrp-invariant close_goal7: the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
-   collapse_q30 folds the LHS keystreams; NO ACC_CLEAN (the acc = word_subword(word_join(swpgrp i)(swpgrp i))(64,128) =
+   collapse_q30 folds the LHS keystreams; no acc-cleanup (the acc = word_subword(word_join(swpgrp i)(swpgrp i))(64,128) =
    byteswap128(swpgrp i) is EXACTLY the seed swpgrp(SUC i) wants -- do NOT collapse it to clean).  Then RECONSTRUCT folds
    the reduce -> polyval_reduce_g2(byteswap128(swpgrp i)-seed lanes), and CORE_REDUCE_GHASH's recipe closes it =
    ghash gt (byteswap128(swpgrp i))[cbs] = swpgrp(SUC i) by the swpgrp SUC-def.  REFLEXIVE -- no byteswap-commute. *)
-(* 2026-09-12 FIX (part 5): FILL runs close_goal7 at i=0 (reduces swpgrp 0=tag0 -> swpgrp 1 over group-0 blocks).
+(* FILL runs close_goal7 at i=0 (reduces swpgrp 0=tag0 -> swpgrp 1 over group-0 blocks).
    The symbolic-i machinery below normalizes the RHS via `i+1=SUC i`, but FILL's RHS is `swpgrp gt tag0 1` (CONCRETE 1),
    so that rewrite + CONJUNCT2 don't fire and the sofar/cipherblock_k ABBREVs (swpgrp gt tag0 i / ncb..(4*i+k)) miss ->
    the LHS keeps tag0 + aes256_nist_cipher_block..k while the EXISTS_TAC target has the abbrev vars -> WORD_BITWISE mismatch.
-   FIX: at i=0, first REWRITE the RHS swpgrp..1 -> ghash_polyval_acc gt tag0 [ncb0..3] (num_CONV 1 + swpgrp CONJUNCTs +
+   Remedy: at i=0, first REWRITE the RHS swpgrp..1 -> ghash_polyval_acc gt tag0 [ncb0..3] (num_CONV 1 + swpgrp CONJUNCTs +
    NUM_REDUCE), then ABBREV `sofar = tag0` and `cipherblock_k = aes256_nist_cipher_block..k` (CONCRETE forms) so the SAME
    downstream byteswap-strip + EQ_TRANS + CORE machinery applies verbatim.  Detect i=0 by `swpgrp .. 1` (literal 1) in
-   the goal's RHS.  Validated in MCP 2026-09-12 (RHS unfold + abbrev + MATCH_ACCEPT CORE_REDUCE_GHASH closes). *)
+   the goal's RHS. *)
 let close_goal7_i0_c collapse : tactic =
   fun (asl,w) ->
     (collapse THEN
@@ -1098,7 +1096,7 @@ let close_goal7_c collapse i0 : tactic =
      ABBREV_TAC `sofar = swpgrp (ghash_twist (aes256_cipher (word 0) rk)) tag0 i (aes256_nist_cipher_block c nonce rk inblock)` THEN
      REWRITE_TAC[ACC_JOIN_BYTESWAP] THEN
      ABBREV_TAC `bsofar:int128 = byteswap128 (sofar:int128)` THEN
-     (* PREFIX NORMALIZATION (OLD/128 close_goal7, MINUS ACC_CLEAN + join-strip): fold block byte-towers -> aes256_nist_cipher_block,
+     (* PREFIX NORMALIZATION: fold block byte-towers -> aes256_nist_cipher_block,
         byteswapped h-powers -> clean, so the reduce becomes RECONSTRUCT-foldable.  bsofar is now an opaque var, untouched. *)
      REWRITE_TAC[WORD_SUBWORD_REVERSEFIELDS] THEN
      SIMP_TAC[WORD_JOIN_COMBINE_LEMMA; ARITH] THEN
@@ -1124,7 +1122,7 @@ let close_goal7_c collapse i0 : tactic =
      REWRITE_TAC[byteswap128] THEN
      REWRITE_TAC[RECONSTRUCT_POLYVAL_REDUCE_G2] THEN
      (* now goal: polyval_reduce_g2(P1 P2 P3) = ghash gt sofar [cb0..cb3] where the machine's acc-lanes read the
-        BYTESWAPPED acc, i.e. word_subword bsofar (64,64) in the lo lane etc.  KEY (2026-09-09, MCP-verified end to end):
+        BYTESWAPPED acc, i.e. word_subword bsofar (64,64) in the lo lane etc.  KEY:
         the head-ext byteswap and the reduce's Karatsuba half-swap CANCEL, so the true seed is sofar (NOT bsofar).
         (1) EXPAND_TAC "bsofar" restores byteswap128 sofar; (2) WORD_SUBWORD_BYTESWAP128 rewrites its halves back to
         sofar's halves (with the 0<->64 position swap that IS the cancellation); (3) GSYM WORD_SUBWORD_XOR folds the
@@ -1158,7 +1156,7 @@ let close_goal7_c collapse i0 : tactic =
       [(* goal-LHS = CORE-LHS: same reduce_g2 (curried f P1 P2 P3 = ((f P1) P2) P3) with P1,P2,P3 word_xor-reordered
          (AC).  Peel the application spine with EXACTLY two MK_COMB (to the outer P3, then P2), and AP_TERM to P1 --
          each arg is a word_xor reordering of the SAME opaque pmul/karatsuba_mid atoms, closed by WORD_BITWISE_RULE.
-         (Validated in MCP: the naive REPEAT/BINOP over-recursed into the xor trees and split misaligned subterms.) *)
+         (The naive REPEAT/BINOP over-recursed into the xor trees and split misaligned subterms.) *)
        MK_COMB_TAC THENL
         [MK_COMB_TAC THENL
           [AP_TERM_TAC THEN CONV_TAC WORD_BITWISE_RULE;
@@ -1195,20 +1193,19 @@ let close_all_tac = close_all_c close_goal7 close_goal8 close_goal10;;
 
 (* ========================================================================= *)
 (* FILL LEG: preamble+FILL  pc+0x88 -> pc+0x560, establishing swpS256_inv 1.  *)
-(* SEAM (pinned from disasm 2026-09-09): the 256 SLOTHY schedule primes ONE   *)
+(* SEAM (pinned from disasm): the 256 SLOTHY schedule primes ONE              *)
 (* full GHASH group into the FILL, so the head 0x560 is at index i=1 (X13=10, *)
 (* out_p+64, Q29=swpgrp gt tag0 1, in_p+128).  Needs loop_count>=3 for the    *)
 (* 0x55c cbz to fall through to 0x560 (lc=2 goes to drain, separate leg).     *)
-(* Q29 FILL closer VERIFIED in MCP: no head-ext, reduce reads Q30=byteswap128 *)
+(* Q29 FILL closer: no head-ext, reduce reads Q30=byteswap128                 *)
 (* tag0 directly -> close_goal7 tail with A:=tag0.                            *)
 (* ========================================================================= *)
 
 (* FILL entry precondition at 0x88 (from the q29harvest precondition; correct). *)
-(* 2026-09-10 FIX: the precondition MUST include the tag_p/ivec_p nonoverlaps (vs pc/in_p/htable/stack+160 and
+(* The precondition MUST include the tag_p/ivec_p nonoverlaps (vs pc/in_p/htable/stack+160 and
    tag_p vs ivec_p), matching the proven body_goal.  Without nonoverlapping(tag_p/ivec_p)(stackpointer+160), the
    read-over-store at FILL step 12 (0xe8 `stp x11,x22,[sp,#160]`) cannot discharge, so the tag_p/ivec_p reads get
-   dropped after s11 and conj3,4 (the s297 invariant reads) fail.  Verified interactively: a 1-step ensures at 0xe8
-   PROVES the read survives WITH the nonoverlap and leaves the exact conj3 goal unsolved WITHOUT it. *)
+   dropped after s11 and conj3,4 (the s297 invariant reads) fail. *)
 let fill_goal = mk_imp
  (`([EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk; EL 8 rk; EL 9 rk;
      EL 10 rk; EL 11 rk; EL 12 rk; EL 13 rk; EL 14 rk]:(int128)list = rk) /\
@@ -1291,7 +1288,7 @@ let FILL_INPUT_SPLIT_TAC =
 (* FILL setup: enter at 0xbc, ghost the lanes, THEN init-abbrev the constant s0-read RHSs (as the body's setup_tac
    does).  This is ESSENTIAL for stepping perf: it abstracts the big constant lanes (word_reversefields 8 (EL k rk),
    ctr_block, etc.) to opaque init_k vars so the per-step WORD_SIMPLE_SUBWORD_CONV stays cheap.  WITHOUT it the FILL
-   stepper crawls to a halt in the GHASH region (v5 stalled ~s180).  FIX vs the body's version (which hit DISCH_TAC
+   stepper crawls to a halt in the GHASH region.  This differs from the body's version (which hit DISCH_TAC
    at FILL): only abbreviate RHS terms that are NOT already bare variables (FILL's precond has read X5 s0 = key_p and
    ghost reads whose RHS is a var; ABBREV_TAC on a bare var fails). *)
 let fill_setup_tac =
@@ -1301,27 +1298,26 @@ let fill_setup_tac =
   RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV BETA_CONV)) THEN CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
   RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4] THEN
   FILL_INPUT_SPLIT_TAC;;
-  (* NO init-abstraction (2026-09-10 strategic fix): abstracting rk-lanes to init_k created two problems -- (1) tag_p/
+  (* NO init-abstraction: abstracting rk-lanes to init_k created two problems -- (1) tag_p/
      ivec_p/rk14 conjuncts showed opaque init_k and needed un-abbrev, (2) the aese tower keys became init_k (unknown EL
      mapping) so the body's close_aesNc (which expects word_reversefields 8 (EL k rk)) could not match.  Dropping the
      abstraction keeps EVERYTHING concrete: the aese towers have real EL-keys (body close_aesNc works VERBATIM) and the
      memory reads stay in closable form.  Speed is preserved by the harvest every-15 WORD_SIMPLE_SUBWORD_CONV in the
      stepper (the abstraction was only a speed hack; every-15 already bounds the tower). *)
 
-(* FILL merges: TBD (start with body merges256 as a guess; the report will reveal counter mis-merges). The FILL
+(* FILL merges (body merges256 plus the group-0 counter/input stores below).  The FILL
    region 0xbc..0x558 is straight-line = (0x558-0xbc)/4 = 295 instrs, then sub@0x558 + cbz@0x55c -> 0x560 = 297.
    For loop_count>=3 the 0x55c cbz (x1 = loop_count-2 != 0) is NOT taken so we fall through to 0x560. *)
 (* FILL counter-store steps (computed from disasm: step = (addr-0xbc)/4+1 for the stp x,y,[sp,#off] in 0xbc..0x558):
    0x280->s114 #208, 0x2d8->s136 #160, 0x384->s179 #192, 0x39c->s185 #208, 0x3c8->s196 #176, 0x3ec->s205 #192,
    0x4c0->s258 #160, 0x4e0->s266 #176.  (The earlier addresses 0xe8..0x1c0 are before the FILL body proper / in the
    priming that gkeep discards.)  MERGE fires at the store step (sN is post-store). *)
-(* 2026-09-11 FIX: the GROUP-0 counter STORES (stp x,y,[sp,#OFF]) happen at steps 12/24/25/26 (0xe8/0x118/0x11c/0x120)
+(* The GROUP-0 counter STORES (stp x,y,[sp,#OFF]) happen at steps 12/24/25/26 (0xe8/0x118/0x11c/0x120)
    -- these were MISSING from fill_merges_guess (which only had the group-1 prefetch merges at 114-266).  Without a
    MERGE at the store step, the group-0 counter loads (ldr q3/q4/q31/q8 at steps 23/29/42/52) leave Q3/Q4/Q31/Q8 as
    UNRESOLVED stack reads, so their AES towers stay raw (aese(...(read[sp+OFF] sK)...)) and collapse_q30's GSYM aes14p
-   can't fold them -> close_goal7 WORD_BITWISE crash.  Body leg's merges256 fire at the STORE steps (verified: (27,208)
-   = stp off208 @step27 etc.); FILL must do the same for group 0.  Added (12,160);(24,192);(25,208);(26,176). *)
-(* 2026-09-12 FIX (part 3): the group-0 INPUT^rk14 stores (scalar_rk final-round: eor input-half,rk14-half then
+   can't fold them -> close_goal7 WORD_BITWISE crash.  Body leg's merges256 fire at the STORE steps; FILL must do the same for group 0. *)
+(* The group-0 INPUT^rk14 stores (scalar_rk final-round: eor input-half,rk14-half then
    stp x,y,[sp,#OFF]) also need merging, else the block-completion read (word_xor(aes14p)(read[sp+OFF] s_late))
    leaves read[sp+OFF] s_late unresolved -> AES14P_COMPLETE/SCALAR_RK_RECONSTRUCT can't fire.  Store steps (2nd stp
    per slot): [sp160]@60 (ldr@89->s88), [sp176]@66 (ldr@141->s140), [sp192]@30 (ldr@95->s94).  Block 3's [sp208]@114
@@ -1353,8 +1349,8 @@ let fill_step_prefix =
                            ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC
                            IN_P_ADDR_FOLD_CONV));;
 
-(* Diagnostic: step the FILL via the SINGLE-APPLICATION fill_step_prefix (body-identical fast path).  CRITICAL PERF
-   FIX (2026-09-09): the earlier per-step `do_list (fun k -> e(...))` accumulated 297 goalstack-history entries, each
+(* Step the FILL via the SINGLE-APPLICATION fill_step_prefix (body-identical fast path).  Performance:
+   the earlier per-step `do_list (fun k -> e(...))` accumulated 297 goalstack-history entries, each
    a ~700MB goal -> O(n^2) RSS + slowdown (crawled to s190 over ~1hr).  Applying the whole MAP_EVERY inside ONE e()
    keeps NO intermediate history (exactly what step_body_prefix does over 209 steps in ~minutes). *)
 
@@ -1396,8 +1392,8 @@ let fill_close_all_256_c cg10 cg7 : tactic =
        ASM_REWRITE_TAC[COND_CLAUSES] THEN CONV_TAC WORD_RULE) (asl,w)
     else if is_forall w then
       (REWRITE_TAC[ARITH_RULE `4 * 1 = 4`] THEN close_goal9_i0) (asl,w)
-    (* Q29 GHASH conjunct: route DIRECTLY to close_goal7 (like body leg's close_all_tac line 1541).  CRITICAL PERF
-       FIX (2026-09-11): without this the swpgrp conjunct falls into the else-branch FIRST-list and tries CONV_TAC
+    (* Q29 GHASH conjunct: route DIRECTLY to close_goal7 (like the body leg's close_all_tac).  Performance:
+       without this the swpgrp conjunct falls into the else-branch FIRST-list and tries CONV_TAC
        WORD_RULE / WORD_BLAST on the giant concrete-i=1 GHASH tower FIRST -- each ~45min before failing -> the close
        phase took >9h.  close_goal7 ABBREVs the big terms away, so routing straight to it is fast. *)
     else if is_eq w && (has "nist_ghash" (rhs w) || has "swpgrp" (rhs w)) then cg7 (asl,w)
@@ -1410,11 +1406,10 @@ let fill_close_all_256_c cg10 cg7 : tactic =
              asl (gkeep keeps memory reads -- body leg relies on it).  ASM_REWRITE alone closes (NO THEN REFL_TAC --
              ASM_REWRITE already fully closes it, and REFL_TAC on the empty goal would error). *)
           (FIRST_ASSUM ACCEPT_TAC); ASM_REWRITE_TAC[];
-          (* X13: word 10 = word_zx(word(4*1+6)) -- CONFIRMED closes *)
+          (* X13: word 10 = word_zx(word(4*1+6)) *)
           (REWRITE_TAC[ZXNEST4; ZX_COUNTER_UD] THEN AP_TERM_TAC THEN REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC);
           (* aesNc Q3=aes11c(6)/Q4=aes7c(8)/Q8=aes1c(7)/Q31=aes6c(9): reduce index, unfold def, AP_TERM to the counter,
-             ACCEPT mk_cbv N.  CONFIRMED in MCP (2026-09-10): the v2 ZXNEST4/ZX_COUNTER_UD rewrite DISTURBED the counter and
-             broke the mk_cbv match -- REMOVED.  mk_cbv N's LHS IS exactly the sim counter form (correct int64 types). *)
+             ACCEPT mk_cbv N.  mk_cbv N's LHS IS exactly the sim counter form (correct int64 types). *)
           (REWRITE_TAC[ARITH_RULE `4 * 1 + c = c + 4`; aes11c] THEN
            REPEAT(AP_TERM_TAC ORELSE AP_THM_TAC) THEN ACCEPT_TAC(mk_cbv `(c:num) + 4`));
           (REWRITE_TAC[ARITH_RULE `(c + 4) + 2 = c + 6`; ARITH_RULE `4 * 1 + c + 2 = c + 6`; aes7c] THEN
@@ -1439,10 +1434,9 @@ let fill_close_all_256_c cg10 cg7 : tactic =
           (ASM_REWRITE_TAC[] THEN REFL_TAC);
           ASM_REWRITE_TAC[]; CONV_TAC WORD_BLAST; CONV_TAC WORD_RULE ])) (asl,w);;
 let fill_close_all_256 = fill_close_all_256_c close_goal10 close_goal7;;
-(* Real leaf theorem.  All 17 conjuncts now close: 16 confirmed in diag3; conj 9 (output-forall) via close_goal9_i0
+(* FILLLEG256: all 17 conjuncts close; conj 9 (output-forall) via close_goal9_i0
    (concrete j<4 split + NUM_REDUCE + WORD_ADD_0 for block-0's post-indexed store + ZXNEST4/ZX_COUNTER_UD/CTR_BLOCK_BUILD_INSERT/
-   WORD_REVERSEFIELDS_REVERSEFIELDS final pass for block-0's counter).  Each stage validated in MCP against the dumped
-   goals. *)
+   WORD_REVERSEFIELDS_REVERSEFIELDS final pass for block-0's counter). *)
 let FILLLEG256 = GEN_ALL(prove(fill_goal,
   fill_step_prefix THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
@@ -1476,9 +1470,9 @@ let close_goal10 = close_goal10_b `i < loop_count - 1`;;
 (* collapse_q30 + close_goal7 (Q30 GHASH tag reduce reconstruction), 256 re-index. *)
 let collapse_q30 = collapse_q30_g false;;
 
-(* swpgrp-invariant close_goal7 (2026-09-09): the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
+(* swpgrp-invariant close_goal7: the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
-   collapse_q30 folds the LHS keystreams; NO ACC_CLEAN (the acc = word_subword(word_join(swpgrp i)(swpgrp i))(64,128) =
+   collapse_q30 folds the LHS keystreams; no acc-cleanup (the acc = word_subword(word_join(swpgrp i)(swpgrp i))(64,128) =
    byteswap128(swpgrp i) is EXACTLY the seed swpgrp(SUC i) wants -- do NOT collapse it to clean).  Then RECONSTRUCT folds
    the reduce -> polyval_reduce_g2(byteswap128(swpgrp i)-seed lanes), and CORE_REDUCE_GHASH's recipe closes it =
    ghash gt (byteswap128(swpgrp i))[cbs] = swpgrp(SUC i) by the swpgrp SUC-def.  REFLEXIVE -- no byteswap-commute. *)
@@ -1517,9 +1511,9 @@ let close_goal10 = close_goal10_b `i < loop_count - 2`;;
 (* collapse_q30 + close_goal7 (Q30 GHASH tag reduce reconstruction), 256 re-index. *)
 let collapse_q30 = collapse_q30_g false;;
 
-(* swpgrp-invariant close_goal7 (2026-09-09): the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
+(* swpgrp-invariant close_goal7: the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
-   collapse_q30 folds the LHS keystreams; NO ACC_CLEAN (the acc = word_subword(word_join(swpgrp i)(swpgrp i))(64,128) =
+   collapse_q30 folds the LHS keystreams; no acc-cleanup (the acc = word_subword(word_join(swpgrp i)(swpgrp i))(64,128) =
    byteswap128(swpgrp i) is EXACTLY the seed swpgrp(SUC i) wants -- do NOT collapse it to clean).  Then RECONSTRUCT folds
    the reduce -> polyval_reduce_g2(byteswap128(swpgrp i)-seed lanes), and CORE_REDUCE_GHASH's recipe closes it =
    ghash gt (byteswap128(swpgrp i))[cbs] = swpgrp(SUC i) by the swpgrp SUC-def.  REFLEXIVE -- no byteswap-commute. *)
@@ -1787,8 +1781,7 @@ let drain_close_all_c dq30 closeall : tactic =
     else closeall (asl,w);;
 let drain_close_all = drain_close_all_c drain_close_q30 close_all_tac;;
 
-(* Real leaf theorem: all 5 conjuncts close (diagnostic by1nj6eaz confirmed conj0..4 CLOSED with drain_close_all,
-   conj2 via drain_close_q30 v3).  GEN_ALL so composition MATCH_MP_TAC leaves the ?key_p etc. *)
+(* DRAINLEG256: all 5 conjuncts close (conj2 via drain_close_q30).  GEN_ALL so composition MATCH_MP_TAC leaves the ?key_p etc. *)
 let DRAINLEG256 = GEN_ALL(prove(drain_goal,
   drain_step_prefix THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
@@ -1837,9 +1830,9 @@ let tail_final_close : tactic =
 (* collapse_q30 + close_goal7 (Q30 GHASH tag reduce reconstruction), 256 re-index. *)
 let collapse_q30 = collapse_q30_g false;;
 
-(* swpgrp-invariant close_goal7 (2026-09-09): the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
+(* swpgrp-invariant close_goal7: the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
-   collapse_q30 folds the LHS keystreams; NO ACC_CLEAN (the acc = word_subword(word_join(swpgrp i)(swpgrp i))(64,128) =
+   collapse_q30 folds the LHS keystreams; no acc-cleanup (the acc = word_subword(word_join(swpgrp i)(swpgrp i))(64,128) =
    byteswap128(swpgrp i) is EXACTLY the seed swpgrp(SUC i) wants -- do NOT collapse it to clean).  Then RECONSTRUCT folds
    the reduce -> polyval_reduce_g2(byteswap128(swpgrp i)-seed lanes), and CORE_REDUCE_GHASH's recipe closes it =
    ghash gt (byteswap128(swpgrp i))[cbs] = swpgrp(SUC i) by the swpgrp SUC-def.  REFLEXIVE -- no byteswap-commute. *)
@@ -1944,7 +1937,7 @@ let tail_goal = mk_imp
      MAYCHANGE [memory :> bytes(tag_p:int64, 16)] ,, MAYCHANGE [events]`]);;
 
 (* ---- tail single-block GHASH-append closer (Q30 i->i+1) + block reconstruct, ported from body-only 1418-1467.
-   MONOLITHIC (runs on the whole post-forall-split goal); the extra `TRY tail_g3_frame` after the WORD_RULE peel
+   MONOLITHIC (runs on the whole post-forall-split goal); the extra frame-discharge after the WORD_RULE peel
    closes the surviving MAYCHANGE frame subgoal (standalone leg -- body-only had none) so only the Q30 word_join
    eq reaches the byteswap MATCH_MP_TAC. ---- *)
 (* peel closer for the register/counter word-equalities: X16 is word_sub(word(loop_remain-i))(word 1) which
@@ -2015,7 +2008,7 @@ let tail_ghash_close : tactic =
   ASM_REWRITE_TAC[];;
 
 (* g3 closer = the monolithic body-only closer tail_ghash_close, which now internally discharges the surviving
-   MAYCHANGE frame (via TRY tail_g3_frame after its WORD_RULE peel) before the Q30 byteswap MATCH. *)
+   MAYCHANGE frame (discharged after its WORD_RULE peel) before the Q30 byteswap MATCH. *)
 let tail_g3_close : tactic = tail_ghash_close;;
 
 let tail_stepconv n =
@@ -2159,9 +2152,9 @@ let close_goal10 = close_goal10_b `i < loop_count - 1`;;
    aes-towers fold to aes256_nist_cipher_block (the symbolic-i bodyleg version does NOT fold iter_1's literal blocks). *)
 let collapse_q30 = collapse_q30_g true;;
 
-(* swpgrp-invariant close_goal7 (2026-09-09): the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
+(* swpgrp-invariant close_goal7: the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
-   collapse_q30 folds the LHS keystreams; NO ACC_CLEAN (the acc = word_subword(word_join(swpgrp i)(swpgrp i))(64,128) =
+   collapse_q30 folds the LHS keystreams; no acc-cleanup (the acc = word_subword(word_join(swpgrp i)(swpgrp i))(64,128) =
    byteswap128(swpgrp i) is EXACTLY the seed swpgrp(SUC i) wants -- do NOT collapse it to clean).  Then RECONSTRUCT folds
    the reduce -> polyval_reduce_g2(byteswap128(swpgrp i)-seed lanes), and CORE_REDUCE_GHASH's recipe closes it =
    ghash gt (byteswap128(swpgrp i))[cbs] = swpgrp(SUC i) by the swpgrp SUC-def.  REFLEXIVE -- no byteswap-commute. *)
@@ -2404,61 +2397,58 @@ let close_all_tac = close_all_c close_goal7 close_goal8 close_goal10;;
 
 (* ========================================================================= *)
 (* FILL LEG: preamble+FILL  pc+0x88 -> pc+0x560, establishing swpS256_inv 1.  *)
-(* SEAM (pinned from disasm 2026-09-09): the 256 SLOTHY schedule primes ONE   *)
+(* SEAM (pinned from disasm): the 256 SLOTHY schedule primes ONE              *)
 (* full GHASH group into the FILL, so the head 0x560 is at index i=1 (X13=10, *)
 (* out_p+64, Q29=swpgrp gt tag0 1, in_p+128).  Needs loop_count>=3 for the    *)
 (* 0x55c cbz to fall through to 0x560 (lc=2 goes to drain, separate leg).     *)
-(* Q29 FILL closer VERIFIED in MCP: no head-ext, reduce reads Q30=byteswap128 *)
+(* Q29 FILL closer: no head-ext, reduce reads Q30=byteswap128                 *)
 (* tag0 directly -> close_goal7 tail with A:=tag0.                            *)
 (* ========================================================================= *)
 
 (* FILL entry precondition at 0x88 (from the q29harvest precondition; correct). *)
-(* 2026-09-10 FIX: the precondition MUST include the tag_p/ivec_p nonoverlaps (vs pc/in_p/htable/stack+160 and
+(* The precondition MUST include the tag_p/ivec_p nonoverlaps (vs pc/in_p/htable/stack+160 and
    tag_p vs ivec_p), matching the proven body_goal.  Without nonoverlapping(tag_p/ivec_p)(stackpointer+160), the
    read-over-store at FILL step 12 (0xe8 `stp x11,x22,[sp,#160]`) cannot discharge, so the tag_p/ivec_p reads get
-   dropped after s11 and conj3,4 (the s297 invariant reads) fail.  Verified interactively: a 1-step ensures at 0xe8
-   PROVES the read survives WITH the nonoverlap and leaves the exact conj3 goal unsolved WITHOUT it. *)
+   dropped after s11 and conj3,4 (the s297 invariant reads) fail. *)
 
-  (* NO init-abstraction (2026-09-10 strategic fix): abstracting rk-lanes to init_k created two problems -- (1) tag_p/
+  (* NO init-abstraction: abstracting rk-lanes to init_k created two problems -- (1) tag_p/
      ivec_p/rk14 conjuncts showed opaque init_k and needed un-abbrev, (2) the aese tower keys became init_k (unknown EL
      mapping) so the body's close_aesNc (which expects word_reversefields 8 (EL k rk)) could not match.  Dropping the
      abstraction keeps EVERYTHING concrete: the aese towers have real EL-keys (body close_aesNc works VERBATIM) and the
      memory reads stay in closable form.  Speed is preserved by the harvest every-15 WORD_SIMPLE_SUBWORD_CONV in the
      stepper (the abstraction was only a speed hack; every-15 already bounds the tower). *)
 
-(* FILL merges: TBD (start with body merges256 as a guess; the report will reveal counter mis-merges). The FILL
+(* FILL merges (body merges256 plus the group-0 counter/input stores below).  The FILL
    region 0xbc..0x558 is straight-line = (0x558-0xbc)/4 = 295 instrs, then sub@0x558 + cbz@0x55c -> 0x560 = 297.
    For loop_count>=3 the 0x55c cbz (x1 = loop_count-2 != 0) is NOT taken so we fall through to 0x560. *)
 (* FILL counter-store steps (computed from disasm: step = (addr-0xbc)/4+1 for the stp x,y,[sp,#off] in 0xbc..0x558):
    0x280->s114 #208, 0x2d8->s136 #160, 0x384->s179 #192, 0x39c->s185 #208, 0x3c8->s196 #176, 0x3ec->s205 #192,
    0x4c0->s258 #160, 0x4e0->s266 #176.  (The earlier addresses 0xe8..0x1c0 are before the FILL body proper / in the
    priming that gkeep discards.)  MERGE fires at the store step (sN is post-store). *)
-(* 2026-09-11 FIX: the GROUP-0 counter STORES (stp x,y,[sp,#OFF]) happen at steps 12/24/25/26 (0xe8/0x118/0x11c/0x120)
+(* The GROUP-0 counter STORES (stp x,y,[sp,#OFF]) happen at steps 12/24/25/26 (0xe8/0x118/0x11c/0x120)
    -- these were MISSING from fill_merges_guess (which only had the group-1 prefetch merges at 114-266).  Without a
    MERGE at the store step, the group-0 counter loads (ldr q3/q4/q31/q8 at steps 23/29/42/52) leave Q3/Q4/Q31/Q8 as
    UNRESOLVED stack reads, so their AES towers stay raw (aese(...(read[sp+OFF] sK)...)) and collapse_q30's GSYM aes14p
-   can't fold them -> close_goal7 WORD_BITWISE crash.  Body leg's merges256 fire at the STORE steps (verified: (27,208)
-   = stp off208 @step27 etc.); FILL must do the same for group 0.  Added (12,160);(24,192);(25,208);(26,176). *)
+   can't fold them -> close_goal7 WORD_BITWISE crash.  Body leg's merges256 fire at the STORE steps; FILL must do the same for group 0. *)
 (* HARVEST-FAST stepper (q29harvest did 296 steps fast this way; all my per-step-conv variants crawled): the killer
    is per-step WORD_SIMPLE_SUBWORD_CONV over the growing explicit GHASH tower.  Do it ONLY every 15 steps.  Per step:
    just gkeepN-discard (keeps asl bounded) + the CHEAP address-normalization (needed so merges/input-reads match).
    Merges need the normalized counter reads -> run the merge (TRY) right after the cheap address fold. *)
 
-(* Diagnostic: step the FILL via the SINGLE-APPLICATION fill_step_prefix (body-identical fast path).  CRITICAL PERF
-   FIX (2026-09-09): the earlier per-step `do_list (fun k -> e(...))` accumulated 297 goalstack-history entries, each
+(* Step the FILL via the SINGLE-APPLICATION fill_step_prefix (body-identical fast path).  Performance:
+   the earlier per-step `do_list (fun k -> e(...))` accumulated 297 goalstack-history entries, each
    a ~700MB goal -> O(n^2) RSS + slowdown (crawled to s190 over ~1hr).  Applying the whole MAP_EVERY inside ONE e()
    keeps NO intermediate history (exactly what step_body_prefix does over 209 steps in ~minutes). *)
 
 let fill_close_all_256 = fill_close_all_256_c close_goal10 close_goal7;;
-(* Real leaf theorem.  All 17 conjuncts now close: 16 confirmed in diag3; conj 9 (output-forall) via close_goal9_i0
+(* FILLLEG256: all 17 conjuncts close; conj 9 (output-forall) via close_goal9_i0
    (concrete j<4 split + NUM_REDUCE + WORD_ADD_0 for block-0's post-indexed store + ZXNEST4/ZX_COUNTER_UD/CTR_BLOCK_BUILD_INSERT/
-   WORD_REVERSEFIELDS_REVERSEFIELDS final pass for block-0's counter).  Each stage validated in MCP against the dumped
-   goals. *)
+   WORD_REVERSEFIELDS_REVERSEFIELDS final pass for block-0's counter). *)
 
 (* ================================================================= *)
 (* LC2 (loop_count=2): FILL 0xbc -> cbz-taken@0x55c -> DRAIN 0x8a8 -> drain_bridge.  *)
-(* PARTA diagnostic: step FILL to 0x8a8 (cbz TAKEN, lc=2), dump the state to determine   *)
-(* the waypoint invariant index for the PARTA/PARTB split.                               *)
+(* PARTA runs FILL to the cbz-taken waypoint 0x8a8 (lc=2); the waypoint invariant index   *)
+(* determines the PARTA/PARTB split.                                                     *)
 (* ================================================================= *)
 (* PARTA precond: fill_goal's precond with (3<=loop_count) dropped, (loop_count=2) added *)
 let lc2a_precond =
@@ -2572,9 +2562,9 @@ let close_goal10 = close_goal10_b `i < loop_count - 2`;;
 (* collapse_q30 + close_goal7 (Q30 GHASH tag reduce reconstruction), 256 re-index. *)
 let collapse_q30 = collapse_q30_g false;;
 
-(* swpgrp-invariant close_goal7 (2026-09-09): the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
+(* swpgrp-invariant close_goal7: the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
-   collapse_q30 folds the LHS keystreams; NO ACC_CLEAN (the acc = word_subword(word_join(swpgrp i)(swpgrp i))(64,128) =
+   collapse_q30 folds the LHS keystreams; no acc-cleanup (the acc = word_subword(word_join(swpgrp i)(swpgrp i))(64,128) =
    byteswap128(swpgrp i) is EXACTLY the seed swpgrp(SUC i) wants -- do NOT collapse it to clean).  Then RECONSTRUCT folds
    the reduce -> polyval_reduce_g2(byteswap128(swpgrp i)-seed lanes), and CORE_REDUCE_GHASH's recipe closes it =
    ghash gt (byteswap128(swpgrp i))[cbs] = swpgrp(SUC i) by the swpgrp SUC-def.  REFLEXIVE -- no byteswap-commute. *)
@@ -2595,8 +2585,7 @@ let drain_close_q30 = drain_close_q30_c collapse_q30;;
 
 let drain_close_all = drain_close_all_c drain_close_q30 close_all_tac;;
 
-(* Real leaf theorem: all 5 conjuncts close (diagnostic by1nj6eaz confirmed conj0..4 CLOSED with drain_close_all,
-   conj2 via drain_close_q30 v3).  GEN_ALL so composition MATCH_MP_TAC leaves the ?key_p etc. *)
+(* DRAINLEG256: all 5 conjuncts close (conj2 via drain_close_q30).  GEN_ALL so composition MATCH_MP_TAC leaves the ?key_p etc. *)
 
 (* ================================================================= *)
 (* LC2 PARTB: drain-from-0x8a8.  DRAINLEG256 enters @0x8a4 (step1=cbnz X1=0 -> 0x8a8).  LC2's FILL-cbz-taken   *)
@@ -2659,7 +2648,7 @@ let LC2_PARTB = GEN_ALL(prove(drain_goal_8a8,
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
   REPEAT CONJ_TAC THEN drain_close_all));;
 
-(* ===== COMPOSITION APPARATUS (compose 1790-1940, stubs excluded) ===== *)
+(* ===== COMPOSITION APPARATUS ===== *)
 
 let swps_broad_frame =
   let _,ens = dest_imp drain_goal in last(snd(strip_comb ens));;
@@ -2697,27 +2686,14 @@ let SWPS_DRAIN256 = prove(swps_drain256_goal,
      REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
      MATCH_MP_TAC DRAINLEG256 THEN ASM_REWRITE_TAC[]]);;
 
-(* ===== Stage 3 WIP: SWPS_LEG1 (FILL + seam-to-seam WHILE + SWPS_DRAIN256) ===== *)
+(* ===== SWPS_LEG1: FILL + seam-to-seam WHILE + SWPS_DRAIN256 ===== *)
 (* WHILE reindex: base k=0 -> inv1 (FILL post); body maps inv(k+1)@0x560 -> inv(k+2)@0x8a4 -> backedge.
    Loop = ENSURES_WHILE_UP (loop_count-2) @0x560 @0x8a4 swps256_while_inv, exit at inv(loop_count-2)@0x560 -> SWPS_DRAIN256. *)
 let swps256_while_inv = mk_gabs(`k:num`, mk_comb(swpS256_inv, `k + 1`));;
-(* SWPS_LEG1 tactic to be developed against stubs next. *)
 
 let swps_leg1_goal =
   mk_imp(lhand fill_goal,
     list_mk_icomb "ensures" [`arm`; fill_pre_state; drain_bridge; swps_broad_frame]);;
-(* VALIDATED against stubs:
-   - FILL half: ENSURES_SEQUENCE 0x560 (waypoint bare inv1) ; MATCH_MP_TAC FILLLEG256 THEN ASM_REWRITE. CLOSES.
-     [NB waypoint may need leg_state-shaped (aligned+PC) not bare inv -- FILL post is leg_state@0x560 1.]
-   - lc=3 degenerate: ENSURES_PRECONDITION_TAC dpre(inv(loop_count-2)@0x560) ; [GEN+BETA+ASM_REWRITE[3-2=1;
-     ADD_CLAUSES]+NUM_REDUCE+DISCH_THEN ACCEPT ; MATCH_MP_TAC SWPS_DRAIN256 + 2<=lc arith]. CLOSES.
-   - DRAIN half (lc>=4): MATCH_MP_TAC SWPS_DRAIN256 THEN ASM_REWRITE THEN (2<=lc from 3<=lc ARITH). CLOSES.
-   - WHILE (lc>=4): seam-to-seam ENSURES_WHILE_UP (loop_count-3) (pc+0x560) (pc+0x560) swps256_while_inv.
-     g1 CLOSES (~(loop_count-3=0) from ~(loop_count=3)/\3<=lc). g2 base CLOSES.
-   TODO: g4 backedge identity-close (leftover = full inv(i+1), ASM_REWRITE not matching -- likely X1/counter
-   normalization); g5 exit (SUBGOAL (loop_count-3)+1=loop_count-2 then close); g3 body = ENSURES_SEQUENCE 0x8a4
-   (BODYLEG_BROAD@(k+1)) + cbnz@0x8a4 backedge->0x560 (port 128 g3 2296-2321).  Then swap real legs + re-prove
-   BODYLEG256 with i<loop_count-1, and the loop_count=2/1/0 degenerate legs + SWP256_CORRECT + wrapper. *)
 
 let SWPS_LEG1 = prove(swps_leg1_goal,
   REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
@@ -2768,7 +2744,7 @@ let SWPS_LEG1 = prove(swps_leg1_goal,
     REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MATCH_MP_TAC SWPS_DRAIN256 THEN ASM_REWRITE_TAC[] THEN
     MAP_EVERY (fun t -> TRY(UNDISCH_TAC t)) [`3 <= loop_count`] THEN ARITH_TAC]);;
 
-(* ===== SWPS_FROM88 apparatus (WIP against stubs) ===== *)
+(* ===== SWPS_FROM88 apparatus ===== *)
 (* from88 frame = TAIL's frame (widest: out_p+stack+ivec+tag); widen drain-reaching legs to it. *)
 let from88_frame = last(snd(strip_comb(snd(dest_imp(concl(SPEC_ALL TAILLEG256))))));;
 let widen_to_from88 th =
@@ -2788,7 +2764,7 @@ let from88_entry = mk_abs(`s:armstate`,
 let gen_precond = list_mk_conj (filter (fun c -> c <> `2 <= loop_count`) (conjuncts (lhand drain_goal)));;
 let swps_from88_goal =
   mk_imp(gen_precond, list_mk_icomb "ensures" [`arm`; from88_entry; tail_post; from88_frame]);;
-(* degenerate leg stubs (lc=0/1/2 -> drain_bridge). REAL proofs TODO. *)
+(* degenerate leg goals (lc=0/1/2 -> drain_bridge). *)
 let mk_lcN_goal n =
   mk_imp(mk_conj(gen_precond, mk_eq(`loop_count:num`, mk_small_numeral n)),
     list_mk_icomb "ensures" [`arm`; from88_entry; drain_bridge; swps_broad_frame]);;
@@ -2826,7 +2802,7 @@ let drain_bridge_body = strip_aligned_pc drain_bridge;;
 let fill_pre_body = strip_aligned_pc fill_pre_state;;
 let fill_pre_body_flat = unfold_htable_in fill_pre_body;;
 
-(* ===== SWPS_LC1 / SWPS_LC2 real degenerate legs (replacing compose stubs) ===== *)
+(* ===== SWPS_LC1 / SWPS_LC2 degenerate legs ===== *)
 let SWPS_LC1 = ITER1_LEG;;
 let widen_leg_to bigframe th =
   let vars,_ = strip_forall (concl th) in
