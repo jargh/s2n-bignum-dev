@@ -765,6 +765,27 @@ let IN_P_ADDR_FOLD_CONV : conv =
       -> RAND_CONV(RAND_CONV inner) t
     | _ -> failwith "IN_P_ADDR_FOLD_CONV");;
 
+(* One pruned symbolic step followed by the per-step assumption normalisation (subword *)
+(* nests, relative addresses, in_p offsets).  DEC_STEPS_TAC runs a range of steps with  *)
+(* a per-step hook (staged counter-slot merges, lane priming) after each one.           *)
+
+let DEC_NORM_ASM_TAC : tactic =
+  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
+                           ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV));;
+
+let DEC_STEP_TAC keep k : tactic =
+  gkeepN keep DEC256_EXEC ("s"^string_of_int k) THEN DEC_NORM_ASM_TAC;;
+
+let DEC_STEPS_TAC keep (hook:int->tactic) ks : tactic =
+  fun g -> MAP_EVERY (fun k -> DEC_STEP_TAC keep k THEN hook k) ks g;;
+
+(* The hook that applies a staged counter-slot merge at its store step. *)
+
+let merge_hook merges mk k : tactic =
+  match filter (fun (kk,_,_) -> kk = k) merges with
+  | (_,off,cval)::_ -> mk off cval ("s"^string_of_int k)
+  | [] -> ALL_TAC;;
+
 (* 256 carried/reduce reg-set: AES partials Q3/Q4/Q8 + reduce Q1/Q2/Q11/Q13/Q14/Q29/Q30 + h-powers.
    (REDSETX_DEC / ghost_lanes_dec / merges_dec are defined in dec256_bodyleg_setup.ml, not here.) *)
 let contains sub s =
@@ -2943,19 +2964,8 @@ let step_body_all =
   setup_tac_dec THEN
   IVEC_SPLIT_dec THEN
   SLOT_PRIME_E THEN
-  (fun (asl,w) ->
-     (MAP_EVERY (fun k ->
-        gkeepN REDSETX_DEC DEC256_EXEC ("s"^string_of_int k) THEN
-        RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                 ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC
-                                 IN_P_ADDR_FOLD_CONV)) THEN
-        (match filter (fun (kk,_,_) -> kk=k) merges_dec_fold with
-         | (_,off,cval)::_ -> MERGE_CTR128_FOLD_E off cval ("s"^string_of_int k)
-         | [] -> ALL_TAC))
-       (1--193)) (asl,w)) THEN
-  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                           ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC
-                           IN_P_ADDR_FOLD_CONV));;
+  DEC_STEPS_TAC REDSETX_DEC (merge_hook merges_dec_fold MERGE_CTR128_FOLD_E) (1--193) THEN
+  DEC_NORM_ASM_TAC;;
 
 let SWP_DEC256_BODYLEG = prove(body_goal_dec,
   step_body_all THEN
@@ -3087,6 +3097,7 @@ let fill_prime_mid off sK : tactic = fun (asl,w) ->
   (SUBGOAL_THEN mid ASSUME_TAC THENL
    [MP_TAC iv_eq THEN DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN CONV_TAC WORD_BLAST; ALL_TAC]) (asl,w);;
 let fill_prime_mids sK : tactic = MAP_EVERY (fun off -> fill_prime_mid off sK) [160;176;192;208];;
+let fill_prime_hook k : tactic = if k = 23 then fill_prime_mids "s23" else ALL_TAC;;
 
 (* base-counter lemma: the ivec's counter field (rev8(ctr_block nonce 2)) reverses back to `word 2`. *)
 let BASE_CTR_DEC = prove(
@@ -3128,8 +3139,7 @@ let FILL_GUARD_CBZ_TAC : tactic =
      [ONCE_REWRITE_TAC[GSYM(ASSUME `read X1 s32 = word_ushr (word_ushr (word_ushr (word len_bits) 3) 4) 2`)] THEN
       ASM_REWRITE_TAC[]; ALL_TAC] THEN
     ASM_REWRITE_TAC[] THEN UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
-  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                           ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV));;
+  DEC_NORM_ASM_TAC;;
 
 (* FILL counter merge (at the STORE step, mirroring bodyleg merges_dec_fold): reconstruct
    read(bytes128 sp+off) sK = rev8(ctr_block nonce cval) from the lo/mid lanes + the just-stored +12 counter
@@ -3292,9 +3302,7 @@ let FILL_CBZ144_TAC : tactic =
    [MATCH_MP_TAC lc_bound THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
   SUBGOAL_THEN `~(val(word_sub (word loop_count) (word 1):int64) = 0)` ASSUME_TAC THENL
    [MATCH_MP_TAC SWP_SUB1_NE0 THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
-  gkeepN ("X1"::REDSETX_DEC) DEC256_EXEC "s144" THEN
-  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                           ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV));;
+  DEC_STEP_TAC ("X1"::REDSETX_DEC) 144;;
 
 (* ---- full fill stepper: setup -> steps 1-31 (+ mid-lane prime @ s23) -> guard/cbz -> body 33-143 -> cbz 144. ---- *)
 let NSTEP_FILL = 143;;  (* 0x2c..0x264 straight-line; step 144 = cbz@0x268 -> fall-through to 0x26c (FILL_CBZ144_TAC). *)
@@ -3303,28 +3311,13 @@ let REDSETX_FILL = "X1"::REDSETX_DEC;;
 let fill_step_all =
   fill_setup_tac THEN
   (* steps 1-31: round keys, tag0, ivec pair -> 4 slots; prime the mid lanes at s23 (post the 4 stp). *)
-  (fun (asl,w) ->
-    (MAP_EVERY (fun k ->
-       gkeepN REDSETX_FILL DEC256_EXEC ("s"^string_of_int k) THEN
-       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-       (if k = 23 then fill_prime_mids "s23" else ALL_TAC))
-      (1--31)) (asl,w)) THEN
+  DEC_STEPS_TAC REDSETX_FILL fill_prime_hook (1--31) THEN
   (* guard + cbz @ 0xa8 -> 0xac *)
   FILL_GUARD_CBZ_TAC THEN
   (* body 33-143 (0xac..0x264) with counter merges at the RELOAD steps; keep X1 for the terminal cbz *)
-  (fun (asl,w) ->
-    (MAP_EVERY (fun k ->
-       gkeepN REDSETX_FILL DEC256_EXEC ("s"^string_of_int k) THEN
-       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-       (match filter (fun (kk,_,_) -> kk=k) dec_fill_merges with
-        | (_,off,cval)::_ -> MERGE_CTR128_FILL off cval ("s"^string_of_int k)
-        | [] -> ALL_TAC))
-      (33--NSTEP_FILL)) (asl,w)) THEN
+  DEC_STEPS_TAC REDSETX_FILL (merge_hook dec_fill_merges MERGE_CTR128_FILL) (33--NSTEP_FILL) THEN
   FILL_CBZ144_TAC THEN
-  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                           ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV));;
+  DEC_NORM_ASM_TAC;;
 
 (* ---- establish swpS256_inv_dec 0 @ 0x26c: reuse the bodyleg CLOSE_DEC256 dispatcher at i=0.
    The post-state conjuncts have the same shapes as the bodyleg's (with 4*0+K concrete), so CLOSE_DEC256
@@ -3556,14 +3549,8 @@ let NSTEP_DRAIN = 84;;   (* step1=cbnz@0x570; steps 2..84 = 0x574..0x6bc (83 ins
 let drain_step_all =
   drain_setup_tac THEN
   DRAIN_CBNZ_TAC THEN
-  (fun (asl,w) ->
-    (MAP_EVERY (fun k ->
-       gkeepN REDSETX_DEC DEC256_EXEC ("s"^string_of_int k) THEN
-       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)))
-      (2--NSTEP_DRAIN)) (asl,w)) THEN
-  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                           ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV));;
+  DEC_STEPS_TAC REDSETX_DEC (K ALL_TAC) (2--NSTEP_DRAIN) THEN
+  DEC_NORM_ASM_TAC;;
 
 (* ---- DRAIN closer (DIAG scaffold): the first native run surfaces the drain_bridge gaps.  The bridge conjuncts
    are: aligned/PC (ASM), the carried regs (round keys/X-regs = ASM from invariant + stepping), the SETTLED Q30
@@ -3716,11 +3703,6 @@ let tail_frame = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
       MAYCHANGE [memory :> bytes(tag_p:int64,16)] ,, MAYCHANGE [memory :> bytes(ivec_p:int64,16)] ,,
       MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`;;
 let tail_goal = mk_imp(tail_hyps, list_mk_icomb "ensures" [`arm`; drain_bridge; tail_post; tail_frame]);;
-
-(* per-step conv (reused). *)
-let dstep k = gkeepN REDSETX_DEC DEC256_EXEC ("s"^string_of_int k) THEN
-     RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                              ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV));;
 
 (* ---- tail_tac: ASM_CASES loop_remain=0 -> [degenerate | WHILE].  DEGENERATE + WHILE-BASE both MCP-VALIDATED
    (2026-09-22); STEP + back-edge + EXIT are the remaining focused work (see below). ----
@@ -4040,7 +4022,7 @@ let TAIL_DEGEN : tactic =
   RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN
   SUBGOAL_THEN `nblocks = 4 * loop_count` SUBST_ALL_TAC THENL
    [MAP_EVERY(fun t->TRY(UNDISCH_TAC t)) [`nblocks DIV 4 = loop_count`; `nblocks MOD 4 = 0`] THEN ARITH_TAC; ALL_TAC] THEN
-  MAP_EVERY dstep (1--9) THEN ENSURES_FINAL_STATE_TAC THEN
+  MAP_EVERY (DEC_STEP_TAC REDSETX_DEC) (1--9) THEN ENSURES_FINAL_STATE_TAC THEN
   REPEAT CONJ_TAC THEN TAIL_WB_CLOSE `4 * loop_count`;;
 
 let tail_tac : tactic =
@@ -4054,13 +4036,13 @@ let tail_tac : tactic =
       (* g1 BASE: drain_bridge -> tail_inv 0 *)
       ENSURES_INIT_TAC "s0" THEN RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN
       TAIL_BASE_LANES THEN
-      MAP_EVERY dstep (1--3) THEN
+      MAP_EVERY (DEC_STEP_TAC REDSETX_DEC) (1--3) THEN
       SUBGOAL_THEN `val(word loop_remain:int64) = loop_remain` ASSUME_TAC THENL
        [MATCH_MP_TAC VAL_WORD_EQ THEN REWRITE_TAC[DIMINDEX_64] THEN
         MAP_EVERY(fun t->TRY(UNDISCH_TAC t)) [`nblocks MOD 4 = loop_remain`; `16 * nblocks < 2 EXP 64`] THEN ARITH_TAC; ALL_TAC] THEN
-      dstep 4 THEN ENSURES_FINAL_STATE_TAC THEN
+      DEC_STEP_TAC REDSETX_DEC 4 THEN ENSURES_FINAL_STATE_TAC THEN
       ASM_REWRITE_TAC[ADD_CLAUSES; MULT_CLAUSES; SUB_0; htable_mem_4];
-      (* g2 STEP: tail_inv i -> tail_inv(i+1).  gkeepN stepping (dstep) -- keeps Q30 (the loop-carried GHASH acc)
+      (* g2 STEP: tail_inv i -> tail_inv(i+1).  gkeepN stepping (DEC_STEP_TAC) -- keeps Q30 (the loop-carried GHASH acc)
          resolved to its machine value at s55; PLAIN ARM_STEPS drops the dead ext-v30 write.  htable individual reads
          are kept by gkeepN's anchored clause + advanced across the counter store by the sp-nonoverlaps in tail_hyps.
          Counter merge @s5 (post counter-store, matching the keystream's ldr q5,[sp,#160] read). *)
@@ -4070,7 +4052,7 @@ let tail_tac : tactic =
       ASSUME_TAC THENL
        [REWRITE_TAC[ARITH_RULE `64 * a + 16 * b = 16 * (4 * a + b)`] THEN FIRST_X_ASSUM MATCH_MP_TAC THEN
         MAP_EVERY(fun t->TRY(UNDISCH_TAC t)) [`nblocks DIV 4 = loop_count`; `nblocks MOD 4 = loop_remain`; `i < loop_remain`] THEN ARITH_TAC; ALL_TAC] THEN
-      MAP_EVERY dstep (1--5) THEN TAIL_CTR_MERGE "s5" THEN MAP_EVERY dstep (6--55) THEN
+      MAP_EVERY (DEC_STEP_TAC REDSETX_DEC) (1--5) THEN TAIL_CTR_MERGE "s5" THEN MAP_EVERY (DEC_STEP_TAC REDSETX_DEC) (6--55) THEN
       ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
       REPEAT CONJ_TAC THEN TAIL_STEP_CLOSE;
       (* g3 back-edge: cbnz x9@0x7ac (1 instr), x9=word(loop_remain-(i+1)) != 0 for i+1<loop_remain -> 0x6d0. *)
@@ -4089,7 +4071,7 @@ let tail_tac : tactic =
       SUBGOAL_THEN `4 * loop_count + loop_remain = nblocks` ASSUME_TAC THENL
        [MAP_EVERY(fun t->TRY(UNDISCH_TAC t)) [`nblocks DIV 4 = loop_count`; `nblocks MOD 4 = loop_remain`] THEN ARITH_TAC; ALL_TAC] THEN
       (* gkeepN stepping (prunes the Q30 tower); split ivec cells carried as memory reads. *)
-      MAP_EVERY dstep (1--6) THEN ENSURES_FINAL_STATE_TAC THEN
+      MAP_EVERY (DEC_STEP_TAC REDSETX_DEC) (1--6) THEN ENSURES_FINAL_STATE_TAC THEN
       REPEAT CONJ_TAC THEN
       (* out-forall (j<nblocks): accept the invariant's s6 out-forall (4lc+lr=nblocks). *)
       TRY (FIRST_X_ASSUM(fun th -> if (try is_forall(concl th) && free_in `out_p:int64` (concl th) &&
@@ -4331,8 +4313,7 @@ let LC1_GUARD_TAC =
   gkeepN REDSETX_FILL DEC256_EXEC "s32" THEN
   RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val(word_ushr (word_ushr (word_ushr (word len_bits) 3) 4) 2:int64) = loop_count`]) THEN
   RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `loop_count = 1`]) THEN
-  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                           ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV));;
+  DEC_NORM_ASM_TAC;;
 
 (* ---- cbz@0x268 (step 144) TAKEN: for loop_count=1, after sub x1,x1,#1 @0x264 -> x1 = word_sub(word 1)(word 1)
    = word 0, so cbz count,Lloop_unrolled_start_postamble is TAKEN -> branch to 0x574.  (FILL_CBZ144 falls through
@@ -4351,8 +4332,7 @@ let LC1_CBZ268_TAKEN : tactic =
   RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `val(word_sub (word_ushr (word_ushr (word_ushr (word len_bits) 3) 4) 2:int64) (word 1)) = 0`]) THEN
   REWRITE_TAC[ASSUME `val(word_sub (word_ushr (word_ushr (word_ushr (word len_bits) 3) 4) 2:int64) (word 1)) = 0`] THEN
   RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `loop_count = 1`]) THEN
-  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                           ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV));;
+  DEC_NORM_ASM_TAC;;
 
 (* ---- LC1 full tactic (candidate; native-iterated).  fill-prefix (validated 1..80) + guard + rest of fill +
    cbz-TAKEN + drain-postamble stepping (steps 145..227 = 0x574..0x6c0, reuse the DRAIN schedule: no merges,
@@ -4432,34 +4412,14 @@ let LC1_CONJ_CLOSE : tactic = fun (asl,w) ->
 let swps_lc1_tac =
   lc1_setup_tac THEN
   (* fill steps 1..31 + mid-lane prime @ s23 *)
-  (fun (asl,w) ->
-    (MAP_EVERY (fun k ->
-       gkeepN REDSETX_FILL DEC256_EXEC ("s"^string_of_int k) THEN
-       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-       (if k = 23 then fill_prime_mids "s23" else ALL_TAC))
-      (1--31)) (asl,w)) THEN
+  DEC_STEPS_TAC REDSETX_FILL fill_prime_hook (1--31) THEN
   LC1_GUARD_TAC THEN
   (* fill body 33..143 (0xac..0x264) with the counter merges (same fill schedule) *)
-  (fun (asl,w) ->
-    (MAP_EVERY (fun k ->
-       gkeepN REDSETX_FILL DEC256_EXEC ("s"^string_of_int k) THEN
-       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-       (match filter (fun (kk,_,_) -> kk=k) dec_fill_merges with
-        | (_,off,cval)::_ -> MERGE_CTR128_FILL off cval ("s"^string_of_int k)
-        | [] -> ALL_TAC))
-      (33--143)) (asl,w)) THEN
+  DEC_STEPS_TAC REDSETX_FILL (merge_hook dec_fill_merges MERGE_CTR128_FILL) (33--143) THEN
   LC1_CBZ268_TAKEN THEN
   (* drain postamble: steps 145..227 (0x574..0x6c0), no merges, gkeepN REDSETX_DEC (DRAIN schedule). *)
-  (fun (asl,w) ->
-    (MAP_EVERY (fun k ->
-       gkeepN REDSETX_DEC DEC256_EXEC ("s"^string_of_int k) THEN
-       RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)))
-      (145--227)) (asl,w)) THEN
-  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                           ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
+  DEC_STEPS_TAC REDSETX_DEC (K ALL_TAC) (145--227) THEN
+  DEC_NORM_ASM_TAC THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
   (* pin the 4 group input-block reads (at their GHASH-input states s126/s44/s37/s33) to inblock 0..3 as
      ASSUMPTIONS, so BOTH the Q30 reduce and the out-store readbacks fold them via ASM_REWRITE.  3<nblocks from lc=1. *)
