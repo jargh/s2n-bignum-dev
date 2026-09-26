@@ -586,7 +586,6 @@ let SCALAR_RK_RECONSTRUCT = prove
     = word_xor nineround (word_xor (word_reversefields 8 rk10) inb))`,
   CONJ_TAC THEN CONV_TAC BITBLAST_RULE);;
 
-
 (* ---- GHASH reduce-reconstruction lemmas (mc-agnostic, from 128 swp_S proof 600-687) ---- *)
 
 let polyval_reduce_g2 = new_definition
@@ -692,8 +691,6 @@ let PMUL_KARATSUBA_JOIN_ALT = prove
                  (word_subword p1 (0,64):int64) : int128)`,
   REWRITE_TAC[PMUL_KARATSUBA_JOIN] THEN REWRITE_TAC[WORD_XOR_SYM]);;
 
-Printf.printf "MARKER: reduce lemmas loaded\n%!";;
-
 (* 256 AES abstractions + reduce 743-863 *)
 let aes1c = new_definition
  `aes1c nonce (rk:int128 list) c : int128 =
@@ -750,8 +747,6 @@ let AES14P_COMPLETE = prove
                          mk_var("rk"^string_of_int j,`:int128`))) (0--14))
          AES256_CIPHER_RECONSTRUCT] THEN
   REWRITE_TAC[WORD_REVERSEFIELDS_REVERSEFIELDS; MAP] THEN ASM_REWRITE_TAC[]);;
-
-Printf.printf "MARKER: AES-partial abstractions + AES14P_COMPLETE proven\n%!";;
 
 (* ========================================================================= *)
 (* Keystream-fold + counter/lane helper lemmas (256 analogs of the 128       *)
@@ -818,7 +813,6 @@ let AES14P_VIA_AES5C = prove
      (word_reversefields 8 (EL 12 rk))))(word_reversefields 8 (EL 13 rk))`,
   REWRITE_TAC[aes14p; aes5c]);;
 
-
 (* keystream^input fold: word_xor(aes14p c)(word_xor inb rk14) = word_xor(rev8(cipher(ctr c)))(inb). *)
 let KEYSTREAM_FOLD256 = prove
  (`[EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk;
@@ -880,7 +874,7 @@ let DEC_GHASH_NORM_TAC : tactic =
   REWRITE_TAC[WORD_SUBWORD_XOR] THEN
   REWRITE_TAC[WORD_SUBWORD_BYTESWAP128] THEN
   CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV);;
-Printf.printf "MARKER: dec-256 front matter loaded\n%!";;(* dec-256 stepping infrastructure ported from enc-256 *)
+(* dec-256 stepping infrastructure ported from enc-256 *)
 (* 2026-09-20: CORRECTED to the 2-level split (from the enc-mem2 precedent, aes_gcm_enc_kernel_x4_scalar_iv_mem2.ml
    line 447) -- the str-w mem2 pattern (dec-256's) needs BOTH the bytes128->bytes64 split AND the bytes64@+8 ->
    bytes32 split, so the counter-word lane (bytes32 @ +12) and the nonce lanes (bytes64 @ +0, bytes32 @ +8)
@@ -1695,8 +1689,6 @@ let SWPGRP_IS_NIST_GHASH = prove
     REWRITE_TAC[LIST_OF_SEQ_CLAUSES] THEN REWRITE_TAC[ARITH_RULE `4*i+0 = 4*i`] THEN
     REWRITE_TAC[NIST_GHASH_IS_POLYVAL]]);;
 
-Printf.printf "MARKER: dec256 extra closer-lemmas proven (incl swpgrp/SWPGRP_IS_NIST_GHASH)\n%!";;
-
 (* ============================================================================
    VALIDATED Q30-seed recon PREFIX (2026-09-17, step-by-step in MCP against the
    typed body-end goal 05).  Reduces the seed conjunct
@@ -1823,7 +1815,6 @@ let CORE_REDUCE_GHASH = prove
     REWRITE_TAC[LENGTH; ghash_wide] THEN CONV_TAC NUM_REDUCE_CONV THEN
     DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
     AP_TERM_TAC THEN CONV_TAC WORD_BITWISE_RULE]);;
-Printf.printf "MARKER: CORE_REDUCE_GHASH proven\n%!";;
 
 (* 2026-09-19: the exploratory algebraic-toolkit lemmas (PSB/PMUL_LANE_LO/PROP3_LANES/PROP3_GEN) were
    REMOVED -- the final seed proof (SEED_AC_CLOSE_TAC + G2_IS_PROP3, below) does NOT use them, and
@@ -1925,7 +1916,6 @@ let SEED_AC_CLOSE_TAC : tactic =
      (EVERY (List.mapi (fun i t -> ABBREV_TAC(mk_eq(mk_var(Printf.sprintf "T_%d" i,type_of t),t))) subs)) (asl,w)) THEN
   POP_ASSUM_LIST(K ALL_TAC) THEN
   BINOP_TAC THEN CONV_TAC(AC WORD_XOR_AC_THM);;
-Printf.printf "MARKER: WORD_XOR_AC_THM + CMID_XOR2 + SJ_LO/HI + POLYARG_UNIFY_TAC + SEED_AC_CLOSE_TAC defined\n%!";;
 
 (* ---------------------------------------------------------------------------
    SEED_ABS + SWP_Q30_SEED_FINISH_TAC (the wired-in Q30 seed closer).
@@ -2665,7 +2655,6 @@ let G2_IS_PROP3 = prove
   REWRITE_TAC[JOIN_XOR_256; JOIN_XOR_128] THEN
   ABBREV_PMULS THEN POP_ASSUM_LIST(K ALL_TAC) THEN CONV_TAC BITBLAST_RULE);;
 let SEED_ABS = TRANS MACHWJ_IS_BSW_G2 (AP_TERM `byteswap128` G2_IS_PROP3);;
-Printf.printf "MARKER: SEED_ABS proven (machwj = byteswap128(prop3 simple), axiom-free)\n%!";;
 
 (* SWP_Q30_SEED_FINISH_TAC: closes the body-end Q30 goal once it is in the form
      machwj[real lanes] = word_join (word_subword ACC (0,64)) (word_subword ACC (64,64))
@@ -2678,7 +2667,6 @@ let SWP_Q30_SEED_FINISH_TAC : tactic = fun (asl,w) ->
   let br2 = REWRITE_RULE[ARITH_RULE `4*i+4 = 4*(i+1)`] SWP_GHASH_BRANCH2_256 in
   let seed_bsw = REWRITE_RULE[br2] seed_i in
   (ONCE_REWRITE_TAC[seed_bsw] THEN REWRITE_TAC[byteswap128]) (asl,w);;
-Printf.printf "MARKER: SWP_Q30_SEED_FINISH_TAC defined (seed closer wired)\n%!";;
 
 (* X13 counter-lane closer: the running counter X13 = word_zx(word(4i+2)) advances by +4 each body
    (0x274 add w13,w13,#4), so the body-end goal is
@@ -2688,7 +2676,6 @@ let ZXRT32 = WORD_BLAST `word_zx(word_zx (m:int32):int64):int32 = m`;;
 let CTR_LANE_dec : tactic =
   REWRITE_TAC[ZXRT32] THEN TRY(AP_TERM_TAC THEN CONV_TAC WORD_RULE) THEN
   TRY(CONV_TAC WORD_RULE);;
-Printf.printf "MARKER: ZXRT32 + CTR_LANE_dec defined\n%!";;
 
 (* mem2 staged-block fact: rev8(ctr_block nonce a) and rev8(ctr_block nonce b) share the SAME low-96 bits
    (the nonce part); only the high-32 (+12 counter word) differs.  Validates the 3-way merge: the body's
@@ -2698,7 +2685,6 @@ let CTR_DIFFERS_ONLY_CTR = prove
  (`word_subword (word_reversefields 8 (ctr_block nonce a):int128) (0,96):(96)word =
    word_subword (word_reversefields 8 (ctr_block nonce b):int128) (0,96):(96)word`,
   REWRITE_TAC[ctr_block] THEN CONV_TAC WORD_BLAST);;
-Printf.printf "MARKER: CTR_DIFFERS_ONLY_CTR defined\n%!";;
 
 (* THE mem2 3-way-merge reassembly (the SP_SLOT algebraic core).  After rev8, the counter word lives in the
    TOP 32 bits [96,128); the low 96 bits are the (counter-independent) nonce.  When the body overwrites the
@@ -2715,7 +2701,6 @@ let MEM2_REASSEMBLE = prove
     :int128
    = word_reversefields 8 (ctr_block nonce b)`,
   REWRITE_TAC[ctr_block] THEN CONV_TAC WORD_BLAST);;
-Printf.printf "MARKER: MEM2_REASSEMBLE defined (SP_SLOT algebraic core)\n%!";;
 
 (* ============================================================================
    2026-09-20: enc-mem2 staged-block setup lemmas (from aes_gcm_enc_kernel_x4_scalar_iv_mem2.ml -- the EXACT
@@ -2740,7 +2725,6 @@ let CTR_BLOCK_BUILD_INSERT_PLAIN = prove
      :int128
    = word_reversefields 8 (ctr_block nonce cval)`,
   REWRITE_TAC[ctr_block] THEN CONV_TAC BITBLAST_RULE);;
-Printf.printf "MARKER: SLOT_LO/SLOT_MID/CTR_BLOCK_BUILD_INSERT_PLAIN defined (enc-mem2 staged-block setup)\n%!";;
 
 (* ============================================================================
    2026-09-20: DESIGN-A staged-block closer -- the WORKING mechanism (no invariant surgery, FILL stays valid).
@@ -2786,7 +2770,6 @@ let CTR_BLOCK_BUILD_INSERT_DEC = prove
      :int128
    = word_reversefields 8 (ctr_block nonce cval)`,
   REWRITE_TAC[ctr_block] THEN CONV_TAC BITBLAST_RULE);;
-Printf.printf "MARKER: B64_OF_B128_LO/B32_OF_B128_MID/SUBW_*_CI/CTR_BLOCK_BUILD_INSERT_DEC defined (Design-A staged-ctr closer)\n%!";;
 
 (* ============================================================================
    2026-09-20 APPROACH E: the NATIVE-SAFE staged-block reconstruction (ivlo/ivhi VARIABLE lanes).
@@ -2815,7 +2798,6 @@ let CTR_BLOCK_BUILD_V_DEC =
     DISCH_THEN(fun th -> MP_TAC(MATCH_MP SCALAR_IV_SPLIT th)) THEN
     REWRITE_TAC[ctr_block] THEN DISCH_THEN(CONJUNCTS_THEN SUBST1_TAC) THEN
     CONV_TAC WORD_BLAST);;
-Printf.printf "MARKER: CTR_BLOCK_BUILD_V_DEC defined (Approach-E ivlo/ivhi fold, from .tm dump)\n%!";;
 (* ============================================================================
    dec-256 SWP body/fill SHARED closers (factored from DEVEL_dec256_bodyleg.ml lines 208-627).
    Reused verbatim by both the BODYLEG (symbolic i) and the FILL leg (i=0).
@@ -3313,7 +3295,6 @@ let mk_body_goal_dec inv =
       MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`]);;
 
 let body_goal_dec = mk_body_goal_dec swpS256_inv_dec;;
-Printf.printf "BISECT: body_goal_dec built\n%!";;
 
 let INPUT_SPLIT_TAC_dec =
   SUBGOAL_THEN
@@ -3424,18 +3405,13 @@ let MERGE_CTR128_FOLD_E off cval sname : tactic = fun (asl,w) ->
     ALL_TAC]) (asl,w);;
 (* (store_step, slot_off, body-end block index cval).  store steps from disasm: 192@16,176@20,208@32,160@35. *)
 let merges_dec_fold = [ (16, 192, `4*i+8`); (20, 176, `4*i+7`); (32, 208, `4*i+9`); (35, 160, `4*i+6`) ];;
-Printf.printf "BISECT: APPROACH-E staged-block machinery built (IVEC_SPLIT/SLOT_PRIME_E/MERGE_CTR128_FOLD_E)\n%!";;
 
 let step_body_all =
   setup_tac_dec THEN
   IVEC_SPLIT_dec THEN
-  (fun (asl,w) -> (Printf.printf "BISECT: setup+ivec-split done, starting SLOT_PRIME_E\n%!"; ALL_TAC (asl,w))) THEN
   SLOT_PRIME_E THEN
-  (fun (asl,w) -> (Printf.printf "BISECT: SLOT_PRIME_E done, starting body stepping\n%!"; ALL_TAC (asl,w))) THEN
   (fun (asl,w) ->
      (MAP_EVERY (fun k ->
-        (fun (a,ww) ->
-           ((if k mod 20 = 0 then Printf.printf "BISECT: step %d\n%!" k else ()); ALL_TAC (a,ww))) THEN
         gkeepN REDSETX_DEC DEC256_EXEC ("s"^string_of_int k) THEN
         RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                                  ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC
@@ -3869,46 +3845,11 @@ let CLOSE_DEC256 : tactic =
     else (* word_xor / word_pmul GHASH partials *)
       (GHASH_PARTIAL_CLOSE_dec ORELSE SWP_Q30_SEED_TAC) (asl,w);;
 
-(* diagnostic wrapper: try CLOSE_DEC256; if it fails OR leaves the goal open, log it + CHEAT
-   so ONE run surfaces every remaining closer gap. Flip DIAG=false for the real axiom-free proof. *)
-let diag_counter = ref 0;;
-let CLOSE_DEC256_DIAG : tactic =
-  fun (asl,w) ->
-    let hd t = try fst(dest_const(fst(strip_comb t))) with _->"?" in
-    let lh = if is_eq w then hd(lhs w) else (if is_forall w then "forall" else hd w) in
-    let rh = if is_eq w then hd(rhs w) else "-" in
-    (* capture the RESIDUAL: run CLOSE_DEC256 ONCE; if it leaves subgoals open, dump THOSE (the actual residual),
-       not the original w.  Guard the dump in try so a print failure never aborts the run. *)
-    let res_opt = try Some (CLOSE_DEC256 (asl,w)) with _ -> None in
-    match res_opt with
-    | Some ((_,[],_) as res) -> res   (* fully closed: return the real (axiom-free) result *)
-    | _ ->
-      let rgls = (match res_opt with Some (_,gls,_) -> map snd gls | None -> [w]) in
-      (incr diag_counter;
-       (try
-          let oldf = !print_types_of_subterms in
-          print_types_of_subterms := 2;
-          let dump = String.concat "\n\n---RESIDUAL-SUBGOAL---\n\n" (map string_of_term rgls) in
-          print_types_of_subterms := oldf;
-          let oc = open_out (Printf.sprintf "/tmp/dec256_fail_%02d.txt" !diag_counter) in
-          output_string oc (Printf.sprintf "[FAIL lhs=%s rhs=%s]\n\nRESIDUAL (%d subgoal(s)):\n%s\n" lh rh (length rgls) dump);
-          close_out oc
-        with _ -> ());
-       Printf.printf "CLOSE-FAIL %02d [lhs=%s rhs=%s] (%d residual subgoal(s))\n%!" !diag_counter lh rh (length rgls);
-       CHEAT_TAC (asl,w));;
-
-(* 2026-09-18: with the Q10/Q11 invariant fix, all 26 body-end goals are TRUE and the real dispatcher
-   CLOSE_DEC256 discharges 25/26 in MCP (the Q30 seed's per-half BITBLAST is native-only, ~117s/half).
-   Use CLOSE_DEC256 (NOT the CHEAT-on-fail _DIAG) for the axiom-free proof; run natively (bytecode/inline_load
-   is far too slow for the seed blast). *)
-Printf.printf "BISECT: all closers defined; starting SWP_DEC256_BODYLEG prove\n%!";;
 let SWP_DEC256_BODYLEG = prove(body_goal_dec,
   step_body_all THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
   ASM_SIMP_TAC[SWP_SUB_LEMMA_DEC] THEN
   REPEAT CONJ_TAC THEN CLOSE_DEC256);;
-
-Printf.printf "MARKER: SWP_DEC256_BODYLEG done (axiom-free CLOSE_DEC256)\n%!";;
 
 (* ==================== LEG: FILL (from arm/proofs/DEVEL_dec256_fillleg.ml) ==================== *)
 (* ============================================================================
@@ -3930,8 +3871,6 @@ let lc_bound = prove(`nblocks DIV 4 = loop_count /\ 16 * nblocks < 2 EXP 64 ==> 
   SUBGOAL_THEN `loop_count <= nblocks` MP_TAC THENL
    [EXPAND_TAC "loop_count" THEN ARITH_TAC; ALL_TAC] THEN
   UNDISCH_TAC `16 * nblocks < 2 EXP 64` THEN ARITH_TAC);;
-
-Printf.printf "MARKER: FILL prelude loaded\n%!";;
 
 (* leg_state builder (from bodyleg): a state predicate = abl + PC@off + the invariant-inst conjuncts. *)
 let leg_state_dec inv off idx =
@@ -3988,7 +3927,6 @@ let fill_frame = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
       MAYCHANGE [memory :> bytes(out_p:int64, 16 * nblocks)] ,,
       MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`;;
 let fill_goal = mk_imp(fill_hyps, list_mk_icomb "ensures" [`arm`; fill_pre; fill_post; fill_frame]);;
-Printf.printf "MARKER: fill_goal built (type-checks)\n%!";;
 
 (* ---- FILL setup: STRIP hyps, ENSURES_INIT @s0 (=pc+0x2c), IVEC-split (Approach-E), input-frame pin, guard facts. ---- *)
 (* input-frame pin: the fill loads blocks 0..3 (in_p+{0,16,32,48}); pin them (nblocks>=8 from 2<=loop_count). *)
@@ -4031,7 +3969,6 @@ let fill_setup_tac =
   FIRST_X_ASSUM(fun th -> if is_conj(concl th) && (let s = string_of_term(concl th) in
       contains "h_power" s && contains "htable_p" s) then STRIP_ASSUME_TAC th else NO_TAC) THEN
   KEY_EXPAND_TAC;;
-Printf.printf "MARKER: fill_setup_tac defined (MCP-validated: lands s0@pc+0x2c; + KEY_EXPAND round-key reads)\n%!";;
 
 (* ---- Approach-E machinery (bodyleg reuse + FILL specifics) ---- *)
 let splitL  = el 1 (CONJUNCTS READ_MEMORY_BYTESIZED_SPLIT);;
@@ -4099,7 +4036,6 @@ let FILL_GUARD_CBZ_TAC : tactic =
     ASM_REWRITE_TAC[] THEN UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
   RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                            ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV));;
-Printf.printf "MARKER: FILL_GUARD_CBZ_TAC defined (MCP-validated: cbz@0xa8 falls through to 0xac)\n%!";;
 
 (* FILL counter merge (at the STORE step, mirroring bodyleg merges_dec_fold): reconstruct
    read(bytes128 sp+off) sK = rev8(ctr_block nonce cval) from the lo/mid lanes + the just-stored +12 counter
@@ -4140,7 +4076,6 @@ let MERGE_CTR128_FILL off cval sK : tactic = fun (asl,w) ->
    staged block), the reload-into-Q, and the staged-slot invariant conjunct at the final state.  (The reload-step
    merge folded too late -- at s(reload) -- so consumers reading s(reload-1) or the AES input saw the unfolded slot.) *)
 let dec_fill_merges = [ (43, 176, `3`); (48, 192, `4`); (53, 208, `5`); (56, 160, `2`) ];;
-Printf.printf "MARKER: MERGE_CTR128_FILL + dec_fill_merges defined (merge at STORE step)\n%!";;
 
 (* ---- shared body/fill closers (rk15, INFOLD_dec, OUT_STORE_dec, CLOSE_DEC256, ...) ---- *)
 
@@ -4269,7 +4204,6 @@ let FILL_CBZ144_TAC : tactic =
 
 (* ---- full fill stepper: setup -> steps 1-31 (+ mid-lane prime @ s23) -> guard/cbz -> body 33-143 -> cbz 144. ---- *)
 let NSTEP_FILL = 143;;  (* 0x2c..0x264 straight-line; step 144 = cbz@0x268 -> fall-through to 0x26c (FILL_CBZ144_TAC). *)
-let FILL_PROGRESS k : tactic = fun g -> ((if k mod 10 = 0 then Printf.printf "FILL exec step %d\n%!" k); ALL_TAC g);;
 (* body keeplist: REDSETX + X1 (so read X1 = word loop_count persists from the guard to the terminal cbz). *)
 let REDSETX_FILL = "X1"::REDSETX_DEC;;
 let fill_step_all =
@@ -4280,7 +4214,7 @@ let fill_step_all =
        gkeepN REDSETX_FILL DEC256_EXEC ("s"^string_of_int k) THEN
        RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                                 ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-       (if k = 23 then fill_prime_mids "s23" else ALL_TAC) THEN FILL_PROGRESS k)
+       (if k = 23 then fill_prime_mids "s23" else ALL_TAC))
       (1--31)) (asl,w)) THEN
   (* guard + cbz @ 0xa8 -> 0xac *)
   FILL_GUARD_CBZ_TAC THEN
@@ -4292,12 +4226,11 @@ let fill_step_all =
                                 ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
        (match filter (fun (kk,_,_) -> kk=k) dec_fill_merges with
         | (_,off,cval)::_ -> MERGE_CTR128_FILL off cval ("s"^string_of_int k)
-        | [] -> ALL_TAC) THEN FILL_PROGRESS k)
+        | [] -> ALL_TAC))
       (33--NSTEP_FILL)) (asl,w)) THEN
   FILL_CBZ144_TAC THEN
   RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                            ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV));;
-Printf.printf "MARKER: fill_step_all defined (NSTEP_FILL=%d + terminal cbz144)\n%!" NSTEP_FILL;;
 
 (* ---- establish swpS256_inv_dec 0 @ 0x26c: reuse the bodyleg CLOSE_DEC256 dispatcher at i=0.
    The post-state conjuncts have the same shapes as the bodyleg's (with 4*0+K concrete), so CLOSE_DEC256
@@ -4378,39 +4311,11 @@ let CLOSE_FILL : tactic = fun (asl,w) ->
   else if free_in `in_p:int64` w then (GHASH_PARTIAL_FILL ORELSE CLOSE_DEC256) (asl,w)
   else CLOSE_DEC256 (asl,w);;
 
-(* DIAG wrapper (same as bodyleg): the FIRST run surfaces every i=0 closer gap; flip FILL_DIAG=false for
-   the real axiom-free proof once all conjuncts close.  2026-09-21: PROVEN diag_counter=0 (CLOSE_FILL closes all
-   25 conjuncts, DIAG never cheated, check_axioms clean) -> FILL_DIAG=false for the production axiom-free proof. *)
-let FILL_DIAG = false;;
-let fill_diag_counter = ref 0;;
-let CLOSE_FILL_DIAG : tactic =
-  fun (asl,w) ->
-    let hd t = try fst(dest_const(fst(strip_comb t))) with _->"?" in
-    let lh = if is_eq w then hd(lhs w) else (if is_forall w then "forall" else hd w) in
-    let rh = if is_eq w then hd(rhs w) else "-" in
-    let res_opt = try Some (CLOSE_FILL (asl,w)) with _ -> None in
-    match res_opt with
-    | Some ((_,[],_) as res) -> res
-    | _ ->
-      let rgls = (match res_opt with Some (_,gls,_) -> map snd gls | None -> [w]) in
-      (incr fill_diag_counter;
-       (try
-          let oldf = !print_types_of_subterms in print_types_of_subterms := 2;
-          let dump = String.concat "\n\n---RESIDUAL-SUBGOAL---\n\n" (map string_of_term rgls) in
-          print_types_of_subterms := oldf;
-          let oc = open_out (Printf.sprintf "/tmp/dec256_fill_fail_%02d.txt" !fill_diag_counter) in
-          output_string oc (Printf.sprintf "[FAIL lhs=%s rhs=%s]\n\nRESIDUAL (%d subgoal(s)):\n%s\n" lh rh (length rgls) dump);
-          close_out oc
-        with _ -> ());
-       Printf.printf "FILL-CLOSE-FAIL %02d [lhs=%s rhs=%s] (%d residual)\n%!" !fill_diag_counter lh rh (length rgls);
-       CHEAT_TAC (asl,w));;
 let SWP_DEC256_FILL = prove(fill_goal,
   fill_step_all THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
   ASM_SIMP_TAC[SWP_SUB_LEMMA_DEC] THEN
-  REPEAT CONJ_TAC THEN (if FILL_DIAG then CLOSE_FILL_DIAG else CLOSE_FILL));;
-Printf.printf "MARKER: SWP_DEC256_FILL done (diag_counter=%d)\n%!" !fill_diag_counter;;
-
+  REPEAT CONJ_TAC THEN CLOSE_FILL);;
 
 (* ==================== LEG: DRAIN (from arm/proofs/DEVEL_dec256_drainleg.ml) ==================== *)
 (* ============================================================================
@@ -4433,8 +4338,6 @@ let lc_bound = prove(`nblocks DIV 4 = loop_count /\ 16 * nblocks < 2 EXP 64 ==> 
    [EXPAND_TAC "loop_count" THEN ARITH_TAC; ALL_TAC] THEN
   UNDISCH_TAC `16 * nblocks < 2 EXP 64` THEN ARITH_TAC);;
 
-Printf.printf "MARKER: DRAIN prelude loaded\n%!";;
-
 (* leg_state builder (from bodyleg). *)
 let leg_state_dec inv off idx =
   let body = rhs(concl((TOP_DEPTH_CONV BETA_CONV THENC REWRITE_CONV[ADD_CLAUSES])
@@ -4443,8 +4346,6 @@ let leg_state_dec inv off idx =
     list_mk_conj(`aligned_bytes_loaded s (word pc) aes_gcm_dec_kernel_256_x4_scalar_iv_mem2_late_tag_swp_mc` ::
                  mk_eq(`read PC s`,mk_comb(`word:num->int64`,mk_binop `+` `pc:num` off)) ::
                  conjuncts body));;
-
-Printf.printf "MARKER: leg_state_dec defined\n%!";;
 
 (* ---- drain_bridge @ pc+0x6c0 (settled state feeding the 1-block tail).  MCP type-checked (32 conjuncts).
    Q30 is SETTLED to half-swap(nist_ghash over 4*loop_count input blocks); the tail reloads Q12/Q13/Q14 from
@@ -4485,7 +4386,6 @@ let drain_bridge = mk_abs(`s:armstate`, list_mk_conj
   `!j. j < nblocks ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s = inblock j`;
   `!j. j < 4 * loop_count ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s =
            word_xor (aes_ctr_block nonce rk j) (inblock j)`]);;
-Printf.printf "MARKER: drain_bridge built (%d conjuncts)\n%!" (List.length(conjuncts(snd(dest_abs drain_bridge))));;
 
 (* ---- drain_goal: swpS256_inv_dec (loop_count-1) @0x570 -> drain_bridge @0x6c0.  MCP type-checked. ---- *)
 let drain_hyps = `([EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk;
@@ -4517,7 +4417,6 @@ let drain_frame = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
       MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`;;
 let drain_goal = mk_imp(drain_hyps,
   list_mk_icomb "ensures" [`arm`; leg_state_dec swpS256_inv_dec `0x570` `loop_count - 1`; drain_bridge; drain_frame]);;
-Printf.printf "MARKER: drain_goal built (type-checks)\n%!";;
 
 (* ---- drain setup: enters the invariant @0x570 (i=loop_count-1); round keys already in Q18-Q28 (NO KEY_EXPAND,
    unlike FILL).  m=loop_count-1, X1->word 0, last-group input split (blocks 4m..4m+3).  MCP-validated: lands
@@ -4548,7 +4447,6 @@ let drain_setup_tac =
   INPUT_SPLIT_TAC_drain THEN
   FIRST_X_ASSUM(fun th -> if is_conj(concl th) && (let s = string_of_term(concl th) in
       contains "h_power" s && contains "htable_p" s) then STRIP_ASSUME_TAC th else NO_TAC);;
-Printf.printf "MARKER: drain_setup_tac defined (MCP-validated: s0@0x570, 97 asls, X1=word 0)\n%!";;
 
 (* drain cbnz@0x570 resolution: x1=word 0 -> cbnz NOT taken -> fall through to 0x574.  MCP-validated: PC->0x574.
    The cbnz produces `if ~(val(word(loop_count-(loop_count-1+1)))=0) then pc+620 else pc+1396`; reduce the counter
@@ -4560,7 +4458,6 @@ let DRAIN_CBNZ_TAC : tactic =
    [UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
   RULE_ASSUM_TAC(REWRITE_RULE[VAL_WORD_0]) THEN
   RULE_ASSUM_TAC(REWRITE_RULE[ARITH_RULE `~(0 = 0) <=> F`; COND_CLAUSES]);;
-Printf.printf "MARKER: DRAIN_CBNZ_TAC defined (MCP-validated: 0x570 cbnz falls through to 0x574)\n%!";;
 
 (* ---- NEXT (drain stepper + closer): ----
    (4) drain stepper: DRAIN_CBNZ_TAC (-> 0x574) then step 2..83 (0x574..0x6bc; 83 instrs incl the b 0x6c0@0x6bc).
@@ -4582,12 +4479,10 @@ let LIST_OF_SEQ_APPEND = prove
  (`!n f m. list_of_seq f (m + n) = APPEND (list_of_seq f m) (list_of_seq (\i. f(m+i)) n)`,
   GEN_TAC THEN ONCE_REWRITE_TAC[SWAP_FORALL_THM] THEN INDUCT_TAC THEN
   ASM_REWRITE_TAC[ADD_CLAUSES; LIST_OF_SEQ; APPEND; o_THM; ETA_AX]);;
-Printf.printf "MARKER: LIST_OF_SEQ_APPEND proven\n%!";;
 
 (* ---- drain stepper: DRAIN_CBNZ_TAC (-> 0x574) then steps 2..84 (0x574..0x6bc; the b 0x6c0@0x6bc is step 84).
    NO counter merges. Reuses REDSETX_DEC + the bodyleg per-step conv. ---- *)
 let NSTEP_DRAIN = 84;;   (* step1=cbnz@0x570; steps 2..84 = 0x574..0x6bc (83 instrs incl b 0x6c0@0x6bc -> 0x6c0). *)
-let DRAIN_PROGRESS k : tactic = fun g -> ((if k mod 10 = 0 then Printf.printf "DRAIN exec step %d\n%!" k); ALL_TAC g);;
 let drain_step_all =
   drain_setup_tac THEN
   DRAIN_CBNZ_TAC THEN
@@ -4595,17 +4490,15 @@ let drain_step_all =
     (MAP_EVERY (fun k ->
        gkeepN REDSETX_DEC DEC256_EXEC ("s"^string_of_int k) THEN
        RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
-                                ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-       DRAIN_PROGRESS k)
+                                ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)))
       (2--NSTEP_DRAIN)) (asl,w)) THEN
   RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                            ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV));;
-Printf.printf "MARKER: drain_step_all defined (NSTEP_DRAIN=%d)\n%!" NSTEP_DRAIN;;
 
 (* ---- DRAIN closer (DIAG scaffold): the first native run surfaces the drain_bridge gaps.  The bridge conjuncts
    are: aligned/PC (ASM), the carried regs (round keys/X-regs = ASM from invariant + stepping), the SETTLED Q30
    (THE CRUX -- last-group Horner reduce), the 3 output stores + output-frame.  Route most to CLOSE_DEC256/ASM;
-   surface the Q30 + output-frame gaps for bespoke closers.  Flip DRAIN_DIAG=false once all close. ---- *)
+   surface the Q30 + output-frame gaps for bespoke closers. ---- *)
 
 (* --- drain-specific closers for the 5 gaps surfaced by drain-iter1 (3 simple + Q30-settle + out-frame). --- *)
 (* FAIL 01/02: pointer arithmetic X0/X2 (loop_count-1+1 = loop_count, 64*(lc-1)+64 = 64*lc). *)
@@ -4648,8 +4541,6 @@ let DRAIN_OUTFRAME_TAC : tactic =
    [UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
   (OUT_FRAME_dec ORELSE (ASM_REWRITE_TAC[] THEN CLOSE_DEC256));;
 
-let DRAIN_DIAG = false;;  (* PROVEN axiom-free (with slot-160 conjunct for TAIL); production. *)
-let drain_diag_counter = ref 0;;
 let CLOSE_DRAIN : tactic = fun (asl,w) ->
   let has c t = can (find_term (fun u -> try fst(dest_const(fst(strip_comb u)))=c with _->false)) t in
   let hd t = try fst(dest_const(fst(strip_comb t))) with _->"" in
@@ -4666,35 +4557,14 @@ let CLOSE_DRAIN : tactic = fun (asl,w) ->
   else if is_eq w && hd(lhs w)="read" && free_in `stackpointer:int64` (lhs w) && has "ctr_block" (rhs w) then
     (ASM_REWRITE_TAC[] THEN TRY (SP_SLOT_dec_fast ORELSE SP_SLOT_dec)) (asl,w)
   else (ASM_REWRITE_TAC[] THEN TRY CLOSE_DEC256) (asl,w);;
-let CLOSE_DRAIN_DIAG : tactic =
-  fun (asl,w) ->
-    let hd t = try fst(dest_const(fst(strip_comb t))) with _->"?" in
-    let lh = if is_eq w then hd(lhs w) else (if is_forall w then "forall" else hd w) in
-    let rh = if is_eq w then hd(rhs w) else "-" in
-    let res_opt = try Some (CLOSE_DRAIN (asl,w)) with _ -> None in
-    (match res_opt with
-     | Some ((_,[],_) as res) -> res
-     | _ ->
-       let rgls = (match res_opt with Some (_,gls,_) -> map snd gls | None -> [w]) in
-       (incr drain_diag_counter;
-        (try let oldf = !print_types_of_subterms in print_types_of_subterms := 2;
-           let dump = String.concat "\n\n---RESIDUAL---\n\n" (map string_of_term rgls) in
-           print_types_of_subterms := oldf;
-           let oc = open_out (Printf.sprintf "/tmp/dec256_drain_fail_%02d.txt" !drain_diag_counter) in
-           output_string oc (Printf.sprintf "[FAIL lhs=%s rhs=%s]\n\n%s\n" lh rh dump); close_out oc
-         with _ -> ());
-        Printf.printf "DRAIN-CLOSE-FAIL %02d [lhs=%s rhs=%s]\n%!" !drain_diag_counter lh rh;
-        CHEAT_TAC (asl,w)));;
 let SWP_DEC256_DRAIN = prove(drain_goal,
   drain_step_all THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-  REPEAT CONJ_TAC THEN (if DRAIN_DIAG then CLOSE_DRAIN_DIAG else CLOSE_DRAIN));;
-Printf.printf "MARKER: SWP_DEC256_DRAIN done (drain_diag_counter=%d)\n%!" !drain_diag_counter;;
+  REPEAT CONJ_TAC THEN CLOSE_DRAIN);;
 
 let REDSETX_DEC = ["Q0";"Q1";"Q2";"Q3";"Q4";"Q5";"Q6";"Q7";"Q8";"Q9";"Q10";"Q11";"Q12";"Q13";"Q14";
                    "Q29";"Q30";"Q31"; "X7";"X8";"X13";"X17";"X25";"X27";"X30"];;
 let ghost_lanes_dec = ["X7";"X8";"X17";"X25";"X27";"X30";"X13"];;
-Printf.printf "MARKER: TAIL prelude loaded\n%!";;
 
 (* drain_bridge @ pc+0x6c0 (the tail's precondition = proven SWP_DEC256_DRAIN post; int64-pinned Q30 + slot-160
    staged block).  Copied from DEVEL_dec256_drainleg.ml so the tail leg is self-contained. *)
@@ -4728,7 +4598,6 @@ let drain_bridge = mk_abs(`s:armstate`, list_mk_conj
   `!j. j < nblocks ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s = inblock j`;
   `!j. j < 4 * loop_count ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s =
            word_xor (aes_ctr_block nonce rk j) (inblock j)`]);;
-Printf.printf "MARKER: drain_bridge (tail precond) built (%d conjuncts)\n%!" (List.length(conjuncts(snd(dest_abs drain_bridge))));;
 
 (* ---- tail_inv i : the drain_bridge shape + loop index i (X0/X2 += 16*i, X13/X9/Q30 track i) + Q12/Q14 h-power
    pins (reloaded @0x6c0-0x6c8; the 1-block GHASH needs them).  MCP type-checked (32 conjuncts).  Mirrors enc
@@ -4767,7 +4636,6 @@ let tail_inv = `\(i:num) s.
     (!j. j < nblocks ==> read (memory :> bytes128 (word_add in_p (word(16*j)))) s = inblock j) /\
     (!j. j < 4 * loop_count + i ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s =
              word_xor (aes_ctr_block nonce rk j) (inblock j))`;;
-Printf.printf "MARKER: tail_inv built (%d conjuncts)\n%!" (List.length(conjuncts(snd(dest_abs(snd(dest_abs tail_inv))))));;
 
 (* ---- tail_post @ pc+0x7c4 (writeback done): tag = rev8(nist_ghash over all nblocks), counter word out at
    ivec_p+12, X0 = len_bits DIV 8, out-forall over ALL nblocks.  (At loop exit i=loop_remain,
@@ -4783,7 +4651,6 @@ let tail_post = mk_abs(`s:armstate`, list_mk_conj
   `read X0 s = word (len_bits DIV 8)`;
   `!j. j < nblocks ==> read (memory :> bytes128 (word_add out_p (word(16*j)))) s =
            word_xor (aes_ctr_block nonce rk j) (inblock j)`]);;
-Printf.printf "MARKER: tail_post built (%d conjuncts)\n%!" (List.length(conjuncts(snd(dest_abs tail_post))));;
 
 (* ---- tail_goal: drain_bridge @0x6c0 -> tail_post @0x7c4.  Takes drain_bridge AS the precond (= proven
    SWP_DEC256_DRAIN post).  MCP type-checked. ---- *)
@@ -4816,7 +4683,6 @@ let tail_frame = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
       MAYCHANGE [memory :> bytes(tag_p:int64,16)] ,, MAYCHANGE [memory :> bytes(ivec_p:int64,16)] ,,
       MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`;;
 let tail_goal = mk_imp(tail_hyps, list_mk_icomb "ensures" [`arm`; drain_bridge; tail_post; tail_frame]);;
-Printf.printf "MARKER: tail_goal built\n%!";;
 
 (* per-step conv (reused). *)
 let dstep k = gkeepN REDSETX_DEC DEC256_EXEC ("s"^string_of_int k) THEN
@@ -4863,7 +4729,6 @@ let tail_frame = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
       MAYCHANGE [memory :> bytes(tag_p:int64,16)] ,, MAYCHANGE [memory :> bytes(ivec_p:int64,16)] ,,
       MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`;;
 let tail_goal = mk_imp(tail_hyps, list_mk_icomb "ensures" [`arm`; drain_bridge; tail_post; tail_frame]);;
-Printf.printf "MARKER: tail_goal built\n%!";;
 
 let splitL  = el 1 (CONJUNCTS READ_MEMORY_BYTESIZED_SPLIT);;
 let splitL2 = el 2 (CONJUNCTS READ_MEMORY_BYTESIZED_SPLIT);;
@@ -4954,7 +4819,6 @@ let SWP_GHASH_BRANCH2_1BLK = prove
   REWRITE_TAC[ADD1; GSYM ADD_ASSOC] THEN CONV_TAC NUM_REDUCE_CONV THEN
   REWRITE_TAC[GSYM NIST_GHASH_IS_POLYVAL] THEN
   DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN AP_TERM_TAC THEN CONV_TAC WORD_BITWISE_RULE);;
-Printf.printf "MARKER: SWP_GHASH_BRANCH2_1BLK proven\n%!";;
 
 (* Q30 1-block GHASH update.  half-swap(nist_ghash..(4lc+i)) XOR block(4lc+i) --one pmull reduce-->
    half-swap(nist_ghash..(4lc+i+1)).  Ported from the PROVEN enc-256 tail_ghash_close (identical machine tower;
@@ -5068,25 +4932,6 @@ let TAIL_STEP_CLOSE : tactic = fun (asl,w) ->
       TAIL_X9_CLOSE;                                                        (* X9 *)
       close_frame_dec;                                                      (* MAYCHANGE *)
       (ASM_REWRITE_TAC[htable_mem_4]) ] (asl,w);;
-
-let TAIL_DIAG = false;;  (* STEP Q30 reduce now closes (TAIL_Q30_CLOSE ported from enc-256); DIAG off *)
-let tail_diag_counter = ref 0;;
-let CLOSE_TAIL_STEP_DIAG : tactic = fun (asl,w) ->
-  let hd t = try fst(dest_const(fst(strip_comb t))) with _->"?" in
-  let lh = if is_eq w then hd(lhs w) else (if is_forall w then "forall" else hd w) in
-  let res = try Some(TAIL_STEP_CLOSE (asl,w)) with _ -> None in
-  let rgls = (match res with Some(_,g,_) -> map snd g | None -> [w]) in
-  let dump_fail () =
-    (print_types_of_subterms := 2;
-     let d = String.concat "\n--\n" (map string_of_term rgls) in
-     print_types_of_subterms := 0;
-     let oc = open_out (Printf.sprintf "/tmp/dec256_tail_fail_%02d.txt" !tail_diag_counter) in
-     output_string oc (Printf.sprintf "[FAIL lh=%s]\n%s\n" lh d); close_out oc) in
-  (match res with Some((_,[],_) as r) -> r
-   | _ -> (incr tail_diag_counter;
-           (try dump_fail () with _ -> ());
-           Printf.printf "TAIL-STEP-FAIL %02d [lh=%s]\n%!" !tail_diag_counter lh;
-           CHEAT_TAC (asl,w)));;
 
 (* ---- ivec-canonical support (2026-09-24): produce the FULL bytes128 ivec post (not bytes32(ivec+12)).
    IVEC_SPLIT_TAIL: after ENSURES_INIT, split the drain_bridge ivec read `bytes128 ivec = wrf(ctr_block nonce 2)`
@@ -5227,7 +5072,7 @@ let tail_tac : tactic =
         MAP_EVERY(fun t->TRY(UNDISCH_TAC t)) [`nblocks DIV 4 = loop_count`; `nblocks MOD 4 = loop_remain`; `i < loop_remain`] THEN ARITH_TAC; ALL_TAC] THEN
       MAP_EVERY dstep_t (1--5) THEN TAIL_CTR_MERGE "s5" THEN MAP_EVERY dstep_t (6--55) THEN
       ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-      REPEAT CONJ_TAC THEN (if TAIL_DIAG then CLOSE_TAIL_STEP_DIAG else TAIL_STEP_CLOSE);
+      REPEAT CONJ_TAC THEN TAIL_STEP_CLOSE;
       (* g3 back-edge: cbnz x9@0x7ac (1 instr), x9=word(loop_remain-(i+1)) != 0 for i+1<loop_remain -> 0x6d0. *)
       X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
       ENSURES_INIT_TAC "s0" THEN RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4] THEN
@@ -5251,10 +5096,8 @@ let tail_tac : tactic =
              contains "s6" (string_of_term(concl th)) with _->false) then MP_TAC th else NO_TAC) THEN
            ASM_REWRITE_TAC[] THEN NO_TAC) THEN
       TAIL_WB_CLOSE `nblocks:num`]];;
-Printf.printf "MARKER: tail_tac defined\n%!";;
 
 let SWP_DEC256_TAIL = prove(tail_goal, tail_tac);;
-Printf.printf "MARKER: SWP_DEC256_TAIL done (tail_diag_counter=%d)\n%!" !tail_diag_counter;;
 
 (* ============================================================================ *)
 (* P4: whole-function composition (SWPS_LEG1B + SWPS_FROM88) + SWP256_CORRECT +  *)
@@ -5264,7 +5107,6 @@ Printf.printf "MARKER: SWP_DEC256_TAIL done (tail_diag_counter=%d)\n%!" !tail_di
 (* Legs in scope: SWP_DEC256_FILL, SWP_DEC256_BODYLEG (tight), SWP_DEC256_DRAIN,  *)
 (* SWP_DEC256_TAIL (= TAIL_NO2, canonical bytes128 ivec, no 2<=loop_count).       *)
 (* ============================================================================ *)
-Printf.printf "MARKER: starting P4 composition\n%!";;
 
 (* ---- (a) loosened BODYLEG_L1 (i<loop_count-1) : re-prove using the in-scope tight machinery. ---- *)
 let SWP_SUB_LEMMA_DEC_L1 = prove
@@ -5329,13 +5171,11 @@ let step_body_all_L1 =
                            ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC
                            IN_P_ADDR_FOLD_CONV));;
 
-Printf.printf "MARKER: L1 machinery defined; proving SWP_DEC256_BODYLEG_L1\n%!";;
 let SWP_DEC256_BODYLEG_L1 = prove(body_goal_L1,
   step_body_all_L1 THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
   ASM_SIMP_TAC[SWP_SUB_LEMMA_DEC_L1] THEN
   REPEAT CONJ_TAC THEN CLOSE_DEC256);;
-Printf.printf "MARKER: SWP_DEC256_BODYLEG_L1 done (loosened i<loop_count-1)\n%!";;
 
 (* ---- (b) frame-widening infra (P4_compose 19-43) ---- *)
 let swps_broad_frame =
@@ -5405,7 +5245,6 @@ let swps_leg1b_body =
     REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
     MATCH_MP_TAC DRAINLEG_BROAD THEN ASM_REWRITE_TAC[]];;
 let SWPS_LEG1B = prove(swps_leg1b_goal, REPEAT GEN_TAC THEN STRIP_TAC THEN swps_leg1b_body);;
-Printf.printf "MARKER: SWPS_LEG1B proven\n%!";;
 
 (* ---- (d) SWPS_LC0 (loop_count=0) : full tactic from P4_draft 326-386. ---- *)
 let USHR_CHAIN_VAL = prove
@@ -5506,7 +5345,6 @@ let SWPS_LC0_tac =
        MAP_EVERY (fun t->TRY(UNDISCH_TAC t)) [`nblocks MOD 4 = loop_remain`; `len_bits DIV 128 = nblocks`] THEN MESON_TAC[]) (asl,w)
     else ASM_REWRITE_TAC[] (asl,w));;
 let SWPS_LC0 = prove(mk_lcN_goal 0, SWPS_LC0_tac);;
-Printf.printf "MARKER: SWPS_LC0 proven (real)\n%!";;
 
 (* ---- (e) SWPS_LC1 : the loop_count=1 degenerate leg (from DEVEL_dec256_lc1.ml, proven axiom-free 2026-09-25).
      Injected verbatim below (the swps_lc1_goal is mk_lcN_goal 1). ---- *)
@@ -5551,7 +5389,6 @@ let swps_broad_frame = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
 let gen_precond = list_mk_conj (filter (fun c -> c <> `2 <= loop_count`) (conjuncts fill_hyps));;
 let swps_lc1_goal = mk_imp(mk_conj(gen_precond, `loop_count = 1`),
     list_mk_icomb "ensures" [`arm`; fill_pre; drain_bridge; swps_broad_frame]);;
-Printf.printf "MARKER: swps_lc1_goal built\n%!";;
 
 (* ---- LC1 reusable helper lemmas (from SWPS_LC0) ---- *)
 let USHR_CHAIN_VAL = prove
@@ -5637,7 +5474,6 @@ let LC1_GUARD_TAC =
   RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `loop_count = 1`]) THEN
   RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                            ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV));;
-Printf.printf "MARKER: LC1 setup + guard tactics defined (VALIDATED in MCP through s32/cbz@0xa8)\n%!";;
 
 (* ---- cbz@0x268 (step 144) TAKEN: for loop_count=1, after sub x1,x1,#1 @0x264 -> x1 = word_sub(word 1)(word 1)
    = word 0, so cbz count,Lloop_unrolled_start_postamble is TAKEN -> branch to 0x574.  (FILL_CBZ144 falls through
@@ -5673,9 +5509,6 @@ let LC1_BR0N =
   REWRITE_RULE[ARITH_RULE `4*0=0`; ARITH_RULE `4*0+1=1`; ARITH_RULE `4*0+2=2`; ARITH_RULE `4*0+3=3`;
                ARITH_RULE `4*0+4=4`; NIST_GHASH_NIL]
     (SPEC `0` (GEN `i:num` SWP_GHASH_BRANCH2_256));;
-let lc1_diag_counter = ref 0;;
-(* per-conjunct DIAG closer: try CLOSE_DEC256; on exception dump the goal + CHEAT so the run surfaces
-   ALL failing conjuncts (find the dest_eq culprit / state-mismatch). *)
 (* LC1 out-forall closer: goal `!j. j < 4*1 ==> read(out_p+16*j) s227 = word_xor(aes_ctr_block j)(inblock j)`.
    Split j<4 into j=0/1/2/3, unwind, resolve each out-store read (ASM_REWRITE), then fold via LC1_OUT_BLOCK
    (aes_ctr_block unfold + KEYSTREAM_FOLD256 @ literal counter c=j+2).  VALIDATED (block-0) in MCP. *)
@@ -5705,12 +5538,7 @@ let LC1_CONJ_CLOSE : tactic = fun (asl,w) ->
   let has c t = can (find_term (fun u -> try fst(dest_const(fst(strip_comb u)))=c with _->false)) t in
   let lh = if is_eq w then ghd(lhs w) else (if is_forall w then "forall" else ghd w) in
   if is_forall w && free_in `out_p:int64` w then
-    (try LC1_OUT_FRAME (asl,w) with e ->
-       (incr lc1_diag_counter;
-        (try let oc = open_out (Printf.sprintf "/tmp/dec256_lc1_fail_%02d.txt" !lc1_diag_counter) in
-             output_string oc (Printf.sprintf "[OUTFRAME EXN %s]\n%s\n" (Printexc.to_string e) (string_of_term w));
-             close_out oc with _ -> ());
-        Printf.printf "LC1 OUTFRAME EXN %02d: %s\n%!" !lc1_diag_counter (Printexc.to_string e); CHEAT_TAC (asl,w)))
+    LC1_OUT_FRAME (asl,w)
   else
   (* shape-route the LC1-specific register/counter conjuncts BEFORE CLOSE_DEC256 (whose body-leg dispatch
      doesn't fire on them): X15 (word_ushr len_bits), X9 (word_and ushr), X13 (word_zx counter base). *)
@@ -5745,17 +5573,7 @@ let LC1_CONJ_CLOSE : tactic = fun (asl,w) ->
       ASM_REWRITE_TAC[] THEN SWP_Q30_SEED_TAC THEN
       REWRITE_TAC[WORD_REVERSEFIELDS_REVERSEFIELDS; ARITH_RULE `4 * (0 + 1) = 4`; LC1_BR0N] THEN
       TRY REFL_TAC) (asl,w))
-  else
-  try CLOSE_DEC256 (asl,w)
-  with e ->
-    (incr lc1_diag_counter;
-     (try
-        let oc = open_out (Printf.sprintf "/tmp/dec256_lc1_fail_%02d.txt" !lc1_diag_counter) in
-        output_string oc (Printf.sprintf "[EXN %s lh=%s]\n%s\n" (Printexc.to_string e) lh (string_of_term w));
-        close_out oc
-      with _ -> ());
-     Printf.printf "LC1 CLOSE EXN %02d [lh=%s]: %s\n%!" !lc1_diag_counter lh (Printexc.to_string e);
-     CHEAT_TAC (asl,w));;
+  else CLOSE_DEC256 (asl,w);;
 let swps_lc1_tac =
   lc1_setup_tac THEN
   (* fill steps 1..31 + mid-lane prime @ s23 *)
@@ -5778,20 +5596,16 @@ let swps_lc1_tac =
         | [] -> ALL_TAC))
       (33--143)) (asl,w)) THEN
   LC1_CBZ268_TAKEN THEN
-  (fun g -> (Printf.printf "LC1: cbz@0x268 resolved, entering postamble\n%!"; ALL_TAC g)) THEN
   (* drain postamble: steps 145..227 (0x574..0x6c0), no merges, gkeepN REDSETX_DEC (DRAIN schedule). *)
   (fun (asl,w) ->
     (MAP_EVERY (fun k ->
-       (fun g -> ((if k mod 20 = 0 then Printf.printf "LC1 postamble step %d\n%!" k); ALL_TAC g)) THEN
        gkeepN REDSETX_DEC DEC256_EXEC ("s"^string_of_int k) THEN
        RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                                 ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)))
       (145--227)) (asl,w)) THEN
   RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV THENC
                            ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC IN_P_ADDR_FOLD_CONV)) THEN
-  (fun g -> (Printf.printf "LC1: postamble stepped, ENSURES_FINAL\n%!"; ALL_TAC g)) THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
-  (fun g -> (Printf.printf "LC1: FINAL done, closing conjuncts\n%!"; ALL_TAC g)) THEN
   (* pin the 4 group input-block reads (at their GHASH-input states s126/s44/s37/s33) to inblock 0..3 as
      ASSUMPTIONS, so BOTH the Q30 reduce and the out-store readbacks fold them via ASM_REWRITE.  3<nblocks from lc=1. *)
   SUBGOAL_THEN `3 < nblocks` ASSUME_TAC THENL
@@ -5809,7 +5623,6 @@ let swps_lc1_tac =
       SUBST1_TAC(WORD_RULE `word_add in_p (word 48):int64 = word_add in_p (word (16*3))`)] THEN
     FIRST_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
   REPEAT CONJ_TAC THEN LC1_CONJ_CLOSE;;
-Printf.printf "MARKER: swps_lc1_tac defined (candidate -- native run to surface gaps)\n%!";;
 
 (* NOTE (original TODO): the postamble 0x574..0x6c0 IS the DRAIN leg's postamble (proven in DEVEL_dec256_drainleg.ml
    drain_step_all steps 2..84 + CLOSE_DRAIN).  KEY UNKNOWN: whether the fill-prefix state at 0x574 matches the
@@ -5839,31 +5652,8 @@ Printf.printf "MARKER: swps_lc1_tac defined (candidate -- native run to surface 
    0x574..0x6c0 stepping (~83, dec-128 ITER1 schedule adapted) + single-group Q30 reduce (ITER1_Q30_TAC port:
    PMUL_KARATSUBA_JOIN_ALT + POLYVAL_REDUCE_G2 + BITBLAST, acc=tag0 blocks 0..3) + 4 output RECON stores;
    (5) drain_bridge closers.  NATIVE-iterated (Q30 reduce BITBLAST). *)
-Printf.printf "MARKER: LC1 scaffold ready\n%!";;
 
-(* ---- DIAG prove: run swps_lc1_tac; if it leaves open subgoals, dump them to /tmp so we see the exact gap
-   (esp. the 0x574 state-match / postamble closers).  Flip LC1_DIAG=false for the real axiom-free prove. ---- *)
-let LC1_DIAG = false;;
-Printf.printf "MARKER: starting swps_lc1 prove (DIAG=%b)\n%!" LC1_DIAG;;
-let SWPS_LC1 =
-  if LC1_DIAG then
-    (try
-       let (_,gls,_) = swps_lc1_tac ([],swps_lc1_goal) in
-       Printf.printf "LC1 DIAG: %d open subgoal(s)\n%!" (List.length gls);
-       let oldf = !print_types_of_subterms in print_types_of_subterms := 1;
-       List.iteri (fun i (asl,g) ->
-         let oc = open_out (Printf.sprintf "/tmp/dec256_lc1_open_%02d.txt" i) in
-         output_string oc (Printf.sprintf "OPEN SUBGOAL %d (head=%s):\n%s\n"
-           i (try fst(dest_const(fst(strip_comb(if is_eq g then lhs g else g)))) with _ -> if is_forall g then "forall" else "?")
-           (string_of_term g));
-         close_out oc;
-         Printf.printf "  dumped subgoal %d\n%!" i) gls;
-       print_types_of_subterms := oldf;
-       (* return a placeholder so the file loads; NOT axiom-free -- DIAG only *)
-       mk_thm([],swps_lc1_goal)
-     with e -> (Printf.printf "LC1 DIAG: swps_lc1_tac raised %s\n%!" (Printexc.to_string e); mk_thm([],swps_lc1_goal)))
-  else prove(swps_lc1_goal, swps_lc1_tac);;
-Printf.printf "MARKER: swps_lc1 done (DIAG); HYPS=%d\n%!" (List.length(hyp SWPS_LC1));;
+let SWPS_LC1 = prove(swps_lc1_goal, swps_lc1_tac);;
 
 (* ---- (f) SWPS_FROM88: gen_precond -> tail_post@0x7c4, ALL loop_count (P4_compose 89-124). ---- *)
 let from88_frame = last(snd(strip_comb(snd(dest_imp(concl(SPEC_ALL SWP_DEC256_TAIL))))));;
@@ -5900,7 +5690,6 @@ let swps_from88_tac =
     REWRITE_TAC[GSYM MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN MATCH_MP_TAC TAILLEG_FROM88 THEN ASM_REWRITE_TAC[] THEN
     REPEAT CONJ_TAC THEN NONOVERLAPPING_TAC];;
 let SWPS_FROM88 = prove(swps_from88_goal, swps_from88_tac);;
-Printf.printf "MARKER: SWPS_FROM88 proven\n%!";;
 
 (* ============================================================================ *)
 (* SWP256_CORRECT: whole core function pc+0x2c -> pc+0x7c4.                      *)
@@ -5910,7 +5699,6 @@ Printf.printf "MARKER: SWPS_FROM88 proven\n%!";;
 (* which needed a 0x2c->0xb0 preamble step; dec-256's round-key loads live       *)
 (* inside FILL.)                                                                 *)
 (* ============================================================================ *)
-Printf.printf "MARKER: proving SWP256_CORRECT...\n%!";;
 (* The (stronger) from88 postcondition, extracted from SWPS_FROM88 directly (folded htable). *)
 let swp_from88_post =
   el 2 (snd(strip_comb(snd(dest_imp(snd(strip_forall(concl SWPS_FROM88)))))));;
@@ -6006,7 +5794,6 @@ let SWP256_CORRECT = prove
          then MP_TAC(AP_TERM `LENGTH:int128 list->num` th) else NO_TAC) THEN
       REWRITE_TAC[LENGTH_WORDLIST_FROM_MEMORY; LENGTH_MAP] THEN ASM_REWRITE_TAC[];
       REWRITE_TAC[ENSURES_TRIVIAL]]]);;
-Printf.printf "MARKER: SWP256_CORRECT PROVEN, hyps %d\n%!" (List.length (hyp SWP256_CORRECT));;
 
 (* ============================================================================ *)
 (* P5 SUBROUTINE wrapper: lift SWP256_CORRECT through the 11-step save prologue  *)
@@ -6041,7 +5828,6 @@ let KEY15_SPLIT = prove
     ASM_REWRITE_TAC[] THEN
     DISCH_THEN(MP_TAC o AP_TERM `LENGTH:int128 list->num`) THEN
     REWRITE_TAC[LENGTH; LENGTH_MAP] THEN CONV_TAC NUM_REDUCE_CONV THEN ASM_REWRITE_TAC[]]);;
-Printf.printf "MARKER: KEY15_SPLIT proven\n%!";;
 
 let AES_GCM_DEC_KERNEL_256_X4_SCALAR_IV_MEM2_LATE_TAG_SWP_SUBROUTINE_CORRECT = prove
  (`!in_p out_p len_bits tag_p ivec_p key_p htable_p tag0 nonce rk inblock
@@ -6099,11 +5885,3 @@ let AES_GCM_DEC_KERNEL_256_X4_SCALAR_IV_MEM2_LATE_TAG_SWP_SUBROUTINE_CORRECT = p
        (REWRITE_RULE[fst DEC256_EXEC; htable_mem_4] SWP256_CORRECT))
     `[X19; X20; X21; X22; X23; X24; X25; X26; X27; X28; X29; X30;
       D8; D9; D10; D11; D12; D13; D14; D15]` 224);;
-Printf.printf "MARKER: *** SWP256 SUBROUTINE CORRECT proven ***\n%!";;
-
-Printf.printf "MARKER: axiom count = %d (expect 3: INFINITY/SELECT/ETA)\n%!" (List.length(axioms()));;
-if List.length(axioms()) <> 3 then failwith "AXIOM LEAK: a CHEAT_TAC fired" else
-Printf.printf "MARKER: *** SWP256 DEC CONSOLIDATION AXIOM-FREE ***\n%!";;
-Printf.printf "MARKER: SWP256_CORRECT hyps=%d ; SUBROUTINE hyps=%d\n%!"
-  (List.length(hyp SWP256_CORRECT))
-  (List.length(hyp AES_GCM_DEC_KERNEL_256_X4_SCALAR_IV_MEM2_LATE_TAG_SWP_SUBROUTINE_CORRECT));;
