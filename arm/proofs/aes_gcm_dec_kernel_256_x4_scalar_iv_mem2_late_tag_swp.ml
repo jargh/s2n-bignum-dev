@@ -1626,11 +1626,13 @@ let leg_state_dec inv off idx =
                  mk_eq(`read PC s`,mk_comb(`word:num->int64`,mk_binop `+` `pc:num` off)) ::
                  conjuncts body));;
 
-let mk_body_goal_dec inv =
-  mk_imp(`([EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk;
+(* Leg hypotheses shared by the four legs: the argument facts and the nonoverlapping assumptions
+   of the whole-function precondition (the leg-specific loop_count and len_bits facts are inserted
+   at their customary positions by mk_leg_hyps). *)
+let leg_hyps_common = `([EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk;
       EL 8 rk; EL 9 rk; EL 10 rk; EL 11 rk; EL 12 rk; EL 13 rk; EL 14 rk]:(int128)list = rk) /\
      len_bits DIV 128 = nblocks /\ nblocks DIV 4 = loop_count /\ nblocks MOD 4 = loop_remain /\
-     2 <= loop_count /\ i < loop_count - 1 /\ 16 * nblocks < 2 EXP 64 /\ aligned 16 (stackpointer:int64) /\
+     16 * nblocks < 2 EXP 64 /\ aligned 16 (stackpointer:int64) /\
      nonoverlapping (out_p:int64,16 * nblocks) (word pc:int64,2036) /\
      nonoverlapping (out_p:int64,16 * nblocks) (in_p:int64,16 * nblocks) /\
      nonoverlapping (out_p:int64,16 * nblocks) (htable_p:int64,192) /\
@@ -1648,50 +1650,59 @@ let mk_body_goal_dec inv =
      nonoverlapping (tag_p:int64,16) (ivec_p:int64,16) /\
      nonoverlapping (word_add stackpointer (word 160):int64,64) (word pc:int64,2036) /\
      nonoverlapping (word_add stackpointer (word 160):int64,64) (in_p:int64,16*nblocks) /\
-     nonoverlapping (word_add stackpointer (word 160):int64,64) (htable_p:int64,192)`,
-   list_mk_icomb "ensures" [`arm`;
-     leg_state_dec inv `0x26c` `i:num` ;
-     leg_state_dec inv `0x570` `i+1` ;
-     `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+     nonoverlapping (word_add stackpointer (word 160):int64,64) (htable_p:int64,192)`;;
+let mk_leg_hyps lc_facts len_facts extra =
+  let pre,rest = chop_list 4 (conjuncts leg_hyps_common) in
+  list_mk_conj (pre @ lc_facts @ [hd rest] @ len_facts @ tl rest @ extra);;
+let mk_leg_goal hyps pre post frame = mk_imp(hyps, list_mk_icomb "ensures" [`arm`; pre; post; frame]);;
+
+let body_frame = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
       MAYCHANGE [X19; X20; X21; X22; X23; X24; X25; X26; X27; X28; X29; X30] ,,
       MAYCHANGE [Q8; Q9; Q10; Q11; Q12; Q13; Q14; Q15] ,,
       MAYCHANGE [memory :> bytes(out_p:int64, 16 * nblocks)] ,,
-      MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`]);;
+      MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`;;
+let mk_body_goal_dec inv =
+  mk_leg_goal (mk_leg_hyps [`2 <= loop_count`; `i < loop_count - 1`] [] [])
+    (leg_state_dec inv `0x26c` `i:num`) (leg_state_dec inv `0x570` `i+1`) body_frame;;
 
 let body_goal_dec = mk_body_goal_dec swpS256_inv_dec;;
 
+(* The in_p frame forall gives the n input blocks a leg reads as facts at s0 (block index idx k for
+   k = 0..n-1); the bound idx (n-1) < nblocks is discharged from the given root facts. *)
+let INPUT_SPLIT_DEC (idx:int->term) (n:int) (roots:term list) : tactic =
+  let tmpl = `read (memory :> bytes128 (word_add in_p (word (16 * K)))) s0 = inblock K` in
+  SUBGOAL_THEN (list_mk_conj (map (fun k -> vsubst [idx k,`K:num`] tmpl) (0--(n-1)))) STRIP_ASSUME_TAC THENL
+   [SUBGOAL_THEN (vsubst [idx (n-1),`K:num`] `K < nblocks`) ASSUME_TAC THENL
+     [MAP_EVERY UNDISCH_TAC roots THEN ARITH_TAC; ALL_TAC] THEN
+    REPEAT CONJ_TAC THEN FIRST_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC; ALL_TAC];;
+let blk_from (base:term) k = mk_binop `(+):num->num->num` base (mk_small_numeral k);;
+
 let INPUT_SPLIT_TAC_dec =
-  SUBGOAL_THEN
-   `read (memory :> bytes128 (word_add in_p (word (16 * (4*i+0))))) s0 = inblock (4*i+0) /\
-    read (memory :> bytes128 (word_add in_p (word (16 * (4*i+1))))) s0 = inblock (4*i+1) /\
-    read (memory :> bytes128 (word_add in_p (word (16 * (4*i+2))))) s0 = inblock (4*i+2) /\
-    read (memory :> bytes128 (word_add in_p (word (16 * (4*i+3))))) s0 = inblock (4*i+3) /\
-    read (memory :> bytes128 (word_add in_p (word (16 * (4*i+4))))) s0 = inblock (4*i+4) /\
-    read (memory :> bytes128 (word_add in_p (word (16 * (4*i+5))))) s0 = inblock (4*i+5) /\
-    read (memory :> bytes128 (word_add in_p (word (16 * (4*i+6))))) s0 = inblock (4*i+6) /\
-    read (memory :> bytes128 (word_add in_p (word (16 * (4*i+7))))) s0 = inblock (4*i+7)`
-   STRIP_ASSUME_TAC THENL
-    [SUBGOAL_THEN `4*i+7 < nblocks` ASSUME_TAC THENL
-      [UNDISCH_TAC `nblocks DIV 4 = loop_count` THEN UNDISCH_TAC `i < loop_count - 1` THEN
-       UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
-     REPEAT CONJ_TAC THEN FIRST_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  INPUT_SPLIT_DEC (blk_from `4*i`) 8 [`nblocks DIV 4 = loop_count`; `i < loop_count - 1`; `2 <= loop_count`] THEN
   RULE_ASSUM_TAC(REWRITE_RULE[ARITH_RULE `16 * (4*i+0) = 64*i`; ARITH_RULE `16 * (4*i+1) = 64*i+16`;
      ARITH_RULE `16 * (4*i+2) = 64*i+32`; ARITH_RULE `16 * (4*i+3) = 64*i+48`;
      ARITH_RULE `16 * (4*i+4) = 64*i+64`; ARITH_RULE `16 * (4*i+5) = 64*i+80`;
      ARITH_RULE `16 * (4*i+6) = 64*i+96`; ARITH_RULE `16 * (4*i+7) = 64*i+112`]);;
 
-let setup_tac_dec =
+(* Common leg entry: strip the hypotheses, ghost the scratch lanes, ENSURES_INIT at s0 and unfold
+   the htable block; HTABLE_STRIP_DEC then splits the unfolded htable facts into the assumptions. *)
+let LEG_INIT_DEC (ghosts:string list) : tactic =
   STRIP_TAC THEN REWRITE_TAC[fst DEC256_EXEC] THEN
-  MAP_EVERY (fun rn -> GHOST_INTRO_TAC (mk_var("ghost_"^rn,`:int64`)) (parse_term("read "^rn))) ghost_lanes_dec THEN
+  MAP_EVERY (fun rn -> GHOST_INTRO_TAC (mk_var("ghost_"^rn,`:int64`)) (parse_term("read "^rn))) ghosts THEN
   ENSURES_INIT_TAC "s0" THEN
-  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV BETA_CONV)) THEN CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4] THEN
+  (if ghosts = [] then ALL_TAC
+   else RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV BETA_CONV)) THEN CONV_TAC(TOP_DEPTH_CONV BETA_CONV)) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4];;
+let HTABLE_STRIP_DEC : tactic =
+  FIRST_X_ASSUM(fun th -> if is_conj(concl th) && (let s = string_of_term(concl th) in
+      contains "h_power" s && contains "htable_p" s) then STRIP_ASSUME_TAC th else NO_TAC);;
+
+let setup_tac_dec =
+  LEG_INIT_DEC ghost_lanes_dec THEN
   SUBGOAL_THEN `4*i+7 < nblocks` ASSUME_TAC THENL
    [UNDISCH_TAC `nblocks DIV 4 = loop_count` THEN UNDISCH_TAC `i < loop_count - 1` THEN
     UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
-  INPUT_SPLIT_TAC_dec THEN
-  FIRST_X_ASSUM(fun th -> if is_conj(concl th) && (let s = string_of_term(concl th) in
-      contains "h_power" s && contains "htable_p" s) then STRIP_ASSUME_TAC th else NO_TAC);;
+  INPUT_SPLIT_TAC_dec THEN HTABLE_STRIP_DEC;;
 
 (* ---- Staged-block reconstruction (native-safe; ivlo/ivhi VARIABLE lanes) ----
    A persistent-lane form (RHS = compound word_subword(rev8(ctr_block 2))(..) memory read at an OLD state)
@@ -1816,55 +1827,21 @@ let fill_pre = mk_abs(`s:armstate`, list_mk_conj(
    `aligned_bytes_loaded s (word pc) aes_gcm_dec_kernel_256_x4_scalar_iv_mem2_late_tag_swp_mc` ::
    `read PC s = word (pc + 0x2c)` :: conjuncts fill_pre_body));;
 let fill_post = leg_state_dec swpS256_inv_dec `0x26c` `0`;;
-(* fill hypotheses: like the bodyleg's but WITHOUT `i` (2 <= loop_count is the fill/steady case). *)
-let fill_hyps = `([EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk;
-      EL 8 rk; EL 9 rk; EL 10 rk; EL 11 rk; EL 12 rk; EL 13 rk; EL 14 rk]:(int128)list = rk) /\
-     len_bits DIV 128 = nblocks /\ nblocks DIV 4 = loop_count /\ nblocks MOD 4 = loop_remain /\
-     2 <= loop_count /\ 16 * nblocks < 2 EXP 64 /\ len_bits < 2 EXP 64 /\ aligned 16 (stackpointer:int64) /\
-     nonoverlapping (out_p:int64,16 * nblocks) (word pc:int64,2036) /\
-     nonoverlapping (out_p:int64,16 * nblocks) (in_p:int64,16 * nblocks) /\
-     nonoverlapping (out_p:int64,16 * nblocks) (htable_p:int64,192) /\
-     nonoverlapping (out_p:int64,16 * nblocks) (tag_p:int64,16) /\
-     nonoverlapping (out_p:int64,16 * nblocks) (ivec_p:int64,16) /\
-     nonoverlapping (out_p:int64,16*nblocks) (word_add stackpointer (word 160):int64,64) /\
-     nonoverlapping (tag_p:int64,16) (word pc:int64,2036) /\
-     nonoverlapping (tag_p:int64,16) (in_p:int64,16*nblocks) /\
-     nonoverlapping (tag_p:int64,16) (htable_p:int64,192) /\
-     nonoverlapping (tag_p:int64,16) (word_add stackpointer (word 160):int64,64) /\
-     nonoverlapping (ivec_p:int64,16) (word pc:int64,2036) /\
-     nonoverlapping (ivec_p:int64,16) (in_p:int64,16*nblocks) /\
-     nonoverlapping (ivec_p:int64,16) (htable_p:int64,192) /\
-     nonoverlapping (ivec_p:int64,16) (word_add stackpointer (word 160):int64,64) /\
-     nonoverlapping (tag_p:int64,16) (ivec_p:int64,16) /\
-     nonoverlapping (word_add stackpointer (word 160):int64,64) (word pc:int64,2036) /\
-     nonoverlapping (word_add stackpointer (word 160):int64,64) (in_p:int64,16*nblocks) /\
-     nonoverlapping (word_add stackpointer (word 160):int64,64) (htable_p:int64,192) /\
-     nonoverlapping (key_p:int64,240) (word_add stackpointer (word 160):int64,64) /\
-     nonoverlapping (key_p:int64,240) (out_p:int64,16*nblocks) /\
-     nonoverlapping (key_p:int64,240) (tag_p:int64,16)`;;
+(* fill hypotheses: like the bodyleg's but WITHOUT `i`, plus the key_p nonoverlaps. *)
+let fill_hyps = mk_leg_hyps [`2 <= loop_count`] [`len_bits < 2 EXP 64`]
+  [`nonoverlapping (key_p:int64,240) (word_add stackpointer (word 160):int64,64)`;
+   `nonoverlapping (key_p:int64,240) (out_p:int64,16*nblocks)`;
+   `nonoverlapping (key_p:int64,240) (tag_p:int64,16)`];;
 let fill_frame = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
       MAYCHANGE [X19; X20; X21; X22; X23; X24; X25; X26; X27; X28; X29; X30] ,,
       MAYCHANGE [Q0; Q1; Q2; Q3; Q4; Q5; Q6; Q7; Q8; Q9; Q10; Q11; Q12; Q13; Q14; Q15; Q16; Q17; Q29; Q30; Q31] ,,
       MAYCHANGE [memory :> bytes(out_p:int64, 16 * nblocks)] ,,
       MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`;;
-let fill_goal = mk_imp(fill_hyps, list_mk_icomb "ensures" [`arm`; fill_pre; fill_post; fill_frame]);;
+let fill_goal = mk_leg_goal fill_hyps fill_pre fill_post fill_frame;;
 
 (* ---- FILL setup: STRIP hyps, ENSURES_INIT @s0 (=pc+0x2c), IVEC-split (Approach-E), input-frame pin, guard facts. ---- *)
 (* input-frame pin: the fill loads blocks 0..3 (in_p+{0,16,32,48}); pin them (nblocks>=8 from 2<=loop_count). *)
-let FILL_INPUT_SPLIT_TAC =
-  SUBGOAL_THEN
-   `read (memory :> bytes128 (word_add in_p (word (16 * 0))))  s0 = inblock 0 /\
-    read (memory :> bytes128 (word_add in_p (word (16 * 1))))  s0 = inblock 1 /\
-    read (memory :> bytes128 (word_add in_p (word (16 * 2))))  s0 = inblock 2 /\
-    read (memory :> bytes128 (word_add in_p (word (16 * 3))))  s0 = inblock 3 /\
-    read (memory :> bytes128 (word_add in_p (word (16 * 4))))  s0 = inblock 4 /\
-    read (memory :> bytes128 (word_add in_p (word (16 * 5))))  s0 = inblock 5 /\
-    read (memory :> bytes128 (word_add in_p (word (16 * 6))))  s0 = inblock 6 /\
-    read (memory :> bytes128 (word_add in_p (word (16 * 7))))  s0 = inblock 7`
-   STRIP_ASSUME_TAC THENL
-    [SUBGOAL_THEN `7 < nblocks` ASSUME_TAC THENL
-      [UNDISCH_TAC `nblocks DIV 4 = loop_count` THEN UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
-     REPEAT CONJ_TAC THEN FIRST_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC; ALL_TAC];;
+let FILL_INPUT_SPLIT_TAC = INPUT_SPLIT_DEC mk_small_numeral 8 [`nblocks DIV 4 = loop_count`; `2 <= loop_count`];;
 
 (* KEY_EXPAND_TAC: expand wordlist_from_memory(key_p,15) s0 = MAP rev8 rk into the 15 individual round-key
    reads read(bytes128 key_p+16k) s0 = word_reversefields 8 (EL k rk) (the FILL ldr q18..q2 loads at steps 1-15
@@ -1880,18 +1857,7 @@ let KEY_EXPAND_TAC : tactic = fun (asl,w) ->
   STRIP_ASSUME_TAC expanded (asl,w);;
 
 let fill_setup_tac =
-  STRIP_TAC THEN REWRITE_TAC[fst DEC256_EXEC] THEN
-  ENSURES_INIT_TAC "s0" THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4] THEN
-  (* IVEC split -> ivlo/ivhi (Approach-E; matches the invariant's staged-slot lane form) *)
-  UNDISCH_TAC `read (memory :> bytes128 ivec_p) s0 = word_reversefields 8 (ctr_block nonce c)` THEN
-  GEN_REWRITE_TAC (LAND_CONV o LAND_CONV) [el 1 (CONJUNCTS READ_MEMORY_BYTESIZED_SPLIT)] THEN DISCH_TAC THEN
-  ABBREV_TAC `ivlo:int64 = read (memory :> bytes64 ivec_p) s0` THEN
-  ABBREV_TAC `ivhi:int64 = read (memory :> bytes64 (word_add ivec_p (word 8))) s0` THEN
-  FILL_INPUT_SPLIT_TAC THEN
-  FIRST_X_ASSUM(fun th -> if is_conj(concl th) && (let s = string_of_term(concl th) in
-      contains "h_power" s && contains "htable_p" s) then STRIP_ASSUME_TAC th else NO_TAC) THEN
-  KEY_EXPAND_TAC;;
+  LEG_INIT_DEC [] THEN IVEC_SPLIT_dec THEN FILL_INPUT_SPLIT_TAC THEN HTABLE_STRIP_DEC THEN KEY_EXPAND_TAC;;
 
 (* ---- Approach-E machinery (bodyleg reuse + FILL specifics) ---- *)
 let find_ctr_join asl =
@@ -2275,64 +2241,24 @@ let drain_bridge = mk_abs(`s:armstate`, list_mk_conj
            word_xor (aes256_ctr_block c nonce rk j) (inblock j)`]);;
 
 (* ---- drain_goal: swpS256_inv_dec (loop_count-1) @0x570 -> drain_bridge @0x6c0. ---- *)
-let drain_hyps = `([EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk;
-      EL 8 rk; EL 9 rk; EL 10 rk; EL 11 rk; EL 12 rk; EL 13 rk; EL 14 rk]:(int128)list = rk) /\
-     len_bits DIV 128 = nblocks /\ nblocks DIV 4 = loop_count /\ nblocks MOD 4 = loop_remain /\
-     2 <= loop_count /\ 16 * nblocks < 2 EXP 64 /\ len_bits < 2 EXP 64 /\ aligned 16 (stackpointer:int64) /\
-     nonoverlapping (out_p:int64,16 * nblocks) (word pc:int64,2036) /\
-     nonoverlapping (out_p:int64,16 * nblocks) (in_p:int64,16 * nblocks) /\
-     nonoverlapping (out_p:int64,16 * nblocks) (htable_p:int64,192) /\
-     nonoverlapping (out_p:int64,16 * nblocks) (tag_p:int64,16) /\
-     nonoverlapping (out_p:int64,16 * nblocks) (ivec_p:int64,16) /\
-     nonoverlapping (out_p:int64,16*nblocks) (word_add stackpointer (word 160):int64,64) /\
-     nonoverlapping (tag_p:int64,16) (word pc:int64,2036) /\
-     nonoverlapping (tag_p:int64,16) (in_p:int64,16*nblocks) /\
-     nonoverlapping (tag_p:int64,16) (htable_p:int64,192) /\
-     nonoverlapping (tag_p:int64,16) (word_add stackpointer (word 160):int64,64) /\
-     nonoverlapping (ivec_p:int64,16) (word pc:int64,2036) /\
-     nonoverlapping (ivec_p:int64,16) (in_p:int64,16*nblocks) /\
-     nonoverlapping (ivec_p:int64,16) (htable_p:int64,192) /\
-     nonoverlapping (ivec_p:int64,16) (word_add stackpointer (word 160):int64,64) /\
-     nonoverlapping (tag_p:int64,16) (ivec_p:int64,16) /\
-     nonoverlapping (word_add stackpointer (word 160):int64,64) (word pc:int64,2036) /\
-     nonoverlapping (word_add stackpointer (word 160):int64,64) (in_p:int64,16*nblocks) /\
-     nonoverlapping (word_add stackpointer (word 160):int64,64) (htable_p:int64,192)`;;
-let drain_frame = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
-      MAYCHANGE [X19; X20; X21; X22; X23; X24; X25; X26; X27; X28; X29; X30] ,,
-      MAYCHANGE [Q0; Q1; Q2; Q3; Q4; Q5; Q6; Q7; Q8; Q9; Q10; Q11; Q12; Q13; Q14; Q15; Q16; Q17; Q29; Q30; Q31] ,,
-      MAYCHANGE [memory :> bytes(out_p:int64, 16 * nblocks)] ,,
-      MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`;;
-let drain_goal = mk_imp(drain_hyps,
-  list_mk_icomb "ensures" [`arm`; leg_state_dec swpS256_inv_dec `0x570` `loop_count - 1`; drain_bridge; drain_frame]);;
+let drain_hyps = mk_leg_hyps [`2 <= loop_count`] [`len_bits < 2 EXP 64`] [];;
+let drain_frame = fill_frame;;
+let drain_goal = mk_leg_goal drain_hyps (leg_state_dec swpS256_inv_dec `0x570` `loop_count - 1`) drain_bridge drain_frame;;
 
 (* ---- drain setup: enters the invariant @0x570 (i=loop_count-1); round keys already in Q18-Q28 (NO KEY_EXPAND,
    unlike FILL).  m=loop_count-1, X1->word 0, last-group input split (blocks 4m..4m+3).  Lands
    s0@0x570, 97 asls, X1=word 0.  (Reuses the bodyleg setup_tac_dec structure: GHOST_INTRO + ENSURES_INIT + BETA
    + htable unfold + input-split.  No IVEC-split needed here yet -- add if the drain reads ivec lanes.) ---- *)
 let INPUT_SPLIT_TAC_drain =
-  SUBGOAL_THEN
-   `read (memory :> bytes128 (word_add in_p (word (16 * (4*(loop_count-1)+0))))) s0 = inblock (4*(loop_count-1)+0) /\
-    read (memory :> bytes128 (word_add in_p (word (16 * (4*(loop_count-1)+1))))) s0 = inblock (4*(loop_count-1)+1) /\
-    read (memory :> bytes128 (word_add in_p (word (16 * (4*(loop_count-1)+2))))) s0 = inblock (4*(loop_count-1)+2) /\
-    read (memory :> bytes128 (word_add in_p (word (16 * (4*(loop_count-1)+3))))) s0 = inblock (4*(loop_count-1)+3)`
-   STRIP_ASSUME_TAC THENL
-    [SUBGOAL_THEN `4*(loop_count-1)+3 < nblocks` ASSUME_TAC THENL
-      [UNDISCH_TAC `nblocks DIV 4 = loop_count` THEN UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
-     REPEAT CONJ_TAC THEN FIRST_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC; ALL_TAC];;
+  INPUT_SPLIT_DEC (blk_from `4*(loop_count-1)`) 4 [`nblocks DIV 4 = loop_count`; `2 <= loop_count`];;
 let drain_setup_tac =
-  STRIP_TAC THEN REWRITE_TAC[fst DEC256_EXEC] THEN
-  MAP_EVERY (fun rn -> GHOST_INTRO_TAC (mk_var("ghost_"^rn,`:int64`)) (parse_term("read "^rn))) ghost_lanes_dec THEN
-  ENSURES_INIT_TAC "s0" THEN
-  RULE_ASSUM_TAC(CONV_RULE(TOP_DEPTH_CONV BETA_CONV)) THEN CONV_TAC(TOP_DEPTH_CONV BETA_CONV) THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4] THEN
+  LEG_INIT_DEC ghost_lanes_dec THEN
   SUBGOAL_THEN `read X1 s0 = word 0` ASSUME_TAC THENL
    [FIRST_X_ASSUM(fun th -> if can (term_match [] `read X1 s0 = word (loop_count - ((loop_count-1)+1))`) (concl th)
       then MP_TAC th else NO_TAC) THEN
     SUBGOAL_THEN `loop_count - ((loop_count-1)+1) = 0` SUBST1_TAC THENL
      [UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; DISCH_THEN(fun th -> REWRITE_TAC[th])]; ALL_TAC] THEN
-  INPUT_SPLIT_TAC_drain THEN
-  FIRST_X_ASSUM(fun th -> if is_conj(concl th) && (let s = string_of_term(concl th) in
-      contains "h_power" s && contains "htable_p" s) then STRIP_ASSUME_TAC th else NO_TAC);;
+  INPUT_SPLIT_TAC_drain THEN HTABLE_STRIP_DEC;;
 
 (* drain cbnz@0x570 resolution: x1=word 0 -> cbnz NOT taken -> fall through to 0x574.
    The cbnz produces `if ~(val(word(loop_count-(loop_count-1+1)))=0) then pc+620 else pc+1396`; reduce the counter
@@ -2493,35 +2419,14 @@ let tail_post = mk_abs(`s:armstate`, list_mk_conj
 
 (* ---- tail_goal: drain_bridge @0x6c0 -> tail_post @0x7c4.  Takes drain_bridge AS the precond (= proven
    SWP_DEC256_DRAIN post). ---- *)
-let tail_hyps = `([EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk;
-      EL 8 rk; EL 9 rk; EL 10 rk; EL 11 rk; EL 12 rk; EL 13 rk; EL 14 rk]:(int128)list = rk) /\
-     len_bits DIV 128 = nblocks /\ nblocks DIV 4 = loop_count /\ nblocks MOD 4 = loop_remain /\
-     16 * nblocks < 2 EXP 64 /\ len_bits < 2 EXP 64 /\ aligned 16 (stackpointer:int64) /\
-     nonoverlapping (out_p:int64,16 * nblocks) (word pc:int64,2036) /\
-     nonoverlapping (out_p:int64,16 * nblocks) (in_p:int64,16 * nblocks) /\
-     nonoverlapping (out_p:int64,16 * nblocks) (htable_p:int64,192) /\
-     nonoverlapping (out_p:int64,16 * nblocks) (tag_p:int64,16) /\
-     nonoverlapping (out_p:int64,16 * nblocks) (ivec_p:int64,16) /\
-     nonoverlapping (out_p:int64,16*nblocks) (word_add stackpointer (word 160):int64,64) /\
-     nonoverlapping (tag_p:int64,16) (word pc:int64,2036) /\
-     nonoverlapping (tag_p:int64,16) (in_p:int64,16*nblocks) /\
-     nonoverlapping (tag_p:int64,16) (htable_p:int64,192) /\
-     nonoverlapping (tag_p:int64,16) (word_add stackpointer (word 160):int64,64) /\
-     nonoverlapping (ivec_p:int64,16) (word pc:int64,2036) /\
-     nonoverlapping (ivec_p:int64,16) (in_p:int64,16*nblocks) /\
-     nonoverlapping (ivec_p:int64,16) (htable_p:int64,192) /\
-     nonoverlapping (ivec_p:int64,16) (word_add stackpointer (word 160):int64,64) /\
-     nonoverlapping (tag_p:int64,16) (ivec_p:int64,16) /\
-     nonoverlapping (htable_p:int64,192) (word_add stackpointer (word 160):int64,64) /\
-     nonoverlapping (in_p:int64,16*nblocks) (word_add stackpointer (word 160):int64,64) /\
-     nonoverlapping (word_add stackpointer (word 160):int64,64) (word pc:int64,2036)`;;
+let tail_hyps = mk_leg_hyps [] [`len_bits < 2 EXP 64`] [];;
 let tail_frame = `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
       MAYCHANGE [X19; X20; X21; X22; X23; X24; X25; X26; X27; X28; X29; X30] ,,
       MAYCHANGE [Q0; Q1; Q2; Q3; Q4; Q5; Q6; Q7; Q8; Q9; Q10; Q11; Q12; Q13; Q14; Q15; Q16; Q17; Q29; Q30; Q31] ,,
       MAYCHANGE [memory :> bytes(out_p:int64, 16 * nblocks)] ,,
       MAYCHANGE [memory :> bytes(tag_p:int64,16)] ,, MAYCHANGE [memory :> bytes(ivec_p:int64,16)] ,,
       MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`;;
-let tail_goal = mk_imp(tail_hyps, list_mk_icomb "ensures" [`arm`; drain_bridge; tail_post; tail_frame]);;
+let tail_goal = mk_leg_goal tail_hyps drain_bridge tail_post tail_frame;;
 
 (* ---- tail_tac: ASM_CASES loop_remain=0 -> [degenerate | WHILE]. ----
    DEGENERATE (loop_remain=0): SUBST loop_remain=0; nblocks=4*loop_count; ENSURES_INIT; htable unfold; step 1..3
@@ -2556,7 +2461,6 @@ let tail_goal = mk_imp(tail_hyps, list_mk_icomb "ensures" [`arm`; drain_bridge; 
    ============================================================================ *)
 
 let woff_t n = mk_comb(mk_comb(`word_add:int64->int64->int64`,`stackpointer:int64`),mk_comb(`word:num->int64`,mk_small_numeral n));;
-let ZX_WT_t = prove(`word_zx(word_zx(w:int32):int64):int32 = w`, CONV_TAC WORD_BLAST);;
 
 (* BASE nonce-lane derivation: drain_bridge carries the FULL bytes128 sp+160 block (= rev8(ctr_block(4*(lc-1)+2)));
    tail_inv 0 wants the two counter-INDEPENDENT nonce sub-lanes (bytes64@+0 -> subword(rev8(ctr_block 2))(0,64),
@@ -2741,7 +2645,7 @@ let TAIL_STEP_CLOSE : tactic = fun (asl,w) ->
   else if is_eq w && has "nist_ghash" w then TAIL_Q30_CLOSE (asl,w)  (* Q30 settled machine reduce *)
   else FIRST
     [ (AP_TERM_TAC THEN AP_TERM_TAC THEN ARITH_TAC);                        (* X0/X2 ptr *)
-      (REWRITE_TAC[ZX_WT_t] THEN REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN AP_TERM_TAC THEN ARITH_TAC);  (* X13 *)
+      (REWRITE_TAC[ZX_WT] THEN REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN AP_TERM_TAC THEN ARITH_TAC);  (* X13 *)
       TAIL_X9_CLOSE;                                                        (* X9 *)
       close_frame_dec;                                                      (* MAYCHANGE *)
       (ASM_REWRITE_TAC[htable_mem_4]) ] (asl,w);;
@@ -2798,7 +2702,7 @@ let IVEC_RECOMB_TAIL (kidx:term) : tactic =
             can (find_term (fun t -> is_const t && fst(dest_const t)="bytes32")) (lhs c)
         with _ -> false) asl in
      let normed = map (fun (_,th) -> REWRITE_RULE
-        [ZXTOWER_COLLAPSE_32; WORD_ZX_ID32; ZX_WT_t; ADD_CLAUSES; MULT_CLAUSES] th) ivec_cells in
+        [ZXTOWER_COLLAPSE_32; WORD_ZX_ID32; ZX_WT; ADD_CLAUSES; MULT_CLAUSES] th) ivec_cells in
      REWRITE_TAC normed) THEN
   ASM_REWRITE_TAC[] THEN
   REWRITE_TAC[ctr_block] THEN
@@ -3089,28 +2993,10 @@ let swps_lc1_goal = mk_imp(mk_conj(gen_precond, `loop_count = 1`),
 
 (* ---- LC1 setup: ivec split + 4-block input pin (blocks 0..3; loop_count=1 => 3<nblocks; the fill
    prefetch-loads blocks 4..7 read arbitrary mem, never used for lc=1) + htable strip + KEY_EXPAND. ---- *)
-let LC1_INPUT_SPLIT_TAC =
-  SUBGOAL_THEN
-   `read (memory :> bytes128 (word_add in_p (word (16 * 0))))  s0 = inblock 0 /\
-    read (memory :> bytes128 (word_add in_p (word (16 * 1))))  s0 = inblock 1 /\
-    read (memory :> bytes128 (word_add in_p (word (16 * 2))))  s0 = inblock 2 /\
-    read (memory :> bytes128 (word_add in_p (word (16 * 3))))  s0 = inblock 3`
-   STRIP_ASSUME_TAC THENL
-    [SUBGOAL_THEN `3 < nblocks` ASSUME_TAC THENL
-      [UNDISCH_TAC `nblocks DIV 4 = loop_count` THEN UNDISCH_TAC `loop_count = 1` THEN ARITH_TAC; ALL_TAC] THEN
-     REPEAT CONJ_TAC THEN FIRST_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC; ALL_TAC];;
+let LC1_INPUT_SPLIT_TAC = INPUT_SPLIT_DEC mk_small_numeral 4 [`nblocks DIV 4 = loop_count`; `loop_count = 1`];;
 let lc1_setup_tac =
   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
-  STRIP_TAC THEN REWRITE_TAC[fst DEC256_EXEC] THEN ENSURES_INIT_TAC "s0" THEN
-  RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4] THEN
-  UNDISCH_TAC `read (memory :> bytes128 ivec_p) s0 = word_reversefields 8 (ctr_block nonce c)` THEN
-  GEN_REWRITE_TAC (LAND_CONV o LAND_CONV) [el 1 (CONJUNCTS READ_MEMORY_BYTESIZED_SPLIT)] THEN DISCH_TAC THEN
-  ABBREV_TAC `ivlo:int64 = read (memory :> bytes64 ivec_p) s0` THEN
-  ABBREV_TAC `ivhi:int64 = read (memory :> bytes64 (word_add ivec_p (word 8))) s0` THEN
-  LC1_INPUT_SPLIT_TAC THEN
-  FIRST_X_ASSUM(fun th -> if is_conj(concl th) && (let s = string_of_term(concl th) in
-      contains "h_power" s && contains "htable_p" s) then STRIP_ASSUME_TAC th else NO_TAC) THEN
-  KEY_EXPAND_TAC;;
+  LEG_INIT_DEC [] THEN IVEC_SPLIT_dec THEN LC1_INPUT_SPLIT_TAC THEN HTABLE_STRIP_DEC THEN KEY_EXPAND_TAC;;
 
 (* ---- LC1 guard (cbz@0xa8 step 32): val(ushr chain) = len_bits DIV 512 = loop_count = 1 != 0 -> falls through
    (loop_count=1 context; NOT the fill leg's 2<=loop_count).  Establishes the val facts, steps 32, collapses. ---- *)
