@@ -464,7 +464,10 @@ let is_q14_read c = try (match lhs c with
    (kept across states) so read-over-write resolves the staged blocks at the body-end (the plain gkeepN's
    latest-only pruning dropped them -> SP_SLOT/AES/out closers failed).  is_spctr_read anchors ONLY the 4
    block-base reads (NOT +8/+12 lanes or bytes8 components -> no bloat).  Also anchor tag_p/ivec_p/htable_p
-   reads + handle the in_p/out_p frame foralls (keep) like dec-128.  Replaces the old gkeepN + DISCARD_STALE. *)
+   reads + handle the in_p/out_p frame foralls (keep) like dec-128.  The stale-fact GC (DISCARD_STALE_TAC)
+   runs after this pruning: the anchored reads and frame foralls are re-derived by every ARM_STEP_TAC, and
+   without the GC their old-state copies accumulate (about 20 facts per step, so several thousand over a
+   leg), making each step and each closer linear in the leg length and the leg itself quadratic. *)
 let is_spctr_read c = try
     let l = lhs c in
     fst(dest_const(fst(strip_comb l)))="read" && free_in `stackpointer:int64` l &&
@@ -554,7 +557,8 @@ let gkeepN keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
       if is_spctr_read c then (try read_state_idx c < List.assoc (spctr_off c) spmx with _ -> false) else
       if anchored c then false else
       match gc2 keeplist c with Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w));;
+      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w)) THEN
+  DISCARD_STALE_TAC sname;;
 (* Extract (ptr-name, state-index) from a `read (memory :> bytes128 tag_p/ivec_p) sK = V` assumption. *)
 (* FILL variant: keep the tag_p/ivec_p bytes128 reads (gkeepN drops them -> conj3,4 FAIL, the s297 read is absent),
    BUT keep ONLY THE LATEST-state read per ptr (else ~600 stale reads accumulate -> 10.6GB RSS + hours-long close).
