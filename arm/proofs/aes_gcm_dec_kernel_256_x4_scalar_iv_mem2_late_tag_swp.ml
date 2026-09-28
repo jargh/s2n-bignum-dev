@@ -29,7 +29,6 @@
 (* Everything is proved axiom-free (final check_axioms = 3 base axioms only).  *)
 (* ========================================================================== *)
 
-(* ===== inlined machinery (was _scratch/dec256_{frontmatter,steppers,invariant,closers,shared_closers}.ml) ===== *)
 needs "arm/proofs/base.ml";;
 needs "common/fips197.ml";;
 needs "common/polyval_ghash.ml";;
@@ -586,8 +585,8 @@ let merge_hook merges mk k : tactic =
   | (_,off,cval)::_ -> mk off cval ("s"^string_of_int k)
   | [] -> ALL_TAC;;
 
-(* 256 carried/reduce reg-set: AES partials Q3/Q4/Q8 + reduce Q1/Q2/Q11/Q13/Q14/Q29/Q30 + h-powers.
-   (REDSETX_DEC / ghost_lanes_dec / merges_dec are defined in dec256_bodyleg_setup.ml, not here.) *)
+(* 256 carried/reduce reg-set: AES partials Q3/Q4/Q8 + reduce Q1/Q2/Q11/Q13/Q14/Q29/Q30 + h-powers
+   (REDSETX_DEC, ghost_lanes_dec and the merge tables are defined with the body leg below). *)
 let contains sub s =
   let ls = String.length s and lsub = String.length sub in
   let rec go i = if i+lsub > ls then false
@@ -1212,13 +1211,11 @@ let CTR_BLOCK_BUILD_V_DEC =
     REWRITE_TAC[ctr_block] THEN DISCH_THEN(CONJUNCTS_THEN SUBST1_TAC) THEN
     CONV_TAC WORD_BLAST);;
 (* ============================================================================
-   dec-256 SWP body/fill SHARED closers.
-   Reused verbatim by both the BODYLEG (symbolic i) and the FILL leg (i=0).
-   Requires (from the loader): splitL, splitL2, swpS256_inv_dec, the dec256_closers.ml theorems
-   (SWP_SUB_LEMMA_DEC, aes12c, aes5c, XOR_AES256_CIPHER_RECONSTRUCT_DEC, KEYSTREAM_FOLD256, etc.),
-   and 'contains'.  Defines: rk15, INFOLD_dec, GHASH_PARTIAL_CLOSE_dec, SWP_Q30_SEED_TAC,
-   OUT_BLOCK_CLOSE_dec, OUT_STORE_dec, SP_SLOT_dec, close_pc_cond, close_frame_dec, OUT_FRAME_dec,
-   IVEC_RECOMB_dec, CTRREG_dec, CLOSE_DEC256.  Parse-clean, PROVEN axiom-free in the bodyleg native run.
+   dec-256 SWP body/fill SHARED closers, used by both the BODYLEG (symbolic i)
+   and the FILL leg (i=0): rk15, INFOLD_dec, GHASH_PARTIAL_CLOSE_dec,
+   SWP_Q30_SEED_TAC, OUT_BLOCK_CLOSE_dec, OUT_STORE_dec, SP_SLOT_dec,
+   close_pc_cond, close_frame_dec, OUT_FRAME_dec, IVEC_RECOMB_dec, CTRREG_dec
+   and the CLOSE_DEC256 dispatcher.
    ============================================================================ *)
 
 (* ==================== closers ==================== *)
@@ -1334,7 +1331,7 @@ let GHASH_PARTIAL_CLOSE_dec : tactic =
    PREFIX: SWP_SUBWORD_JOIN_MID collapses LHS word_subword(word_join BIG)(64,128) -> word_join(sw.. 0)(sw.. 64)
      = machwj; DEC_GHASH_NORM_TAC folds the inblock byte-lanes -> nist_input_block; ASM_REWRITE folds the block-0
      Q14 read (read Q14 sK = inblock(4i), in asl) then GSYM nist_input_block makes it nist_input_block(4i); now
-     LHS is exactly machwj over the real lanes.  FINISH: SWP_Q30_SEED_FINISH_TAC (in dec256_closers.ml) term_matches
+     LHS is exactly machwj over the real lanes.  FINISH: SWP_Q30_SEED_FINISH_TAC term_matches
      machwj_abs -> the 9 lane insts, INSTs the proven SEED_ABS (= byteswap128(prop3 simple), axiom-free, NO
      poly-const blast), folds prop3 simple -> nist_ghash..4(i+1) via SWP_GHASH_BRANCH2_256, byteswap128 def closes.
    The whole seed is now ~instant (SEED_ABS built once at load; ~1.5s+14s).  Invariant Q30 unchanged (confirmed
@@ -1803,11 +1800,11 @@ let SWP_DEC256_BODYLEG = prove(body_goal_dec,
    dec-256 SWP FILL leg: whole-fn precond @ pc+0x2c  ->  swpS256_inv_dec 0 @ pc+0x26c.
    Establishes the mid-pipeline invariant at the first steady head (i=0), from the
    C-argument preconditions (round keys / ivec / tag / htable / input in memory).
-   Reuses the bodyleg front-matter + steppers + invariant + closers (P2, axiom-free).
-   Approach-E form: ivec halves ABBREV'd ivlo/ivhi (dec256_SETUP_TAC does this).
+   Reuses the bodyleg steppers, invariant and closers; the ivec halves are
+   ABBREV'd ivlo/ivhi (IVEC_SPLIT_dec) as in the body leg.
    ============================================================================ *)
 
-(* lc_bound (from dec256_setup_recipe). *)
+(* loop_count is bounded by the input length. *)
 let lc_bound = prove(`nblocks DIV 4 = loop_count /\ 16 * nblocks < 2 EXP 64 ==> loop_count < 2 EXP 64`,
   STRIP_TAC THEN
   SUBGOAL_THEN `loop_count <= nblocks` MP_TAC THENL
@@ -2282,9 +2279,8 @@ let DRAIN_CBNZ_TAC : tactic =
        split-reduce (genuine hard core; see gcm-swp-proof-structure memory).  Adapt enc drain_close_q30
        (SWPGRP_IS_NIST_GHASH @3495 + close_goal7 reduce, m-indexed).  Plus 3 last-group output stores
        (OUT_STORE-reconstruct at block indices 4(lc-1)+{1,2,3}) + output-frame extend j<4*loop_count.
-   (6) GEN_ALL for the whole-fn WHILE-glue (P4).
-   Precedent: enc-256 SWP drain_close_q30 (aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp.ml
-     3662-3670+) + SWPGRP_IS_NIST_GHASH @3495 + LIST_OF_SEQ_APPEND @3490.
+   (6) GEN_ALL for the whole-function composition.
+   Precedent: the enc-256 SWP drain_close_q30 closer (with SWPGRP_IS_NIST_GHASH and LIST_OF_SEQ_APPEND).
    ============================================================================ *)
 
 (* GHASH bridge lemmas (from enc-256 SWP): swpgrp <-> nist_ghash + list-of-seq append. Needed by the Q30 closer. *)
@@ -2303,18 +2299,18 @@ let drain_step_all =
    (THE CRUX -- last-group Horner reduce), the 3 output stores + output-frame.  Route most to CLOSE_DEC256/ASM;
    route the Q30 + output-frame gaps to bespoke closers. ---- *)
 
-(* --- drain-specific closers for the 5 gaps surfaced by drain-iter1 (3 simple + Q30-settle + out-frame). --- *)
-(* FAIL 01/02: pointer arithmetic X0/X2 (loop_count-1+1 = loop_count, 64*(lc-1)+64 = 64*lc). *)
+(* --- drain-specific closers: pointer arithmetic, the X13 counter, the Q30 settle and the output frame. --- *)
+(* Pointer arithmetic X0/X2 (loop_count-1+1 = loop_count, 64(lc-1)+64 = 64lc). *)
 let DRAIN_PTR_TAC : tactic =
   AP_TERM_TAC THEN AP_TERM_TAC THEN UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC;;
-(* FAIL 03: X13 counter word_zx(word_add(word_zx(word_zx(word(4*(lc-1)+2))))(word 4)) = word_zx(word(4*lc+2)).
+(* X13 counter word_zx(word_add(word_zx(word_zx(word(4(lc-1)+2))))(word 4)) = word_zx(word(4lc+2)).
    The drain does add w13,#4 @0x57c; the base counter is nested word_zx(word_zx ..) (int32->int64->int32 round-trip).
    ZX_WT collapses the nesting, GSYM WORD_ADD merges the +4, then AP_TERM + ARITH. *)
 let ZX_WT = prove(`word_zx(word_zx(w:int32):int64):int32 = w`, CONV_TAC WORD_BLAST);;
 let DRAIN_X13_TAC : tactic =
   REWRITE_TAC[ZX_WT] THEN REWRITE_TAC[GSYM WORD_ADD] THEN
   AP_TERM_TAC THEN AP_TERM_TAC THEN UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC;;
-(* FAIL 04: THE Q30 SETTLE.  Bridge the RHS 4*loop_count -> 4*((loop_count-1)+1) so SWP_Q30_SEED_TAC (bodyleg, which
+(* The Q30 settle.  Bridge the RHS 4(loop_count) -> 4((loop_count-1)+1) so SWP_Q30_SEED_TAC (bodyleg, which
    proves machine-reduce = half-swap(nist_ghash..4*(i+1)) with i:=loop_count-1) can close.  The dec Q30 is the
    split half-swap form; SWP_Q30_SEED_TAC handles it (SWP_SUBWORD_JOIN_MID + DEC_GHASH_NORM + SWP_Q30_SEED_FINISH).
    Adapt at i=loop_count-1: rewrite 4*loop_count -> 4*((loop_count-1)+1) on BOTH sides first. *)
@@ -2336,7 +2332,7 @@ let DRAIN_Q30_TAC : tactic =
    [UNDISCH_TAC `2 <= loop_count` THEN ARITH_TAC; ALL_TAC] THEN
   ABBREV_TAC `m = loop_count - 1` THEN
   SWP_Q30_SEED_TAC THEN REFL_TAC;;
-(* FAIL 05: output-frame forall j<4*loop_count.  Split into j<4*(loop_count-1) (incoming) + the last-group blocks
+(* Output-frame forall j<4(loop_count).  Split into j<4(loop_count-1) (incoming) + the last-group blocks
    (4*(loop_count-1)+{0,1,2,3}); incoming via ASM forall, last-group blocks via OUT_STORE-reconstruct.  Delegate to
    the bodyleg OUT_FRAME_dec machinery with 4*loop_count = 4*((loop_count-1)+1). *)
 let DRAIN_OUTFRAME_TAC : tactic =
@@ -2811,7 +2807,7 @@ let SWP_DEC256_TAIL = prove(tail_goal, tail_tac);;
 (* SWP_DEC256_TAIL (= TAIL_NO2, canonical bytes128 ivec, no 2<=loop_count).       *)
 (* ============================================================================ *)
 
-(* ---- (b) frame-widening infra (P4_compose 19-43) ---- *)
+(* ---- (b) frame-widening infra ---- *)
 let swps_broad_frame =
   let _,ens = dest_imp drain_goal in last(snd(strip_comb ens));;
 let widen_frame_to_broad th =
@@ -2836,7 +2832,7 @@ let gen_precond = list_mk_conj (filter (fun c -> c <> `2 <= loop_count`) (conjun
 let mk_lcN_goal n = mk_imp(mk_conj(gen_precond, mk_eq(`loop_count:num`, mk_small_numeral n)),
     list_mk_icomb "ensures" [`arm`; fill_pre_state; drain_bridge; swps_broad_frame]);;
 
-(* ---- (c) SWPS_LEG1B: fill_pre@0x2c -> drain_bridge@0x6c0, loop_count>=2 (folds LC2). (P4_compose 45-87) ---- *)
+(* ---- (c) SWPS_LEG1B: fill_pre@0x2c -> drain_bridge@0x6c0, loop_count>=2 (folds LC2). ---- *)
 let swps_leg1b_goal = mk_imp(mk_conj(gen_precond, `2 <= loop_count`),
     list_mk_icomb "ensures" [`arm`; fill_pre_state; drain_bridge; swps_broad_frame]);;
 let swps_leg1b_body =
@@ -3165,7 +3161,7 @@ let swps_lc1_tac =
 
 let SWPS_LC1 = prove(swps_lc1_goal, swps_lc1_tac);;
 
-(* ---- (f) SWPS_FROM88: gen_precond -> tail_post@0x7c4, ALL loop_count (P4_compose 89-124). ---- *)
+(* ---- (f) SWPS_FROM88: gen_precond -> tail_post@0x7c4, ALL loop_count. ---- *)
 let from88_frame = last(snd(strip_comb(snd(dest_imp(concl(SPEC_ALL SWP_DEC256_TAIL))))));;
 let widen_to_from88 th =
   let vars,_ = strip_forall (concl th) in
