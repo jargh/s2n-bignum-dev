@@ -474,7 +474,7 @@ let is_spctr_read c = try
     (can (find_term (fun t -> match t with
        | Comb(Comb(Const("word_add",_),sp),Comb(Const("word",_),n))
            when (try fst(dest_var sp)="stackpointer" with _->false) ->
-             (let v=string_of_term n in v="160"||v="176"||v="192"||v="208") | _ -> false)) l)
+             (try let v=dest_small_numeral n in v=160||v=176||v=192||v=208 with _ -> false) | _ -> false)) l)
   with _ -> false;;
 let state_of_forall c = try
     (match snd(strip_forall c) with
@@ -505,7 +505,6 @@ let spctr_off c = try (match find_terms (fun t -> match t with
 let is_ctrlane_read c =
   try
     let l = lhs c in
-    let r = rhs c in
     let headok = fst(dest_const(fst(strip_comb l))) = "read" in
     let spok = free_in `stackpointer:int64` l in
     let offpred t = match t with
@@ -515,11 +514,13 @@ let is_ctrlane_read c =
                  v=160||v=176||v=192||v=208||v=168||v=184||v=200||v=216)
             with _ -> false)
        | _ -> false in
-    (* RHS is ivlo (a variable) or word_subword ivhi (0,32) -- the Approach-E variable-form nonce lane *)
-    let rhsok = (try fst(dest_var r) = "ivlo" with _ -> false) ||
+    (* RHS is ivlo (a variable) or word_subword ivhi (0,32) -- the Approach-E variable-form nonce lane.
+       Tested last and lazily: the RHS of a carried fact can be a large tower. *)
+    let rhsok () = let r = rhs c in
+                (try fst(dest_var r) = "ivlo" with _ -> false) ||
                 (free_in `ivhi:int64` r &&
                  can (find_term (fun t -> match t with Const("word_subword",_) -> true | _ -> false)) r) in
-    headok && spok && (can (find_term offpred) l) && rhsok
+    headok && spok && (can (find_term offpred) l) && rhsok ()
   with _ -> false;;
 (* address-modulo-state KEY of a ctrlane read (the lhs component, i.e. the (:>) comb, ignoring the state var):
    distinguishes bytes64@192 from bytes32@200 etc. so per-lane latest-state pruning doesn't conflate them. *)
@@ -547,8 +548,8 @@ let gkeepN keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
           (free_in `htable_p:int64` (lhs c)) || (free_in `in_p:int64` (lhs c)))) || is_q14_read c
       with _ -> false in
     DISCARD_ASSUMPTIONS_TAC(fun th->let c=concl th in
-      if (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
-      then (try let _,args = strip_comb c in string_of_term(last args) <> sname with _ -> false) else
+      if not (is_eq c) && (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
+      then (try (match last(snd(strip_comb c)) with Var(nm,_) -> nm <> sname | _ -> true) with _ -> false) else
       if is_forall c then
         (if free_in `in_p:int64` c || free_in `out_p:int64` c then false
          else (match state_of_forall c with Some nm -> nm <> sname | None -> false)) else
