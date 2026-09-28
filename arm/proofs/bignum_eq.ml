@@ -279,3 +279,181 @@ let BIGNUM_EQ_SUBROUTINE_CORRECT = prove
                 C_RETURN s' = if x = y then word 1 else word 0)
           (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI)`,
   ARM_ADD_RETURN_NOSTACK_TAC BIGNUM_EQ_EXEC BIGNUM_EQ_CORRECT);;
+
+(* ------------------------------------------------------------------------- *)
+(* Constant-time and memory safety proof.                                    *)
+(* ------------------------------------------------------------------------- *)
+
+needs "arm/proofs/consttime.ml";;
+needs "arm/proofs/subroutine_signatures.ml";;
+
+let full_spec,public_vars = mk_safety_spec
+    ~keep_maychanges:false
+    (assoc "bignum_eq" subroutine_signatures)
+    BIGNUM_EQ_SUBROUTINE_CORRECT
+    BIGNUM_EQ_EXEC;;
+
+let BIGNUM_EQ_SUBROUTINE_SAFE = time prove
+ (`exists f_events.
+       forall e m a n b pc returnaddress.
+           ensures arm
+           (\s.
+                aligned_bytes_loaded s (word pc) bignum_eq_mc /\
+                read PC s = word pc /\
+                read X30 s = returnaddress /\
+                C_ARGUMENTS [m; a; n; b] s /\
+                read events s = e)
+           (\s.
+                read PC s = returnaddress /\
+                exists e2.
+                    read events s = APPEND e2 e /\
+                    e2 = f_events a b n m pc returnaddress /\
+                    memaccess_inbounds e2 [a,val m * 8; b,val n * 8] [])
+           (\s s'. true)`,
+  ASSERT_CONCL_TAC full_spec THEN
+  CONCRETIZE_F_EVENTS_TAC
+   `\(a:int64) (b:int64) (n:int64) (m:int64) (pc:num) (returnaddress:int64).
+      APPEND
+        (if MIN (val m) (val n) = 0
+         then f_ev_main0 a b n m pc returnaddress
+         else APPEND (f_ev_main_post a b n m pc returnaddress)
+                (APPEND (ENUMERATEL (MIN (val m) (val n)) (f_ev_main_loop a b n m pc returnaddress))
+                        (f_ev_main_pre a b n m pc returnaddress)))
+        (if val m = val n then f_ev_pre_eq a b n m pc returnaddress
+         else if val n < val m then
+           APPEND (f_ev_xtop_post a b n m pc returnaddress)
+             (APPEND (ENUMERATEL (val m - val n) (f_ev_xtop_loop a b n m pc returnaddress))
+                     (f_ev_xtop_pre a b n m pc returnaddress))
+         else
+           APPEND (f_ev_ytop_post a b n m pc returnaddress)
+             (APPEND (ENUMERATEL (val n - val m) (f_ev_ytop_loop a b n m pc returnaddress))
+                     (f_ev_ytop_pre a b n m pc returnaddress)))
+      :(uarch_event) list` THEN
+  REPEAT META_EXISTS_TAC THEN
+  STRIP_TAC THEN
+  W64_GEN_TAC `m:num` THEN X_GEN_TAC `a:int64` THEN
+  W64_GEN_TAC `n:num` THEN X_GEN_TAC `b:int64` THEN
+  MAP_EVERY X_GEN_TAC [`pc:num`;`returnaddress:int64`] THEN
+  REWRITE_TAC[C_ARGUMENTS; C_RETURN; SOME_FLAGS; fst BIGNUM_EQ_EXEC] THEN
+  VAL_INT64_TAC `1` THEN
+  ABBREV_TAC `p = MIN m n` THEN VAL_INT64_TAC `p:num` THEN
+  ENSURES_EVENTS_SEQUENCE_TAC `pc + 0x38`
+   `\s. read X0 s = word p /\ read X1 s = a /\ read X3 s = b /\ read X30 s = returnaddress` THEN
+  CONJ_TAC THENL [
+    ASM_CASES_TAC `m:num = n` THENL [
+      UNDISCH_THEN `m:num = n` SUBST_ALL_TAC THEN
+      FIRST_X_ASSUM(SUBST1_TAC o MATCH_MP (ARITH_RULE `MIN n n = p ==> p = n`)) THEN
+      REWRITE_TAC[LT_REFL] THEN
+      ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
+          ~canonicalize_pc_diff:false BIGNUM_EQ_EXEC (1--4) THEN
+      DISCHARGE_SAFETY_PROPERTY_TAC;
+      ALL_TAC] THEN
+    FIRST_X_ASSUM(DISJ_CASES_TAC o MATCH_MP (ARITH_RULE
+      `~(m:num = n) ==> m < n \/ n < m`)) THEN
+    UNDISCH_TAC `MIN m n = p` THEN
+    ASM_SIMP_TAC[ARITH_RULE `m < n ==> MIN m n = m`;
+                 ARITH_RULE `n < m ==> MIN m n = n`] THEN
+    DISCH_THEN(SUBST_ALL_TAC o SYM) THENL [
+      ASM_SIMP_TAC[ARITH_RULE `m < n ==> ~(m = n) /\ ~(n < m)`] THEN
+      SUBGOAL_THEN `0 < n - m /\ n - m < 2 EXP 64` STRIP_ASSUME_TAC THENL
+       [SIMPLE_ARITH_TAC; ALL_TAC] THEN
+      ENSURES_EVENTS_WHILE_UP2_TAC `n - m:num` `pc + 0xc` `pc + 0x20`
+        `\i s. read X0 s = word m /\ read X1 s = a /\ read X2 s = word(n - i) /\
+               read X3 s = b /\ read X30 s = returnaddress` THEN
+      ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL [
+        SIMPLE_ARITH_TAC;
+        REWRITE_TAC[SUB_0] THEN
+        ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
+            ~canonicalize_pc_diff:false BIGNUM_EQ_EXEC (1--3) THEN
+        SUBGOAL_THEN `~(n:num <= m)` (fun th -> REWRITE_TAC[th]) THENL
+         [SIMPLE_ARITH_TAC; ALL_TAC] THEN DISCHARGE_SAFETY_PROPERTY_TAC;
+        ALL_TAC;
+        ASM_REWRITE_TAC[] THEN
+        ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
+            ~canonicalize_pc_diff:false BIGNUM_EQ_EXEC (1--1) THEN DISCHARGE_SAFETY_PROPERTY_TAC] THEN
+      X_GEN_TAC `i:num` THEN STRIP_TAC THEN
+      SUBGOAL_THEN `n - (i + 1) < n` ASSUME_TAC THENL [SIMPLE_ARITH_TAC; ALL_TAC] THEN
+      VAL_INT64_TAC `i:num` THEN VAL_INT64_TAC `n - i:num` THEN
+      SUBGOAL_THEN `word_sub (word (n - i)) (word 1):int64 = word (n - (i + 1))` ASSUME_TAC THENL
+       [SUBGOAL_THEN `n - i = (n - (i + 1)) + 1` (fun th -> REWRITE_TAC[th]) THENL
+         [SIMPLE_ARITH_TAC; CONV_TAC WORD_RULE]; ALL_TAC] THEN
+      VAL_INT64_TAC `n - (i + 1)` THEN
+      ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
+          ~canonicalize_pc_diff:false BIGNUM_EQ_EXEC (1--5) THEN
+      CONJ_TAC THENL [
+        IMP_REWRITE_TAC[VAL_WORD_SUB_EQ_0;VAL_WORD_EQ;DIMINDEX_64] THEN
+        SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+      DISCHARGE_SAFETY_PROPERTY_TAC;
+
+      ASM_SIMP_TAC[ARITH_RULE `n < m ==> ~(m = n)`] THEN
+      SUBGOAL_THEN `0 < m - n /\ m - n < 2 EXP 64` STRIP_ASSUME_TAC THENL
+       [SIMPLE_ARITH_TAC; ALL_TAC] THEN
+      ENSURES_EVENTS_WHILE_UP2_TAC `m - n:num` `pc + 0x24` `pc + 0x38`
+        `\i s. read X0 s = word(m - i) /\ read X1 s = a /\ read X2 s = word n /\
+               read X3 s = b /\ read X30 s = returnaddress` THEN
+      ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL [
+        SIMPLE_ARITH_TAC;
+        REWRITE_TAC[SUB_0] THEN
+        SUBGOAL_THEN `n:num <= m` ASSUME_TAC THENL [SIMPLE_ARITH_TAC; ALL_TAC] THEN
+        ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
+            ~canonicalize_pc_diff:false BIGNUM_EQ_EXEC (1--4) THEN
+        SUBGOAL_THEN `~(val(word_sub (word m) (word n):int64) = 0)` (fun th -> REWRITE_TAC[th]) THENL
+         [REWRITE_TAC[VAL_WORD_SUB_EQ_0] THEN IMP_REWRITE_TAC[VAL_WORD_EQ;DIMINDEX_64] THEN
+          SIMPLE_ARITH_TAC; ALL_TAC] THEN DISCHARGE_SAFETY_PROPERTY_TAC;
+        ALL_TAC;
+        ASM_SIMP_TAC[ARITH_RULE `n < m ==> m - (m - n) = n`] THEN
+        ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
+            ~canonicalize_pc_diff:false BIGNUM_EQ_EXEC [] THEN DISCHARGE_SAFETY_PROPERTY_TAC ] THEN
+      X_GEN_TAC `i:num` THEN STRIP_TAC THEN
+      SUBGOAL_THEN `m - (i + 1) < m` ASSUME_TAC THENL [SIMPLE_ARITH_TAC; ALL_TAC] THEN
+      VAL_INT64_TAC `i:num` THEN VAL_INT64_TAC `m - i:num` THEN
+      SUBGOAL_THEN `word_sub (word (m - i)) (word 1):int64 = word (m - (i + 1))` ASSUME_TAC THENL
+       [SUBGOAL_THEN `m - i = (m - (i + 1)) + 1` (fun th -> REWRITE_TAC[th]) THENL
+         [SIMPLE_ARITH_TAC; CONV_TAC WORD_RULE]; ALL_TAC] THEN
+      VAL_INT64_TAC `m - (i + 1)` THEN
+      ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
+          ~canonicalize_pc_diff:false BIGNUM_EQ_EXEC (1--5) THEN
+      CONJ_TAC THENL [
+        IMP_REWRITE_TAC[VAL_WORD_SUB_EQ_0;VAL_WORD_EQ;DIMINDEX_64] THEN
+        SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+      DISCHARGE_SAFETY_PROPERTY_TAC ];
+
+    ASM_CASES_TAC `p = 0` THENL [
+      ASM_REWRITE_TAC[] THEN
+      ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
+          ~canonicalize_pc_diff:false BIGNUM_EQ_EXEC (1--4) THEN
+      DISCHARGE_SAFETY_PROPERTY_TAC;
+      ALL_TAC] THEN
+    ASM_REWRITE_TAC[] THEN
+    ENSURES_EVENTS_WHILE_UP2_TAC `p:num` `pc + 0x3c` `pc + 0x54`
+      `\i s. read X0 s = word(p - i) /\ read X1 s = a /\ read X3 s = b /\ read X30 s = returnaddress` THEN
+    ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL [
+      REWRITE_TAC[SUB_0] THEN
+      ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
+          ~canonicalize_pc_diff:false BIGNUM_EQ_EXEC (1--1) THEN
+      DISCHARGE_SAFETY_PROPERTY_TAC;
+      ALL_TAC;
+      ASM_REWRITE_TAC[] THEN
+      ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
+          ~canonicalize_pc_diff:false BIGNUM_EQ_EXEC (1--3) THEN
+      DISCHARGE_SAFETY_PROPERTY_TAC] THEN
+    X_GEN_TAC `i:num` THEN STRIP_TAC THEN
+    SUBGOAL_THEN `p - (i + 1) < m /\ p - (i + 1) < n` STRIP_ASSUME_TAC THENL
+     [SIMPLE_ARITH_TAC; ALL_TAC] THEN
+    VAL_INT64_TAC `i:num` THEN VAL_INT64_TAC `p - i:num` THEN
+    ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
+        ~canonicalize_pc_diff:false BIGNUM_EQ_EXEC (1--6) THEN
+    CONJ_TAC THENL [
+      IMP_REWRITE_TAC[VAL_WORD_SUB_EQ_0;VAL_WORD_EQ;DIMINDEX_64] THEN
+      SIMPLE_ARITH_TAC; ALL_TAC ] THEN
+    CONJ_TAC THENL
+    [ IMP_REWRITE_TAC[WORD_SUB2] THEN CONJ_TAC THENL
+      [ AP_TERM_TAC THEN SIMPLE_ARITH_TAC; SIMPLE_ARITH_TAC ]; ALL_TAC] THEN
+    UNDISCH_TAC `MIN m n = p` THEN DISCH_THEN(SUBST_ALL_TAC o SYM) THEN
+    SUBGOAL_THEN `word_sub (word (MIN m n - i)) (word 1):int64 = word (MIN m n - (i + 1))`
+    SUBST1_TAC THENL
+     [SUBGOAL_THEN `MIN m n - i = (MIN m n - (i + 1)) + 1` (fun th -> REWRITE_TAC[th]) THENL
+       [SIMPLE_ARITH_TAC; CONV_TAC WORD_RULE]; ALL_TAC] THEN
+    VAL_INT64_TAC `MIN m n - (i + 1)` THEN
+    DISCHARGE_SAFETY_PROPERTY_TAC
+  ]);;
