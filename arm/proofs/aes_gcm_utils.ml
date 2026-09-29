@@ -554,40 +554,77 @@ let state_of_forall c =
         Comb(Comb(Const("read",_),_),Var(nm,_)) when String.length nm>=1 && nm.[0]='s' -> true | _->false) c in
       (match rd with Comb(_,Var(nm,_)) -> Some nm | _ -> None) with _ -> None;;
 
-(* One step of a software-pipelined simulation followed by garbage collection of the assumption list.
-   After the step we keep the MAYCHANGE fact of the current state, the input/output buffer foralls, the
-   memory reads at the anchor pointers and at the counter stack slots (by offset), the latest read of
-   each register in keeplist, and every fact that is not a read of an earlier state; DISCARD_STALE_TAC
-   then drops the superseded copies of the kept facts. *)
-let SWP_STEP_TAC (anchors:term list) (slots:string list) keeplist exec sname : tactic =
+(* ------------------------------------------------------------------------- *)
+(* The pipelined stepper: one ARM step followed by pruning of the assumption *)
+(* list under a policy.  After the step we keep the MAYCHANGE fact of the     *)
+(* current state; the in_p/out_p foralls and, depending on the policy, either *)
+(* every other quantified fact or only those about the current state; the    *)
+(* reads at the anchor pointers and at the listed stack-slot offsets; the    *)
+(* latest member of each keyed family (a family maps a fact to Some (key,    *)
+(* state index); the first matching family decides); any fact the policy    *)
+(* exempts; and the latest read of each register in the keep list.  Every    *)
+(* other read of an earlier state goes, and DISCARD_STALE_TAC can then sweep *)
+(* the superseded copies of the kept facts.                                  *)
+(* ------------------------------------------------------------------------- *)
+type swp_prune =
+ { anchors : term list;
+   slots : string list;
+   families : (term -> (string * int) option) list;
+   exempt : term -> bool;
+   all_foralls : bool;
+   stale_gc : bool };;
+
+let SWP_STEP_TAC_P (p:swp_prune) keeplist exec sname : tactic =
   ARM_STEP_TAC exec [] sname None (K STRIP_TAC) THEN
   (fun (asl,w) ->
     let cs = map (fun (_,th) -> concl th) asl in
     let latest = map (fun r -> (r, itlist (fun c m ->
                    match gc2 keeplist c with Some(rr,k) when rr = r && k > m -> k | _ -> m) cs (-1)))
                    keeplist in
+    let famof f c = try f c with _ -> None in
+    let famlatest = map (fun f -> (f, itlist (fun c acc -> match famof f c with
+                       | Some(key,k) -> (try if k > List.assoc key acc then (key,k)::List.remove_assoc key acc else acc
+                                         with Not_found -> (key,k)::acc)
+                       | None -> acc) cs [])) p.families in
     let is_read c = try fst(dest_const(fst(strip_comb(lhs c)))) = "read" with Failure _ -> false in
     let slot_read c = can (find_term (fun t -> match t with
           Comb(Comb(Const("word_add",_),sp),Comb(Const("word",_),n))
             when (try fst(dest_var sp) = "stackpointer" with Failure _ -> false) ->
-              mem (string_of_term n) slots
+              mem (string_of_term n) p.slots
         | _ -> false)) (lhs c) in
-    let anchored c = is_read c && (exists (fun p -> free_in p (lhs c)) anchors || slot_read c) in
-    let is_maychange c = can (find_term (fun t -> match t with Const("MAYCHANGE",_) -> true | _ -> false)) c in
+    let anchored c = is_read c && (exists (fun q -> free_in q (lhs c)) p.anchors || slot_read c) in
+    let is_maychange c = not (is_eq c) &&
+      can (find_term (fun t -> match t with Const("MAYCHANGE",_) -> true | _ -> false)) c in
     let old_state_read c = try (match rand(lhs c) with
           Var(nm,_) -> nm <> sname && String.length nm >= 1 && nm.[0] = 's' | _ -> false)
         with Failure _ -> false in
+    let rec family_stale fams c = match fams with
+      | [] -> None
+      | (f,lat)::rest -> (match famof f c with
+                          | Some(key,k) -> Some (try k < List.assoc key lat with Not_found -> false)
+                          | None -> family_stale rest c) in
     DISCARD_ASSUMPTIONS_TAC (fun th ->
       let c = concl th in
       if is_maychange c then (try string_of_term(last(snd(strip_comb c))) <> sname with Failure _ -> false)
       else if is_forall c then
-        (if free_in `in_p:int64` c || free_in `out_p:int64` c then false
+        (if p.all_foralls || free_in `in_p:int64` c || free_in `out_p:int64` c then false
          else match state_of_forall c with Some nm -> nm <> sname | None -> false)
-      else if anchored c then false
-      else match gc2 keeplist c with
-             Some(r,k) -> k < List.assoc r latest
-           | None -> old_state_read c) (asl,w)) THEN
-  DISCARD_STALE_TAC sname;;
+      else match family_stale famlatest c with
+           | Some stale -> stale
+           | None ->
+             if p.exempt c || anchored c then false
+             else match gc2 keeplist c with
+                    Some(r,k) -> k < List.assoc r latest
+                  | None -> old_state_read c) (asl,w)) THEN
+  (if p.stale_gc then DISCARD_STALE_TAC sname else ALL_TAC);;
+
+(* The plain policy of the 128-bit proofs: anchor pointers and slots, no families, current-state
+   foralls only, with the stale sweep. *)
+let swp_prune_plain anchors slots =
+  { anchors = anchors; slots = slots; families = []; exempt = (fun _ -> false);
+    all_foralls = false; stale_gc = true };;
+let SWP_STEP_TAC (anchors:term list) (slots:string list) keeplist exec sname : tactic =
+  SWP_STEP_TAC_P (swp_prune_plain anchors slots) keeplist exec sname;;
 
 (* Steps k in ks of a leg: SWP_STEP_TAC, the address and subword normalization, a per-leg
    simplification of the fresh facts (extra k), and the counter-slot merge at the recorded store steps. *)

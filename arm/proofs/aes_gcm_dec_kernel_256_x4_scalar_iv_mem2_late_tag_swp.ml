@@ -244,12 +244,6 @@ let is_spctr_read c = try
            when (try fst(dest_var sp)="stackpointer" with _->false) ->
              (try let v=dest_small_numeral n in v=160||v=176||v=192||v=208 with _ -> false) | _ -> false)) l)
   with _ -> false;;
-let state_of_forall_dec c = try
-    (match snd(strip_forall c) with
-     | Comb(Comb(Const("==>",_),_),bod) ->
-        (match find_terms (fun t -> match t with Comb(Comb(Const("read",_),_),Var(nm,_)) when String.length nm>=1 && nm.[0]='s' -> true | _ -> false) bod with
-         | (Comb(Comb(Const("read",_),_),Var(nm,_)))::_ -> Some nm | _ -> None)
-     | _ -> None) with _ -> None;;
 (* state index of a `read _ sK = _` fact (K), or -1 *)
 let read_state_idx c = try (match lhs c with
    Comb(Comb(Const("read",_),_),Var(nm,_)) when String.length nm>=2 && nm.[0]='s' ->
@@ -293,41 +287,16 @@ let is_ctrlane_read c =
 (* address-modulo-state KEY of a ctrlane read (the lhs component, i.e. the (:>) comb, ignoring the state var):
    distinguishes bytes64@192 from bytes32@200 etc. so per-lane latest-state pruning doesn't conflate them. *)
 let ctrlane_key c = try let l = lhs c in fst(dest_comb l) with _ -> `T`;;
-let gkeepN keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
-  (fun (asl,w) -> let cs=map(fun(_,t)->concl t)asl in
-    let mx=map(fun r->(r,itlist(fun c m->match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m)cs(-1)))keeplist in
-    (* per-offset latest state index over the anchored spctr reads (keep only latest -> no bloat) *)
-    let spmx = itlist (fun c acc -> if is_spctr_read c then
-        (let off=spctr_off c and k=read_state_idx c in
-         try let old=List.assoc off acc in if k>old then (off,k)::List.remove_assoc off acc else acc
-         with Not_found -> (off,k)::acc) else acc) cs [] in
-    (* per-lane (address-mod-state) latest state index over the primed ctrlane reads -- keep ONLY the latest
-       so the lanes do NOT accumulate one-copy-per-state (which bloats the asl and -- observed -- makes native
-       ARM_STEP choke a few steps in).  The nonce lanes are counter-independent constants, so the latest-state
-       copy is as good as s0. *)
-    let lanemx = itlist (fun c acc -> if is_ctrlane_read c then
-        (let key=ctrlane_key c and k=read_state_idx c in
-         try let (_,old)=List.find (fun (kk,_)->kk=key) acc in
-             if k>old then (key,k)::List.filter (fun (kk,_)->not(kk=key)) acc else acc
-         with Not_found -> (key,k)::acc) else acc) cs [] in
-    let anchored c = try
-        (fst(dest_const(fst(strip_comb(lhs c))))="read" &&
-         ((free_in `tag_p:int64` (lhs c)) || (free_in `ivec_p:int64` (lhs c)) ||
-          (free_in `htable_p:int64` (lhs c)) || (free_in `in_p:int64` (lhs c)))) || is_q14_read c
-      with _ -> false in
-    DISCARD_ASSUMPTIONS_TAC(fun th->let c=concl th in
-      if not (is_eq c) && (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
-      then (try (match last(snd(strip_comb c)) with Var(nm,_) -> nm <> sname | _ -> true) with _ -> false) else
-      if is_forall c then
-        (if free_in `in_p:int64` c || free_in `out_p:int64` c then false
-         else (match state_of_forall_dec c with Some nm -> nm <> sname | None -> false)) else
-      if is_ctrlane_read c then
-        (try read_state_idx c < snd(List.find (fun (kk,_)->kk=ctrlane_key c) lanemx) with _ -> false) else
-      if is_spctr_read c then (try read_state_idx c < List.assoc (spctr_off c) spmx with _ -> false) else
-      if anchored c then false else
-      match gc2 keeplist c with Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w)) THEN
-  DISCARD_STALE_TAC sname;;
+(* Pruning policy of the dec-256 stepper: the tag_p/ivec_p/htable_p/in_p reads and the Q14 reads always
+   kept, the staged counter slots (per offset) and the primed nonce lanes (per lane) kept latest-only,
+   current-state foralls only, with the stale sweep (see aes_gcm_utils.ml SWP_STEP_TAC_P). *)
+let dec256_prune =
+  { anchors = [`tag_p:int64`; `ivec_p:int64`; `htable_p:int64`; `in_p:int64`]; slots = [];
+    families =
+     [(fun c -> if is_ctrlane_read c then Some(string_of_term(ctrlane_key c), read_state_idx c) else None);
+      (fun c -> if is_spctr_read c then Some(string_of_int(spctr_off c), read_state_idx c) else None)];
+    exempt = is_q14_read; all_foralls = false; stale_gc = true };;
+let gkeepN keeplist th sname = SWP_STEP_TAC_P dec256_prune keeplist th sname;;
 (* One pruned symbolic step followed by the per-step assumption normalisation (subword *)
 (* nests, relative addresses, in_p offsets).  DEC_STEPS_TAC runs a range of steps with  *)
 (* a per-step hook (staged counter-slot merges, lane priming) after each one.           *)

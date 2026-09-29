@@ -231,16 +231,13 @@ let swpS256_inv = `\(i:num) s.
 
 (* ========== LEG: fill ========== *)
 
-let gkeepN keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
-  (fun (asl,w) -> let cs=map(fun(_,t)->concl t)asl in
-    let mx=map(fun r->(r,itlist(fun c m->match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m)cs(-1)))keeplist in
-    DISCARD_ASSUMPTIONS_TAC(fun th->let c=concl th in
-      if (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
-      then (try let _,args = strip_comb c in string_of_term(last args) <> sname with _ -> false) else
-      if (try free_in `in_p:int64` (lhs c) with _->false) then false else
-      match gc2 keeplist c with
-      Some(r,k)->k<List.assoc r mx
-      |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false))(asl,w)) THEN DISCARD_STALE_TAC sname;;
+(* Pruning policy of the enc-256 steppers: in_p reads always kept, every quantified fact kept, with the
+   stale sweep (see aes_gcm_utils.ml SWP_STEP_TAC_P). *)
+let enc256_prune =
+  { anchors = []; slots = []; families = [];
+    exempt = (fun c -> try free_in `in_p:int64` (lhs c) with _ -> false);
+    all_foralls = true; stale_gc = true };;
+let gkeepN keeplist th sname = SWP_STEP_TAC_P enc256_prune keeplist th sname;;
 (* Extract (ptr-name, state-index) from a `read (memory :> bytes128 tag_p/ivec_p) sK = V` assumption. *)
 let get_membyteread c =
   try let l = lhs c in
@@ -256,26 +253,8 @@ let get_membyteread c =
    BUT keep ONLY THE LATEST-state read per ptr (else ~600 stale reads accumulate -> 10.6GB RSS + hours-long close).
    The latest read + the tag_p/ivec_p<->stack nonoverlaps (now in fill_goal precond) let ENSURES_FINAL_STATE_TAC
    carry it forward across the [sp,#*] stores to s297.  (in_p reads still never-discarded, as gkeepN.) *)
-let gkeepF keeplist th sname = ARM_STEP_TAC th [] sname None (K STRIP_TAC) THEN
-  (fun (asl,w) -> let cs=map(fun(_,t)->concl t)asl in
-    let mx=map(fun r->(r,itlist(fun c m->match gc2 keeplist c with Some(rr,k)when rr=r&&k>m->k|_->m)cs(-1)))keeplist in
-    (* per-ptr max state index over the tag_p/ivec_p bytes128 reads *)
-    let mmx=itlist (fun c acc -> match get_membyteread c with
-       | Some(p,k) -> (try let old=List.assoc p acc in
-                           if k>old then (p,k)::(List.remove_assoc p acc) else acc
-                       with Not_found -> (p,k)::acc)
-       | None -> acc) cs [] in
-    DISCARD_ASSUMPTIONS_TAC(fun th->let c=concl th in
-      if (try can (find_term (fun x -> match x with Const("MAYCHANGE",_) -> true | _ -> false)) c with _->false)
-      then (try let _,args = strip_comb c in string_of_term(last args) <> sname with _ -> false) else
-      if (try free_in `in_p:int64` (lhs c) with _->false) then false else
-      (* tag_p/ivec_p bytes128 read: keep iff it is the latest-state one for its ptr; discard stale copies *)
-      (match get_membyteread c with
-       | Some(p,k) -> (try k < List.assoc p mmx with _ -> false)
-       | None ->
-         match gc2 keeplist c with
-         Some(r,k)->k<List.assoc r mx
-         |None->(try let l=lhs c in let rd,st=dest_comb l in (match st with Var(nm,_)->nm<>sname&&String.length nm>=1&&nm.[0]='s'|_->false)with _->false)))(asl,w)) THEN DISCARD_STALE_TAC sname;;
+let gkeepF keeplist th sname =
+  SWP_STEP_TAC_P { enc256_prune with families = [get_membyteread] } keeplist th sname;;
 
 (* 256 carried/reduce reg-set: AES partials Q3/Q4/Q8 + reduce Q1/Q2/Q11/Q13/Q14/Q29/Q30 + h-powers
    Q5/Q6/Q17/Q31 + const Q7 + counter/input X-lanes (from harvest). *)
