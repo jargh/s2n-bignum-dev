@@ -58,10 +58,6 @@ let EXEC = AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_EXEC;;
    store itself is unchanged - it is still cipher_block = keystream XOR input,
    since XOR is symmetric in plaintext/ciphertext. *)
 
-let nist_input_block = new_definition
- `nist_input_block (inblock:num->int128) (i:num) : int128 =
-        word_reversefields 8 (inblock i)`;;
-
 (* ------------------------------------------------------------------------- *)
 (* Decryption-specific reconstruction lemmas.                                *)
 (*                                                                           *)
@@ -94,25 +90,6 @@ let XOR_AES128_CIPHER_RECONSTRUCT_DEC = prove
 (* i.e. of nist_input_block, so the accumulator reconstruction can proceed in  *)
 (* terms of the settled input blocks rather than 128 raw bit variables.        *)
 
-let INBLOCK_REASSEMBLE = prove
- (`(word_join
-     (word_join
-      (word_join (word_subword (x:int128) (64,8):byte) (word_subword x (72,8):byte):int16)
-      (word_join (word_subword x (80,8):byte) (word_subword x (88,8):byte):int16):int32)
-     (word_join
-      (word_join (word_subword x (96,8):byte) (word_subword x (104,8):byte):int16)
-      (word_join (word_subword x (112,8):byte) (word_subword x (120,8):byte):int16):int32):int64
-    = word_subword (word_reversefields 8 x) (0,64)) /\
-   (word_join
-     (word_join
-      (word_join (word_subword (x:int128) (0,8):byte) (word_subword x (8,8):byte):int16)
-      (word_join (word_subword x (16,8):byte) (word_subword x (24,8):byte):int16):int32)
-     (word_join
-      (word_join (word_subword x (32,8):byte) (word_subword x (40,8):byte):int16)
-      (word_join (word_subword x (48,8):byte) (word_subword x (56,8):byte):int16):int32):int64
-    = word_subword (word_reversefields 8 x) (64,64))`,
-  CONV_TAC WORD_BLAST);;
-
 (* The one genuinely decrypt-specific normalization step, shared by the main-loop *)
 (* and tail GHASH reconstructions.  The GHASH pmull operands are the loaded input  *)
 (* run through the hardware rev64 (a per-lane byte reversal, exploded into a       *)
@@ -123,13 +100,6 @@ let INBLOCK_REASSEMBLE = prove
 (* the pmull operands into exactly the encrypt closer's word_subword(...)(lane)     *)
 (* form so the shared reduction lemmas apply.  (Encrypt needs none of this: its     *)
 (* operand is already the settled nist_cipher_block from the output store.)         *)
-
-let DEC_GHASH_NORM_TAC : tactic =
-  REWRITE_TAC[INBLOCK_REASSEMBLE] THEN
-  REWRITE_TAC[GSYM nist_input_block] THEN
-  REWRITE_TAC[WORD_SUBWORD_XOR] THEN
-  REWRITE_TAC[WORD_SUBWORD_BYTESWAP128] THEN
-  CONV_TAC(TOP_DEPTH_CONV WORD_SIMPLE_SUBWORD_CONV);;
 
 (* ------------------------------------------------------------------------- *)
 (* Core correctness theorem.                                                 *)
@@ -303,9 +273,6 @@ let swpS_inv8_dec_v8 : term =
 let SWP_JOIN_IS_BSW = prove
  (`!x:int128. word_join (word_subword x (0,64):int64) (word_subword x (64,64):int64):int128 = byteswap128 x`,
   GEN_TAC THEN REWRITE_TAC[byteswap128]);;
-let SWP_SUBWORD_JOIN_MID = WORD_BLAST
-  `word_subword((word_join:int128->int128->int256) h l) (64,128):int128 =
-   word_join (word_subword h (0,64):int64) (word_subword l (64,64):int64)`;;
 let xor_rcancel = prove(`!a b p:int128. (word_xor a p = word_xor b p) <=> (a = b)`,
   REPEAT GEN_TAC THEN CONV_TAC WORD_BITWISE_RULE);;
 let SWP_SUB_LEMMA = prove
@@ -508,11 +475,6 @@ let OUT0_TAC : tactic =
   REWRITE_TAC[ASSIGNS_THM; LEFT_IMP_EXISTS_THM] THEN REPEAT GEN_TAC THEN DISCH_THEN (SUBST1_TAC o SYM) THEN
   OUT_ROW_TAC;;
 
-(* ===== body-simulation machinery + BODYLEG goal ===== *)
-let (MUST:tactic->tactic) = fun t (asl,w) ->
-  let (m,gls,f) = t (asl,w) in
-  (match gls with [(_,w')] when w' = w -> failwith "MUST: not closed" | _ -> (m,gls,f));;
-
 let dec_setup_extra : tactic =
   RULE_ASSUM_TAC(REWRITE_RULE[htable_mem_4]) THEN REWRITE_TAC[htable_mem_4] THEN
   (fun (asl,w) ->
@@ -640,22 +602,22 @@ let CLOSE_V8 : tactic =
     let rh c = try has c (rhs w) with _->false in
     if has_mc w then close_goal10 (asl,w)
     else if has "aligned_bytes_loaded" w then ASM_REWRITE_TAC[] (asl,w)
-    else if is_eq w && rh "aes2c" then MUST Q30_TAC (asl,w)
-    else if is_eq w && hd(lhs w)="read" && rh "inblock" && not(rh "word_xor") && not(rh "aes_ctr_block") then MUST IN_READ_CLOSE (asl,w)
-    else if is_eq w && hd(lhs w)="read" && rh "ctr_block" && rh "word_reversefields" then MUST SP160_TAC (asl,w)
-    else if is_eq w && hd(lhs w)="word_join" && rh "ctr_block" && rh "word_reversefields" then MUST SP_SLOT_TAC3 (asl,w)
-    else if is_eq w && (hd(lhs w)="word_or" || (hd(lhs w)="word_zx" && String.length(string_of_term w)<200)) then MUST CTRREG_TAC (asl,w)
-    else if is_forall w then MUST OUT0_TAC (asl,w)
-    else if is_eq w && hd(lhs w)="read" && rh "aes_ctr_block" then MUST (FIRST[close_outahead96; close_outahead112]) (asl,w)
+    else if is_eq w && rh "aes2c" then MUST_PROGRESS Q30_TAC (asl,w)
+    else if is_eq w && hd(lhs w)="read" && rh "inblock" && not(rh "word_xor") && not(rh "aes_ctr_block") then MUST_PROGRESS IN_READ_CLOSE (asl,w)
+    else if is_eq w && hd(lhs w)="read" && rh "ctr_block" && rh "word_reversefields" then MUST_PROGRESS SP160_TAC (asl,w)
+    else if is_eq w && hd(lhs w)="word_join" && rh "ctr_block" && rh "word_reversefields" then MUST_PROGRESS SP_SLOT_TAC3 (asl,w)
+    else if is_eq w && (hd(lhs w)="word_or" || (hd(lhs w)="word_zx" && String.length(string_of_term w)<200)) then MUST_PROGRESS CTRREG_TAC (asl,w)
+    else if is_forall w then MUST_PROGRESS OUT0_TAC (asl,w)
+    else if is_eq w && hd(lhs w)="read" && rh "aes_ctr_block" then MUST_PROGRESS (FIRST[close_outahead96; close_outahead112]) (asl,w)
     (* GHASH-reduce goals: RHS mentions nist_ghash (settled accumulator). Peel on RAW then SWP_GHASH_CORE_TAC. *)
-    else if is_eq w && rh "nist_ghash" && hd(lhs w)="word_pmul" then MUST (FIRST[SWP_Q8_TAC; SWP_GHASH_CORE_TAC]) (asl,w)
-    else if is_eq w && rh "nist_ghash" && hd(lhs w)="word_xor" then MUST (FIRST[SWP_GHASH_CORE_TAC; SWP_Q6_FULL_TAC]) (asl,w)
-    else if is_eq w && rh "nist_ghash" then MUST SWP_GHASH_CORE_TAC (asl,w)
+    else if is_eq w && rh "nist_ghash" && hd(lhs w)="word_pmul" then MUST_PROGRESS (FIRST[SWP_Q8_TAC; SWP_GHASH_CORE_TAC]) (asl,w)
+    else if is_eq w && rh "nist_ghash" && hd(lhs w)="word_xor" then MUST_PROGRESS (FIRST[SWP_GHASH_CORE_TAC; SWP_Q6_FULL_TAC]) (asl,w)
+    else if is_eq w && rh "nist_ghash" then MUST_PROGRESS SWP_GHASH_CORE_TAC (asl,w)
     (* aes2c-based out-store readback: LHS = word_xor(inblock)(word_xor(rk10)(aese-tower)), RHS = word_xor(aes_ctr_block)(inblock) *)
-    else if is_eq w && rh "aes_ctr_block" && (has "aes2c" w || has "aese" (lhs w)) then MUST AES2C_OUT_TAC (asl,w)
+    else if is_eq w && rh "aes_ctr_block" && (has "aes2c" w || has "aese" (lhs w)) then MUST_PROGRESS AES2C_OUT_TAC (asl,w)
     (* byteswap reassembly / Karatsuba partials over reassembled input blocks *)
-    else if is_eq w && hd(lhs w)="word_join" then MUST (FIRST[SWP_BYTESWAP_REASSEMBLE_TAC; GHASH_PARTIAL_CLOSE]) (asl,w)
-    else MUST (FIRST[GHASH_PARTIAL_CLOSE; AES2C_OUT_TAC; SWP_GHASH_CORE_TAC; CTRREG_TAC; ASM_REWRITE_TAC[] THEN TRY REFL_TAC]) (asl,w)
+    else if is_eq w && hd(lhs w)="word_join" then MUST_PROGRESS (FIRST[SWP_BYTESWAP_REASSEMBLE_TAC; GHASH_PARTIAL_CLOSE]) (asl,w)
+    else MUST_PROGRESS (FIRST[GHASH_PARTIAL_CLOSE; AES2C_OUT_TAC; SWP_GHASH_CORE_TAC; CTRREG_TAC; ASM_REWRITE_TAC[] THEN TRY REFL_TAC]) (asl,w)
      ;;
 
 (* ---- Leg goals ---- *)
@@ -802,26 +764,6 @@ let SWP_GHASH_BRANCH2_SETTLED = prove
   REWRITE_TAC[ADD1; GSYM ADD_ASSOC] THEN CONV_TAC NUM_REDUCE_CONV THEN
   REWRITE_TAC[GSYM NIST_GHASH_IS_POLYVAL] THEN
   DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN AP_TERM_TAC THEN CONV_TAC WORD_BITWISE_RULE);;
-
-(* ================= BODYLEG: steady body  inv i -> inv (i+1)  (0x294 -> 0x510) ================= *)
-(* Ported from enc: symbolic counter-lane build (WORD_BLAST over abstract ivhi/ivlo/cval,
-   so it holds for symbolic c) + mk_cbv to fold a built counter block to ctr_block nonce cval. *)
-let CTR_BLOCK_BUILD_V = prove
- (`word_join (ivhi:int64) (ivlo:int64):int128 =
-     word_reversefields 8 (ctr_block nonce c)
-   ==> word_join
-        (word_or (word_zx ((word_zx ivhi):int32):int64)
-                 (word_shl (word_zx (word_bytereverse (word cval:int32)):int64) 32))
-        ivlo :int128
-       = word_reversefields 8 (ctr_block nonce cval)`,
-  DISCH_THEN(fun th -> MP_TAC(MATCH_MP SCALAR_IV_SPLIT th)) THEN
-  REWRITE_TAC[ctr_block] THEN DISCH_THEN(CONJUNCTS_THEN SUBST1_TAC) THEN
-  CONV_TAC WORD_BLAST);;
-let mk_cbv cval =
-  let inst = INST [`word_subword (word_reversefields 8 (ctr_block nonce c):int128) (64,64):int64`,`ivhi:int64`;
-                   `word_subword (word_reversefields 8 (ctr_block nonce c):int128) (0,64):int64`,`ivlo:int64`;
-                   cval,`cval:num`] CTR_BLOCK_BUILD_V in
-  MP inst (prove(lhand(concl inst), REWRITE_TAC[ctr_block] THEN CONV_TAC WORD_BLAST));;
 
 (* Canonicalize num-equal counter mismatches a closer may leave (base/assoc differ, e.g.
    aes_ctr_block (c+1) rk (4*i) vs c rk (4*i+1);  ctr_block nonce (4*i+c+K) vs ((4*i+K)+c)).
@@ -1179,7 +1121,7 @@ let DRAIN_Q30_TAC : tactic =
 let DRAIN_CLOSE : tactic =
   fun (asl,w) ->
     (if not(is_eq w) then
-       (FIRST[close_goal10; MUST OUT0_TAC; ASM_REWRITE_TAC[] THEN NO_TAC]) (asl,w)
+       (FIRST[close_goal10; MUST_PROGRESS OUT0_TAC; ASM_REWRITE_TAC[] THEN NO_TAC]) (asl,w)
      else if rhs_has "nist_ghash" w then
        (FIRST[ (ASM_REWRITE_TAC[] THEN REFL_TAC THEN NO_TAC);
                (DRAIN_Q30_TAC THEN NO_TAC) ]) (asl,w)
@@ -1361,11 +1303,10 @@ let ITER1_Q30_TAC : tactic =
 
 (* ---- out-store readback closer (RECON): blocks 0,1,2,3; counter base X13=word 2, so ctr = 2,3,4,5.
    Reuse DRAIN's RECON structure but with literal block/counter indices. ---- *)
-let rhs_has c w = try (is_eq w) && can (find_term (fun u -> try fst(dest_const(fst(strip_comb u)))=c with _->false)) (rhs w) with _->false;;
 let ITER1_CLOSE : tactic =
   fun (asl,w) ->
     (if not(is_eq w) then
-       (FIRST[close_goal10; MUST OUT0_TAC; ASM_REWRITE_TAC[] THEN NO_TAC]) (asl,w)
+       (FIRST[close_goal10; MUST_PROGRESS OUT0_TAC; ASM_REWRITE_TAC[] THEN NO_TAC]) (asl,w)
      else if rhs_has "nist_ghash" w then
        (* Q30 conjunct `read Q30 s = byteswap128(nist_ghash..4)`.  Substitute ONLY the Q30 s161 read fact
           (targeted, not full ASM_REWRITE over the polluted asl), THEN discard ALL read facts (ITER1_Q30_TAC
@@ -2105,55 +2046,18 @@ let AES_GCM_DEC_KERNEL_X4_SCALAR_IV_MEM_LATE_TAG_KEEP_HTABLE_SWP_SUBROUTINE_CORR
 (* epilogue over the 224-byte stack frame (WORD_FORALL_OFFSET_TAC 224).        *)
 (* ------------------------------------------------------------------------- *)
 
-let SAFE_SIM = ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC)
-                 ~canonicalize_pc_diff:false EXEC;;
+let SAFE_SIM = SAFE_SIM_TAC EXEC;;
 
 (* --- SWP-specific closers. --- *)
 
 (* The FILL back-edge cbz @0x290 tests loop_count-2; DRAIN pointer reconciliation *)
 (* uses loop_count = (loop_count-2)+2.  DRAIN_ADDR normalises that so WORD_RULE     *)
 (* sees only linear combinations.                                                 *)
-let DRAIN_ADDR : tactic =
-  SUBGOAL_THEN `loop_count = (loop_count - 2) + 2`
-    (fun th -> GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [th]) THENL
-   [ASM_ARITH_TAC; ALL_TAC] THEN
-  REWRITE_TAC[LEFT_ADD_DISTRIB; RIGHT_ADD_DISTRIB; MULT_CLAUSES; ADD_CLAUSES; ADD_ASSOC] THEN
-  CONV_TAC WORD_RULE;;
+let DRAIN_ADDR = DRAIN_ADDR_K `2`;;
 
 (* The b.eq @0xa8 (loop_count=1) and cbz @0x290 (loop_count=2) branch facts: with *)
-(* loop_count >= 3 both counters are nonzero, so both branches fall through.       *)
-let BEQ_NZ (k:term) : tactic =  (* prove ~(val(word_sub (word loop_count) (word k)) = 0) *)
-  SUBGOAL_THEN (mk_neg(mk_eq(mk_comb(`val:int64->num`,
-      list_mk_comb(`word_sub:int64->int64->int64`,
-        [mk_comb(`word:num->int64`,`loop_count:num`); mk_comb(`word:num->int64`,k)])),`0`)))
-    ASSUME_TAC THENL
-   [REWRITE_TAC[VAL_WORD_SUB_EQ_0] THEN
-    SUBGOAL_THEN `val(word loop_count:int64) = loop_count` SUBST1_TAC THENL
-     [ASM_REWRITE_TAC[]; ALL_TAC] THEN
-    SUBGOAL_THEN (mk_eq(mk_comb(`val:int64->num`,mk_comb(`word:num->int64`,k)),k)) SUBST1_TAC THENL
-     [REWRITE_TAC[VAL_WORD; DIMINDEX_64] THEN ARITH_TAC; ALL_TAC] THEN
-    ASM_ARITH_TAC;
-    ALL_TAC];;
 
-let OPEN_DEC_SWP : tactic =
-  REPEAT META_EXISTS_TAC THEN STRIP_TAC THEN
-  GEN_TAC THEN W64_GEN_TAC `len_bits:num` THEN REPEAT GEN_TAC THEN
-  REWRITE_TAC[C_ARGUMENTS; SOME_FLAGS] THEN
-  REWRITE_TAC[ALLPAIRS; PAIRWISE; ALL; fst EXEC] THEN
-  ABBREV_TAC `nblocks     = len_bits DIV 128` THEN
-  ABBREV_TAC `loop_count  = nblocks DIV 4` THEN
-  ABBREV_TAC `loop_remain = nblocks MOD 4` THEN
-  STRIP_TAC THEN
-  SUBGOAL_THEN `loop_count < 2 EXP 64 /\ loop_remain < 2 EXP 64` STRIP_ASSUME_TAC THENL
-   [CONJ_TAC THENL
-     [EXPAND_TAC "loop_count" THEN EXPAND_TAC "nblocks" THEN REWRITE_TAC[DIV_DIV] THEN
-      TRANS_TAC LET_TRANS `len_bits:num` THEN ASM_REWRITE_TAC[] THEN ARITH_TAC;
-      EXPAND_TAC "loop_remain" THEN TRANS_TAC LTE_TRANS `4` THEN
-      SIMP_TAC[MOD_LT_EQ; ARITH_RULE `~(4 = 0)`] THEN ARITH_TAC];
-    ALL_TAC] THEN
-  SUBGOAL_THEN `val(word loop_count:int64) = loop_count /\ val(word loop_remain:int64) = loop_remain`
-    STRIP_ASSUME_TAC THENL
-   [CONJ_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN ASM_REWRITE_TAC[DIMINDEX_64]; ALL_TAC];;
+let OPEN_DEC_SWP = OPEN_SWP_SAFE EXEC;;
 
 let scaffold_dec_swp =
  `\(in_p:int64) (out_p:int64) (tag_p:int64) (ivec_p:int64) (key_p:int64) (htable_p:int64)
