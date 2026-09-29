@@ -561,7 +561,7 @@ let INPUT_SPLIT_TAC256_b bound =
   REPEAT(FIRST_X_ASSUM(STRIP_ASSUME_TAC o CONV_RULE SPLIT_INPUT_CONV o
      check (fun th -> let c = concl th in is_eq c && free_in `in_p:int64` (lhs c) &&
        can (find_term (fun t -> is_const t && fst(dest_const t) = "bytes128")) (lhs c))));;
-let INPUT_SPLIT_TAC256 = INPUT_SPLIT_TAC256_b `i < loop_count - 2`;;
+let INPUT_SPLIT_TAC256 = INPUT_SPLIT_TAC256_b `i < loop_count - 1`;;
 
 (* leg pre/post state builder (flat beta-reduced conjunction), verbatim from 128. *)
 let leg_state inv off idx =
@@ -604,7 +604,7 @@ let mk_body_goal_b bound inv =
       MAYCHANGE [Q8; Q9; Q10; Q11; Q12; Q13; Q14; Q15] ,,
       MAYCHANGE [memory :> bytes(out_p:int64, 16 * nblocks)] ,,
       MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`]);;
-let mk_body_goal = mk_body_goal_b `i < loop_count - 2`;;
+let mk_body_goal = mk_body_goal_b `i < loop_count - 1`;;
 
 let body_goal = mk_body_goal swpS256_inv;;
 
@@ -748,7 +748,8 @@ let close_goal8_b bound : tactic =
      ASM_REWRITE_TAC[] THEN ASM_SIMP_TAC[WORD_SUB; VAL_WORD_1] THEN
      REWRITE_TAC[GSYM VAL_WORD_1] THEN AP_TERM_TAC THEN
      MAP_EVERY (fun th -> MP_TAC th) bnds THEN ARITH_TAC) (asl,w);;
-let close_goal8 = close_goal8_b `i < loop_count - 2`;;
+let close_goal8_b1 = close_goal8_b `i < loop_count - 1`;;
+let close_goal8_b2 = close_goal8_b `i < loop_count - 2`;;
 
 (* rk-list hyp (15-elt for 256). *)
 let rk15 = `[EL 0 rk; EL 1 rk; EL 2 rk; EL 3 rk; EL 4 rk; EL 5 rk; EL 6 rk; EL 7 rk;
@@ -844,7 +845,8 @@ let close_goal10_b bound : tactic =
             (MATCH_MP_TAC(MATCH_MP pth th) THEN
              REWRITE_TAC[ETA_AX; MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI] THEN
              SUBSUMED_MAYCHANGE_TAC) g) mcths)) (asl2,w2))) (asl,w);;
-let close_goal10 = close_goal10_b `i < loop_count - 2`;;
+let close_goal10_b1 = close_goal10_b `i < loop_count - 1`;;
+let close_goal10_b2 = close_goal10_b `i < loop_count - 2`;;
 
 (* HO-match artifact fix: the collapse's CT_TO_NCB on the accumulator-block 4*i leaves a constant-function
    inblock arg `aes256_nist_cipher_block c nonce rk (\x. inblock(4*i)) (4*i)`.  Since aes256_nist_cipher_block only reads the
@@ -1002,7 +1004,8 @@ let collapse_q30_g g0 : tactic =
                  ARITH_RULE `(4*i+2)+2 = 4*i+4`; ARITH_RULE `(4*i+3)+2 = 4*i+5`;
                  ARITH_RULE `4*i+0 = 4*i`] THEN
      REWRITE_TAC[NCB_CONST_FN]) (asl,w);;
-let collapse_q30 = collapse_q30_g true;;
+let collapse_q30_g0 = collapse_q30_g true;;
+let collapse_q30_gi = collapse_q30_g false;;
 
 (* swpgrp-invariant close_goal7: the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
@@ -1077,7 +1080,7 @@ let close_goal7_i0_c collapse : tactic =
            CONV_TAC WORD_BITWISE_RULE];
          CONV_TAC WORD_BITWISE_RULE];
        MATCH_ACCEPT_TAC CORE_REDUCE_GHASH]) (asl,w);;
-let close_goal7_i0 = close_goal7_i0_c collapse_q30;;
+let close_goal7_i0 = close_goal7_i0_c collapse_q30_g0;;
 
 let close_goal7_c collapse i0 : tactic =
   fun (asl,w) ->
@@ -1166,7 +1169,9 @@ let close_goal7_c collapse i0 : tactic =
          CONV_TAC WORD_BITWISE_RULE];
        (* CORE-LHS = ghash gt sofar [cbs]: exactly CORE_REDUCE_GHASH (A:=sofar). *)
        MATCH_ACCEPT_TAC CORE_REDUCE_GHASH]) (asl,w);;
-let close_goal7 = close_goal7_c collapse_q30 true;;
+let close_goal7_fill = close_goal7_c collapse_q30_g0 true;;
+let close_goal7_steady = close_goal7_c collapse_q30_gi false;;
+let close_goal7_iter1 = close_goal7_c collapse_q30_g0 false;;
 
 let (MUST:tactic->tactic) = fun t (asl,w) ->
   let gs = t (asl,w) in let _,subs,_ = gs in
@@ -1191,7 +1196,9 @@ let close_all_c cg7 cg8 cg10 : tactic =
              htable reload, resolvable via ASM (htable_mem_4 expanded in asl) + REFL. *)
           (ASM_REWRITE_TAC[] THEN REFL_TAC);
           ASM_REWRITE_TAC[] ])) (asl,w);;
-let close_all_tac = close_all_c close_goal7 close_goal8 close_goal10;;
+let close_all_body = close_all_c close_goal7_steady close_goal8_b1 close_goal10_b1;;
+let close_all_drain = close_all_c close_goal7_steady close_goal8_b2 close_goal10_b2;;
+let close_all_iter1 = close_all_c close_goal7_iter1 close_goal8_b1 close_goal10_b1;;
 
 (* ========================================================================= *)
 (* FILL LEG: pc+0xbc -> pc+0x55c (FILL_TO_CBZ), establishing swpS256_inv 1    *)
@@ -1418,7 +1425,7 @@ let fill_close_all_256_c cg10 cg7 : tactic =
           (* Q2/Q13 h-power reloads *)
           (ASM_REWRITE_TAC[] THEN REFL_TAC);
           ASM_REWRITE_TAC[]; CONV_TAC WORD_BLAST; CONV_TAC WORD_RULE ])) (asl,w);;
-let fill_close_all_256 = fill_close_all_256_c close_goal10 close_goal7;;
+let fill_close_all_256 = fill_close_all_256_c close_goal10_b2 close_goal7_fill;;
 (* FILL_TO_CBZ: the shared 296-instruction fill, pc+0xbc -> pc+0x55c, under 2 <= loop_count.  All 17
    conjuncts close; conj 9 (output-forall) via close_goal9_i0 (concrete j<4 split + NUM_REDUCE + WORD_ADD_0 for
    block-0's post-indexed store + ZXNEST4/ZX_COUNTER_UD/CTR_BLOCK_BUILD_INSERT/WORD_REVERSEFIELDS_REVERSEFIELDS
@@ -1483,31 +1490,15 @@ let LC2_PARTA = prove(lc2a_goal,
 
 (* ========== LEG: bodyleg (post-937 tail of DEVEL_enc256_swp_bodyleg.ml) ========== *)
 
-let INPUT_SPLIT_TAC256 = INPUT_SPLIT_TAC256_b `i < loop_count - 1`;;
-
-let mk_body_goal = mk_body_goal_b `i < loop_count - 1`;;
-
-let body_goal = mk_body_goal swpS256_inv;;
-
-let setup_tac = setup_tac_s INPUT_SPLIT_TAC256;;
-
-let step_body_prefix = step_body_prefix_s setup_tac;;
-let step_body_tac = step_body_tac_s step_body_prefix;;
-
 (* ========================================================================= *)
 (* Closers (transplant of 128 swp_S lines 1075-1371, re-indexed +4 rounds).   *)
 (* ========================================================================= *)
-
-let close_goal8 = close_goal8_b `i < loop_count - 1`;;
-
-let close_goal10 = close_goal10_b `i < loop_count - 1`;;
 
 (* ABBREV every maximal `word_pmul a b` subterm of the goal as a fresh int128 var.  After this, BITBLAST sees
    only word_join/word_subword/word_xor SHUFFLE over abstract int128s (fast, ~0.5s, 385 BDD vars) instead of
    modelling the 64x64 carryless-multiply circuit (30GB blowup).  This is the key to the 256 reduce closer. *)
 
 (* collapse_q30 + close_goal7 (Q30 GHASH tag reduce reconstruction), 256 re-index. *)
-let collapse_q30 = collapse_q30_g false;;
 
 (* swpgrp-invariant close_goal7: the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
@@ -1515,40 +1506,21 @@ let collapse_q30 = collapse_q30_g false;;
    byteswap128(swpgrp i) is EXACTLY the seed swpgrp(SUC i) wants -- do NOT collapse it to clean).  Then RECONSTRUCT folds
    the reduce -> polyval_reduce_g2(byteswap128(swpgrp i)-seed lanes), and CORE_REDUCE_GHASH's recipe closes it =
    ghash gt (byteswap128(swpgrp i))[cbs] = swpgrp(SUC i) by the swpgrp SUC-def.  REFLEXIVE -- no byteswap-commute. *)
-let close_goal7 = close_goal7_c collapse_q30 false;;
 
-let close_all_tac = close_all_c close_goal7 close_goal8 close_goal10;;
-
-let BODYLEG = prove(body_goal, step_body_tac THEN REPEAT CONJ_TAC THEN close_all_tac);;
+let BODYLEG = prove(body_goal, step_body_tac THEN REPEAT CONJ_TAC THEN close_all_body);;
 (* self-report: confirm the loosened bound i < loop_count - 1 is in the goal, and no axioms crept in. *)
 
 (* ========== LEG: drain (post-937 tail of DEVEL_enc256_swp_drain.ml) ========== *)
 
-let INPUT_SPLIT_TAC256 = INPUT_SPLIT_TAC256_b `i < loop_count - 2`;;
-
-let mk_body_goal = mk_body_goal_b `i < loop_count - 2`;;
-
-let body_goal = mk_body_goal swpS256_inv;;
-
-let setup_tac = setup_tac_s INPUT_SPLIT_TAC256;;
-
-let step_body_prefix = step_body_prefix_s setup_tac;;
-let step_body_tac = step_body_tac_s step_body_prefix;;
-
 (* ========================================================================= *)
 (* Closers (transplant of 128 swp_S lines 1075-1371, re-indexed +4 rounds).   *)
 (* ========================================================================= *)
-
-let close_goal8 = close_goal8_b `i < loop_count - 2`;;
-
-let close_goal10 = close_goal10_b `i < loop_count - 2`;;
 
 (* ABBREV every maximal `word_pmul a b` subterm of the goal as a fresh int128 var.  After this, BITBLAST sees
    only word_join/word_subword/word_xor SHUFFLE over abstract int128s (fast, ~0.5s, 385 BDD vars) instead of
    modelling the 64x64 carryless-multiply circuit (30GB blowup).  This is the key to the 256 reduce closer. *)
 
 (* collapse_q30 + close_goal7 (Q30 GHASH tag reduce reconstruction), 256 re-index. *)
-let collapse_q30 = collapse_q30_g false;;
 
 (* swpgrp-invariant close_goal7: the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
@@ -1556,9 +1528,6 @@ let collapse_q30 = collapse_q30_g false;;
    byteswap128(swpgrp i) is EXACTLY the seed swpgrp(SUC i) wants -- do NOT collapse it to clean).  Then RECONSTRUCT folds
    the reduce -> polyval_reduce_g2(byteswap128(swpgrp i)-seed lanes), and CORE_REDUCE_GHASH's recipe closes it =
    ghash gt (byteswap128(swpgrp i))[cbs] = swpgrp(SUC i) by the swpgrp SUC-def.  REFLEXIVE -- no byteswap-commute. *)
-let close_goal7 = close_goal7_c collapse_q30 false;;
-
-let close_all_tac = close_all_c close_goal7 close_goal8 close_goal10;;
 
 (* ========================================================================= *)
 (* DRAIN leg: swpS256_inv (loop_count-1) @ 0x8a8  ->  bridge @ 0xdd0.          *)
@@ -1661,7 +1630,6 @@ let drain_goal = mk_imp
      MAYCHANGE [memory :> bytes(out_p:int64, 16 * nblocks)] ,,
      MAYCHANGE [memory :> bytes(word_add stackpointer (word 160):int64, 64)] ,, MAYCHANGE [events]`]);;
 
-
 (* DRAIN Q30 closer (conj 2): word_subword(word_join <hi> <lo>)(64,128) [outer Q30 byteswap of the reduce] =
    byteswap128(nist_ghash..(4*(m+1))).  The INNER reduce (acc seed byteswap128(swpgrp m), last group blocks) is exactly
    close_goal7's LHS (proves = swpgrp(m+1)).  STRATEGY: (1) GSYM SWPGRP_IS_NIST_GHASH bridges RHS nist_ghash..(4*(m+1))
@@ -1750,7 +1718,7 @@ let drain_close_q30_c collapse : tactic =
            CONV_TAC WORD_BITWISE_RULE];
          CONV_TAC WORD_BITWISE_RULE];
        MATCH_ACCEPT_TAC CORE_REDUCE_GHASH]) (asl,w);;
-let drain_close_q30 = drain_close_q30_c collapse_q30;;
+let drain_close_q30 = drain_close_q30_c collapse_q30_gi;;
 
 (* drain per-conjunct closer: route the Q30 conjunct (rhs has byteswap128 + nist_ghash) to drain_close_q30; else close_all_tac.
    PERF: the round-key/scalar/h-power register conjuncts added to drain_bridge (read Qk = word_reversefields 8 (EL k rk),
@@ -1767,8 +1735,7 @@ let drain_close_all_c dq30 closeall : tactic =
              has "h_power" (rhs w))
     then (FIRST_ASSUM ACCEPT_TAC ORELSE ASM_REWRITE_TAC[] ORELSE closeall) (asl,w)
     else closeall (asl,w);;
-let drain_close_all = drain_close_all_c drain_close_q30 close_all_tac;;
-
+let drain_close_all = drain_close_all_c drain_close_q30 close_all_drain;;
 
 (* ---- DRAINLEG256_8A8: the drain proper, pc+0x8a8 -> drain_bridge, from swpS256_inv (loop_count-1) with X1 =
    word 0.  drain_goal_8a8 = drain_goal with entry PC 0x8a4 -> 0x8a8.  Simulated ONCE and shared: the WHILE
@@ -1843,24 +1810,9 @@ let DRAINLEG256 = GEN_ALL(prove(drain_goal,
 
 (* ========== LEG: tail (post-937 tail of DEVEL_enc256_swp_tail.ml) ========== *)
 
-let INPUT_SPLIT_TAC256 = INPUT_SPLIT_TAC256_b `i < loop_count - 2`;;
-
-let mk_body_goal = mk_body_goal_b `i < loop_count - 2`;;
-
-let body_goal = mk_body_goal swpS256_inv;;
-
-let setup_tac = setup_tac_s INPUT_SPLIT_TAC256;;
-
-let step_body_prefix = step_body_prefix_s setup_tac;;
-let step_body_tac = step_body_tac_s step_body_prefix;;
-
 (* ========================================================================= *)
 (* Closers (transplant of 128 swp_S lines 1075-1371, re-indexed +4 rounds).   *)
 (* ========================================================================= *)
-
-let close_goal8 = close_goal8_b `i < loop_count - 2`;;
-
-let close_goal10 = close_goal10_b `i < loop_count - 2`;;
 
 (* tail final-state per-conjunct router (mirrors DRAIN's drain_close_all shape): AFTER the goal has been
    ENSURES_FINAL_STATE'd, gval-abstracted, ivec-split, normalized and ASM_REWRITTEN, split the postcondition
@@ -1871,7 +1823,7 @@ let close_goal10 = close_goal10_b `i < loop_count - 2`;;
 let tail_final_close : tactic =
   REPEAT CONJ_TAC THEN
   FIRST
-   [close_goal10;
+   [close_goal10_b2;
     FIRST_ASSUM MATCH_ACCEPT_TAC;
     (REWRITE_TAC[byteswap128; ctr_block] THEN
      REWRITE_TAC[ADD_ASSOC; ZX_COUNTER_UD; CTR_ZX_NORM] THEN
@@ -1882,7 +1834,6 @@ let tail_final_close : tactic =
    modelling the 64x64 carryless-multiply circuit (30GB blowup).  This is the key to the 256 reduce closer. *)
 
 (* collapse_q30 + close_goal7 (Q30 GHASH tag reduce reconstruction), 256 re-index. *)
-let collapse_q30 = collapse_q30_g false;;
 
 (* swpgrp-invariant close_goal7: the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
@@ -1890,9 +1841,6 @@ let collapse_q30 = collapse_q30_g false;;
    byteswap128(swpgrp i) is EXACTLY the seed swpgrp(SUC i) wants -- do NOT collapse it to clean).  Then RECONSTRUCT folds
    the reduce -> polyval_reduce_g2(byteswap128(swpgrp i)-seed lanes), and CORE_REDUCE_GHASH's recipe closes it =
    ghash gt (byteswap128(swpgrp i))[cbs] = swpgrp(SUC i) by the swpgrp SUC-def.  REFLEXIVE -- no byteswap-commute. *)
-let close_goal7 = close_goal7_c collapse_q30 false;;
-
-let close_all_tac = close_all_c close_goal7 close_goal8 close_goal10;;
 
 (* ========================================================================= *)
 (* DRAIN leg: swpS256_inv (loop_count-1) @ 0x8a8  ->  bridge @ 0xdd0.          *)
@@ -2178,24 +2126,9 @@ let TAILLEG256 = GEN_ALL(prove(tail_goal, tail_tac));;
 
 (* ========== LEG: iter1 (post-937 tail of DEVEL_enc256_swp_iter1.ml) ========== *)
 
-let INPUT_SPLIT_TAC256 = INPUT_SPLIT_TAC256_b `i < loop_count - 1`;;
-
-let mk_body_goal = mk_body_goal_b `i < loop_count - 1`;;
-
-let body_goal = mk_body_goal swpS256_inv;;
-
-let setup_tac = setup_tac_s INPUT_SPLIT_TAC256;;
-
-let step_body_prefix = step_body_prefix_s setup_tac;;
-let step_body_tac = step_body_tac_s step_body_prefix;;
-
 (* ========================================================================= *)
 (* Closers (transplant of 128 swp_S lines 1075-1371, re-indexed +4 rounds).   *)
 (* ========================================================================= *)
-
-let close_goal8 = close_goal8_b `i < loop_count - 1`;;
-
-let close_goal10 = close_goal10_b `i < loop_count - 1`;;
 
 (* ABBREV every maximal `word_pmul a b` subterm of the goal as a fresh int128 var.  After this, BITBLAST sees
    only word_join/word_subword/word_xor SHUFFLE over abstract int128s (fast, ~0.5s, 385 BDD vars) instead of
@@ -2204,7 +2137,6 @@ let close_goal10 = close_goal10_b `i < loop_count - 1`;;
 (* collapse_q30 (Q30 GHASH tag reduce reconstruction), FILL's GROUP-0 version: adds the packed-counter fold
    (ZXNEST4/ZX_COUNTER_UD/GSYM WORD_ADD + CTR_BLOCK_BUILD_INSERT) + literal-index CT->NCB (ct_ncb_concrete) so the concrete-block-0..3
    aes-towers fold to aes256_nist_cipher_block (the symbolic-i bodyleg version does NOT fold iter_1's literal blocks). *)
-let collapse_q30 = collapse_q30_g true;;
 
 (* swpgrp-invariant close_goal7: the invariant Q29 = swpgrp gt tag0 i lives in the byteswapped GHASH
    domain (head-ext byteswaps it each iteration).  The body-end goal is <machine reduce> = swpgrp gt tag0 (i+1) blk.
@@ -2212,9 +2144,6 @@ let collapse_q30 = collapse_q30_g true;;
    byteswap128(swpgrp i) is EXACTLY the seed swpgrp(SUC i) wants -- do NOT collapse it to clean).  Then RECONSTRUCT folds
    the reduce -> polyval_reduce_g2(byteswap128(swpgrp i)-seed lanes), and CORE_REDUCE_GHASH's recipe closes it =
    ghash gt (byteswap128(swpgrp i))[cbs] = swpgrp(SUC i) by the swpgrp SUC-def.  REFLEXIVE -- no byteswap-commute. *)
-let close_goal7 = close_goal7_c collapse_q30 false;;
-
-let close_all_tac = close_all_c close_goal7 close_goal8 close_goal10;;
 
 (* ================================================================= *)
 (* iter_1 (loop_count=1) leg: from88 entry @0xb0 -> drain_bridge@0xdd0 *)
@@ -2299,7 +2228,7 @@ let close_q30_i0 : tactic =
     (GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [ARITH_RULE `4 * 1 = 4 * 0 + 4`] THEN
      GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [ARITH_RULE `4 * 0 + 4 = 4 * (0 + 1)`] THEN
      GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [GSYM SWPGRP_IS_NIST_GHASH] THEN
-     collapse_q30 THEN
+     collapse_q30_g0 THEN
      GEN_REWRITE_TAC (RAND_CONV o TOP_DEPTH_CONV) [ARITH_RULE `0 + 1 = SUC 0`] THEN
      GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [CONJUNCT2 swpgrp] THEN
      (* reduce the seed swpgrp gt tag0 0 -> tag0 (CONJUNCT1) so it matches the machine's literal-tag0 acc lane,
@@ -2402,7 +2331,7 @@ let iter1_close_conj : tactic =
       if is_forall w then close_out_forall_i0
       else if is_eq w && has "nist_ghash" (rhs w) && has "byteswap128" (rhs w) then close_q30_i0
       else if is_eq w && has "word_zx" (rhs w) then ((REWRITE_TAC[ZXNEST4; ZX_COUNTER_UD] THEN AP_TERM_TAC THEN REWRITE_TAC[GSYM WORD_ADD] THEN AP_TERM_TAC THEN ARITH_TAC) ORELSE CONV_TAC WORD_BLAST)
-      else close_all_tac in
+      else close_all_iter1 in
     (* attempt must close the conjunct fully; the trailing tactic fails hard on any residual subgoal. *)
     (attempt THEN (fun (a,ww) -> failwith "iter1_close_conj: unclosed subgoal")) (asl,w);;
 
@@ -2412,7 +2341,6 @@ let ITER1_LEG =
     ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
     ITER1_PRE_CLOSE THEN
     REPEAT CONJ_TAC THEN iter1_close_conj);;
-
 
 (* ===== COMPOSITION APPARATUS ===== *)
 
@@ -3045,8 +2973,6 @@ let AES_GCM_ENC_KERNEL_256_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_SWP_SUBROUTINE_CO
 
 let SAFE_SIM_ENC = ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC) ~canonicalize_pc_diff:false SWP256_EXEC;;
 
-
-
 (* cbz guard nonzero: x1 = word_sub(word loop_count)(word k) for k in {1,2}. *)
 let BEQ_NZ (k:term) : tactic =
   SUBGOAL_THEN (mk_neg(mk_eq(mk_comb(`val:int64->num`,
@@ -3088,8 +3014,6 @@ let DRAIN_ADDR_ENC2 : tactic =
     (fun th -> GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [th]) THENL
    [ASM_ARITH_TAC; ALL_TAC] THEN
   REWRITE_TAC[LEFT_ADD_DISTRIB; RIGHT_ADD_DISTRIB; MULT_CLAUSES; ADD_CLAUSES; ADD_ASSOC] THEN CONV_TAC WORD_RULE;;
-
-
 
 (* Robust leaf: each closer is forced to FULLY close (THEN NO_TAC) or fall through,
    so a partial success (e.g. CTR_RECON leaving a val=val residual) cannot leak. *)
