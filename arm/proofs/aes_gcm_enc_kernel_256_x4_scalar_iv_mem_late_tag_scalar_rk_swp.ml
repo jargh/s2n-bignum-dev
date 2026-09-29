@@ -3270,3 +3270,358 @@ let AES_GCM_ENC_KERNEL_256_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_SWP_SUBROUTINE_CO
       D8; D9; D10; D11; D12; D13; D14; D15]` 224);;
 
 (* Report the axiom count (check_axioms is the real gate; expect the 3 HOL base axioms). *)
+
+(* ------------------------------------------------------------------------- *)
+(* Constant-time and memory-safety for the AES-256-GCM SWP encrypt kernel.    *)
+(* Event scaffold (CONCRETIZE_F_EVENTS_TAC) walked with the event-tracking    *)
+(* simulator SAFE_SIM_ENC; per-leg obligations closed by the shared           *)
+(* consttime/utils closers plus a few depth-3 pointer/counter reconcilers.    *)
+(* ------------------------------------------------------------------------- *)
+
+let SAFE_SIM_ENC = ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC) ~canonicalize_pc_diff:false SWP256_EXEC;;
+
+
+
+(* cbz guard nonzero: x1 = word_sub(word loop_count)(word k) for k in {1,2}. *)
+let BEQ_NZ (k:term) : tactic =
+  SUBGOAL_THEN (mk_neg(mk_eq(mk_comb(`val:int64->num`,
+      list_mk_comb(`word_sub:int64->int64->int64`,
+        [mk_comb(`word:num->int64`,`loop_count:num`); mk_comb(`word:num->int64`,k)])),`0`)))
+    ASSUME_TAC THENL
+   [REWRITE_TAC[VAL_WORD_SUB_EQ_0] THEN
+    SUBGOAL_THEN `val(word loop_count:int64) = loop_count` SUBST1_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+    SUBGOAL_THEN (mk_eq(mk_comb(`val:int64->num`,mk_comb(`word:num->int64`,k)),k)) SUBST1_TAC THENL
+     [REWRITE_TAC[VAL_WORD; DIMINDEX_64] THEN ARITH_TAC; ALL_TAC] THEN ASM_ARITH_TAC; ALL_TAC];;
+
+(* fill X1: word_sub(word C)(word 2) = word(C - 2 - 0), where C = len_bits DIV 512 = loop_count.
+   Guarded so it only fires on a word_sub-by-2 equation. *)
+let FILL_X1 : tactic =
+  W(fun (asl,w) ->
+    if (try let l,_ = dest_eq w in
+            name_of(fst(strip_comb l)) = "word_sub" && rand l = `word 2:int64`
+        with _ -> false)
+    then
+      REWRITE_TAC[SUB_0] THEN
+      TRY(SUBGOAL_THEN `len_bits DIV 512 = loop_count` SUBST1_TAC THENL
+       [UNDISCH_TAC `len_bits DIV 128 = 4 * loop_count + loop_remain` THEN
+        UNDISCH_TAC `loop_remain < 4` THEN REWRITE_TAC[DIV_DIV] THEN ARITH_TAC; ALL_TAC]) THEN
+      SUBGOAL_THEN `loop_count = (loop_count - 2) + 2`
+        (fun th -> GEN_REWRITE_TAC (LAND_CONV o ONCE_DEPTH_CONV) [th]) THENL
+       [ASM_ARITH_TAC; CONV_TAC WORD_RULE]
+    else NO_TAC);;
+
+(* drain pointer reconciliation: linearise loop_count = (loop_count-1)+1. *)
+let DRAIN_ADDR_ENC : tactic =
+  SUBGOAL_THEN `loop_count = (loop_count - 1) + 1`
+    (fun th -> GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [th]) THENL
+   [ASM_ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[LEFT_ADD_DISTRIB; RIGHT_ADD_DISTRIB; MULT_CLAUSES; ADD_CLAUSES; ADD_ASSOC] THEN CONV_TAC WORD_RULE;;
+
+(* depth-3 drain bridge: linearise loop_count = (loop_count-2)+2. *)
+let DRAIN_ADDR_ENC2 : tactic =
+  SUBGOAL_THEN `loop_count = (loop_count - 2) + 2`
+    (fun th -> GEN_REWRITE_TAC (RAND_CONV o ONCE_DEPTH_CONV) [th]) THENL
+   [ASM_ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[LEFT_ADD_DISTRIB; RIGHT_ADD_DISTRIB; MULT_CLAUSES; ADD_CLAUSES; ADD_ASSOC] THEN CONV_TAC WORD_RULE;;
+
+
+
+(* Robust leaf: each closer is forced to FULLY close (THEN NO_TAC) or fall through,
+   so a partial success (e.g. CTR_RECON leaving a val=val residual) cannot leak. *)
+let LCLOSE (disch:tactic) : tactic =
+  FIRST
+   [ W(fun (_,w) -> if is_exists w then
+        (((DEABBR THEN DISCHARGE_SAFE_ROBUST) THEN NO_TAC) ORELSE
+         ((DEABBR THEN DISCHARGE_SAFETY_PROPERTY_TAC) THEN NO_TAC) ORELSE
+         (DISCHARGE_SAFE_ROBUST THEN NO_TAC) ORELSE
+         (disch THEN NO_TAC))
+      else NO_TAC);
+     (BRANCH_RECON THEN NO_TAC);
+     (FILL_X1 THEN NO_TAC);
+     (WSUB_ARITH THEN NO_TAC);
+     (ADDR_RECON THEN NO_TAC);
+     (DRAIN_ADDR_ENC THEN NO_TAC);
+     (DRAIN_ADDR_ENC2 THEN NO_TAC);
+     (CTR_RECON THEN NO_TAC) ];;
+let CC1 : tactic = REPEAT CONJ_TAC THEN LCLOSE (DEABBR THEN DISCHARGE_SAFETY_PROPERTY_TAC);;
+let CC2 : tactic = REPEAT CONJ_TAC THEN LCLOSE (DEABBR THEN DISCHARGE_SAFE_ROBUST);;
+
+let scaffold_enc256 =
+ `\(in_p:int64) (out_p:int64) (tag_p:int64) (ivec_p:int64) (key_p:int64) (htable_p:int64)
+   (len_bits:int64) (pc:num) (stackpointer:int64).
+   APPEND
+     (if val len_bits DIV 128 MOD 4 = 0 then f_ev_tail0 in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer
+      else APPEND (f_ev_tail_post in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer)
+        (APPEND (ENUMERATEL (val len_bits DIV 128 MOD 4) (\i. f_ev_tail_body in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer i))
+            (f_ev_tail_pre in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer)))
+     (APPEND
+       (if val len_bits DIV 128 DIV 4 = 0 then f_ev_m0 in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer
+        else if val len_bits DIV 128 DIV 4 = 1 then f_ev_m1 in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer
+        else if val len_bits DIV 128 DIV 4 = 2 then f_ev_m2 in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer
+        else APPEND (f_ev_drain in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer)
+            (APPEND (ENUMERATEL (val len_bits DIV 128 DIV 4 - 2) (\i. f_ev_steady in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer i))
+              (f_ev_fill in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer)))
+       (f_ev_pro in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer))
+   :(uarch_event) list`;;
+
+let OPEN_ENC256_SWP : tactic =
+  REPEAT META_EXISTS_TAC THEN STRIP_TAC THEN GEN_TAC THEN W64_GEN_TAC `len_bits:num` THEN REPEAT GEN_TAC THEN
+  REWRITE_TAC[C_ARGUMENTS; SOME_FLAGS] THEN REWRITE_TAC[ALLPAIRS; PAIRWISE; ALL; fst SWP256_EXEC] THEN
+  ABBREV_TAC `nblocks = len_bits DIV 128` THEN ABBREV_TAC `loop_count = nblocks DIV 4` THEN ABBREV_TAC `loop_remain = nblocks MOD 4` THEN
+  STRIP_TAC THEN
+  SUBGOAL_THEN `loop_count < 2 EXP 64 /\ loop_remain < 2 EXP 64 /\ loop_remain < 4` STRIP_ASSUME_TAC THENL
+   [REPEAT CONJ_TAC THENL
+     [EXPAND_TAC "loop_count" THEN EXPAND_TAC "nblocks" THEN REWRITE_TAC[DIV_DIV] THEN
+      TRANS_TAC LET_TRANS `len_bits:num` THEN ASM_REWRITE_TAC[] THEN ARITH_TAC;
+      EXPAND_TAC "loop_remain" THEN TRANS_TAC LTE_TRANS `4` THEN SIMP_TAC[MOD_LT_EQ; ARITH_RULE `~(4 = 0)`] THEN ARITH_TAC;
+      EXPAND_TAC "loop_remain" THEN SIMP_TAC[MOD_LT_EQ; ARITH_RULE `~(4 = 0)`]]; ALL_TAC] THEN
+  SUBGOAL_THEN `val(word loop_count:int64) = loop_count /\ val(word loop_remain:int64) = loop_remain` STRIP_ASSUME_TAC THENL
+   [CONJ_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN ASM_REWRITE_TAC[DIMINDEX_64]; ALL_TAC] THEN
+  SUBGOAL_THEN `nblocks = 4 * loop_count + loop_remain` SUBST_ALL_TAC THENL
+   [UNDISCH_TAC `nblocks DIV 4 = loop_count` THEN UNDISCH_TAC `nblocks MOD 4 = loop_remain` THEN ARITH_TAC; ALL_TAC];;
+
+let LCLOSE_SUB : tactic =
+  FIRST
+   [ W(fun (_,w) -> if is_exists w then
+        (((DEABBR THEN DISCHARGE_SAFE_ROBUST) THEN NO_TAC) ORELSE
+         ((DEABBR THEN DISCHARGE_SAFETY_PROPERTY_TAC) THEN NO_TAC) ORELSE
+         (DISCHARGE_SAFE_ROBUST THEN NO_TAC))
+      else NO_TAC);
+     (MEM_PRESERVE);
+     (BRANCH_RECON THEN NO_TAC);
+     (FILL_X1 THEN NO_TAC);
+     (WSUB_ARITH THEN NO_TAC);
+     (ADDR_RECON THEN NO_TAC);
+     (DRAIN_ADDR_ENC THEN NO_TAC);
+     (DRAIN_ADDR_ENC2 THEN NO_TAC);
+     (CTR_RECON THEN NO_TAC) ];;
+let CCS : tactic = REPEAT CONJ_TAC THEN LCLOSE_SUB;;
+
+let AES_GCM_ENC_KERNEL_256_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_SWP_SAFE = prove
+ (`exists f_events.
+    forall e in_p len_bits out_p tag_p ivec_p key_p htable_p pc stackpointer.
+      aligned 16 stackpointer /\
+      ALLPAIRS nonoverlapping
+        [(out_p, 16 * val len_bits DIV 128); (tag_p, 16); (ivec_p, 16);
+         (word_add stackpointer (word 160), 64)]
+        [(word pc, LENGTH aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp_mc);
+         (in_p,  16 * val len_bits DIV 128); (key_p, 240); (htable_p, 192)] /\
+      PAIRWISE nonoverlapping
+        [(out_p, 16 * val len_bits DIV 128); (tag_p, 16); (ivec_p, 16);
+         (word_add stackpointer (word 160), 64)]
+      ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp_mc /\
+               read PC s = word (pc + 0x2c) /\ read SP s = stackpointer /\
+               C_ARGUMENTS [in_p; len_bits; out_p; tag_p; ivec_p; key_p; htable_p] s /\
+               read events s = e)
+          (\s. read PC s = word (pc + 0xee4) /\
+               (exists e2.
+                    read events s = APPEND e2 e /\
+                    e2 = f_events in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer /\
+                    memaccess_inbounds e2
+                      [in_p, 16 * val len_bits DIV 128; tag_p, 16; ivec_p, 16; key_p, 240; htable_p, 192;
+                       out_p, 16 * val len_bits DIV 128; word_add stackpointer (word 160), 64]
+                      [out_p, 16 * val len_bits DIV 128; tag_p, 16; ivec_p, 16;
+                       word_add stackpointer (word 160), 64]))
+          (\s s'. T)`,
+  CONCRETIZE_F_EVENTS_TAC scaffold_enc256 THEN OPEN_ENC256_SWP THEN
+  (* Top split at 0xdd0 (main region -> tail region). *)
+  ENSURES_EVENTS_SEQUENCE_TAC `pc + 0xdd0`
+   `\s. read X0 s = word_add in_p (word (64 * loop_count)) /\
+        read X2 s = word_add out_p (word (64 * loop_count)) /\
+        read X3 s = tag_p /\ read X4 s = ivec_p /\ read X6 s = htable_p /\
+        read SP s = stackpointer /\ read X16 s = word loop_remain` THEN
+  CONJ_TAC THENL
+   [(* MAIN REGION pc+0x2c -> pc+0xdd0. *)
+    ENSURES_EVENTS_SEQUENCE_TAC `pc + 0xb0`
+     `\s. read X0 s = in_p /\ read X2 s = out_p /\ read X3 s = tag_p /\
+          read X4 s = ivec_p /\ read X6 s = htable_p /\ read SP s = stackpointer /\
+          read X1 s = word loop_count /\ read X16 s = word loop_remain` THEN
+    CONJ_TAC THENL [SAFE_SIM_ENC (1--33) THEN CC1; ALL_TAC] THEN
+    ASM_CASES_TAC `loop_count = 0` THENL
+     [REDUCE_IF0 `loop_count:num` THEN SAFE_SIM_ENC (1--1) THEN CC1; ALL_TAC] THEN
+    REDUCE_IFN0 `loop_count:num` THEN
+    ASM_CASES_TAC `loop_count = 1` THENL
+     [REDUCE_IFEQ `loop_count:num` `1` THEN POP_ASSUM SUBST_ALL_TAC THEN
+      SAFE_SIM_ENC (1--211) THEN CC1; ALL_TAC] THEN
+    REDUCE_IFNE `loop_count:num` `1` THEN
+    ASM_CASES_TAC `loop_count = 2` THENL
+     [REDUCE_IFEQ `loop_count:num` `2` THEN POP_ASSUM SUBST_ALL_TAC THEN
+      SAFE_SIM_ENC (1--422) THEN CC1; ALL_TAC] THEN
+    REDUCE_IFNE `loop_count:num` `2` THEN
+    SUBGOAL_THEN `3 <= loop_count` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    ENSURES_EVENTS_WHILE_UP2_TAC `loop_count - 2` `pc + 0x560` `pc + 0x8a8`
+     `\i s. read X0 s = word_add in_p (word (64 * i + 128)) /\
+            read X2 s = word_add out_p (word (64 * i + 64)) /\
+            read X3 s = tag_p /\ read X4 s = ivec_p /\ read X6 s = htable_p /\
+            read SP s = stackpointer /\ read X16 s = word loop_remain /\
+            read X1 s = word (loop_count - 2 - i)` THEN
+    ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
+     [ASM_ARITH_TAC;
+      BEQ_NZ `1` THEN BEQ_NZ `2` THEN SAFE_SIM_ENC (1--300) THEN CC1;
+      REWRITE_TAC[] THEN X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
+      SUBGOAL_THEN `loop_count - 2 < 2 EXP 64` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+      SAFE_SIM_ENC (1--210) THEN CC2;
+      SAFE_SIM_ENC (1--122) THEN CC2];
+    ALL_TAC] THEN
+  (* TAIL REGION pc+0xdd0 -> pc+0xee4. *)
+  ASM_CASES_TAC `loop_remain = 0` THENL
+   [REDUCE_IF0 `loop_remain:num` THEN SAFE_SIM_ENC (1--9) THEN CC2; ALL_TAC] THEN
+  REDUCE_IFN0 `loop_remain:num` THEN
+  ENSURES_EVENTS_WHILE_UP2_TAC `loop_remain:num` `pc + 0xde0` `pc + 0xed0`
+   `\i s. read X0 s = word_add in_p (word (64 * loop_count + 16 * i)) /\
+          read X2 s = word_add out_p (word (64 * loop_count + 16 * i)) /\
+          read X3 s = tag_p /\ read X4 s = ivec_p /\ read X6 s = htable_p /\
+          read SP s = stackpointer /\ read X16 s = word (loop_remain - i)` THEN
+  ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
+   [SAFE_SIM_ENC (1--4) THEN CC2;
+    ALL_TAC;
+    REWRITE_TAC[] THEN SAFE_SIM_ENC (1--5) THEN CC2] THEN
+  REWRITE_TAC[] THEN X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
+  SAFE_SIM_ENC (1--60) THEN CC2);;
+
+let AES_GCM_ENC_KERNEL_256_X4_SCALAR_IV_MEM_LATE_TAG_SCALAR_RK_SWP_SUBROUTINE_SAFE = prove
+ (`exists f_events.
+    forall e in_p len_bits out_p tag_p ivec_p key_p htable_p pc stackpointer returnaddress.
+      aligned 16 stackpointer /\
+      ALLPAIRS nonoverlapping
+        [(out_p, 16 * val len_bits DIV 128); (tag_p, 16); (ivec_p, 16);
+         (word_sub stackpointer (word 224), 224)]
+        [(word pc, LENGTH aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp_mc);
+         (in_p,  16 * val len_bits DIV 128); (key_p, 240); (htable_p, 192)] /\
+      PAIRWISE nonoverlapping
+        [(out_p, 16 * val len_bits DIV 128); (tag_p, 16); (ivec_p, 16);
+         (word_sub stackpointer (word 224), 224)]
+      ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) aes_gcm_enc_kernel_256_x4_scalar_iv_mem_late_tag_scalar_rk_swp_mc /\
+               read PC s = word pc /\ read SP s = stackpointer /\ read X30 s = returnaddress /\
+               C_ARGUMENTS [in_p; len_bits; out_p; tag_p; ivec_p; key_p; htable_p] s /\
+               read events s = e)
+          (\s. read PC s = returnaddress /\
+               (exists e2.
+                    read events s = APPEND e2 e /\
+                    e2 = f_events in_p out_p tag_p ivec_p key_p htable_p len_bits pc
+                           (word_sub stackpointer (word 224)) returnaddress /\
+                    memaccess_inbounds e2
+                      [in_p, 16 * val len_bits DIV 128; tag_p, 16; ivec_p, 16; key_p, 240; htable_p, 192;
+                       out_p, 16 * val len_bits DIV 128; word_sub stackpointer (word 224), 224]
+                      [out_p, 16 * val len_bits DIV 128; tag_p, 16; ivec_p, 16;
+                       word_sub stackpointer (word 224), 224]))
+          (\s s'. T)`,
+  CONCRETIZE_F_EVENTS_TAC
+    `\(in_p:int64) (out_p:int64) (tag_p:int64) (ivec_p:int64) (key_p:int64) (htable_p:int64)
+      (len_bits:int64) (pc:num) (stackpointer:int64) (returnaddress:int64).
+      APPEND
+        (f_ev_epi in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer returnaddress)
+        (APPEND
+        (if val len_bits DIV 128 MOD 4 = 0 then
+           f_ev_tail0 in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer returnaddress
+         else APPEND
+             (f_ev_tail_post in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer returnaddress)
+             (APPEND
+               (ENUMERATEL (val len_bits DIV 128 MOD 4)
+                 (\i. f_ev_tail_body in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer returnaddress i))
+               (f_ev_tail_pre in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer returnaddress)))
+        (APPEND
+          (if val len_bits DIV 128 DIV 4 = 0 then
+             f_ev_m0 in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer returnaddress
+           else if val len_bits DIV 128 DIV 4 = 1 then
+             f_ev_m1 in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer returnaddress
+           else if val len_bits DIV 128 DIV 4 = 2 then
+             f_ev_m2 in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer returnaddress
+           else APPEND
+               (f_ev_drain in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer returnaddress)
+               (APPEND
+                 (ENUMERATEL (val len_bits DIV 128 DIV 4 - 2)
+                   (\i. f_ev_steady in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer returnaddress i))
+                 (f_ev_fill in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer returnaddress)))
+          (f_ev_pro in_p out_p tag_p ivec_p key_p htable_p len_bits pc stackpointer returnaddress)))
+      :(uarch_event) list` THEN
+  REPEAT META_EXISTS_TAC THEN STRIP_TAC THEN
+  GEN_TAC THEN W64_GEN_TAC `len_bits:num` THEN
+  GEN_TAC THEN GEN_TAC THEN GEN_TAC THEN GEN_TAC THEN GEN_TAC THEN GEN_TAC THEN
+  WORD_FORALL_OFFSET_TAC 224 THEN GEN_TAC THEN
+  REWRITE_TAC[C_ARGUMENTS; SOME_FLAGS] THEN
+  REWRITE_TAC[ALLPAIRS; PAIRWISE; ALL; fst SWP256_EXEC] THEN
+  ABBREV_TAC `nblocks     = len_bits DIV 128` THEN
+  ABBREV_TAC `loop_count  = nblocks DIV 4` THEN
+  ABBREV_TAC `loop_remain = nblocks MOD 4` THEN
+  STRIP_TAC THEN
+  SUBGOAL_THEN `loop_count < 2 EXP 64 /\ loop_remain < 2 EXP 64 /\ loop_remain < 4` STRIP_ASSUME_TAC THENL
+   [REPEAT CONJ_TAC THENL
+     [EXPAND_TAC "loop_count" THEN EXPAND_TAC "nblocks" THEN REWRITE_TAC[DIV_DIV] THEN
+      TRANS_TAC LET_TRANS `len_bits:num` THEN ASM_REWRITE_TAC[] THEN ARITH_TAC;
+      EXPAND_TAC "loop_remain" THEN TRANS_TAC LTE_TRANS `4` THEN SIMP_TAC[MOD_LT_EQ; ARITH_RULE `~(4 = 0)`] THEN ARITH_TAC;
+      EXPAND_TAC "loop_remain" THEN SIMP_TAC[MOD_LT_EQ; ARITH_RULE `~(4 = 0)`]]; ALL_TAC] THEN
+  SUBGOAL_THEN `val(word loop_count:int64) = loop_count /\ val(word loop_remain:int64) = loop_remain` STRIP_ASSUME_TAC THENL
+   [CONJ_TAC THEN MATCH_MP_TAC VAL_WORD_EQ THEN ASM_REWRITE_TAC[DIMINDEX_64]; ALL_TAC] THEN
+  SUBGOAL_THEN `nblocks = 4 * loop_count + loop_remain` SUBST_ALL_TAC THENL
+   [UNDISCH_TAC `nblocks DIV 4 = loop_count` THEN UNDISCH_TAC `nblocks MOD 4 = loop_remain` THEN ARITH_TAC; ALL_TAC] THEN
+  STRIP_TAC THEN
+
+  (* Split at pc+0xee4 (core end): region A = prologue+core; region B = epilogue. *)
+  ENSURES_EVENTS_SEQUENCE_TAC `pc + 0xee4`
+   `\s. read SP s = stackpointer /\
+        read (memory :> bytes64 (word_add stackpointer (word 88))) s = returnaddress` THEN
+  CONJ_TAC THENL
+   [(* REGION A: pc -> pc+0xee4 (prologue + full core). *)
+    ENSURES_EVENTS_SEQUENCE_TAC `pc + 0xdd0`
+     `\s. read X0 s = word_add in_p (word (64 * loop_count)) /\
+          read X2 s = word_add out_p (word (64 * loop_count)) /\
+          read X3 s = tag_p /\ read X4 s = ivec_p /\ read X6 s = htable_p /\
+          read SP s = stackpointer /\ read X16 s = word loop_remain /\
+          read (memory :> bytes64 (word_add stackpointer (word 88))) s = returnaddress` THEN
+    CONJ_TAC THENL
+     [(* MAIN REGION pc -> pc+0xdd0. *)
+      ENSURES_EVENTS_SEQUENCE_TAC `pc + 0xb0`
+       `\s. read X0 s = in_p /\ read X2 s = out_p /\ read X3 s = tag_p /\
+            read X4 s = ivec_p /\ read X6 s = htable_p /\ read SP s = stackpointer /\
+            read X1 s = word loop_count /\ read X16 s = word loop_remain /\
+            read (memory :> bytes64 (word_add stackpointer (word 88))) s = returnaddress` THEN
+      CONJ_TAC THENL [SAFE_SIM_ENC (1--44) THEN CCS; ALL_TAC] THEN
+      ASM_CASES_TAC `loop_count = 0` THENL
+       [REDUCE_IF0 `loop_count:num` THEN SAFE_SIM_ENC (1--1) THEN CCS; ALL_TAC] THEN
+      REDUCE_IFN0 `loop_count:num` THEN
+      ASM_CASES_TAC `loop_count = 1` THENL
+       [REDUCE_IFEQ `loop_count:num` `1` THEN POP_ASSUM SUBST_ALL_TAC THEN
+        SAFE_SIM_ENC (1--211) THEN CCS; ALL_TAC] THEN
+      REDUCE_IFNE `loop_count:num` `1` THEN
+      ASM_CASES_TAC `loop_count = 2` THENL
+       [REDUCE_IFEQ `loop_count:num` `2` THEN POP_ASSUM SUBST_ALL_TAC THEN
+        SAFE_SIM_ENC (1--422) THEN CCS; ALL_TAC] THEN
+      REDUCE_IFNE `loop_count:num` `2` THEN
+      SUBGOAL_THEN `3 <= loop_count` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+      ENSURES_EVENTS_WHILE_UP2_TAC `loop_count - 2` `pc + 0x560` `pc + 0x8a8`
+       `\i s. read X0 s = word_add in_p (word (64 * i + 128)) /\
+              read X2 s = word_add out_p (word (64 * i + 64)) /\
+              read X3 s = tag_p /\ read X4 s = ivec_p /\ read X6 s = htable_p /\
+              read SP s = stackpointer /\ read X16 s = word loop_remain /\
+              read X1 s = word (loop_count - 2 - i) /\
+              read (memory :> bytes64 (word_add stackpointer (word 88))) s = returnaddress` THEN
+      ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
+       [ASM_ARITH_TAC;
+        BEQ_NZ `1` THEN BEQ_NZ `2` THEN SAFE_SIM_ENC (1--300) THEN CCS;
+        REWRITE_TAC[] THEN X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
+        SUBGOAL_THEN `loop_count - 2 < 2 EXP 64` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+        SAFE_SIM_ENC (1--210) THEN CCS;
+        SAFE_SIM_ENC (1--122) THEN CCS];
+      ALL_TAC] THEN
+    (* TAIL REGION pc+0xdd0 -> pc+0xee4. *)
+    ASM_CASES_TAC `loop_remain = 0` THENL
+     [REDUCE_IF0 `loop_remain:num` THEN SAFE_SIM_ENC (1--9) THEN CCS; ALL_TAC] THEN
+    REDUCE_IFN0 `loop_remain:num` THEN
+    ENSURES_EVENTS_WHILE_UP2_TAC `loop_remain:num` `pc + 0xde0` `pc + 0xed0`
+     `\i s. read X0 s = word_add in_p (word (64 * loop_count + 16 * i)) /\
+            read X2 s = word_add out_p (word (64 * loop_count + 16 * i)) /\
+            read X3 s = tag_p /\ read X4 s = ivec_p /\ read X6 s = htable_p /\
+            read SP s = stackpointer /\ read X16 s = word (loop_remain - i) /\
+            read (memory :> bytes64 (word_add stackpointer (word 88))) s = returnaddress` THEN
+    ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
+     [SAFE_SIM_ENC (1--4) THEN CCS;
+      ALL_TAC;
+      REWRITE_TAC[] THEN SAFE_SIM_ENC (1--5) THEN CCS] THEN
+    REWRITE_TAC[] THEN X_GEN_TAC `i:num` THEN STRIP_TAC THEN VAL_INT64_TAC `i:num` THEN
+    SAFE_SIM_ENC (1--60) THEN CCS;
+
+    (* REGION B: pc+0xee4 -> returnaddress (epilogue: 10 ldp + add sp + ret = 12 steps). *)
+    SAFE_SIM_ENC (1--12) THEN CCS]);;
