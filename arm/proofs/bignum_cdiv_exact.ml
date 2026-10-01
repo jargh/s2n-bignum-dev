@@ -519,3 +519,138 @@ let BIGNUM_CDIV_EXACT_SUBROUTINE_CORRECT = prove
               MAYCHANGE [memory :> bignum(z,val k)])`,
   ARM_ADD_RETURN_NOSTACK_TAC
     BIGNUM_CDIV_EXACT_EXEC BIGNUM_CDIV_EXACT_CORRECT);;
+
+(* ------------------------------------------------------------------------- *)
+(* Constant-time and memory safety proof.                                    *)
+(* ------------------------------------------------------------------------- *)
+
+needs "arm/proofs/consttime.ml";;
+needs "arm/proofs/subroutine_signatures.ml";;
+
+let cdive_full_spec,cdive_public_vars = mk_safety_spec
+    ~keep_maychanges:false
+    (assoc "bignum_cdiv_exact" subroutine_signatures)
+    BIGNUM_CDIV_EXACT_SUBROUTINE_CORRECT
+    BIGNUM_CDIV_EXACT_EXEC;;
+
+(* Constant-time and memory safety for the exact division. A single up-counter
+   loop over the k output digits writes z[i] each iteration and conditionally
+   loads x[.] when the counter is still within the (clamped, pointer-bumped)
+   input range. Both the pre-loop preload (guarded by n = 0) and the in-loop
+   load (guarded by i < nn where nn = if n = 0 then 0 else n - 1) are modelled
+   by conditionals in the event trace, and the computed load pointer x + 8 is
+   shown in bounds. Because the per-iteration ENUMERATEL body is itself a
+   conditional, the loop-body safety property is discharged manually: the
+   guard is resolved (ASM_REWRITE) between the ENUMERATEL_ADD1 beta reduction
+   and the f_events unification, which the automatic tactic cannot do. *)
+
+let BIGNUM_CDIV_EXACT_SUBROUTINE_SAFE = prove
+ (cdive_full_spec,
+  CONCRETIZE_F_EVENTS_TAC
+   `\(x:int64) (z:int64) (k:int64) (n:int64) (pc:num) (returnaddress:int64).
+      if val k = 0 then f_ev_k0 x z k n pc returnaddress
+      else APPEND (f_ev_post x z k n pc returnaddress)
+             (APPEND (ENUMERATEL (val k)
+                        (\i. if i < (if val n = 0 then 0 else val n - 1)
+                             then f_ev_loadloop x z k n pc returnaddress i
+                             else f_ev_noloadloop x z k n pc returnaddress i))
+               (if val n = 0 then f_ev_pre_n0 x z k n pc returnaddress
+                else f_ev_pre_load x z k n pc returnaddress))
+      :(uarch_event) list` THEN
+  REPEAT META_EXISTS_TAC THEN X_GEN_TAC `e:(uarch_event)list` THEN
+  W64_GEN_TAC `k:num` THEN X_GEN_TAC `z:int64` THEN W64_GEN_TAC `n:num` THEN
+  X_GEN_TAC `x:int64` THEN W64_GEN_TAC `m:num` THEN
+  MAP_EVERY X_GEN_TAC [`pc:num`;`returnaddress:int64`] THEN
+  REWRITE_TAC[C_ARGUMENTS; C_RETURN; SOME_FLAGS; NONOVERLAPPING_CLAUSES; fst BIGNUM_CDIV_EXACT_EXEC] THEN
+  DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
+  SUBGOAL_THEN `8 * k < 2 EXP 64` STRIP_ASSUME_TAC THENL
+   [EVERY_ASSUM(fun th -> try MP_TAC (MATCH_MP (ONCE_REWRITE_RULE[IMP_CONJ] NONOVERLAPPING_IMP_SMALL_2) th) with Failure _ -> ALL_TAC) THEN ARITH_TAC; ALL_TAC] THEN
+  ASM_CASES_TAC `k = 0` THENL
+   [ASM_REWRITE_TAC[] THEN
+    ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC) ~canonicalize_pc_diff:false
+      BIGNUM_CDIV_EXACT_EXEC (1--2) THEN
+    DISCHARGE_SAFETY_PROPERTY_TAC;
+    ALL_TAC] THEN
+  ASM_REWRITE_TAC[] THEN
+  ENSURES_EVENTS_WHILE_UP2_TAC `k:num` `pc + 0x68` `pc + 0xb8`
+   `\i s. read X0 s = word k /\ read X1 s = z /\
+          read X2 s = word(if n = 0 then 0 else n - 1) /\
+          read X3 s = (if n = 0 then x else word_add x (word 8)) /\
+          read X6 s = word i /\ read X30 s = returnaddress` THEN
+  REWRITE_TAC[LT_NZ] THEN
+  CONJ_TAC THENL [SIMPLE_ARITH_TAC; ALL_TAC] THEN
+  REPEAT CONJ_TAC THENL
+   [ (* precond: pc -> 0x68. n=0/n!=0 split. *)
+     REWRITE_TAC[SUB_0; ENUMERATEL_APPEND_ZERO] THEN
+     ASM_CASES_TAC `n = 0` THENL
+      [ASM_REWRITE_TAC[] THEN
+       ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC) ~canonicalize_pc_diff:false
+         BIGNUM_CDIV_EXACT_EXEC (1--23) THEN
+       CONV_TAC(ONCE_DEPTH_CONV CONS_TO_APPEND_CONV) THEN REWRITE_TAC[GSYM APPEND_ASSOC] THEN
+       DISCHARGE_SAFETY_PROPERTY_TAC;
+       ASM_REWRITE_TAC[] THEN
+       SUBGOAL_THEN `~(val(word n:int64) = 0)` ASSUME_TAC THENL
+        [ASM_REWRITE_TAC[VAL_WORD; DIMINDEX_64] THEN IMP_REWRITE_TAC[MOD_LT] THEN SIMPLE_ARITH_TAC; ALL_TAC] THEN
+       SUBGOAL_THEN `word_sub (word n:int64) (word 1) = word(n - 1)` ASSUME_TAC THENL
+        [GEN_REWRITE_TAC RAND_CONV [WORD_SUB] THEN COND_CASES_TAC THENL
+          [REFL_TAC; POP_ASSUM MP_TAC THEN SIMPLE_ARITH_TAC]; ALL_TAC] THEN
+       ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC) ~canonicalize_pc_diff:false
+         BIGNUM_CDIV_EXACT_EXEC (1--26) THEN
+       ASM_REWRITE_TAC[] THEN
+       CONV_TAC(ONCE_DEPTH_CONV CONS_TO_APPEND_CONV) THEN REWRITE_TAC[GSYM APPEND_ASSOC] THEN
+       DISCHARGE_SAFETY_PROPERTY_TAC];
+
+     (* loop body 0x68..0xb4; i<nn load (SIM 1--20) / else noload (SIM 1--19). Manual discharge. *)
+     X_GEN_TAC `i:num` THEN STRIP_TAC THEN
+     SUBGOAL_THEN `val(word i:int64) = i` ASSUME_TAC THENL
+      [IMP_REWRITE_TAC[VAL_WORD; DIMINDEX_64; MOD_LT] THEN SIMPLE_ARITH_TAC; ALL_TAC] THEN
+     SUBGOAL_THEN `val(word(if n = 0 then 0 else n - 1):int64) = (if n = 0 then 0 else n - 1)` ASSUME_TAC THENL
+      [COND_CASES_TAC THEN IMP_REWRITE_TAC[VAL_WORD; DIMINDEX_64; MOD_LT; VAL_WORD_0] THEN SIMPLE_ARITH_TAC; ALL_TAC] THEN
+     SUBGOAL_THEN `word_add (word i:int64) (word 1) = word(i + 1)` ASSUME_TAC THENL [CONV_TAC WORD_RULE; ALL_TAC] THEN
+     SUBGOAL_THEN `val(word(i + 1):int64) = i + 1` ASSUME_TAC THENL
+      [IMP_REWRITE_TAC[VAL_WORD; DIMINDEX_64; MOD_LT] THEN SIMPLE_ARITH_TAC; ALL_TAC] THEN
+     SUBGOAL_THEN `(i + 1 = k <=> ~(i + 1 < k))` ASSUME_TAC THENL [SIMPLE_ARITH_TAC; ALL_TAC] THEN
+     ASM_CASES_TAC `i < (if n = 0 then 0 else n - 1)` THENL
+      [SUBGOAL_THEN `((if n = 0 then 0 else n - 1) <= i) = F` ASSUME_TAC THENL [REWRITE_TAC[] THEN SIMPLE_ARITH_TAC; ALL_TAC] THEN
+       ASM_REWRITE_TAC[] THEN
+       ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC) ~canonicalize_pc_diff:false
+         BIGNUM_CDIV_EXACT_EXEC (1--20) THEN
+       ASM_REWRITE_TAC[] THEN
+       CONJ_TAC THENL [GEN_REWRITE_TAC RAND_CONV [COND_RAND] THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+       SAFE_META_EXISTS_TAC allowed_vars_e THEN
+       CONJ_TAC THENL [ EXISTS_E2_TAC allowed_vars_e; ALL_TAC ] THEN
+       CONJ_TAC THENL
+        [ PURE_REWRITE_TAC[APPEND_NIL;CONJUNCT1 APPEND] THEN
+          GEN_REWRITE_TAC (ONCE_DEPTH_CONV o LAND_CONV) [ENUMERATEL_ADD1] THEN
+          CONV_TAC (ONCE_DEPTH_CONV BETA_CONV) THEN ASM_REWRITE_TAC[] THEN
+          CANONICALIZE_UNIFY_F_EVENTS_TAC;
+          SUBGOAL_THEN `~(n = 0)` ASSUME_TAC THENL [UNDISCH_TAC `i < (if n = 0 then 0 else n - 1)` THEN COND_CASES_TAC THEN SIMPLE_ARITH_TAC; ALL_TAC] THEN
+          SUBGOAL_THEN `i < n - 1` ASSUME_TAC THENL [UNDISCH_TAC `i < (if n = 0 then 0 else n - 1)` THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+          (* normalize ONLY the new load address; do NOT ASM_REWRITE the carried ENUMERATEL guard *)
+          SUBGOAL_THEN
+            `word_add (if n = 0 then x else word_add x (word 8)) (word(8 * i)):int64 =
+             word_add x (word(8 * (i + 1)))` SUBST1_TAC THENL
+           [ASM_REWRITE_TAC[] THEN CONV_TAC WORD_RULE; ALL_TAC] THEN
+          DISCHARGE_MEMACCESS_INBOUNDS_TAC ];
+       SUBGOAL_THEN `((if n = 0 then 0 else n - 1) <= i) = T` ASSUME_TAC THENL [REWRITE_TAC[] THEN SIMPLE_ARITH_TAC; ALL_TAC] THEN
+       ASM_REWRITE_TAC[] THEN
+       ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC) ~canonicalize_pc_diff:false
+         BIGNUM_CDIV_EXACT_EXEC (1--19) THEN
+       ASM_REWRITE_TAC[] THEN
+       CONJ_TAC THENL [GEN_REWRITE_TAC RAND_CONV [COND_RAND] THEN ASM_REWRITE_TAC[]; ALL_TAC] THEN
+       SAFE_META_EXISTS_TAC allowed_vars_e THEN
+       CONJ_TAC THENL [ EXISTS_E2_TAC allowed_vars_e; ALL_TAC ] THEN
+       CONJ_TAC THENL
+        [ PURE_REWRITE_TAC[APPEND_NIL;CONJUNCT1 APPEND] THEN
+          GEN_REWRITE_TAC (ONCE_DEPTH_CONV o LAND_CONV) [ENUMERATEL_ADD1] THEN
+          CONV_TAC (ONCE_DEPTH_CONV BETA_CONV) THEN ASM_REWRITE_TAC[] THEN
+          CANONICALIZE_UNIFY_F_EVENTS_TAC;
+          ASM_REWRITE_TAC[] THEN
+          DISCHARGE_MEMACCESS_INBOUNDS_TAC ]];
+
+     (* postcond: loop exit 0xb8 = RET, SIM 1--1 *)
+     REWRITE_TAC[] THEN
+     ARM_SIM_TAC ~preprocess_tac:(TRY STRIP_EXISTS_ASSUM_TAC) ~canonicalize_pc_diff:false
+       BIGNUM_CDIV_EXACT_EXEC (1--1) THEN
+     CONV_TAC(ONCE_DEPTH_CONV CONS_TO_APPEND_CONV) THEN REWRITE_TAC[GSYM APPEND_ASSOC] THEN
+     DISCHARGE_SAFETY_PROPERTY_TAC]);;
