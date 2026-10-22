@@ -542,6 +542,7 @@ p521/p521_jadd.native: p521/bignum_mul_p521.native p521/bignum_sqr_p521.native
 p521/p521_jdouble.native: p521/bignum_mul_p521.native p521/bignum_sqr_p521.native
 p521/p521_jscalarmul.native: p521/bignum_mod_n521_9.native p521/p521_jadd.native p521/p521_jdouble.native
 p521/p521_jscalarmul_alt.native: p521/bignum_mod_n521_9.native
+random/lemire_random_divfree_VARIABLE_TIME.native: generic/word_recip.native
 sm2/sm2_montjscalarmul.native: sm2/sm2_montjadd.native sm2/sm2_montjdouble.native
 sm2/sm2_montjscalarmul_alt.native: sm2/sm2_montjadd_alt.native sm2/sm2_montjdouble_alt.native
 

@@ -1030,6 +1030,10 @@ extern void edwards25519_scalarmuldouble_alt(uint64_t res[S2N_BIGNUM_STATIC 8],c
 // Inputs s, x[n]; output z[1] and function return
 extern uint64_t lemire_random_VARIABLE_TIME(uint64_t z[S2N_BIGNUM_STATIC 1], uint64_t s, uint64_t n, const uint64_t *x);
 
+// Uniform random integer below a bound from a buffer of random words (Lemire), without division
+// Inputs s, x[n]; output z[1] and function return
+extern uint64_t lemire_random_divfree_VARIABLE_TIME(uint64_t z[S2N_BIGNUM_STATIC 1], uint64_t s, uint64_t n, const uint64_t *x);
+
 // Forward number-theoretic transform for ML-DSA
 // Input a[256], z_012345[144], z_67[384] (signed 32-bit words); output a[256] (signed 32-bit words)
 extern void mldsa_ntt_arm(int32_t a[S2N_BIGNUM_STATIC 256], const int32_t z_012345[144], const int32_t z_67[384]);
