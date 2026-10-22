@@ -2116,6 +2116,21 @@ let arm_UMOV = define
        let d:N word = word_subword n (idx*size*8,size*8) in
        (Rd := d) s`;;
 
+(*** UDIV is not one of the data independent timing (DIT) instructions,
+ *** so like PEXT, POPCNT and DIV on x86 it records its operands as an
+ *** event. Division by zero is not an exception on Arm but gives zero,
+ *** which is just what word_udiv does with HOL's convention n DIV 0 = 0.
+ ***)
+
+let arm_UDIV = define
+ `arm_UDIV Rd Rn Rm =
+    \s. let n:N word = read Rn (s:armstate)
+        and m:N word = read Rm s in
+        let d:N word = word_udiv n m in
+        (events := CONS (EventArmUDIV(word_zx n,word_zx m,dimindex(:N)))
+                        (read events s) ,,
+         Rd := d) s`;;
+
 let arm_UMULH = define
  `arm_UMULH Rd Rn Rm =
     \s. let n:N word = read Rn (s:armstate)
@@ -4135,7 +4150,7 @@ let ARM_OPERATION_CLAUSES =
        arm_SUB; arm_SUB_VEC_ALT; arm_SUBS_ALT;
        arm_TBL_ALT; arm_TBL2_ALT; arm_TBL3_ALT; arm_TBNZ_ALT; arm_TBZ_ALT;
        arm_TRN1_ALT; arm_TRN2_ALT;
-       arm_UADALP_ALT; arm_UADDLP_ALT; arm_UADDLV_ALT; arm_UMAX_VEC_ALT; arm_UMAXV_ALT; arm_UBFM; arm_UMOV; arm_UMADDL;
+       arm_UADALP_ALT; arm_UADDLP_ALT; arm_UADDLV_ALT; arm_UMAX_VEC_ALT; arm_UMAXV_ALT; arm_UBFM; arm_UDIV; arm_UMOV; arm_UMADDL;
        arm_UMLAL_VEC_ALT; arm_UMLAL2_VEC_ALT;
        arm_UMLSL_VEC_ALT; arm_UMLSL2_VEC_ALT;
        arm_UMSUBL;

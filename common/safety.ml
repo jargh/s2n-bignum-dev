@@ -50,6 +50,12 @@ let address_uarch_event_INDUCT, address_uarch_event_RECURSION = define_type
     | EventX86POPCNT (int64#num)
     // DIV (dividend high part, dividend low part, divisor, bitwidth)
     | EventX86DIV (int64#int64#int64#num)
+
+    // Instructions in Arm that are not in the DIT list
+    // (Data Independent Timing instructions)
+
+    // UDIV (dividend, divisor, bitwidth)
+    | EventArmUDIV (int64#int64#num)
   ";;
 
 (* Before this type was parameterized, every event constructor produced a
@@ -106,6 +112,13 @@ overload_interface
  ("EventX86DIV",`EventX86DIV:int64#int64#int64#num->(A)address_uarch_event`);;
 overload_interface
  ("EventX86DIV",`EventX86DIV:int64#int64#int64#num->(64)address_uarch_event`);;
+
+make_overloadable "EventArmUDIV"
+ `:int64#int64#num->(A)address_uarch_event`;;
+overload_interface
+ ("EventArmUDIV",`EventArmUDIV:int64#int64#num->(A)address_uarch_event`);;
+overload_interface
+ ("EventArmUDIV",`EventArmUDIV:int64#int64#num->(64)address_uarch_event`);;
 
 let uarch_event_INDUCT =
   address_uarch_event_INDUCT
