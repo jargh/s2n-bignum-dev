@@ -953,6 +953,37 @@ let x86_DEC = new_definition
          AF := ~(&(val(word_zx x:nybble)) - &1:int =
                  &(val(word_zx z:nybble)))) s`;;
 
+(*** Again we make the operands explicit in this function. In the
+ *** final dispatch most of the sources and destinations are implicit
+ *** and drawn from RAX / RDX and its shorter versions. All six of the
+ *** arithmetic flags are undefined afterwards. A zero divisor or a
+ *** quotient that does not fit in the destination gives a #DE.
+ *** Since DIV is not one of the instructions with data operand
+ *** independent timing, it records its operands as an event, in the
+ *** same way as PEXT and POPCNT.
+ ***)
+
+let x86_DIV2 = new_definition
+ `x86_DIV2 (dest_quo,dest_rem) (src_hi,src_lo) divisor s =
+        let hi:N word = read src_hi s
+        and lo:N word = read src_lo s
+        and d:N word = read divisor s in
+        let x = 2 EXP dimindex(:N) * val hi + val lo
+        and y = val d in
+        if y = 0 then
+          raise_exception x86_Exception_DE s
+        else
+          let q = x DIV y and r = x MOD y in
+          if 2 EXP dimindex(:N) <= q then
+            raise_exception x86_Exception_DE s
+          else
+           (events := CONS (EventX86DIV(word_zx hi,word_zx lo,word_zx d,
+                                        dimindex(:N)))
+                           (read events s) ,,
+            dest_quo := (word q:N word) ,,
+            dest_rem := (word r:N word) ,,
+            UNDEFINED_VALUES [CF;OF;SF;ZF;AF;PF]) s`;;
+
 (*** This is the ENDBR64 instruction, which is treated as a NOP. On
  *** machines without CET enabled, including older machines from
  *** before the feature existed, this is indeed how it behaves. We
@@ -2910,6 +2941,21 @@ let x86_execute = define
          | 32 -> x86_DEC (OPERAND32 dest s)
          | 16 -> x86_DEC (OPERAND16 dest s)
          | 8 -> x86_DEC (OPERAND8 dest s)) s)) s
+    | DIV2 (dest1,dest2) (src1,src2) src3 ->
+        (add_load_event src3 s ,,
+        (\s. (match operand_size dest1 with
+           64 -> x86_DIV2 (OPERAND64 dest1 s,OPERAND64 dest2 s)
+                          (OPERAND64 src1 s,OPERAND64 src2 s)
+                          (OPERAND64 src3 s)
+         | 32 -> x86_DIV2 (OPERAND32 dest1 s,OPERAND32 dest2 s)
+                          (OPERAND32 src1 s,OPERAND32 src2 s)
+                          (OPERAND32 src3 s)
+         | 16 -> x86_DIV2 (OPERAND16 dest1 s,OPERAND16 dest2 s)
+                          (OPERAND16 src1 s,OPERAND16 src2 s)
+                          (OPERAND16 src3 s)
+         | 8 -> x86_DIV2 (OPERAND8 dest1 s,OPERAND8 dest2 s)
+                         (OPERAND8 src1 s,OPERAND8 src2 s)
+                         (OPERAND8 src3 s)) s)) s
     | ENDBR64 ->
         x86_ENDBR64 s
     | IMUL3 dest (src1,src2) ->
@@ -4708,7 +4754,7 @@ let X86_OPERATION_CLAUSES =
     x86_AESKEYGENASSIST; x86_AND;
     x86_BSF; x86_BSR; x86_BSWAP; x86_BT; x86_BTC_ALT; x86_BTR_ALT; x86_BTS_ALT;
     x86_CALL_ALT; x86_CLC; x86_CLD; x86_CMC; x86_CMOV; x86_CMP_ALT; x86_DEC;
-    x86_ENDBR64; x86_IMUL; x86_IMUL2; x86_IMUL3; x86_INC; x86_LEA; x86_LZCNT;
+    x86_DIV2; x86_ENDBR64; x86_IMUL; x86_IMUL2; x86_IMUL3; x86_INC; x86_LEA; x86_LZCNT;
     x86_MOV; x86_MOVAPS; x86_MOVDQA; x86_MOVDQU; x86_MOVD; x86_MOVQ; x86_VMOVD; x86_VMOVQ;
     x86_VMOVHPD; x86_MOVSX; x86_MOVUPS; x86_MOVSB_ALT;
     x86_MOVZX; x86_MUL2; x86_MULX4; x86_NEG; x86_NOP; x86_NOP_N; x86_NOT; x86_OR;

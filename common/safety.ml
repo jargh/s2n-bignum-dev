@@ -48,6 +48,8 @@ let address_uarch_event_INDUCT, address_uarch_event_RECURSION = define_type
     | EventX86PEXT (int64#int64#num)
     // POPCNT (src, bitwidth)
     | EventX86POPCNT (int64#num)
+    // DIV (dividend high part, dividend low part, divisor, bitwidth)
+    | EventX86DIV (int64#int64#int64#num)
   ";;
 
 (* Before this type was parameterized, every event constructor produced a
@@ -97,6 +99,13 @@ overload_interface
  ("EventX86POPCNT",`EventX86POPCNT:int64#num->(A)address_uarch_event`);;
 overload_interface
  ("EventX86POPCNT",`EventX86POPCNT:int64#num->(64)address_uarch_event`);;
+
+make_overloadable "EventX86DIV"
+ `:int64#int64#int64#num->(A)address_uarch_event`;;
+overload_interface
+ ("EventX86DIV",`EventX86DIV:int64#int64#int64#num->(A)address_uarch_event`);;
+overload_interface
+ ("EventX86DIV",`EventX86DIV:int64#int64#int64#num->(64)address_uarch_event`);;
 
 let uarch_event_INDUCT =
   address_uarch_event_INDUCT
