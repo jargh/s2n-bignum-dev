@@ -4752,6 +4752,24 @@ let subroutine_signatures = [
    ])
 );
 
+("lemire_random_VARIABLE_TIME",
+  ([(*args*)
+     ("z", "uint64_t[static 1]", (*is const?*)"false");
+     ("s", "uint64_t", (*is const?*)"false");
+     ("n", "uint64_t", (*is const?*)"false");
+     ("x", "uint64_t*", (*is const?*)"true");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("x", "n"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("z", "1"(* num elems *), 8(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
 ("mldsa_caddq",
   ([(*args*)
      ("a", "int32_t[static 256]", (*is const?*)"false");
