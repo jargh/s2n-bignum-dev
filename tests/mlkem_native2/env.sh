@@ -15,7 +15,7 @@
 #   CC            the C compiler for the tests (default: gcc)
 
 T=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-REPO=$(cd "$T/../../.." && pwd)
+REPO=$(cd "$T/../.." && pwd)
 WORK=${WORK:-$T/work}
 MLKEM_NATIVE_COMMIT=9b96caa137514c82a097a4251783769657826f6c
 MLKEM_NATIVE=${MLKEM_NATIVE:-$WORK/mlkem-native}

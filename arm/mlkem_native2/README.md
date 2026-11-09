@@ -129,7 +129,8 @@ results of the key checks are public.
 
 ## Testing
 
-The tests and benchmarks are in `test` (see its README). They compare
+The tests and benchmarks are in `../../tests/mlkem_native2` (see its
+README). They compare
 these functions with mlkem-native's portable C on random and edge-case
 inputs, including the rare paths (implicit rejection, invalid keys, the
 fourth block of rejection sampling), check the KAT hashes and the ACVP

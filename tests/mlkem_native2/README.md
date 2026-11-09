@@ -1,10 +1,10 @@
 # Tests and benchmarks of the ML-KEM API in assembly
 
 This directory has the tests and benchmarks used to develop the functions
-in `..` (`arm/mlkem_native2`) and the new leaves in `../../mlkem`. They
-compare the functions with mlkem-native's portable C, which serves as the
-reference, and are separate from s2n-bignum's own tests and from the
-build: nothing here is built by the Makefiles.
+in `arm/mlkem_native2` and the new leaves in `arm/mlkem`. They compare the
+functions with mlkem-native's portable C, which serves as the reference,
+and are separate from s2n-bignum's own tests and from the build: nothing
+here is built by the Makefiles.
 
 They run on an AArch64 Linux machine with the SHA3 extension, and need
 git, gcc (or another C compiler as `CC`), python3 and, to build valgrind,
