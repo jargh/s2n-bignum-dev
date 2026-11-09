@@ -1431,6 +1431,12 @@ void call_mlkem_add_reduce(void) {}
 void call_mlkem_cbd2(void) {}
 void call_mlkem_cbd3(void) {}
 void call_mlkem_check_encoding(void) {}
+void call_mlkem_basemul_k2_alt(void) {}
+void call_mlkem_basemul_k3_alt(void) {}
+void call_mlkem_basemul_k4_alt(void) {}
+void call_mlkem_intt_alt(void) {}
+void call_mlkem_ntt_alt(void) {}
+void call_mlkem_tobytes_alt(void) {}
 void call_mlkem_compress_d10(void) {}
 void call_mlkem_compress_d11(void) {}
 void call_mlkem_compress_d4(void) {}
@@ -1571,6 +1577,21 @@ void call_mlkem_frommsg(void) repeat(mlkem_frommsg((int16_t*)b0,(uint8_t*)b1))
 void call_mlkem_sub_reduce(void) \
     repeat(mlkem_sub_reduce((int16_t*)b0,(int16_t*)b1))
 void call_mlkem_tomsg(void) repeat(mlkem_tomsg((uint8_t*)b0,(int16_t*)b1))
+void call_mlkem_basemul_k2_alt(void) \
+    repeat(mlkem_basemul_k2_alt((int16_t*)b0,(int16_t*)b1,(int16_t*)b2, \
+                         (int16_t*)b3))
+void call_mlkem_basemul_k3_alt(void) \
+    repeat(mlkem_basemul_k3_alt((int16_t*)b0,(int16_t*)b1,(int16_t*)b2, \
+                         (int16_t*)b3))
+void call_mlkem_basemul_k4_alt(void) \
+    repeat(mlkem_basemul_k4_alt((int16_t*)b0,(int16_t*)b1,(int16_t*)b2, \
+                         (int16_t*)b3))
+void call_mlkem_intt_alt(void) \
+    repeat(mlkem_intt_alt((int16_t*)b0,(int16_t*)b1,(int16_t*)b2))
+void call_mlkem_ntt_alt(void) \
+    repeat(mlkem_ntt_alt((int16_t*)b0,(int16_t*)b1,(int16_t*)b2))
+void call_mlkem_tobytes_alt(void) \
+    repeat(mlkem_tobytes_alt((uint8_t*)b0,(int16_t*)b1))
 void call_mlkem_frombytes(void) \
     repeat(mlkem_frombytes((int16_t*)b0,(uint8_t*)b1))
 void call_mlkem_unpack(void) {}
@@ -2108,8 +2129,11 @@ int main(int argc, char *argv[])
   timingtest(all,"edwards25519_scalarmuldouble_alt",call_edwards25519_scalarmuldouble_alt);
   timingtest(arm,"mlkem_add_reduce",call_mlkem_add_reduce);
   timingtest(all,"mlkem_basemul_k2",call_mlkem_basemul_k2);
+  timingtest(arm,"mlkem_basemul_k2_alt",call_mlkem_basemul_k2_alt);
   timingtest(all,"mlkem_basemul_k3",call_mlkem_basemul_k3);
+  timingtest(arm,"mlkem_basemul_k3_alt",call_mlkem_basemul_k3_alt);
   timingtest(all,"mlkem_basemul_k4",call_mlkem_basemul_k4);
+  timingtest(arm,"mlkem_basemul_k4_alt",call_mlkem_basemul_k4_alt);
   timingtest(arm,"mlkem_cbd2",call_mlkem_cbd2);
   timingtest(arm,"mlkem_cbd3",call_mlkem_cbd3);
   timingtest(arm,"mlkem_check_encoding (k = 4)",call_mlkem_check_encoding);
@@ -2124,12 +2148,15 @@ int main(int argc, char *argv[])
   timingtest(all,"mlkem_frombytes",call_mlkem_frombytes);
   timingtest(arm,"mlkem_frommsg",call_mlkem_frommsg);
   timingtest(all,"mlkem_intt",call_mlkem_intt);
+  timingtest(arm,"mlkem_intt_alt",call_mlkem_intt_alt);
   timingtest(all,"mlkem_mulcache_compute",call_mlkem_mulcache_compute);
   timingtest(all,"mlkem_ntt",call_mlkem_ntt);
+  timingtest(arm,"mlkem_ntt_alt",call_mlkem_ntt_alt);
   timingtest(all,"mlkem_reduce",call_mlkem_reduce);
   timingtest(arm,"mlkem_sub_reduce",call_mlkem_sub_reduce);
   timingtest(all,"mlkem_rej_uniform_VARIABLE_TIME (1200 bytes)",call_mlkem_rej_uniform);
   timingtest(all,"mlkem_tobytes",call_mlkem_tobytes);
+  timingtest(arm,"mlkem_tobytes_alt",call_mlkem_tobytes_alt);
   timingtest(all,"mlkem_tomont",call_mlkem_tomont);
   timingtest(arm,"mlkem_tomsg",call_mlkem_tomsg);
   timingtest(!arm,"mlkem_unpack",call_mlkem_unpack);

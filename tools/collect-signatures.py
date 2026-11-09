@@ -325,17 +325,11 @@ for arch in ["arm", "x86"]:
 # from this list when it is added to the library.
 notInLibrary = {
   "arm": [
-    "mlkem_basemul_k2_alt",
-    "mlkem_basemul_k3_alt",
-    "mlkem_basemul_k4_alt",
     "mlkem_gen_matrix",
     "mlkem_getnoise",
     "mlkem_hash_g",
     "mlkem_hash_h",
-    "mlkem_intt_alt",
-    "mlkem_ntt_alt",
     "mlkem_rej_uniform_alt_VARIABLE_TIME",
-    "mlkem_tobytes_alt",
   ],
   "x86": [],
 }
@@ -385,6 +379,9 @@ onlyInArm = [
   "mldsa_rej_uniform_eta4_VARIABLE_TIME",
   "mldsa_rej_uniform_VARIABLE_TIME",
   "mlkem_add_reduce",
+  "mlkem_basemul_k2_alt",
+  "mlkem_basemul_k3_alt",
+  "mlkem_basemul_k4_alt",
   "mlkem_cbd2",
   "mlkem_cbd3",
   "mlkem_check_encoding",
@@ -397,7 +394,10 @@ onlyInArm = [
   "mlkem_decompress_d4",
   "mlkem_decompress_d5",
   "mlkem_frommsg",
+  "mlkem_intt_alt",
+  "mlkem_ntt_alt",
   "mlkem_sub_reduce",
+  "mlkem_tobytes_alt",
   "mlkem_tomsg",
   "mlkem_ntt",
   "mlkem_intt",

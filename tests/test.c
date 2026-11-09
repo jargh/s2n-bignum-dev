@@ -14178,6 +14178,287 @@ int test_mlkem_rej_uniform(void)
   return 0;
 }
 
+int test_mlkem_ntt_alt(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+uint64_t t, i;
+  int16_t a[256] __attribute__((aligned(32)));
+  int16_t b[256] __attribute__((aligned(32)));
+  int16_t c[256] __attribute__((aligned(32)));
+  printf("Testing mlkem_ntt_alt with %d cases\n",tests);
+
+  for (t = 0; t < tests; ++t)
+   { for (i = 0; i < 256; ++i)
+        a[i] = (int16_t) (random64() % 16383) - 8192; // |a[i]| < 8192 assumed
+     for (i = 0; i < 256; ++i) b[i] = a[i];
+     mlkem_ntt_alt(b,ntt_zetas_layer01234,ntt_zetas_layer56);
+     reference_forward_ntt(c,a); reference_bitreverse(c,c);
+
+     for (i = 0; i < 256; ++i)
+      { if (rem_3329(b[i]) != rem_3329(c[i]))
+         { printf("Error in NTT (alt) element i = %"PRIu64
+                  "; code[i] = 0x%04"PRIx16
+                  " while reference[i] = 0x%04"PRIx16"\n",
+                  i,b[i],c[i]);
+           return 1;
+         }
+      }
+     if (VERBOSE)
+      { printf("OK: NTT (alt)[0x%04"PRIx16",0x%04"PRIx16",...,"
+               "0x%04"PRIx16",0x%04"PRIx16"] = "
+               "[0x%04"PRIx16",0x%04"PRIx16",...,"
+               "0x%04"PRIx16",0x%04"PRIx16"]\n",
+               a[0],a[1],a[254],a[255],
+               c[0],c[1],c[254],c[255]);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
+int test_mlkem_intt_alt(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+  uint64_t t, i;
+  int16_t a[256] __attribute__((aligned(32)));
+  int16_t b[256] __attribute__((aligned(32)));
+  int16_t c[256] __attribute__((aligned(32)));
+  printf("Testing mlkem_intt_alt with %d cases\n",tests);
+
+  for (t = 0; t < tests; ++t)
+   { for (i = 0; i < 256; ++i)
+        a[i] = (int16_t) (random64()); // any int16_t inputs allowed
+     for (i = 0; i < 256; ++i) b[i] = a[i];
+     mlkem_intt_alt(b,intt_zetas_layer01234,intt_zetas_layer56);
+
+     reference_bitreverse(c,a);
+     reference_inverse_ntt(c,c);
+     reference_tomont3329(c,c);
+
+
+     for (i = 0; i < 256; ++i)
+      { if (rem_3329(b[i]) != rem_3329(c[i]))
+         { printf("Error in iNTT (alt) element i = %"PRIu64
+                  "; code[i] = 0x%04"PRIx16
+                  " while reference[i] = 0x%04"PRIx16"\n",
+                  i,rem_3329(b[i]),rem_3329(c[i]));
+           return 1;
+         }
+      }
+     if (VERBOSE)
+      { printf("OK: iNTT (alt)[0x%04"PRIx16",0x%04"PRIx16",...,"
+               "0x%04"PRIx16",0x%04"PRIx16"] = "
+               "[0x%04"PRIx16",0x%04"PRIx16",...,"
+               "0x%04"PRIx16",0x%04"PRIx16"]\n",
+               a[0],a[1],a[254],a[255],
+               c[0],c[1],c[254],c[255]);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
+int test_mlkem_basemul_k2_alt(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+uint64_t t, i;
+  int16_t a[512] __attribute__((aligned(32)));
+  int16_t b[512] __attribute__((aligned(32)));
+  int16_t x[256] __attribute__((aligned(32)));
+  int16_t y[256] __attribute__((aligned(32)));
+  int16_t bt[256] __attribute__((aligned(32)));
+  printf("Testing mlkem_basemul_k2_alt with %d cases\n",tests);
+
+  for (t = 0; t < tests; ++t)
+   { for (i = 0; i < 512; ++i)
+        a[i] = (int16_t) (random64() % 4097),
+        b[i] = (int16_t) (random64() % 4097); // Assumed <= 2^12
+     reference_basemul2(y,a,b);
+     reference_mulcache_compute(bt,b);
+     reference_mulcache_compute(bt+128,b+256);
+
+
+     mlkem_basemul_k2_alt(x,a,b,bt);
+
+
+     for (i = 0; i < 256; ++i)
+      { if (rem_3329(x[i]) != rem_3329(y[i]))
+         { printf("Error in basemul_k2_alt element i = %"PRIu64
+                  "; code[i] = 0x%04"PRIx16
+                  " while reference[i] = 0x%04"PRIx16"\n",
+                  i,x[i],y[i]);
+           return 1;
+         }
+      }
+     if (VERBOSE)
+      { printf("OK: basemul_k2_alt[0x%04"PRIx16",0x%04"PRIx16",...,"
+               "0x%04"PRIx16",0x%04"PRIx16"] = "
+               "[0x%04"PRIx16",0x%04"PRIx16",...,"
+               "0x%04"PRIx16",0x%04"PRIx16"]\n",
+               a[0],a[1],a[510],a[511],
+               x[0],x[1],x[254],x[255]);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
+int test_mlkem_basemul_k3_alt(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+uint64_t t, i;
+  int16_t a[768] __attribute__((aligned(32)));
+  int16_t b[768] __attribute__((aligned(32)));
+  int16_t x[256] __attribute__((aligned(32)));
+  int16_t y[256] __attribute__((aligned(32)));
+  int16_t bt[384] __attribute__((aligned(32)));
+  printf("Testing mlkem_basemul_k3_alt with %d cases\n",tests);
+
+  for (t = 0; t < tests; ++t)
+   { for (i = 0; i < 768; ++i)
+        a[i] = (int16_t) (random64() % 4097),
+        b[i] = (int16_t) (random64() % 4097); // Assumed <= 2^12
+     reference_basemul3(y,a,b);
+     reference_mulcache_compute(bt,b);
+     reference_mulcache_compute(bt+128,b+256);
+     reference_mulcache_compute(bt+256,b+512);
+
+
+     mlkem_basemul_k3_alt(x,a,b,bt);
+
+
+     for (i = 0; i < 256; ++i)
+      { if (rem_3329(x[i]) != rem_3329(y[i]))
+         { printf("Error in basemul_k3_alt element i = %"PRIu64
+                  "; code[i] = 0x%04"PRIx16
+                  " while reference[i] = 0x%04"PRIx16"\n",
+                  i,x[i],y[i]);
+           return 1;
+         }
+      }
+     if (VERBOSE)
+      { printf("OK: basemul_k3_alt[0x%04"PRIx16",0x%04"PRIx16",...,"
+               "0x%04"PRIx16",0x%04"PRIx16"] = "
+               "[0x%04"PRIx16",0x%04"PRIx16",...,"
+               "0x%04"PRIx16",0x%04"PRIx16"]\n",
+               a[0],a[1],a[766],a[767],
+               x[0],x[1],x[254],x[255]);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
+int test_mlkem_basemul_k4_alt(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+uint64_t t, i;
+  int16_t a[1024] __attribute__((aligned(32)));
+  int16_t b[1024] __attribute__((aligned(32)));
+  int16_t x[256] __attribute__((aligned(32)));
+  int16_t y[256] __attribute__((aligned(32)));
+  int16_t bt[512] __attribute__((aligned(32)));
+  printf("Testing mlkem_basemul_k4_alt with %d cases\n",tests);
+
+  for (t = 0; t < tests; ++t)
+   { for (i = 0; i < 1024; ++i)
+        a[i] = (int16_t) (random64() % 4097),
+        b[i] = (int16_t) (random64() % 4097); // Assumed <= 2^12
+     reference_basemul4(y,a,b);
+     reference_mulcache_compute(bt,b);
+     reference_mulcache_compute(bt+128,b+256);
+     reference_mulcache_compute(bt+256,b+512);
+     reference_mulcache_compute(bt+384,b+768);
+
+
+     mlkem_basemul_k4_alt(x,a,b,bt);
+
+
+     for (i = 0; i < 256; ++i)
+      { if (rem_3329(x[i]) != rem_3329(y[i]))
+         { printf("Error in basemul_k4_alt element i = %"PRIu64
+                  "; code[i] = 0x%04"PRIx16
+                  " while reference[i] = 0x%04"PRIx16"\n",
+                  i,x[i],y[i]);
+           return 1;
+         }
+      }
+     if (VERBOSE)
+      { printf("OK: basemul_k4_alt[0x%04"PRIx16",0x%04"PRIx16",...,"
+               "0x%04"PRIx16",0x%04"PRIx16"] = "
+               "[0x%04"PRIx16",0x%04"PRIx16",...,"
+               "0x%04"PRIx16",0x%04"PRIx16"]\n",
+               a[0],a[1],a[1022],a[1023],
+               x[0],x[1],x[254],x[255]);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
+int test_mlkem_tobytes_alt(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+uint64_t t, i;
+  int16_t a[256] __attribute__((aligned(32)));
+  int16_t b[256] __attribute__((aligned(32)));
+  uint8_t c[384] __attribute__((aligned(32)));
+  printf("Testing mlkem_tobytes_alt with %d cases\n",tests);
+
+  for (t = 0; t < tests; ++t)
+   { for (i = 0; i < 256; ++i)
+      { a[i] = random64() % 3329;
+        b[i] = a[i];
+      }
+
+
+     mlkem_tobytes_alt(c,a);
+
+     for (i = 0; i < 256; ++i)
+      { uint64_t j = (12 * i) / 8;
+        uint64_t k = (12 * i) % 8;
+        uint64_t c0 = c[j];
+        uint64_t c1 = c[j+1];
+        uint64_t c01 = ((c0 + (c1<<8))>>k) & UINT64_C(0xFFF);
+        if (c01 != b[i])
+         { printf("Error in mlkem_tobytes_alt; element i = %"PRIu64
+                  "; packed output for input[i] = 0x%03"PRIx64
+                  " while input[i] = 0x%03"PRIx16"\n",
+                  i,c01,a[i]);
+           return 1;
+         }
+      }
+     if (VERBOSE)
+      { printf("OK:mlkem_tobytes_alt[0x%03"PRIx16",0x%03"PRIx16",...,"
+               "0x%03"PRIx16",0x%03"PRIx16"] = "
+               "[0x%02"PRIx8",0x%02"PRIx8",...,"
+               "0x%02"PRIx8",0x%02"PRIx8"]\n",
+               a[0],a[1],a[254],a[255],
+               c[0], c[1],c[382],c[383]);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
 int test_mldsa_rej_uniform(void)
 {
 #ifdef __x86_64__
@@ -19838,6 +20119,9 @@ int main(int argc, char *argv[])
     functionaltest(all,"bignum_copy_row_from_table_32",test_bignum_copy_row_from_table_32);
     functionaltest(all,"bignum_emontredc_8n_cdiff",test_bignum_emontredc_8n_cdiff);
     functionaltest(all,"mlkem_add_reduce",test_mlkem_add_reduce);
+    functionaltest(all,"mlkem_basemul_k2_alt",test_mlkem_basemul_k2_alt);
+    functionaltest(all,"mlkem_basemul_k3_alt",test_mlkem_basemul_k3_alt);
+    functionaltest(all,"mlkem_basemul_k4_alt",test_mlkem_basemul_k4_alt);
     functionaltest(all,"mlkem_cbd2",test_mlkem_cbd2);
     functionaltest(all,"mlkem_cbd3",test_mlkem_cbd3);
     functionaltest(all,"mlkem_check_encoding",test_mlkem_check_encoding);
@@ -19850,7 +20134,10 @@ int main(int argc, char *argv[])
     functionaltest(all,"mlkem_decompress_d4",test_mlkem_decompress_d4);
     functionaltest(all,"mlkem_decompress_d5",test_mlkem_decompress_d5);
     functionaltest(all,"mlkem_frommsg",test_mlkem_frommsg);
+    functionaltest(all,"mlkem_intt_alt",test_mlkem_intt_alt);
+    functionaltest(all,"mlkem_ntt_alt",test_mlkem_ntt_alt);
     functionaltest(all,"mlkem_sub_reduce",test_mlkem_sub_reduce);
+    functionaltest(all,"mlkem_tobytes_alt",test_mlkem_tobytes_alt);
     functionaltest(all,"mlkem_tomsg",test_mlkem_tomsg);
     functionaltest(sha3,"sha3_keccak_f1600_alt",test_sha3_keccak_f1600_alt);
     functionaltest(arm,"sha3_keccak_f1600_alt2",test_sha3_keccak_f1600_alt2);
