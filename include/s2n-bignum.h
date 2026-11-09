@@ -1322,6 +1322,10 @@ extern void mlkem_cbd3(int16_t r[S2N_BIGNUM_STATIC 256],const uint8_t buf[S2N_BI
 // Inputs *buf (unsigned bytes), buflen, table (unsigned bytes); output r[256] (signed 16-bit words), return
 extern uint64_t mlkem_rej_uniform_VARIABLE_TIME(int16_t r[S2N_BIGNUM_STATIC 256],const uint8_t *buf,uint64_t buflen,const uint8_t *table);
 
+// Uniform rejection sampling for ML-KEM, appending to a partial result
+// Inputs r[n], n, *buf (unsigned bytes), buflen, table (unsigned bytes); output r[256] (signed 16-bit words), return
+extern uint64_t mlkem_rej_uniform_alt_VARIABLE_TIME(int16_t r[S2N_BIGNUM_STATIC 256],uint64_t n,const uint8_t *buf,uint64_t buflen,const uint8_t *table);
+
 // Reorders ML-KEM polynomial coefficients for x86 implementation
 // Input a[256] (signed 16-bit words); output a[256] (signed 16-bit words)
 extern void mlkem_unpack(int16_t a[S2N_BIGNUM_STATIC 256]);

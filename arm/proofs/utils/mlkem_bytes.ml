@@ -386,7 +386,7 @@ let QWORD32_AS_SUBWORD = prove
 (* 384-bit word loaded.                                                      *)
 (* ------------------------------------------------------------------------- *)
 
-let WORD_SUBDEINTERLEAVE_3_8 =
+let WORD_SUBDEINTERLEAVE_3_8_GEN n =
   let mk_join ty h l =
     let cty = mk_fun_ty (type_of h) (mk_fun_ty (type_of l) ty) in
     let c = mk_const("word_join",type_match (get_const_type "word_join")
@@ -398,25 +398,36 @@ let WORD_SUBDEINTERLEAVE_3_8 =
     | _ -> let lo,hi = chop_list (length tms / 2) tms in
            mk_join (mk_word_ty(num(8 * length tms)))
                    (join_lanes hi) (join_lanes lo) in
-  let x = `x:384 word` in
-  let byte k = mk_comb(mk_comb(`word_subword:384 word->num#num->byte`,x),
-                       mk_pair(mk_small_numeral k,`8`)) in
+  let xty = mk_word_ty(num(24 * n)) and rty = mk_word_ty(num(8 * n)) in
+  let x = mk_var("x",xty) in
+  let sw = mk_const("word_subword",
+             type_match (get_const_type "word_subword")
+               (mk_fun_ty xty (mk_fun_ty `:num#num` `:byte`)) []) in
+  let byte k = mk_comb(mk_comb(sw,x),mk_pair(mk_small_numeral k,`8`)) in
+  let sd = mk_const("word_subdeinterleave",
+             type_match (get_const_type "word_subdeinterleave")
+               (mk_fun_ty `:num` (mk_fun_ty `:num` (mk_fun_ty xty
+                 (mk_fun_ty `:num` rty)))) []) in
   let clause j =
-    mk_eq(vsubst [mk_small_numeral j,`j:num`]
-            `word_subdeinterleave 3 8 (x:384 word) j:int128`,
-          join_lanes (map (fun m -> byte(24 * m + 8 * j)) (0--15))) in
+    mk_eq(list_mk_comb(sd,[`3`; `8`; x; mk_small_numeral j]),
+          join_lanes (map (fun m -> byte(24 * m + 8 * j)) (0--(n-1)))) in
   prove
    (mk_forall(x,list_mk_conj (map clause [0;1;2])),
     GEN_TAC THEN REPEAT CONJ_TAC THEN
     GEN_REWRITE_TAC I [WORD_EQ_BITS_ALT] THEN
-    REWRITE_TAC[DIMINDEX_128] THEN CONV_TAC EXPAND_CASES_CONV THEN
+    CONV_TAC(ONCE_DEPTH_CONV DIMINDEX_CONV) THEN
+    CONV_TAC EXPAND_CASES_CONV THEN
     CONV_TAC NUM_REDUCE_CONV THEN REPEAT CONJ_TAC THEN
     CONV_TAC(TOP_DEPTH_CONV BIT_WORD_CONV) THEN
-    REWRITE_TAC[word_subdeinterleave; BIT_WORD_OF_BITS; IN_ELIM_THM;
-                DIMINDEX_128] THEN
+    REWRITE_TAC[word_subdeinterleave; BIT_WORD_OF_BITS; IN_ELIM_THM] THEN
+    CONV_TAC(ONCE_DEPTH_CONV DIMINDEX_CONV) THEN
     CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
     CONV_TAC(DEPTH_CONV WORD_NUM_RED_CONV) THEN
     CONV_TAC(TOP_DEPTH_CONV BIT_WORD_CONV) THEN REWRITE_TAC[]);;
+
+let WORD_SUBDEINTERLEAVE_3_8 = WORD_SUBDEINTERLEAVE_3_8_GEN 16;;
+
+let WORD_SUBDEINTERLEAVE_3_8_64 = WORD_SUBDEINTERLEAVE_3_8_GEN 8;;
 
 (* ------------------------------------------------------------------------- *)
 (* A subword starting beyond the top of a word is 0, as for the out-of-range *)

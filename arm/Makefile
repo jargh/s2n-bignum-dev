@@ -300,6 +300,7 @@ BIGNUM_OBJ = curve25519/bignum_add_p25519.o \
              mlkem/mlkem_tomont.o \
              mlkem/mlkem_tomsg.o \
              mlkem/mlkem_rej_uniform_VARIABLE_TIME.o \
+             mlkem/mlkem_rej_uniform_alt_VARIABLE_TIME.o \
              mldsa/mldsa_rej_uniform_VARIABLE_TIME.o \
              p256/bignum_add_p256.o \
              p256/bignum_bigendian_4.o \

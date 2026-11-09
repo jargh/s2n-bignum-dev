@@ -3,8 +3,8 @@
 
 // ----------------------------------------------------------------------------
 // Uniform rejection sampling for ML-KEM, appending to a partial result
-// Inputs r[0..n-1], n, *buf (unsigned bytes), buflen, table (unsigned
-// bytes); output r[256] (signed 16-bit words), return
+// Inputs r[n], n, *buf (unsigned bytes), buflen, table (unsigned bytes);
+// output r[256] (signed 16-bit words), return
 //
 // extern uint64_t mlkem_rej_uniform_alt_VARIABLE_TIME
 //                     (int16_t r[S2N_BIGNUM_STATIC 256],uint64_t n,

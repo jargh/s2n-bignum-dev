@@ -329,7 +329,6 @@ notInLibrary = {
     "mlkem_getnoise",
     "mlkem_hash_g",
     "mlkem_hash_h",
-    "mlkem_rej_uniform_alt_VARIABLE_TIME",
   ],
   "x86": [],
 }
@@ -403,6 +402,7 @@ onlyInArm = [
   "mlkem_intt",
   "mlkem_mulcache_compute",
   "mlkem_rej_uniform_VARIABLE_TIME",
+  "mlkem_rej_uniform_alt_VARIABLE_TIME",
 ]
 onlyInX86 = [
   "bignum_cmul_p25519_alt",

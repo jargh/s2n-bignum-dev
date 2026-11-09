@@ -3943,6 +3943,31 @@ uint64_t reference_rej_uniform(int16_t r[256],uint8_t *buf,uint64_t buflen)
   return ctr;
 }
 
+// The same, but appending to r[0..n-1], for the alt version: the buffer
+// is used until there are 256 numbers in total, and the total is returned.
+
+uint64_t reference_rej_uniform_alt(int16_t r[256],uint64_t n,
+                                   uint8_t *buf,uint64_t buflen)
+{
+  uint64_t ctr, pos;
+  uint16_t val0, val1;
+
+  ctr = n;
+  pos = 0;
+
+  while (ctr < 256 && pos + 3 <= buflen)
+   {
+     val0 = ((buf[pos + 0] >> 0) | ((uint16_t)buf[pos + 1] << 8)) & 0xFFF;
+     val1 = ((buf[pos + 1] >> 4) | ((uint16_t)buf[pos + 2] << 4)) & 0xFFF;
+     pos += 3;
+
+     if (val0 < 3329) r[ctr++] = val0;
+     if (ctr < 256 && val1 < 3329) r[ctr++] = val1;
+   }
+
+  return ctr;
+}
+
 // Rejection sampling reference for ML-DSA eta=4
 // Takes 4-bit nibbles from buf (low nibble first) and accepts those < 9,
 // mapping accepted value n to (4 - n) as int32. Stops when ctr reaches 256.
@@ -14178,6 +14203,62 @@ int test_mlkem_rej_uniform(void)
   return 0;
 }
 
+int test_mlkem_rej_uniform_alt(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+  uint64_t t, i, n;
+  uint8_t inbuf[24*160];
+  int16_t a[256], b[256+16];
+  uint64_t ac, bc;
+
+  printf("Testing mlkem_rej_uniform_alt_VARIABLE_TIME with %d cases\n",tests);
+
+  for (t = 0; t < tests; ++t)
+   { // Often a short buffer, to exercise results of fewer than 256
+     uint64_t buflen = 24 * ((rand() & 1) ? rand() % 160 : rand() % 16);
+     // Often start near the end, to exercise the final copy
+     n = (rand() & 1) ? rand() % 257 : 256 - rand() % 32;
+     for (i = 0; i < buflen; ++i) inbuf[i] = (uint8_t) rand();
+     for (i = 0; i < 256; ++i) a[i] = b[i] = (int16_t) (rand() % 3329);
+     for (i = 256; i < 256+16; ++i) b[i] = (int16_t) 0x5a5a;
+     ac = reference_rej_uniform_alt(a,n,inbuf,buflen);
+     bc = mlkem_rej_uniform_alt_VARIABLE_TIME(b,n,inbuf,buflen,
+                                              mlkem_rej_uniform_table);
+     if (ac != bc)
+      { printf("Error in number of elements returned; code = %"PRIu64
+               ", ref = %"PRIu64"\n",bc,ac);
+        return 1;
+      }
+     for (i = 0; i < ac; ++i)
+      { if (a[i] != b[i])
+         { printf("Error in mlkem_rej_uniform_alt_VARIABLE_TIME; "
+                  "element i = %"PRIu64"; code[i] = %"PRId16
+                  " while reference[i] = %"PRId16"\n",
+                  i,b[i],a[i]);
+           return 1;
+         }
+      }
+     for (i = 256; i < 256+16; ++i)
+      { if (b[i] != (int16_t) 0x5a5a)
+         { printf("Error in mlkem_rej_uniform_alt_VARIABLE_TIME; "
+                  "write beyond r[255] at element %"PRIu64"\n",i);
+           return 1;
+         }
+      }
+     if (VERBOSE)
+      { printf("OK:mlkem_rej_uniform_alt_VARIABLE_TIME, %3"PRIu64
+               " elements plus input %4"PRIu64" bytes, returned %3"PRIu64
+               " elements: [0x%04"PRIx16",...,0x%04"PRIx16"]\n",
+               n,buflen,bc,b[0],b[(bc==0) ? 0 : bc-1]);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
 int test_mlkem_ntt_alt(void)
 {
 #ifdef __x86_64__
@@ -20136,6 +20217,8 @@ int main(int argc, char *argv[])
     functionaltest(all,"mlkem_frommsg",test_mlkem_frommsg);
     functionaltest(all,"mlkem_intt_alt",test_mlkem_intt_alt);
     functionaltest(all,"mlkem_ntt_alt",test_mlkem_ntt_alt);
+    functionaltest(all,"mlkem_rej_uniform_alt_VARIABLE_TIME",
+                   test_mlkem_rej_uniform_alt);
     functionaltest(all,"mlkem_sub_reduce",test_mlkem_sub_reduce);
     functionaltest(all,"mlkem_tobytes_alt",test_mlkem_tobytes_alt);
     functionaltest(all,"mlkem_tomsg",test_mlkem_tomsg);

@@ -1437,6 +1437,7 @@ void call_mlkem_basemul_k4_alt(void) {}
 void call_mlkem_intt_alt(void) {}
 void call_mlkem_ntt_alt(void) {}
 void call_mlkem_tobytes_alt(void) {}
+void call_mlkem_rej_uniform_alt(void) {}
 void call_mlkem_compress_d10(void) {}
 void call_mlkem_compress_d11(void) {}
 void call_mlkem_compress_d4(void) {}
@@ -1592,6 +1593,9 @@ void call_mlkem_ntt_alt(void) \
     repeat(mlkem_ntt_alt((int16_t*)b0,(int16_t*)b1,(int16_t*)b2))
 void call_mlkem_tobytes_alt(void) \
     repeat(mlkem_tobytes_alt((uint8_t*)b0,(int16_t*)b1))
+void call_mlkem_rej_uniform_alt(void) \
+    repeat(mlkem_rej_uniform_alt_VARIABLE_TIME((int16_t*)b0,0,(uint8_t*)b1, \
+                         1200,mlkem_rej_uniform_table))
 void call_mlkem_frombytes(void) \
     repeat(mlkem_frombytes((int16_t*)b0,(uint8_t*)b1))
 void call_mlkem_unpack(void) {}
@@ -2155,6 +2159,8 @@ int main(int argc, char *argv[])
   timingtest(all,"mlkem_reduce",call_mlkem_reduce);
   timingtest(arm,"mlkem_sub_reduce",call_mlkem_sub_reduce);
   timingtest(all,"mlkem_rej_uniform_VARIABLE_TIME (1200 bytes)",call_mlkem_rej_uniform);
+  timingtest(arm,"mlkem_rej_uniform_alt_VARIABLE_TIME (1200 bytes)",
+             call_mlkem_rej_uniform_alt);
   timingtest(all,"mlkem_tobytes",call_mlkem_tobytes);
   timingtest(arm,"mlkem_tobytes_alt",call_mlkem_tobytes_alt);
   timingtest(all,"mlkem_tomont",call_mlkem_tomont);
