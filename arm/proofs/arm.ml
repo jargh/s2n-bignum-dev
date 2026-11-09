@@ -230,6 +230,80 @@ let DREG_EXPAND_CLAUSES = prove
    D31 = Q31 :> zerotop_64`,
   REWRITE_TAC(!component_alias_thms));;
 
+(*** There are no named S registers; decoding gives SREG n directly ***)
+
+let SREG_EXPAND_CLAUSES = prove
+ (`SREG 0 = (Q0 :> zerotop_64) :> zerotop_32 /\
+   SREG 1 = (Q1 :> zerotop_64) :> zerotop_32 /\
+   SREG 2 = (Q2 :> zerotop_64) :> zerotop_32 /\
+   SREG 3 = (Q3 :> zerotop_64) :> zerotop_32 /\
+   SREG 4 = (Q4 :> zerotop_64) :> zerotop_32 /\
+   SREG 5 = (Q5 :> zerotop_64) :> zerotop_32 /\
+   SREG 6 = (Q6 :> zerotop_64) :> zerotop_32 /\
+   SREG 7 = (Q7 :> zerotop_64) :> zerotop_32 /\
+   SREG 8 = (Q8 :> zerotop_64) :> zerotop_32 /\
+   SREG 9 = (Q9 :> zerotop_64) :> zerotop_32 /\
+   SREG 10 = (Q10 :> zerotop_64) :> zerotop_32 /\
+   SREG 11 = (Q11 :> zerotop_64) :> zerotop_32 /\
+   SREG 12 = (Q12 :> zerotop_64) :> zerotop_32 /\
+   SREG 13 = (Q13 :> zerotop_64) :> zerotop_32 /\
+   SREG 14 = (Q14 :> zerotop_64) :> zerotop_32 /\
+   SREG 15 = (Q15 :> zerotop_64) :> zerotop_32 /\
+   SREG 16 = (Q16 :> zerotop_64) :> zerotop_32 /\
+   SREG 17 = (Q17 :> zerotop_64) :> zerotop_32 /\
+   SREG 18 = (Q18 :> zerotop_64) :> zerotop_32 /\
+   SREG 19 = (Q19 :> zerotop_64) :> zerotop_32 /\
+   SREG 20 = (Q20 :> zerotop_64) :> zerotop_32 /\
+   SREG 21 = (Q21 :> zerotop_64) :> zerotop_32 /\
+   SREG 22 = (Q22 :> zerotop_64) :> zerotop_32 /\
+   SREG 23 = (Q23 :> zerotop_64) :> zerotop_32 /\
+   SREG 24 = (Q24 :> zerotop_64) :> zerotop_32 /\
+   SREG 25 = (Q25 :> zerotop_64) :> zerotop_32 /\
+   SREG 26 = (Q26 :> zerotop_64) :> zerotop_32 /\
+   SREG 27 = (Q27 :> zerotop_64) :> zerotop_32 /\
+   SREG 28 = (Q28 :> zerotop_64) :> zerotop_32 /\
+   SREG 29 = (Q29 :> zerotop_64) :> zerotop_32 /\
+   SREG 30 = (Q30 :> zerotop_64) :> zerotop_32 /\
+   SREG 31 = (Q31 :> zerotop_64) :> zerotop_32`,
+  REWRITE_TAC(!component_alias_thms));;
+
+(*** There are no named H registers; decoding gives HREG n directly ***)
+
+let HREG_EXPAND_CLAUSES = prove
+ (`HREG 0 = ((Q0 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 1 = ((Q1 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 2 = ((Q2 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 3 = ((Q3 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 4 = ((Q4 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 5 = ((Q5 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 6 = ((Q6 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 7 = ((Q7 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 8 = ((Q8 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 9 = ((Q9 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 10 = ((Q10 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 11 = ((Q11 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 12 = ((Q12 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 13 = ((Q13 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 14 = ((Q14 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 15 = ((Q15 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 16 = ((Q16 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 17 = ((Q17 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 18 = ((Q18 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 19 = ((Q19 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 20 = ((Q20 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 21 = ((Q21 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 22 = ((Q22 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 23 = ((Q23 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 24 = ((Q24 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 25 = ((Q25 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 26 = ((Q26 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 27 = ((Q27 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 28 = ((Q28 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 29 = ((Q29 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 30 = ((Q30 :> zerotop_64) :> zerotop_32) :> zerotop_16 /\
+   HREG 31 = ((Q31 :> zerotop_64) :> zerotop_32) :> zerotop_16`,
+  REWRITE_TAC(!component_alias_thms));;
+
 let READ_SHIFTEDREG_CLAUSES = prove
  (`read (Shiftedreg Rn LSL n) s = word_shl (read Rn s) n /\
    read (Shiftedreg Rn LSR n) s = word_ushr (read Rn s) n /\
@@ -282,9 +356,11 @@ let ARM_EXEC_CONV =
     GEN_REWRITE_CONV ONCE_DEPTH_CONV [CONJUNCT2 SEQ_ID]) ORELSEC
    (GEN_REWRITE_CONV I ARM_OPERATION_CLAUSES THENC
     REWRITE_CONV [condition_semantics])) THENC
-  REWRITE_CONV[WREG_EXPAND_CLAUSES; DREG_EXPAND_CLAUSES] THENC
+  REWRITE_CONV[WREG_EXPAND_CLAUSES; DREG_EXPAND_CLAUSES;
+               SREG_EXPAND_CLAUSES; HREG_EXPAND_CLAUSES] THENC
   REWRITE_CONV[READ_RVALUE; ARM_ZERO_REGISTER;
-               ASSIGN_ZEROTOP_32; ASSIGN_ZEROTOP_64;
+               ASSIGN_ZEROTOP_16; ASSIGN_ZEROTOP_32; ASSIGN_ZEROTOP_64;
+               READ_ZEROTOP_16; WRITE_ZEROTOP_16;
                READ_ZEROTOP_32; WRITE_ZEROTOP_32;
                READ_ZEROTOP_64; WRITE_ZEROTOP_64;
                READ_SHIFTEDREG_CLAUSES; READ_EXTENDEDREG_CLAUSES;
@@ -364,6 +440,20 @@ let is_read_events = is_read_named_component "events";;
  *** .. if it is a valid byte sequence, or None otherwise.
  ***)
 
+(*** Evaluate closed word subterms other than numerals, which arise in
+ *** addresses using shifted or extended registers when the registers are
+ *** known. The result is a numeral reduced modulo the word size.
+ ***)
+
+let WORD_CLOSED_RED_CONV tm =
+  match tm with
+    Comb(Const("word",_),n) when is_numeral n ->
+      failwith "WORD_CLOSED_RED_CONV"
+  | _ -> match type_of tm with
+           Tyapp("word",[_]) when frees tm = [] ->
+             CHANGED_CONV(DEPTH_CONV WORD_NUM_RED_CONV) tm
+         | _ -> failwith "WORD_CLOSED_RED_CONV";;
+
 let ARM_CONV (decode_ths:thm option array) (ths:thm list) tm =
   (* Find `read PC .. = ..` from ths (assumptions). *)
   let pc_th = try find
@@ -424,6 +514,7 @@ let ARM_CONV (decode_ths:thm option array) (ths:thm list) tm =
     RAND_CONV NUM_REDUCE_CONV) THENC
   TOP_DEPTH_CONV COMPONENT_WRITE_OVER_WRITE_CONV THENC
   GEN_REWRITE_CONV (SUB_COMPONENTS_CONV o TOP_DEPTH_CONV) ths THENC
+  SUB_COMPONENTS_CONV (ONCE_DEPTH_CONV WORD_CLOSED_RED_CONV) THENC
   GEN_REWRITE_CONV TOP_DEPTH_CONV [WORD_VAL] THENC
   ONCE_DEPTH_CONV WORD_PC_PLUS_CONV THENC
   ONCE_DEPTH_CONV NORMALIZE_RELATIVE_ADDRESS_CONV THENC
@@ -1274,6 +1365,54 @@ let ADRP_ADD_FOLD = prove(`forall (pc:int64) (x:int64).
     (word (val (word_subword x (0,12):(12)word)):(64)word)
     = x`,
 
+  REWRITE_TAC[adrp_within_bounds] THEN
+  BITBLAST_TAC);;
+
+(*** The same for ADRP followed by LDR of a Q register from a 16-byte aligned
+ *** address, as with an R_AARCH64_LDST128_ABS_LO12_NC relocation.
+ ***)
+
+let ADRP_LDR_Q_FOLD = prove(`forall (pc:int64) (x:int64).
+  adrp_within_bounds x pc /\ aligned 16 x
+  ==>
+  word_add
+    (word_add
+        (word_and pc (word 0xFFFFFFFFFFFFF000))
+        (word_sx
+            (word_join
+                (word_join
+                    (word_subword
+                        (word_sub
+                            (word_and x (word 0xFFFFFFFFFFFFF000))
+                            (word_and pc (word 0xFFFFFFFFFFFFF000)):(64)word)
+                        (14,19):(19)word)
+                    (word_subword
+                        (word_sub
+                            (word_and x (word 0xFFFFFFFFFFFFF000))
+                            (word_and pc (word 0xFFFFFFFFFFFFF000)):(64)word)
+                        (12,2):(2)word)
+                    :(21)word)
+                (word 0:(12)word)
+            :(33)word)
+        :(64)word)
+    )
+    (word (val (word_subword x (4,8):(12)word) * 16):(64)word)
+    = x`,
+  REPEAT GEN_TAC THEN
+  SUBGOAL_THEN `aligned 16 (x:int64) <=> word_and x (word 15) = word 0`
+  SUBST1_TAC THENL
+   [REWRITE_TAC[aligned; DIMINDEX_64; GSYM VAL_EQ_0] THEN
+    REWRITE_TAC[ARITH_RULE `15 = 2 EXP 4 - 1`; VAL_WORD_AND_MASK_WORD] THEN
+    CONV_TAC(ONCE_DEPTH_CONV DIVIDES_CONV) THEN REWRITE_TAC[DIVIDES_MOD] THEN
+    CONV_TAC NUM_REDUCE_CONV;
+    ALL_TAC] THEN
+  SUBGOAL_THEN
+   `!y:12 word. word(val y * 16):int64 = word_shl (word_zx y) 4`
+   (fun th -> REWRITE_TAC[th])
+  THENL
+   [GEN_TAC THEN REWRITE_TAC[word_zx; WORD_SHL_WORD] THEN
+    AP_TERM_TAC THEN ARITH_TAC;
+    ALL_TAC] THEN
   REWRITE_TAC[adrp_within_bounds] THEN
   BITBLAST_TAC);;
 
