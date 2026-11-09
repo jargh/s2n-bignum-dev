@@ -129,12 +129,11 @@ results of the key checks are public.
 
 ## Testing
 
-The development tests, not in this tree, compare these functions with
-mlkem-native's portable C on random and edge-case inputs, including the
-rare paths (implicit rejection, invalid keys, the fourth block of
-rejection sampling), check the KAT hashes and the ACVP and Wycheproof
-vectors, run under memcheck with exact-size buffers and for constant time
-with the secrets undefined (valgrind patched to decode BCAX, RAX1 and
-XAR), check the ABI (callee-saved registers, x18, sp) and that no secret
-is left on the stack, and call the functions through pointers with BTI
-enforced.
+The tests and benchmarks are in `test` (see its README). They compare
+these functions with mlkem-native's portable C on random and edge-case
+inputs, including the rare paths (implicit rejection, invalid keys, the
+fourth block of rejection sampling), check the KAT hashes and the ACVP
+and Wycheproof vectors, run under memcheck with exact-size buffers and
+for constant time with the secrets undefined, check the ABI
+(callee-saved registers, x18, sp) and that no secret is left on the
+stack, and call the functions through pointers with BTI enforced.
