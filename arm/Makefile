@@ -51,17 +51,21 @@ SPLIT=tr ';' '\n'
 ifeq ($(ARCHTYPE_RESULT),aarch64)
 ASSEMBLE=as -march=armv8.2-a+sha3
 OBJDUMP=objdump -d
+LINK=ld
 else
 ifeq ($(ARCHTYPE_RESULT),arm64)
 ASSEMBLE=as -march=armv8.2-a+sha3
 OBJDUMP=objdump -d
+LINK=ld
 else
 ifeq ($(OSTYPE_RESULT),Darwin)
 ASSEMBLE=as -arch arm64 -march=armv8.2-a+sha3
 OBJDUMP=otool -tvV
+LINK=ld
 else
 ASSEMBLE=aarch64-linux-gnu-as -march=armv8.2-a+sha3
 OBJDUMP=aarch64-linux-gnu-objdump -d
+LINK=aarch64-linux-gnu-ld
 endif
 endif
 endif
@@ -460,6 +464,46 @@ AES_GCM_OBJ = aes_gcm/aes128_gcm_dec.o \
 
 OBJ = $(POINT_OBJ) $(BIGNUM_OBJ) $(AES_XTS_OBJ) $(AES_GCM_OBJ)
 
+# The objects of the image of the mlkem_native2 functions, for their
+# proofs (see proofs/mlkem_native2_image.ml), in the order of the image
+
+MLKEM_NATIVE2_IMAGE_OBJ = mlkem_native2/mlkem512.o \
+                          mlkem_native2/mlkem768.o \
+                          mlkem_native2/mlkem1024.o \
+                          mlkem_native2/mlkem_gen_matrix.o \
+                          mlkem_native2/mlkem_getnoise.o \
+                          mlkem_native2/mlkem_hash_g.o \
+                          mlkem_native2/mlkem_hash_h.o \
+                          mlkem/mlkem_add_reduce.o \
+                          mlkem/mlkem_basemul_k2_alt.o \
+                          mlkem/mlkem_basemul_k3_alt.o \
+                          mlkem/mlkem_basemul_k4_alt.o \
+                          mlkem/mlkem_cbd2.o \
+                          mlkem/mlkem_cbd3.o \
+                          mlkem/mlkem_check_encoding.o \
+                          mlkem/mlkem_compress_d10.o \
+                          mlkem/mlkem_compress_d11.o \
+                          mlkem/mlkem_compress_d4.o \
+                          mlkem/mlkem_compress_d5.o \
+                          mlkem/mlkem_decompress_d10.o \
+                          mlkem/mlkem_decompress_d11.o \
+                          mlkem/mlkem_decompress_d4.o \
+                          mlkem/mlkem_decompress_d5.o \
+                          mlkem/mlkem_frombytes.o \
+                          mlkem/mlkem_frommsg.o \
+                          mlkem/mlkem_intt_alt.o \
+                          mlkem/mlkem_mulcache_compute.o \
+                          mlkem/mlkem_ntt_alt.o \
+                          mlkem/mlkem_reduce.o \
+                          mlkem/mlkem_rej_uniform_alt_VARIABLE_TIME.o \
+                          mlkem/mlkem_sub_reduce.o \
+                          mlkem/mlkem_tobytes_alt.o \
+                          mlkem/mlkem_tomont.o \
+                          mlkem/mlkem_tomsg.o \
+                          sha3/sha3_keccak_f1600.o \
+                          sha3/sha3_keccak4_f1600_alt2.o \
+                          mlkem_native2/mlkem_native2_constants.o
+
 # Tutorial assembly files
 
 TUTORIAL_PROOFS = $(wildcard tutorial/*.ml)
@@ -481,7 +525,16 @@ TUTORIAL_OBJ = $(filter-out tutorial/aes_encrypt_decrypt.o tutorial/safety.o, $(
 
 libs2nbignum.a: $(OBJ) ; ar -rc libs2nbignum.a $(OBJ)
 
-clean:; rm -f libs2nbignum.a */*.o */*/*.o */*.correct */*.native
+# The image for the proofs of the mlkem_native2 functions, linked at 0
+# with GNU ld (the linker script is not for the Darwin linker)
+
+mlkem_native2/mlkem_native2_image.elf: $(MLKEM_NATIVE2_IMAGE_OBJ) \
+                                       mlkem_native2/mlkem_native2_image.ld
+	$(LINK) --no-relax -e 0 -T mlkem_native2/mlkem_native2_image.ld \
+	  -o $@ $(MLKEM_NATIVE2_IMAGE_OBJ)
+
+clean:; rm -f libs2nbignum.a */*.o */*/*.o */*.correct */*.native \
+              mlkem_native2/*.elf
 
 # Proof-related parts
 #
