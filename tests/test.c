@@ -13574,6 +13574,424 @@ uint64_t t, i;
 #endif
 }
 
+// Helpers for the tests of the ML-KEM byte encodings: field i of d bits
+// of a little-endian byte array, and compression and decompression of a
+// coefficient (FIPS 203, section 4.2.1).
+
+uint64_t mlkem_get_field(const uint8_t *a, uint64_t d, uint64_t i)
+{ uint64_t x = 0, j, p;
+  for (j = 0; j < d; ++j)
+   { p = d * i + j;
+     x |= (uint64_t) ((a[p / 8] >> (p % 8)) & 1) << j;
+   }
+  return x;
+}
+
+void mlkem_set_field(uint8_t *a, uint64_t d, uint64_t i, uint64_t x)
+{ uint64_t j, p;
+  for (j = 0; j < d; ++j)
+   { p = d * i + j;
+     a[p / 8] = (uint8_t) ((a[p / 8] & ~(1 << (p % 8))) |
+                           (((x >> j) & 1) << (p % 8)));
+   }
+}
+
+uint64_t mlkem_compress(uint64_t d, uint64_t x)
+{ return (((UINT64_C(1) << (d + 1)) * x + 3329) / 6658) % (UINT64_C(1) << d);
+}
+
+uint64_t mlkem_decompress(uint64_t d, uint64_t u)
+{ return (3329 * u + (UINT64_C(1) << (d - 1))) >> d;
+}
+
+int test_mlkem_add_reduce(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+uint64_t t, i;
+  int16_t a[256], b[256], c[256], e;
+  printf("Testing mlkem_add_reduce with %d cases\n",tests);
+
+  for (t = 0; t < tests; ++t)
+   { for (i = 0; i < 256; ++i)
+      { a[i] = (int16_t) random64();
+        b[i] = (int16_t) random64();
+        c[i] = a[i];
+      }
+     mlkem_add_reduce(c,b);
+     for (i = 0; i < 256; ++i)
+      { e = rem_3329((int16_t) (a[i] + b[i]));
+        if (c[i] != e)
+         { printf("Error in mlkem_add_reduce; element i = %"PRIu64
+                  "; code[i] = 0x%04"PRIx16
+                  " while reference[i] = 0x%04"PRIx16"\n",
+                  i,c[i],e);
+           return 1;
+         }
+      }
+     if (VERBOSE)
+      { printf("OK:mlkem_add_reduce[0x%04"PRIx16",...,0x%04"PRIx16"] + "
+               "[0x%04"PRIx16",...,0x%04"PRIx16"] = "
+               "[0x%04"PRIx16",...,0x%04"PRIx16"]\n",
+               a[0],a[255],b[0],b[255],c[0],c[255]);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
+int test_mlkem_sub_reduce(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+uint64_t t, i;
+  int16_t a[256], b[256], c[256], e;
+  printf("Testing mlkem_sub_reduce with %d cases\n",tests);
+
+  for (t = 0; t < tests; ++t)
+   { for (i = 0; i < 256; ++i)
+      { a[i] = (int16_t) random64();
+        b[i] = (int16_t) random64();
+        c[i] = a[i];
+      }
+     mlkem_sub_reduce(c,b);
+     for (i = 0; i < 256; ++i)
+      { e = rem_3329((int16_t) (a[i] - b[i]));
+        if (c[i] != e)
+         { printf("Error in mlkem_sub_reduce; element i = %"PRIu64
+                  "; code[i] = 0x%04"PRIx16
+                  " while reference[i] = 0x%04"PRIx16"\n",
+                  i,c[i],e);
+           return 1;
+         }
+      }
+     if (VERBOSE)
+      { printf("OK:mlkem_sub_reduce[0x%04"PRIx16",...,0x%04"PRIx16"] - "
+               "[0x%04"PRIx16",...,0x%04"PRIx16"] = "
+               "[0x%04"PRIx16",...,0x%04"PRIx16"]\n",
+               a[0],a[255],b[0],b[255],c[0],c[255]);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
+int test_mlkem_frommsg(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+uint64_t t, i;
+  uint8_t m[32];
+  int16_t r[256], e;
+  printf("Testing mlkem_frommsg with %d cases\n",tests);
+
+  for (t = 0; t < tests; ++t)
+   { for (i = 0; i < 32; ++i) m[i] = (uint8_t) random64();
+     mlkem_frommsg(r,m);
+     for (i = 0; i < 256; ++i)
+      { e = ((m[i / 8] >> (i % 8)) & 1) ? 1665 : 0;
+        if (r[i] != e)
+         { printf("Error in mlkem_frommsg; element i = %"PRIu64
+                  "; code[i] = %"PRId16" while reference[i] = %"PRId16"\n",
+                  i,r[i],e);
+           return 1;
+         }
+      }
+     if (VERBOSE)
+      { printf("OK:mlkem_frommsg[0x%02"PRIx8",...,0x%02"PRIx8"] = "
+               "[%"PRId16",...,%"PRId16"]\n",m[0],m[31],r[0],r[255]);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
+int test_mlkem_tomsg(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+uint64_t t, i, c, e;
+  int16_t a[256];
+  uint8_t m[32];
+  printf("Testing mlkem_tomsg with %d cases\n",tests);
+
+  for (t = 0; t < tests; ++t)
+   { for (i = 0; i < 256; ++i) a[i] = random64() % 3329;
+     mlkem_tomsg(m,a);
+     for (i = 0; i < 256; ++i)
+      { c = mlkem_get_field(m,1,i);
+        e = mlkem_compress(1,a[i]);
+        if (c != e)
+         { printf("Error in mlkem_tomsg; element i = %"PRIu64
+                  "; output bit = %"PRIu64" while reference = %"PRIu64
+                  " for input[i] = %"PRId16"\n",i,c,e,a[i]);
+           return 1;
+         }
+      }
+     if (VERBOSE)
+      { printf("OK:mlkem_tomsg[%"PRId16",...,%"PRId16"] = "
+               "[0x%02"PRIx8",...,0x%02"PRIx8"]\n",a[0],a[255],m[0],m[31]);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
+#ifndef __x86_64__
+int test_mlkem_compress_d(const char *name, uint64_t d,
+                          void (*f)(uint8_t *, const int16_t *))
+{ uint64_t t, i, c, e;
+  int16_t a[256];
+  uint8_t r[352];
+  printf("Testing %s with %d cases\n",name,tests);
+
+  for (t = 0; t < tests; ++t)
+   { for (i = 0; i < 256; ++i) a[i] = random64() % 3329;
+     (*f)(r,a);
+     for (i = 0; i < 256; ++i)
+      { c = mlkem_get_field(r,d,i);
+        e = mlkem_compress(d,a[i]);
+        if (c != e)
+         { printf("Error in %s; element i = %"PRIu64
+                  "; packed output = 0x%03"PRIx64
+                  " while reference = 0x%03"PRIx64
+                  " for input[i] = %"PRId16"\n",name,i,c,e,a[i]);
+           return 1;
+         }
+      }
+     if (VERBOSE)
+      { printf("OK:%s[%"PRId16",...,%"PRId16"] = "
+               "[0x%02"PRIx8",...,0x%02"PRIx8"]\n",
+               name,a[0],a[255],r[0],r[32*d-1]);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+}
+
+int test_mlkem_decompress_d(const char *name, uint64_t d,
+                            void (*f)(int16_t *, const uint8_t *))
+{ uint64_t t, i, e;
+  uint8_t a[352];
+  int16_t r[256];
+  printf("Testing %s with %d cases\n",name,tests);
+
+  for (t = 0; t < tests; ++t)
+   { for (i = 0; i < 32 * d; ++i) a[i] = (uint8_t) random64();
+     (*f)(r,a);
+     for (i = 0; i < 256; ++i)
+      { e = mlkem_decompress(d,mlkem_get_field(a,d,i));
+        if ((uint64_t) r[i] != e)
+         { printf("Error in %s; element i = %"PRIu64
+                  "; code[i] = %"PRId16" while reference[i] = %"PRIu64"\n",
+                  name,i,r[i],e);
+           return 1;
+         }
+      }
+     if (VERBOSE)
+      { printf("OK:%s[0x%02"PRIx8",...,0x%02"PRIx8"] = "
+               "[%"PRId16",...,%"PRId16"]\n",
+               name,a[0],a[32*d-1],r[0],r[255]);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+}
+#endif
+
+int test_mlkem_check_encoding(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+uint64_t t, i, k, c, e;
+  uint8_t a[4*384];
+  printf("Testing mlkem_check_encoding with %d cases\n",tests);
+
+  for (t = 0; t < tests; ++t)
+   { k = random64() % 5;
+     for (i = 0; i < 384 * k; ++i) a[i] = (uint8_t) random64();
+
+     // Unless the bytes are left random, make all the fields reduced, and
+     // then in some cases one of them not reduced (perhaps just 3329)
+
+     if (t % 3 != 0)
+      { for (i = 0; i < 256 * k; ++i)
+          mlkem_set_field(a,12,i,random64() % 3329);
+        if (t % 3 == 2 && k != 0)
+          mlkem_set_field(a,12,random64() % (256 * k),
+                          (t & 4) ? 3329 : 3329 + random64() % 767);
+      }
+
+     c = mlkem_check_encoding(a,k);
+     e = 1;
+     for (i = 0; i < 256 * k; ++i)
+       if (mlkem_get_field(a,12,i) >= 3329) e = 0;
+     if (c != e)
+      { printf("Error in mlkem_check_encoding with k = %"PRIu64
+               "; code = %"PRIu64" while reference = %"PRIu64"\n",
+               k,c,e);
+        return 1;
+      }
+     if (VERBOSE)
+      { printf("OK:mlkem_check_encoding(k = %"PRIu64") = %"PRIu64"\n",k,c);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
+int test_mlkem_compress_d4(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+  return test_mlkem_compress_d("mlkem_compress_d4",4,mlkem_compress_d4);
+#endif
+}
+
+int test_mlkem_compress_d5(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+  return test_mlkem_compress_d("mlkem_compress_d5",5,mlkem_compress_d5);
+#endif
+}
+
+int test_mlkem_compress_d10(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+  return test_mlkem_compress_d("mlkem_compress_d10",10,mlkem_compress_d10);
+#endif
+}
+
+int test_mlkem_compress_d11(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+  return test_mlkem_compress_d("mlkem_compress_d11",11,mlkem_compress_d11);
+#endif
+}
+
+int test_mlkem_decompress_d4(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+  return test_mlkem_decompress_d("mlkem_decompress_d4",4,mlkem_decompress_d4);
+#endif
+}
+
+int test_mlkem_decompress_d5(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+  return test_mlkem_decompress_d("mlkem_decompress_d5",5,mlkem_decompress_d5);
+#endif
+}
+
+int test_mlkem_decompress_d10(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+  return test_mlkem_decompress_d("mlkem_decompress_d10",10,
+                                 mlkem_decompress_d10);
+#endif
+}
+
+int test_mlkem_decompress_d11(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+  return test_mlkem_decompress_d("mlkem_decompress_d11",11,
+                                 mlkem_decompress_d11);
+#endif
+}
+
+int test_mlkem_cbd2(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+uint64_t t, i, n;
+  uint8_t buf[128];
+  int16_t r[256], e;
+  printf("Testing mlkem_cbd2 with %d cases\n",tests);
+
+  for (t = 0; t < tests; ++t)
+   { for (i = 0; i < 128; ++i) buf[i] = (uint8_t) random64();
+     mlkem_cbd2(r,buf);
+     for (i = 0; i < 256; ++i)
+      { n = mlkem_get_field(buf,4,i);
+        e = (int16_t) ((n & 1) + ((n >> 1) & 1)) -
+            (int16_t) (((n >> 2) & 1) + ((n >> 3) & 1));
+        if (r[i] != e)
+         { printf("Error in mlkem_cbd2; element i = %"PRIu64
+                  "; code[i] = %"PRId16" while reference[i] = %"PRId16"\n",
+                  i,r[i],e);
+           return 1;
+         }
+      }
+     if (VERBOSE)
+      { printf("OK:mlkem_cbd2[0x%02"PRIx8",...,0x%02"PRIx8"] = "
+               "[%"PRId16",...,%"PRId16"]\n",buf[0],buf[127],r[0],r[255]);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
+int test_mlkem_cbd3(void)
+{
+#ifdef __x86_64__
+  return 1;
+#else
+uint64_t t, i, n;
+  uint8_t buf[192];
+  int16_t r[256], e;
+  printf("Testing mlkem_cbd3 with %d cases\n",tests);
+
+  for (t = 0; t < tests; ++t)
+   { for (i = 0; i < 192; ++i) buf[i] = (uint8_t) random64();
+     mlkem_cbd3(r,buf);
+     for (i = 0; i < 256; ++i)
+      { n = mlkem_get_field(buf,6,i);
+        e = (int16_t) ((n & 1) + ((n >> 1) & 1) + ((n >> 2) & 1)) -
+            (int16_t) (((n >> 3) & 1) + ((n >> 4) & 1) + ((n >> 5) & 1));
+        if (r[i] != e)
+         { printf("Error in mlkem_cbd3; element i = %"PRIu64
+                  "; code[i] = %"PRId16" while reference[i] = %"PRId16"\n",
+                  i,r[i],e);
+           return 1;
+         }
+      }
+     if (VERBOSE)
+      { printf("OK:mlkem_cbd3[0x%02"PRIx8",...,0x%02"PRIx8"] = "
+               "[%"PRId16",...,%"PRId16"]\n",buf[0],buf[191],r[0],r[255]);
+      }
+   }
+  printf("All OK\n");
+  return 0;
+#endif
+}
+
 int test_mlkem_frombytes(void)
 {
 #ifdef __x86_64__
@@ -13612,6 +14030,28 @@ uint64_t t, i;
   printf("All OK\n");
   return 0;
 #else
+uint64_t t, i, e;
+  uint8_t a[384];
+  int16_t b[256];
+  printf("Testing mlkem_frombytes with %d cases\n",tests);
+
+  for (t = 0; t < tests; ++t)
+   { for (i = 0; i < 384; ++i) a[i] = random64() & 0xff;
+
+     mlkem_frombytes(b,a);
+
+     for (i = 0; i < 256; ++i)
+      { e = mlkem_get_field(a,12,i);
+        if ((uint64_t) b[i] != e)
+         { printf("Error in mlkem_frombytes; element i = %"PRIu64
+                  "; expected output = 0x%03"PRIx64
+                  " while output is = 0x%03"PRIx16"\n",
+                  i,e,b[i]);
+           return 1;
+         }
+      }
+   }
+  printf("All OK\n");
   return 0;
 #endif
 }
@@ -19397,6 +19837,21 @@ int main(int argc, char *argv[])
     functionaltest(all,"bignum_copy_row_from_table_16",test_bignum_copy_row_from_table_16);
     functionaltest(all,"bignum_copy_row_from_table_32",test_bignum_copy_row_from_table_32);
     functionaltest(all,"bignum_emontredc_8n_cdiff",test_bignum_emontredc_8n_cdiff);
+    functionaltest(all,"mlkem_add_reduce",test_mlkem_add_reduce);
+    functionaltest(all,"mlkem_cbd2",test_mlkem_cbd2);
+    functionaltest(all,"mlkem_cbd3",test_mlkem_cbd3);
+    functionaltest(all,"mlkem_check_encoding",test_mlkem_check_encoding);
+    functionaltest(all,"mlkem_compress_d10",test_mlkem_compress_d10);
+    functionaltest(all,"mlkem_compress_d11",test_mlkem_compress_d11);
+    functionaltest(all,"mlkem_compress_d4",test_mlkem_compress_d4);
+    functionaltest(all,"mlkem_compress_d5",test_mlkem_compress_d5);
+    functionaltest(all,"mlkem_decompress_d10",test_mlkem_decompress_d10);
+    functionaltest(all,"mlkem_decompress_d11",test_mlkem_decompress_d11);
+    functionaltest(all,"mlkem_decompress_d4",test_mlkem_decompress_d4);
+    functionaltest(all,"mlkem_decompress_d5",test_mlkem_decompress_d5);
+    functionaltest(all,"mlkem_frommsg",test_mlkem_frommsg);
+    functionaltest(all,"mlkem_sub_reduce",test_mlkem_sub_reduce);
+    functionaltest(all,"mlkem_tomsg",test_mlkem_tomsg);
     functionaltest(sha3,"sha3_keccak_f1600_alt",test_sha3_keccak_f1600_alt);
     functionaltest(arm,"sha3_keccak_f1600_alt2",test_sha3_keccak_f1600_alt2);
     functionaltest(sha3,"sha3_keccak2_f1600",test_sha3_keccak2_f1600);
