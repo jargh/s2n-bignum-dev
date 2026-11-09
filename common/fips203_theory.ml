@@ -7,6 +7,7 @@
 (* Supporting theory for the ML-KEM specification in common/fips203.ml.      *)
 (* ========================================================================= *)
 
+needs "Library/isum.ml";;
 needs "common/fips203.ml";;
 
 type_invention_error := true;;
