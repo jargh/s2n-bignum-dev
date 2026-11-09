@@ -319,6 +319,49 @@ for arch in ["arm", "x86"]:
         # in a file
         i += 1
 
+# Functions in the assembly files that are not yet in the library, and so
+# are not declared in s2n-bignum.h either: the new ML-KEM functions in
+# arm/mlkem and arm/mlkem_native2, until they are verified. Remove each
+# from this list when it is added to the library.
+notInLibrary = {
+  "arm": [
+    "mlkem_add_reduce",
+    "mlkem_basemul_k2_alt",
+    "mlkem_basemul_k3_alt",
+    "mlkem_basemul_k4_alt",
+    "mlkem_cbd2",
+    "mlkem_cbd3",
+    "mlkem_check_encoding",
+    "mlkem_compress_d10",
+    "mlkem_compress_d11",
+    "mlkem_compress_d4",
+    "mlkem_compress_d5",
+    "mlkem_decompress_d10",
+    "mlkem_decompress_d11",
+    "mlkem_decompress_d4",
+    "mlkem_decompress_d5",
+    "mlkem_frombytes",
+    "mlkem_frommsg",
+    "mlkem_gen_matrix",
+    "mlkem_getnoise",
+    "mlkem_hash_g",
+    "mlkem_hash_h",
+    "mlkem_intt_alt",
+    "mlkem_ntt_alt",
+    "mlkem_rej_uniform_alt_VARIABLE_TIME",
+    "mlkem_sub_reduce",
+    "mlkem_tobytes_alt",
+    "mlkem_tomsg",
+  ],
+  "x86": [],
+}
+
+for arch in notInLibrary:
+  for fnname in notInLibrary[arch]:
+    assert fnname in fnsigsFromAsm[arch], \
+        f"{fnname} is in notInLibrary but not in the {arch} assembly files"
+    del fnsigsFromAsm[arch][fnname]
+
 ###############################################################################
 #  STEP 3. Compare collected function signatures as well as memory in/outs    #
 ###############################################################################
