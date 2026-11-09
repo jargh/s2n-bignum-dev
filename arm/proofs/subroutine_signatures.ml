@@ -4996,6 +4996,23 @@ let subroutine_signatures = [
    ])
 );
 
+("mlkem_add_reduce",
+  ([(*args*)
+     ("r", "int16_t[static 256]", (*is const?*)"false");
+     ("a", "int16_t[static 256]", (*is const?*)"true");
+   ],
+   "void",
+   [(* input buffers *)
+    ("r", "256"(* num elems *), 2(* elem bytesize *));
+    ("a", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("r", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
 ("mlkem_basemul_k2",
   ([(*args*)
      ("r", "int16_t[static 256]", (*is const?*)"false");
@@ -5048,6 +5065,213 @@ let subroutine_signatures = [
     ("a", "1024"(* num elems *), 2(* elem bytesize *));
     ("b", "1024"(* num elems *), 2(* elem bytesize *));
     ("bt", "512"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("r", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("mlkem_cbd2",
+  ([(*args*)
+     ("r", "int16_t[static 256]", (*is const?*)"false");
+     ("buf", "uint8_t[static 128]", (*is const?*)"true");
+   ],
+   "void",
+   [(* input buffers *)
+    ("buf", "128"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("r", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("mlkem_cbd3",
+  ([(*args*)
+     ("r", "int16_t[static 256]", (*is const?*)"false");
+     ("buf", "uint8_t[static 192]", (*is const?*)"true");
+   ],
+   "void",
+   [(* input buffers *)
+    ("buf", "192"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("r", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("mlkem_check_encoding",
+  ([(*args*)
+     ("a", "uint8_t*", (*is const?*)"true");
+     ("k", "uint64_t", (*is const?*)"false");
+   ],
+   "uint64_t",
+   [(* input buffers *)
+    ("a", "384*k"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* output buffers *)
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("mlkem_compress_d10",
+  ([(*args*)
+     ("r", "uint8_t[static 320]", (*is const?*)"false");
+     ("a", "int16_t[static 256]", (*is const?*)"true");
+   ],
+   "void",
+   [(* input buffers *)
+    ("a", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("r", "320"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("mlkem_compress_d11",
+  ([(*args*)
+     ("r", "uint8_t[static 352]", (*is const?*)"false");
+     ("a", "int16_t[static 256]", (*is const?*)"true");
+   ],
+   "void",
+   [(* input buffers *)
+    ("a", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("r", "352"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("mlkem_compress_d4",
+  ([(*args*)
+     ("r", "uint8_t[static 128]", (*is const?*)"false");
+     ("a", "int16_t[static 256]", (*is const?*)"true");
+   ],
+   "void",
+   [(* input buffers *)
+    ("a", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("r", "128"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("mlkem_compress_d5",
+  ([(*args*)
+     ("r", "uint8_t[static 160]", (*is const?*)"false");
+     ("a", "int16_t[static 256]", (*is const?*)"true");
+   ],
+   "void",
+   [(* input buffers *)
+    ("a", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("r", "160"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("mlkem_decompress_d10",
+  ([(*args*)
+     ("r", "int16_t[static 256]", (*is const?*)"false");
+     ("a", "uint8_t[static 320]", (*is const?*)"true");
+   ],
+   "void",
+   [(* input buffers *)
+    ("a", "320"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("r", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("mlkem_decompress_d11",
+  ([(*args*)
+     ("r", "int16_t[static 256]", (*is const?*)"false");
+     ("a", "uint8_t[static 352]", (*is const?*)"true");
+   ],
+   "void",
+   [(* input buffers *)
+    ("a", "352"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("r", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("mlkem_decompress_d4",
+  ([(*args*)
+     ("r", "int16_t[static 256]", (*is const?*)"false");
+     ("a", "uint8_t[static 128]", (*is const?*)"true");
+   ],
+   "void",
+   [(* input buffers *)
+    ("a", "128"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("r", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("mlkem_decompress_d5",
+  ([(*args*)
+     ("r", "int16_t[static 256]", (*is const?*)"false");
+     ("a", "uint8_t[static 160]", (*is const?*)"true");
+   ],
+   "void",
+   [(* input buffers *)
+    ("a", "160"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("r", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("mlkem_frombytes",
+  ([(*args*)
+     ("r", "int16_t[static 256]", (*is const?*)"false");
+     ("a", "uint8_t[static 384]", (*is const?*)"true");
+   ],
+   "void",
+   [(* input buffers *)
+    ("a", "384"(* num elems *), 1(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("r", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("mlkem_frommsg",
+  ([(*args*)
+     ("r", "int16_t[static 256]", (*is const?*)"false");
+     ("msg", "uint8_t[static 32]", (*is const?*)"true");
+   ],
+   "void",
+   [(* input buffers *)
+    ("msg", "32"(* num elems *), 1(* elem bytesize *));
    ],
    [(* output buffers *)
     ("r", "256"(* num elems *), 2(* elem bytesize *));
@@ -5146,6 +5370,23 @@ let subroutine_signatures = [
    ])
 );
 
+("mlkem_sub_reduce",
+  ([(*args*)
+     ("r", "int16_t[static 256]", (*is const?*)"false");
+     ("a", "int16_t[static 256]", (*is const?*)"true");
+   ],
+   "void",
+   [(* input buffers *)
+    ("r", "256"(* num elems *), 2(* elem bytesize *));
+    ("a", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("r", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
 ("mlkem_tobytes",
   ([(*args*)
      ("r", "uint8_t[static 384]", (*is const?*)"false");
@@ -5172,6 +5413,22 @@ let subroutine_signatures = [
    ],
    [(* output buffers *)
     ("a", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* temporary buffers *)
+   ])
+);
+
+("mlkem_tomsg",
+  ([(*args*)
+     ("msg", "uint8_t[static 32]", (*is const?*)"false");
+     ("a", "int16_t[static 256]", (*is const?*)"true");
+   ],
+   "void",
+   [(* input buffers *)
+    ("a", "256"(* num elems *), 2(* elem bytesize *));
+   ],
+   [(* output buffers *)
+    ("msg", "32"(* num elems *), 1(* elem bytesize *));
    ],
    [(* temporary buffers *)
    ])
