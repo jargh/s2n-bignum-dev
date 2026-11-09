@@ -153,6 +153,7 @@ mlkem_hash_h_pad:
 
 // The digest, then zero the state
 
+mlkem_hash_h_digest:
         add     x0, sp, #ST
         ldp     q0, q1, [x0]
         stp     q0, q1, [x19]

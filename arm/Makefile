@@ -626,6 +626,19 @@ p521/p521_jscalarmul_alt.native: p521/bignum_mod_n521_9.native
 sm2/sm2_montjscalarmul.native: sm2/sm2_montjadd.native sm2/sm2_montjdouble.native
 sm2/sm2_montjscalarmul_alt.native: sm2/sm2_montjadd_alt.native sm2/sm2_montjdouble_alt.native
 
+# The proofs of the mlkem_native2 functions are about the image of all the
+# functions they call, and use the theorems for the code of those.
+MLKEM_NATIVE2_IMAGE_PROOF = mlkem_native2/mlkem_native2_image.elf \
+                            proofs/mlkem_native2_image.ml \
+                            proofs/utils/mlkem_native_image.ml
+MLKEM_NATIVE2_SPONGE_PROOF = proofs/utils/mlkem_native2_sponge.ml \
+                             proofs/utils/keccak_fips202.ml \
+                             sha3/sha3_keccak_f1600.o
+mlkem_native2/mlkem_hash_g.native: $(MLKEM_NATIVE2_IMAGE_PROOF) \
+                                   $(MLKEM_NATIVE2_SPONGE_PROOF)
+mlkem_native2/mlkem_hash_h.native: $(MLKEM_NATIVE2_IMAGE_PROOF) \
+                                   $(MLKEM_NATIVE2_SPONGE_PROOF)
+
 # Tutorial
 
 # safety tutorial does not have safety.o and uses existing ones
@@ -673,6 +686,13 @@ run_proofs: build_proofs $(PROOF_LOGS);
 
 proofs: run_proofs ; ../tools/count-proofs.sh .
 tutorial: build_tutorial $(TUTORIAL_PROOF_LOGS);
+
+# The proofs of the mlkem_native2 functions, which are not in OBJ
+
+MLKEM_NATIVE2_PROOF_LOGS = mlkem_native2/mlkem_hash_g.correct \
+                           mlkem_native2/mlkem_hash_h.correct
+
+mlkem_native2_proofs: $(MLKEM_NATIVE2_PROOF_LOGS);
 
 # Always run sematest regardless of dependency check
 FORCE: ;

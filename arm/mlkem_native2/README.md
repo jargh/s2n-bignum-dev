@@ -12,8 +12,9 @@ for all three parameter sets:
     int mlkemL_check_sk(const uint8_t *sk)
 
 for L = 512, 768, 1024, with the same results as mlkem-native's (return
-values included). It is written in the style of s2n-bignum, with a view
-to proofs in HOL Light, which are not done yet. The randomized
+values included). It is written in the style of s2n-bignum, with proofs
+in HOL Light, done so far for the hash functions `mlkem_hash_h` and
+`mlkem_hash_g` (see Proofs below) and for all the new leaves. The randomized
 `mlkemL_keypair` and `mlkemL_enc` are not here, since they need a source
 of randomness: as in mlkem-native, they get 64 or 32 random bytes, call
 the deterministic function and zero the bytes.
@@ -70,6 +71,28 @@ all of them at each level), `mlkem_mulcache_compute`, `mlkem_reduce` and
 `sha3_keccak4_f1600_alt2` in `../sha3`. Every entry point has a BTI
 landing pad (`AARCH64_VALID_CALL_TARGET`). The variants of the
 directives for Apple platforms are there but have not been tried.
+
+## Proofs
+
+The functions here call others, so their proofs are about the image of
+all the functions involved: the objects in `MLKEM_NATIVE2_IMAGE_OBJ` of
+`../Makefile`, linked at address 0 by `mlkem_native2_image.ld` into
+`mlkem_native2_image.elf` (`make mlkem_native2/mlkem_native2_image.elf`
+in `arm`, with GNU ld, or `aarch64-linux-gnu-ld` when cross-assembling).
+`../proofs/mlkem_native2_image.ml` reads it as one byte list and installs
+the names of its symbols as in `../../common/layout.ml`, so that a proof
+refers to the function f or the label f in the image as `pc + f`; the
+theorems for the leaves and the Keccak permutations, about their own
+code, are used for the same code in the image. The theorems are thus for
+this layout of the image, and are checked again when it changes.
+
+`make mlkem_native2_proofs` in `arm` runs the proofs done so far:
+
+- `mlkem_hash_h` (SHA3-256) and `mlkem_hash_g` (SHA3-512), against
+  `sha3_256` and `sha3_512` of `../../common/fips202.ml`, with their
+  constant-time and memory safety (`../proofs/mlkem_hash_h.ml`,
+  `../proofs/mlkem_hash_g.ml`, and `../proofs/utils/mlkem_native2_sponge.ml`
+  for the sponge and the use of `sha3_keccak_f1600`).
 
 ## Where the speed comes from
 
