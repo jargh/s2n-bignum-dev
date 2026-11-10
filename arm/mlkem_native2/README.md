@@ -93,6 +93,11 @@ this layout of the image, and are checked again when it changes.
   constant-time and memory safety (`../proofs/mlkem_hash_h.ml`,
   `../proofs/mlkem_hash_g.ml`, and `../proofs/utils/mlkem_native2_sponge.ml`
   for the sponge and the use of `sha3_keccak_f1600`).
+- The key checks `mlkemL_check_pk` and `mlkemL_check_sk` for the three
+  parameter sets, with the same statements as the proofs of mlkem-native's
+  compiled C, and their constant-time and memory safety
+  (`../proofs/mlkem512.ml`, `mlkem768.ml` and `mlkem1024.ml`, with the
+  common parts in `../proofs/utils/mlkem_native2_api.ml`).
 
 ## Where the speed comes from
 
