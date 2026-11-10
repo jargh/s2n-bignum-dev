@@ -647,6 +647,14 @@ MLKEM_NATIVE2_API_PROOF = $(MLKEM_NATIVE2_IMAGE_PROOF) \
 mlkem_native2/mlkem512.native: $(MLKEM_NATIVE2_API_PROOF)
 mlkem_native2/mlkem768.native: $(MLKEM_NATIVE2_API_PROOF)
 mlkem_native2/mlkem1024.native: $(MLKEM_NATIVE2_API_PROOF)
+MLKEM_NATIVE2_NOISE_PROOF = $(MLKEM_NATIVE2_IMAGE_PROOF) \
+                            $(MLKEM_NATIVE2_SPONGE_PROOF) \
+                            proofs/utils/mlkem_native2_noise.ml \
+                            proofs/mlkem_cbd2.ml mlkem/mlkem_cbd2.o \
+                            proofs/mlkem_cbd3.ml mlkem/mlkem_cbd3.o \
+                            proofs/sha3_keccak4_f1600_alt2.ml \
+                            sha3/sha3_keccak4_f1600_alt2.o
+mlkem_native2/mlkem_getnoise.native: $(MLKEM_NATIVE2_NOISE_PROOF)
 
 # Tutorial
 
@@ -698,7 +706,8 @@ tutorial: build_tutorial $(TUTORIAL_PROOF_LOGS);
 
 # The proofs of the mlkem_native2 functions, which are not in OBJ
 
-MLKEM_NATIVE2_PROOF_LOGS = mlkem_native2/mlkem_hash_g.correct \
+MLKEM_NATIVE2_PROOF_LOGS = mlkem_native2/mlkem_getnoise.correct \
+                           mlkem_native2/mlkem_hash_g.correct \
                            mlkem_native2/mlkem_hash_h.correct \
                            mlkem_native2/mlkem512.correct \
                            mlkem_native2/mlkem768.correct \

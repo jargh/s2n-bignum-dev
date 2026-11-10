@@ -13,11 +13,11 @@ for all three parameter sets:
 
 for L = 512, 768, 1024, with the same results as mlkem-native's (return
 values included). It is written in the style of s2n-bignum, with proofs
-in HOL Light, done so far for the hash functions `mlkem_hash_h` and
-`mlkem_hash_g` (see Proofs below) and for all the new leaves. The randomized
-`mlkemL_keypair` and `mlkemL_enc` are not here, since they need a source
-of randomness: as in mlkem-native, they get 64 or 32 random bytes, call
-the deterministic function and zero the bytes.
+in HOL Light, done so far for all the new leaves and for the functions
+listed under Proofs below. The randomized `mlkemL_keypair` and
+`mlkemL_enc` are not here, since they need a source of randomness: as in
+mlkem-native, they get 64 or 32 random bytes, call the deterministic
+function and zero the bytes.
 
 ## Structure
 
@@ -93,6 +93,13 @@ this layout of the image, and are checked again when it changes.
   constant-time and memory safety (`../proofs/mlkem_hash_h.ml`,
   `../proofs/mlkem_hash_g.ml`, and `../proofs/utils/mlkem_native2_sponge.ml`
   for the sponge and the use of `sha3_keccak_f1600`).
+- `mlkem_getnoise` for the configurations of n polynomials that the API
+  uses (n = 4, 7, 8, 9 with eta1 = 2, and the first 4 of 4 or 2 of 5 with
+  eta1 = 3), against `mlkem_prf` and the coefficients of `mlkem_cbd`, with
+  its constant-time and memory safety (`../proofs/mlkem_getnoise.ml`, and
+  `../proofs/utils/mlkem_native2_noise.ml` for the PRF as the state of a
+  lane, the callees, and a simulation driver for code whose control flow
+  is fixed by its parameters).
 - The key checks `mlkemL_check_pk` and `mlkemL_check_sk` for the three
   parameter sets, with the same statements as the proofs of mlkem-native's
   compiled C, and their constant-time and memory safety
