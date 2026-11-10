@@ -81,6 +81,17 @@
 #define ERR_INVALID_PK -4
 #define ERR_INVALID_SK -5
 
+// The flags of mlkem_gen_matrix: the matrix transposed, hash jobs given,
+// and a noise job given (used when eta1 = 2)
+
+#define GM_TRANSPOSED 1
+#define GM_JOBS 2
+#if ETA1 == 2
+#define GM_NOISE 4
+#else
+#define GM_NOISE 0
+#endif
+
 // Names: FN(f) is mlkemL_f, and the kernels for this K and du, dv
 
 #define CAT2(a, b) a##b
@@ -406,7 +417,7 @@ S2N_BN_SYMBOL(FN(keypair_derand)):
         fadd    x0, KP_A
         fadd    x1, KP_G
         mov     x2, #K
-        mov     x3, #0
+        mov     x3, #GM_NOISE
         mov     x4, #0
         mov     x6, x28
         bl      mlkem_gen_matrix
@@ -659,6 +670,7 @@ S2N_BN_SYMBOL(FN(enc_derand)):
         mov     x3, x28
         bl      mlkem_hash_h
         mov     x4, #0
+#define EN_GM_FLAGS GM_TRANSPOSED
 #else
         fadd    x4, EN_JOBS
         stp     xzr, xzr, [x4]
@@ -668,11 +680,12 @@ S2N_BN_SYMBOL(FN(enc_derand)):
         mov     x0, #0x06
         fadd    x1, (EN_GIN + 32)
         stp     x0, x1, [x4, #48]
+#define EN_GM_FLAGS (GM_TRANSPOSED + GM_JOBS)
 #endif
         fadd    x0, EN_AT
         add     x1, x21, #VECBYTES
         mov     x2, #K
-        mov     x3, #1
+        mov     x3, #EN_GM_FLAGS
         mov     x5, #0
         mov     x6, x28
         bl      mlkem_gen_matrix
@@ -880,7 +893,7 @@ FN(dec_copyct):
         fadd    x0, DE_AT
         add     x1, x21, #(2 * VECBYTES)
         mov     x2, #K
-        mov     x3, #1
+        mov     x3, #(GM_TRANSPOSED + GM_JOBS + GM_NOISE)
         mov     x6, x28
         bl      mlkem_gen_matrix
 #if ETA1 != 2

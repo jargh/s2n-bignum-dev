@@ -533,6 +533,12 @@ mlkem_native2/mlkem_native2_image.elf: $(MLKEM_NATIVE2_IMAGE_OBJ) \
 	$(LINK) --no-relax -e 0 -T mlkem_native2/mlkem_native2_image.ld \
 	  -o $@ $(MLKEM_NATIVE2_IMAGE_OBJ)
 
+# The code of the API is in the template that the files for the parameter
+# sets include
+
+mlkem_native2/mlkem512.o mlkem_native2/mlkem768.o \
+mlkem_native2/mlkem1024.o: mlkem_native2/mlkem_kem_template.S
+
 clean:; rm -f libs2nbignum.a */*.o */*/*.o */*.correct */*.native \
               mlkem_native2/*.elf
 

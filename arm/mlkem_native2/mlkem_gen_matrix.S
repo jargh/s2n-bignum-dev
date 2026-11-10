@@ -3,29 +3,33 @@
 
 // ----------------------------------------------------------------------------
 // Generate the ML-KEM matrix, hashing messages and sampling noise on the side
-// Inputs rho[32], k, transposed, jobs[2], noise, c; outputs a[256*k*k], the
-// hash digests and the noise polynomials
+// Inputs rho[32], k, flags, jobs[2], noise, c; outputs a[256*k*k], the hash
+// digests and the noise polynomials
 //
 // For 0 <= i, j < k, the polynomial a[i][j] = a[256 * (k * i + j) ...] is
-// set to SampleNTT(rho || j || i) as in FIPS 203 (Algorithm 7), or if
-// transposed is nonzero SampleNTT(rho || i || j): the rejection sampling of
-// 12-bit fields < 3329 from the output of SHAKE128 of the 34-byte seed.
-// This is mlkem-native's mlk_gen_matrix (which matches the order of the
-// coefficients in the native NTT). The parameter k is 2, 3 or 4.
+// set to SampleNTT(rho || j || i) as in FIPS 203 (Algorithm 7), or if bit 0
+// of flags is set (transposed) SampleNTT(rho || i || j): the rejection
+// sampling of 12-bit fields < 3329 from the output of SHAKE128 of the
+// 34-byte seed. This is mlkem-native's mlk_gen_matrix (which matches the
+// order of the coefficients in the native NTT). The parameter k is 2, 3 or
+// 4.
 //
-// Each job in jobs[0..1] (which may be NULL) with a nonzero msg is a hash
-// to compute at the same time: its 32-byte digest is the first 32 bytes
-// of the output of the sponge with rate 136 of the len bytes at msg with
-// the domain byte ds, i.e. SHA3-256 for ds = 0x06 and SHAKE256 (to 32
+// If bit 1 of flags is set, each job in jobs[0..1] with a nonzero ds is a
+// hash to compute at the same time: its 32-byte digest is the first 32
+// bytes of the output of the sponge with rate 136 of the len bytes at msg
+// with the domain byte ds, i.e. SHA3-256 for ds = 0x06 and SHAKE256 (to 32
 // bytes) for ds = 0x1f, and is written to out. The length len must be a
 // multiple of 8. The hashes run in lanes 2 and 3 of the x4 permutation
 // while the matrix polynomials take the others.
 //
-// If noise is not NULL, then also for 0 <= i < n the polynomial
-// out[256 * i ...] is set to SamplePolyCBD_2(PRF_2(sigma, nonce0 + i)),
-// as by mlkem_getnoise (with nonce0 + n at most 256): these are sampled in
-// lanes left idle by the matrix, and any left over at the end by calling
-// mlkem_getnoise.
+// If bit 2 of flags is set, then also for 0 <= i < n the polynomial
+// out[256 * i ...] of the noise job is set to
+// SamplePolyCBD_2(PRF_2(sigma, nonce0 + i)), as by mlkem_getnoise (with
+// nonce0 + n at most 256): these are sampled in lanes left idle by the
+// matrix, and any left over at the end by calling mlkem_getnoise.
+//
+// The jobs and the noise job are read only when their bits are set, and no
+// address is compared with NULL, so any addresses work.
 //
 // The time taken depends only on k, the jobs' lengths, the number of noise
 // polynomials and the matrix (and so on rho), all public; the message
@@ -38,12 +42,12 @@
 // typedef struct {const uint8_t *sigma; uint64_t nonce0, n; int16_t *out;}
 //         mlkem_noise_job;
 // extern void mlkem_gen_matrix(int16_t *a, const uint8_t rho[32],
-//                              uint64_t k, uint64_t transposed,
+//                              uint64_t k, uint64_t flags,
 //                              const mlkem_hash_job jobs[2],
 //                              const mlkem_noise_job *noise,
 //                              const mlkem_native2_consts *c);
 //
-// Standard ARM ABI: X0 = a, X1 = rho, X2 = k, X3 = transposed, X4 = jobs,
+// Standard ARM ABI: X0 = a, X1 = rho, X2 = k, X3 = flags, X4 = jobs,
 // X5 = noise, X6 = c (the constants block: rc and rej_uniform_table are
 // used)
 // ----------------------------------------------------------------------------
@@ -59,12 +63,12 @@
 
 // The stack frame: the saved registers, the x4 Keccak state (four
 // 200-byte lanes), the three-block output buffers of the four lanes, the
-// working copies of the two hash jobs (p = next message byte or 0 when
-// inactive, r = bytes left or -1 after the final block, ds, out) and of
-// the noise job (sigma, nonce0, n, out and next, the number started), the
-// noise polynomial of each lane (-1 if none), the transposed flag, the
-// flags of the current pass, the multiplier for division by k and the
-// count of a polynomial in the rare case of more blocks.
+// working copies of the two hash jobs (p = next message byte, r = bytes
+// left or -1 after the final block, ds or 0 when inactive, out) and of the
+// noise job (sigma, nonce0, n, out and next, the number started), the
+// noise polynomial of each lane (-1 if none), the flags argument (bit 0 is
+// transposed), the flags of the current pass, the multiplier for division
+// by k and the count of a polynomial in the rare case of more blocks.
 
 #define SAVE 0
 #define ST 96
@@ -138,7 +142,7 @@
         lsr     x3, x3, #5
         msub    x4, x3, k, \e
         ldr     x5, [sp, #TRANSP]
-        cmp     x5, #0
+        tst     x5, #1
         csel    x5, x3, x4, ne
         csel    x6, x4, x3, ne
         orr     x5, x5, x6, lsl #8
@@ -183,14 +187,16 @@
         .endm
 
 // absorbjob j: absorb the next block of hash job j (0 or 1, a number) into
-// its lane (2 or 3), if the job is active and not finished: 136 message
-// bytes, or the r < 136 that remain and the padding (the domain byte at r
-// and 0x80 at 135), setting r = -1 to mark the final block.
+// its lane (2 or 3), if the job is active (ds is nonzero) and not finished:
+// 136 message bytes, or the r < 136 that remain and the padding (the
+// domain byte ds at r and 0x80 at 135), setting r = -1 to mark the final
+// block.
 
         .macro absorbjob j
         add     x9, sp, #(JOBS+32*\j)
         ldp     x10, x11, [x9]
-        cbz     x10, 9f
+        ldr     x8, [x9, #16]
+        cbz     x8, 9f
         tbnz    x11, #63, 9f
         add     x12, sp, #(ST+LANEBYTES*(2+\j))
         mov     x13, #SHAKE256_RATE
@@ -208,9 +214,8 @@
 2:
         cmp     x11, x13
         bcs     3f
-        ldr     x2, [x9, #16]
         ldrb    w3, [x12, x11]
-        eor     w3, w3, w2
+        eor     w3, w3, w8
         strb    w3, [x12, x11]
         ldrb    w3, [x12, #(SHAKE256_RATE-1)]
         eor     w3, w3, #0x80
@@ -225,18 +230,19 @@
         .endm
 
 // finishjob j: if hash job j has absorbed its final block (and so just been
-// permuted), copy the 32-byte digest from its lane and make it inactive.
+// permuted), copy the 32-byte digest from its lane and make it inactive
+// (ds = 0).
 
         .macro finishjob j
         add     x9, sp, #(JOBS+32*\j)
-        ldp     x10, x11, [x9]
+        ldp     x11, x10, [x9, #8]
         cbz     x10, 9f
         tbz     x11, #63, 9f
         ldr     x13, [x9, #24]
         add     x12, sp, #(ST+LANEBYTES*(2+\j))
         ldp     q0, q1, [x12]
         stp     q0, q1, [x13]
-        str     xzr, [x9]
+        str     xzr, [x9, #16]
 9:
         .endm
 
@@ -322,28 +328,30 @@ S2N_BN_SYMBOL(mlkem_gen_matrix):
         mul     kk, k, k
         mov     idx, #0
 
-// Copy the noise job, with next = 0, or make it empty (n = 0)
+// Copy the noise job (bit 2 of the flags), with next = 0, or make it empty
+// (n = 0)
 
         add     x6, sp, #NOISE
         stp     xzr, xzr, [x6, #16]
         str     xzr, [x6, #32]
-        cbz     x5, mlkem_gen_matrix_nonoise
+        tbz     x3, #2, mlkem_gen_matrix_nonoise
         ldp     q0, q1, [x5]
         stp     q0, q1, [x6]
 mlkem_gen_matrix_nonoise:
 
-// Copy the hash jobs, or make them inactive, and zero their lanes 2 and 3
+// Copy the hash jobs (bit 1), or make them inactive (ds = 0), and zero
+// their lanes 2 and 3
 
         add     x6, sp, #JOBS
-        cbz     x4, mlkem_gen_matrix_nojobs
+        tbz     x3, #1, mlkem_gen_matrix_nojobs
         ldp     q0, q1, [x4]
         ldp     q2, q3, [x4, #32]
         stp     q0, q1, [x6]
         stp     q2, q3, [x6, #32]
         b       mlkem_gen_matrix_jobsdone
 mlkem_gen_matrix_nojobs:
-        str     xzr, [x6]
-        str     xzr, [x6, #32]
+        str     xzr, [x6, #16]
+        str     xzr, [x6, #48]
 mlkem_gen_matrix_jobsdone:
         zerolanes (2*LANEBYTES), (2*LANEBYTES)
 
@@ -360,11 +368,11 @@ mlkem_gen_matrix_outer:
         cmp     idx, kk
         bcs     mlkem_gen_matrix_hashtail
         mov     nmat, #4
-        ldr     x0, [sp, #(JOBS+32)]
+        ldr     x0, [sp, #(JOBS+48)]
         cmp     x0, #0
         mov     x1, #3
         csel    nmat, x1, nmat, ne
-        ldr     x0, [sp, #JOBS]
+        ldr     x0, [sp, #(JOBS+16)]
         cmp     x0, #0
         mov     x1, #2
         csel    nmat, x1, nmat, ne
@@ -397,8 +405,8 @@ mlkem_gen_matrix_initloop:
 // is decided once for the pass, the flags being kept in the frame
 // (bit 0: hash jobs active, bit 1: idle lanes and noise left).
 
-        ldr     x0, [sp, #JOBS]
-        ldr     x1, [sp, #(JOBS+32)]
+        ldr     x0, [sp, #(JOBS+16)]
+        ldr     x1, [sp, #(JOBS+48)]
         orr     x0, x0, x1
         cmp     x0, #0
         cset    x2, ne
@@ -526,8 +534,8 @@ mlkem_gen_matrix_x1loop:
 // by ML-KEM, where the jobs finish with the matrix)
 
 mlkem_gen_matrix_hashtail:
-        ldr     x0, [sp, #JOBS]
-        ldr     x1, [sp, #(JOBS+32)]
+        ldr     x0, [sp, #(JOBS+16)]
+        ldr     x1, [sp, #(JOBS+48)]
         orr     x0, x0, x1
         cbz     x0, mlkem_gen_matrix_noisetail
         absorbjob 0

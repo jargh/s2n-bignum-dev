@@ -10,7 +10,9 @@
  *  - mlkem_gen_matrix, for k = 2, 3, 4, transposed or not, with no jobs,
  *    one or two hash jobs (SHA3-256 and SHAKE256, the lengths of ML-KEM's
  *    H(pk) and J(z || c) and others), against ref{512,768,1024}_gen_matrix
- *    and ref_sha3_256 / ref_shake256.
+ *    and ref_sha3_256 / ref_shake256; jobs and noise not given are NULL,
+ *    which must not be read, and inactive jobs (ds = 0) have a message and
+ *    an output, which must not be written.
  *
  * Outputs sit between guard bytes, inputs must be unchanged.
  *
@@ -39,7 +41,7 @@ typedef struct
 } mlkem_noise_job;
 
 void mlkem_gen_matrix(int16_t *a, const uint8_t rho[32], uint64_t k,
-                      uint64_t transposed, const mlkem_hash_job jobs[2],
+                      uint64_t flags, const mlkem_hash_job jobs[2],
                       const mlkem_noise_job *noise,
                       const mlkem_native2_consts *c);
 
@@ -134,10 +136,10 @@ static int test_gen_matrix(unsigned long it)
     memcpy(copy[j], msg[j], len[j]);
     memset(gd[j], FILL, sizeof(gd[j]));
   }
-  if (mode == 1 || mode == 2)
-    jobs[1] = (mlkem_hash_job){msg[1], len[1], 0x06, gd[1] + GUARD};
-  if (mode == 2 || mode == 3)
-    jobs[0] = (mlkem_hash_job){msg[0], len[0], 0x1f, gd[0] + GUARD};
+  for (int j = 0; j < 2; j++)
+    jobs[j] = (mlkem_hash_job){msg[j], len[j], 0, gd[j] + GUARD};
+  if (mode == 1 || mode == 2) jobs[1].ds = 0x06;
+  if (mode == 2 || mode == 3) jobs[0].ds = 0x1f;
 
   /* A noise job in half the tests: 0 to 9 polynomials of eta = 2 */
   static uint8_t gn[GUARD + 9 * 512 + GUARD];
@@ -149,8 +151,11 @@ static int test_gen_matrix(unsigned long it)
   randfill(sigma, 32);
   memset(gn, FILL, sizeof(gn));
   memset(ga, FILL, sizeof(ga));
-  mlkem_gen_matrix((int16_t *)(ga + GUARD), rho, k, transposed,
-                   mode ? jobs : NULL, nn || it % 48 == 0 ? &noise : NULL,
+  /* The flags: bit 0 transposed, bit 1 jobs given, bit 2 noise given */
+  int given = nn || it % 48 == 0;
+  mlkem_gen_matrix((int16_t *)(ga + GUARD), rho, k,
+                   transposed | (mode ? 2 : 0) | (given ? 4 : 0),
+                   mode ? jobs : NULL, given ? &noise : NULL,
                    &mlkem_native2_constants);
   for (unsigned i = 0; i < nn; i++)
   {
@@ -168,12 +173,12 @@ static int test_gen_matrix(unsigned long it)
   checks++;
   if (memcmp(rho, rho2, 32) != 0)
     printf("FAIL mlkem_gen_matrix iteration %lu: rho modified\n", it), bad = 1;
-  if (jobs[1].msg)
+  if (jobs[1].ds)
   {
     ref_sha3_256(wantd[1], msg[1], len[1]);
     bad |= guarded_same("mlkem_gen_matrix (job 1)", gd[1], wantd[1], 32, it);
   }
-  if (jobs[0].msg)
+  if (jobs[0].ds)
   {
     ref_shake256(wantd[0], 32, msg[0], len[0]);
     bad |= guarded_same("mlkem_gen_matrix (job 0)", gd[0], wantd[0], 32, it);
@@ -184,7 +189,7 @@ static int test_gen_matrix(unsigned long it)
     if (memcmp(msg[j], copy[j], len[j]) != 0)
       printf("FAIL mlkem_gen_matrix iteration %lu: message modified\n", it),
           bad = 1;
-    if (!jobs[j].msg)
+    if (!jobs[j].ds)
       for (size_t i = 0; i < sizeof(gd[j]); i++)
         if (gd[j][i] != FILL)
         {
