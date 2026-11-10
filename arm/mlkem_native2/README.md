@@ -93,6 +93,16 @@ this layout of the image, and are checked again when it changes.
   constant-time and memory safety (`../proofs/mlkem_hash_h.ml`,
   `../proofs/mlkem_hash_g.ml`, and `../proofs/utils/mlkem_native2_sponge.ml`
   for the sponge and the use of `sha3_keccak_f1600`).
+- `mlkem_gen_matrix` for the nine configurations that the API uses (k = 2,
+  3, 4 in key generation, encapsulation and decapsulation, with their hash
+  jobs and noise), against `mlkem_sample_ntt`, `sha3_256`, `shake256` and
+  the coefficients of `mlkem_cbd` (`../proofs/mlkem_gen_matrix.ml`, and
+  `../proofs/utils/mlkem_native2_matrix.ml` for SampleNTT as the rejection
+  sampling of whole blocks of SHAKE128 output, the seeds and the hash jobs
+  as states of lanes, and the sponge by blocks, with the lemmas on FIPS 203
+  of the proofs of mlkem-native's compiled C in
+  `../proofs/utils/mlkem_native_fips203.ml`). Its constant-time and memory
+  safety are still to come.
 - `mlkem_getnoise` for the configurations of n polynomials that the API
   uses (n = 4, 7, 8, 9 with eta1 = 2, and the first 4 of 4 or 2 of 5 with
   eta1 = 3), against `mlkem_prf` and the coefficients of `mlkem_cbd`, with

@@ -661,6 +661,14 @@ MLKEM_NATIVE2_NOISE_PROOF = $(MLKEM_NATIVE2_IMAGE_PROOF) \
                             proofs/sha3_keccak4_f1600_alt2.ml \
                             sha3/sha3_keccak4_f1600_alt2.o
 mlkem_native2/mlkem_getnoise.native: $(MLKEM_NATIVE2_NOISE_PROOF)
+MLKEM_NATIVE2_MATRIX_PROOF = $(MLKEM_NATIVE2_NOISE_PROOF) \
+                             proofs/utils/mlkem_native_fips203.ml \
+                             proofs/utils/mlkem_native2_matrix.ml \
+                             proofs/mlkem_rej_uniform_alt_VARIABLE_TIME.ml \
+                             mlkem/mlkem_rej_uniform_alt_VARIABLE_TIME.o \
+                             proofs/mlkem_getnoise.ml \
+                             mlkem_native2/mlkem_getnoise.o
+mlkem_native2/mlkem_gen_matrix.native: $(MLKEM_NATIVE2_MATRIX_PROOF)
 
 # Tutorial
 
@@ -712,7 +720,8 @@ tutorial: build_tutorial $(TUTORIAL_PROOF_LOGS);
 
 # The proofs of the mlkem_native2 functions, which are not in OBJ
 
-MLKEM_NATIVE2_PROOF_LOGS = mlkem_native2/mlkem_getnoise.correct \
+MLKEM_NATIVE2_PROOF_LOGS = mlkem_native2/mlkem_gen_matrix.correct \
+                           mlkem_native2/mlkem_getnoise.correct \
                            mlkem_native2/mlkem_hash_g.correct \
                            mlkem_native2/mlkem_hash_h.correct \
                            mlkem_native2/mlkem512.correct \
