@@ -110,11 +110,21 @@ this layout of the image, and are checked again when it changes.
   `../proofs/utils/mlkem_native2_noise.ml` for the PRF as the state of a
   lane, the callees, and a simulation driver for code whose control flow
   is fixed by its parameters).
-- The key checks `mlkemL_check_pk` and `mlkemL_check_sk` for the three
-  parameter sets, with the same statements as the proofs of mlkem-native's
-  compiled C, and their constant-time and memory safety
-  (`../proofs/mlkem512.ml`, `mlkem768.ml` and `mlkem1024.ml`, with the
-  common parts in `../proofs/utils/mlkem_native2_api.ml`).
+- The API functions for the three parameter sets, with the same statements
+  as the proofs of mlkem-native's compiled C: the key checks
+  `mlkemL_check_pk` and `mlkemL_check_sk`, with their constant-time and
+  memory safety, and `mlkemL_keypair_derand`, `mlkemL_enc_derand` and
+  `mlkemL_dec` against ML-KEM.KeyGen_internal, Encaps_internal (after the
+  modulus check) and Decaps_internal (after the hash check), with the
+  internal `mlkemL_pke_encrypt` and `mlkemL_pke_decrypt` against
+  K-PKE.Encrypt and K-PKE.Decrypt (`../proofs/mlkem512.ml`, `mlkem768.ml`
+  and `mlkem1024.ml`, with the common parts in
+  `../proofs/utils/mlkem_native2_api.ml` and
+  `../proofs/utils/mlkem_native2_kem.ml`, and the lemmas on K-PKE of the
+  proofs of mlkem-native's compiled C in
+  `../proofs/utils/mlkem_native2_kpke.ml`). The constant-time and memory
+  safety of key generation, encapsulation and decapsulation are still to
+  come.
 
 ## Where the speed comes from
 

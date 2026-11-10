@@ -650,9 +650,6 @@ MLKEM_NATIVE2_API_PROOF = $(MLKEM_NATIVE2_IMAGE_PROOF) \
                           proofs/mlkem_hash_h.ml \
                           proofs/mlkem_check_encoding.ml \
                           mlkem/mlkem_check_encoding.o
-mlkem_native2/mlkem512.native: $(MLKEM_NATIVE2_API_PROOF)
-mlkem_native2/mlkem768.native: $(MLKEM_NATIVE2_API_PROOF)
-mlkem_native2/mlkem1024.native: $(MLKEM_NATIVE2_API_PROOF)
 MLKEM_NATIVE2_NOISE_PROOF = $(MLKEM_NATIVE2_IMAGE_PROOF) \
                             $(MLKEM_NATIVE2_SPONGE_PROOF) \
                             proofs/utils/mlkem_native2_noise.ml \
@@ -669,6 +666,52 @@ MLKEM_NATIVE2_MATRIX_PROOF = $(MLKEM_NATIVE2_NOISE_PROOF) \
                              proofs/mlkem_getnoise.ml \
                              mlkem_native2/mlkem_getnoise.o
 mlkem_native2/mlkem_gen_matrix.native: $(MLKEM_NATIVE2_MATRIX_PROOF)
+MLKEM_NATIVE2_KEM_PROOF = $(MLKEM_NATIVE2_API_PROOF) \
+                          $(MLKEM_NATIVE2_MATRIX_PROOF) \
+                          proofs/utils/mlkem_native2_kpke.ml \
+                          proofs/utils/mlkem_native2_kem.ml \
+                          proofs/utils/mlkem_bytes.ml \
+                          proofs/mlkem_hash_g.ml mlkem_native2/mlkem_hash_g.o \
+                          proofs/mlkem_gen_matrix.ml \
+                          mlkem_native2/mlkem_gen_matrix.o \
+                          proofs/mlkem_ntt_alt.ml mlkem/mlkem_ntt_alt.o \
+                          proofs/mlkem_intt_alt.ml mlkem/mlkem_intt_alt.o \
+                          proofs/mlkem_mulcache_compute.ml \
+                          mlkem/mlkem_mulcache_compute.o \
+                          proofs/mlkem_basemul_k2_alt.ml \
+                          mlkem/mlkem_basemul_k2_alt.o \
+                          proofs/mlkem_basemul_k3_alt.ml \
+                          mlkem/mlkem_basemul_k3_alt.o \
+                          proofs/mlkem_basemul_k4_alt.ml \
+                          mlkem/mlkem_basemul_k4_alt.o \
+                          proofs/mlkem_tomont.ml mlkem/mlkem_tomont.o \
+                          proofs/mlkem_reduce.ml mlkem/mlkem_reduce.o \
+                          proofs/mlkem_add_reduce.ml mlkem/mlkem_add_reduce.o \
+                          proofs/mlkem_sub_reduce.ml mlkem/mlkem_sub_reduce.o \
+                          proofs/mlkem_tobytes_alt.ml \
+                          mlkem/mlkem_tobytes_alt.o \
+                          proofs/mlkem_frombytes.ml mlkem/mlkem_frombytes.o \
+                          proofs/mlkem_frommsg.ml mlkem/mlkem_frommsg.o \
+                          proofs/mlkem_tomsg.ml mlkem/mlkem_tomsg.o \
+                          proofs/mlkem_compress_d4.ml \
+                          mlkem/mlkem_compress_d4.o \
+                          proofs/mlkem_compress_d5.ml \
+                          mlkem/mlkem_compress_d5.o \
+                          proofs/mlkem_compress_d10.ml \
+                          mlkem/mlkem_compress_d10.o \
+                          proofs/mlkem_compress_d11.ml \
+                          mlkem/mlkem_compress_d11.o \
+                          proofs/mlkem_decompress_d4.ml \
+                          mlkem/mlkem_decompress_d4.o \
+                          proofs/mlkem_decompress_d5.ml \
+                          mlkem/mlkem_decompress_d5.o \
+                          proofs/mlkem_decompress_d10.ml \
+                          mlkem/mlkem_decompress_d10.o \
+                          proofs/mlkem_decompress_d11.ml \
+                          mlkem/mlkem_decompress_d11.o
+mlkem_native2/mlkem512.native: $(MLKEM_NATIVE2_KEM_PROOF)
+mlkem_native2/mlkem768.native: $(MLKEM_NATIVE2_KEM_PROOF)
+mlkem_native2/mlkem1024.native: $(MLKEM_NATIVE2_KEM_PROOF)
 
 # Tutorial
 
