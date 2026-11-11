@@ -13,11 +13,11 @@ for all three parameter sets:
 
 for L = 512, 768, 1024, with the same results as mlkem-native's (return
 values included). It is written in the style of s2n-bignum, with proofs
-in HOL Light, done so far for all the new leaves and for the functions
-listed under Proofs below. The randomized `mlkemL_keypair` and
-`mlkemL_enc` are not here, since they need a source of randomness: as in
-mlkem-native, they get 64 or 32 random bytes, call the deterministic
-function and zero the bytes.
+in HOL Light of the correctness and the constant-time and memory safety
+of all its functions: the new leaves, and those listed under Proofs
+below. The randomized `mlkemL_keypair` and `mlkemL_enc` are not here,
+since they need a source of randomness: as in mlkem-native, they get 64
+or 32 random bytes, call the deterministic function and zero the bytes.
 
 ## Structure
 
@@ -49,8 +49,8 @@ The work is in three layers.
    Besides the API functions it has `mlkemL_pke_encrypt` and
    `mlkemL_pke_decrypt`, shared by encapsulation and decapsulation.
 
-The functions of the upper layers call others (`bl`), so their proofs will
-be on the linked image of all the functions involved. The tables of
+The functions of the upper layers call others (`bl`), so their proofs are
+on the linked image of all the functions involved. The tables of
 constants (the zetas and the rejection sampling table taken unchanged
 from mlkem-native, and the Keccak round constants) are one read-only
 block, `mlkem_native2_constants` (`mlkem_native2_constants.S`, with the
@@ -86,7 +86,7 @@ theorems for the leaves and the Keccak permutations, about their own
 code, are used for the same code in the image. The theorems are thus for
 this layout of the image, and are checked again when it changes.
 
-`make mlkem_native2_proofs` in `arm` runs the proofs done so far:
+`make mlkem_native2_proofs` in `arm` runs the proofs:
 
 - `mlkem_hash_h` (SHA3-256) and `mlkem_hash_g` (SHA3-512), against
   `sha3_256` and `sha3_512` of `../../common/fips202.ml`, with their
@@ -127,14 +127,16 @@ this layout of the image, and are checked again when it changes.
   `mlkemL_dec` against ML-KEM.KeyGen_internal, Encaps_internal (after the
   modulus check) and Decaps_internal (after the hash check), with the
   internal `mlkemL_pke_encrypt` and `mlkemL_pke_decrypt` against
-  K-PKE.Encrypt and K-PKE.Decrypt (`../proofs/mlkem512.ml`, `mlkem768.ml`
-  and `mlkem1024.ml`, with the common parts in
-  `../proofs/utils/mlkem_native2_api.ml` and
-  `../proofs/utils/mlkem_native2_kem.ml`, and the lemmas on K-PKE of the
-  proofs of mlkem-native's compiled C in
-  `../proofs/utils/mlkem_native2_kpke.ml`). The constant-time and memory
-  safety of key generation, encapsulation and decapsulation are still to
-  come.
+  K-PKE.Encrypt and K-PKE.Decrypt, and the constant-time and memory safety
+  of these five, with the events a function of the addresses and of the
+  public data: rho in key generation, ek in encapsulation, and ek and its
+  hash in dk in decapsulation (`../proofs/mlkem512.ml`, `mlkem768.ml` and
+  `mlkem1024.ml`, with the common parts in
+  `../proofs/utils/mlkem_native2_api.ml`,
+  `../proofs/utils/mlkem_native2_kem.ml` and
+  `../proofs/utils/mlkem_native2_kem_safe.ml`, and the lemmas on K-PKE of
+  the proofs of mlkem-native's compiled C in
+  `../proofs/utils/mlkem_native2_kpke.ml`).
 
 ## Where the speed comes from
 

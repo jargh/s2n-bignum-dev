@@ -691,6 +691,9 @@ MLKEM_NATIVE2_KEM_PROOF = $(MLKEM_NATIVE2_API_PROOF) \
                           $(MLKEM_NATIVE2_MATRIX_PROOF) \
                           proofs/utils/mlkem_native2_kpke.ml \
                           proofs/utils/mlkem_native2_kem.ml \
+                          proofs/utils/mlkem_native2_safety.ml \
+                          proofs/utils/mlkem_native2_keccak_full.ml \
+                          proofs/utils/mlkem_native2_kem_safe.ml \
                           proofs/utils/mlkem_bytes.ml \
                           proofs/mlkem_hash_g.ml mlkem_native2/mlkem_hash_g.o \
                           proofs/mlkem_gen_matrix.ml \
@@ -730,9 +733,15 @@ MLKEM_NATIVE2_KEM_PROOF = $(MLKEM_NATIVE2_API_PROOF) \
                           mlkem/mlkem_decompress_d10.o \
                           proofs/mlkem_decompress_d11.ml \
                           mlkem/mlkem_decompress_d11.o
-mlkem_native2/mlkem512.native: $(MLKEM_NATIVE2_KEM_PROOF)
-mlkem_native2/mlkem768.native: $(MLKEM_NATIVE2_KEM_PROOF)
-mlkem_native2/mlkem1024.native: $(MLKEM_NATIVE2_KEM_PROOF)
+mlkem_native2/mlkem512.native: $(MLKEM_NATIVE2_KEM_PROOF) \
+                                $(MLKEM_NATIVE2_GM_SAFE_PROOF) \
+                                proofs/mlkem_gen_matrix_k2_safe.ml
+mlkem_native2/mlkem768.native: $(MLKEM_NATIVE2_KEM_PROOF) \
+                               $(MLKEM_NATIVE2_GM_SAFE_PROOF) \
+                               proofs/mlkem_gen_matrix_k3_safe.ml
+mlkem_native2/mlkem1024.native: $(MLKEM_NATIVE2_KEM_PROOF) \
+                                $(MLKEM_NATIVE2_GM_SAFE_PROOF) \
+                                proofs/mlkem_gen_matrix_k4_safe.ml
 
 # Tutorial
 

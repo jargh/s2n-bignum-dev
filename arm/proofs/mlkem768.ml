@@ -4,15 +4,17 @@
  *)
 
 (* ========================================================================= *)
-(* The API of ML-KEM-768 in mlkem_native2 (arm/mlkem_native2/mlkem768.S),    *)
-(* in the image: the key checks of FIPS 203 (section 7), the internal        *)
-(* functions for K-PKE encryption and decryption, and key generation,        *)
-(* encapsulation and decapsulation, with the results stated as in the        *)
-(* proofs of the compiled C of mlkem-native.                                 *)
+(* The API of ML-KEM-768 in mlkem_native2 (arm/mlkem_native2/mlkem768.S), in *)
+(* the image: the key checks of FIPS 203 (section 7), the internal functions *)
+(* for K-PKE encryption and decryption, and key generation, encapsulation    *)
+(* and decapsulation, with the results, and their constant-time and memory   *)
+(* safety, stated as in the proofs of the compiled C of mlkem-native.        *)
 (* ========================================================================= *)
 
 needs "arm/proofs/utils/mlkem_native2_api.ml";;
 needs "arm/proofs/utils/mlkem_native2_kem.ml";;
+needs "arm/proofs/utils/mlkem_native2_kem_safe.ml";;
+needs "arm/proofs/mlkem_gen_matrix_k3_safe.ml";;
 
 (* ------------------------------------------------------------------------- *)
 (* The modulus check of an encapsulation key pk: 0 if the 768 12-bit fields  *)
@@ -359,3 +361,238 @@ let MLKEM768_DEC_SUBROUTINE_CORRECT = prove
   MLKEM_NATIVE2_DEC_CORRECT_TAC 3 MLKEM768_DEC_EXEC
    (MLKEM768_PKE_DECRYPT_SUBROUTINE_CORRECT,
     MLKEM768_PKE_ENCRYPT_SUBROUTINE_CORRECT));;
+
+(* ------------------------------------------------------------------------- *)
+(* The constant-time and memory safety of the K-PKE encryption: the events   *)
+(* depend only on the addresses.                                             *)
+(* ------------------------------------------------------------------------- *)
+
+let MLKEM768_PKE_ENCRYPT_SUBROUTINE_SAFE = time prove
+ (`exists f_events.
+     forall e ct at pk mp noise pc stackpointer returnaddress.
+       aligned 4096 (word pc:int64) /\
+       pc + mlkem_native2_image_size <= 2 EXP 64 /\
+       aligned 16 stackpointer /\
+       PAIRWISE nonoverlapping
+        [(ct,1088); (noise,3584); (word_sub stackpointer (word 5024),5024)] /\
+       ALLPAIRS nonoverlapping
+        [(ct,1088); (noise,3584); (word_sub stackpointer (word 5024),5024)]
+        [(word pc,mlkem_native2_image_size); (at,4608); (pk,1184); (mp,32)]
+       ==> ensures arm
+            (\s. aligned_bytes_loaded s (word pc) mlkem_native2_image_mc /\
+                 read PC s = word(pc + mlkem768_pke_encrypt) /\
+                 read SP s = stackpointer /\
+                 read X30 s = returnaddress /\
+                 C_ARGUMENTS [ct; at; pk; mp; noise] s /\
+                 read events s = e)
+            (\s. read PC s = returnaddress /\
+                 (exists e2.
+                    read events s = APPEND e2 e /\
+                    e2 = f_events ct at pk mp noise pc
+                           (word_sub stackpointer (word 5024)) returnaddress /\
+                    memaccess_inbounds e2
+                     [ct,1088; at,4608; pk,1184; mp,32; noise,3584;
+                      word(pc + mlkem_native2_constants),6656;
+                      word_sub stackpointer (word 5024),5024]
+                     [ct,1088; noise,3584;
+                      word_sub stackpointer (word 5024),5024]))
+            (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+             MAYCHANGE [memory :> bytes(ct,1088); memory :> bytes(noise,3584);
+                        memory :> bytes(word_sub stackpointer (word 5024),
+                                        5024)])`,
+  MLKEM_NATIVE2_PKE_ENCRYPT_SAFE_TAC 3 MLKEM768_PKE_ENCRYPT_EXEC);;
+
+(* ------------------------------------------------------------------------- *)
+(* The constant-time and memory safety of the K-PKE decryption: the events   *)
+(* depend only on the addresses.                                             *)
+(* ------------------------------------------------------------------------- *)
+
+let MLKEM768_PKE_DECRYPT_SUBROUTINE_SAFE = time prove
+ (`exists f_events.
+     forall e mp ct sk pc stackpointer returnaddress.
+       aligned 4096 (word pc:int64) /\
+       pc + mlkem_native2_image_size <= 2 EXP 64 /\
+       aligned 16 stackpointer /\
+       PAIRWISE nonoverlapping
+        [(mp,32); (word_sub stackpointer (word 5024),5024)] /\
+       ALLPAIRS nonoverlapping
+        [(mp,32); (word_sub stackpointer (word 5024),5024)]
+        [(word pc,mlkem_native2_image_size); (ct,1088); (sk,1152)]
+       ==> ensures arm
+            (\s. aligned_bytes_loaded s (word pc) mlkem_native2_image_mc /\
+                 read PC s = word(pc + mlkem768_pke_decrypt) /\
+                 read SP s = stackpointer /\
+                 read X30 s = returnaddress /\
+                 C_ARGUMENTS [mp; ct; sk] s /\
+                 read events s = e)
+            (\s. read PC s = returnaddress /\
+                 (exists e2.
+                    read events s = APPEND e2 e /\
+                    e2 = f_events mp ct sk pc
+                           (word_sub stackpointer (word 5024)) returnaddress /\
+                    memaccess_inbounds e2
+                     [mp,32; ct,1088; sk,1152;
+                      word(pc + mlkem_native2_constants),6656;
+                      word_sub stackpointer (word 5024),5024]
+                     [mp,32; word_sub stackpointer (word 5024),5024]))
+            (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+             MAYCHANGE [memory :> bytes(mp,32);
+                        memory :> bytes(word_sub stackpointer (word 5024),
+                                        5024)])`,
+  MLKEM_NATIVE2_PKE_DECRYPT_SAFE_TAC 3 MLKEM768_PKE_DECRYPT_EXEC);;
+
+(* ------------------------------------------------------------------------- *)
+(* The constant-time and memory safety of key generation: the events depend  *)
+(* only on the addresses and on rho, which is public although computed from  *)
+(* d (rho is at the end of pk). As in the proofs of the compiled C, the      *)
+(* postcondition also gives rho in pk and the return value.                  *)
+(* ------------------------------------------------------------------------- *)
+
+let MLKEM768_KEYPAIR_DERAND_SUBROUTINE_SAFE = time prove
+ (`exists f_events.
+     forall e pk sk coins (d:byte list) pc stackpointer returnaddress.
+       aligned 4096 (word pc:int64) /\
+       pc + mlkem_native2_image_size <= 2 EXP 64 /\
+       aligned 16 stackpointer /\ LENGTH d = 32 /\
+       (!i j. i < 3 /\ j < 3
+              ==> mlkem_samplentt_terminates
+                   (APPEND (FST(mlkem_g(APPEND d [word 3])))
+                           [word j; word i])) /\
+       PAIRWISE nonoverlapping
+        [(pk,1184); (sk,2400); (word_sub stackpointer (word 13552),13552)] /\
+       ALLPAIRS nonoverlapping
+        [(pk,1184); (sk,2400); (word_sub stackpointer (word 13552),13552)]
+        [(coins,64); (word pc,mlkem_native2_image_size)]
+       ==> ensures arm
+            (\s. aligned_bytes_loaded s (word pc) mlkem_native2_image_mc /\
+                 read PC s = word(pc + mlkem768_keypair_derand) /\
+                 read SP s = stackpointer /\
+                 read X30 s = returnaddress /\
+                 C_ARGUMENTS [pk; sk; coins] s /\
+                 read (memory :> bytes(coins,32)) s = num_of_bytelist d /\
+                 read events s = e)
+            (\s. read PC s = returnaddress /\
+                 C_RETURN s = word 0 /\
+                 read (memory :> bytes(word_add pk (word 1152),32)) s =
+                 num_of_bytelist(FST(mlkem_g(APPEND d [word 3]))) /\
+                 (exists e2.
+                    read events s = APPEND e2 e /\
+                    e2 = f_events pk sk coins pc
+                           (word_sub stackpointer (word 13552)) returnaddress
+                           (FST(mlkem_g(APPEND d [word 3]))) /\
+                    memaccess_inbounds e2
+                     [coins,64; pk,1184; sk,2400;
+                      word(pc + mlkem_native2_constants),6656;
+                      word_sub stackpointer (word 13552),13552]
+                     [pk,1184; sk,2400;
+                      word_sub stackpointer (word 13552),13552]))
+            (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+             MAYCHANGE [memory :> bytes(pk,1184); memory :> bytes(sk,2400);
+                        memory :> bytes(word_sub stackpointer (word 13552),
+                                        13552)])`,
+  MLKEM_NATIVE2_KEYPAIR_DERAND_SAFE_TAC 3 MLKEM768_KEYPAIR_DERAND_EXEC
+   MLKEM_GEN_MATRIX_K3_NOISE_SUBROUTINE_SAFE);;
+
+(* ------------------------------------------------------------------------- *)
+(* The constant-time and memory safety of encapsulation: the events depend   *)
+(* only on the addresses and on ek, which is public, and on whether it       *)
+(* passes the modulus check. As in the proofs of the compiled C, the         *)
+(* postcondition also gives the return value.                                *)
+(* ------------------------------------------------------------------------- *)
+
+let MLKEM768_ENC_DERAND_SUBROUTINE_SAFE = time prove
+ (`exists f_events.
+     forall e ct ss pk coins (ek:byte list) pc stackpointer returnaddress.
+       aligned 4096 (word pc:int64) /\
+       pc + mlkem_native2_image_size <= 2 EXP 64 /\
+       aligned 16 stackpointer /\ LENGTH ek = 1184 /\
+       (!i j. i < 3 /\ j < 3
+              ==> mlkem_samplentt_terminates
+                   (APPEND (mlkem_slice 1152 32 ek) [word j; word i])) /\
+       nonoverlapping (pk,1184) (word pc,mlkem_native2_image_size) /\
+       PAIRWISE nonoverlapping
+        [(ct,1088); (ss,32); (word_sub stackpointer (word 13504),13504)] /\
+       ALLPAIRS nonoverlapping
+        [(ct,1088); (ss,32); (word_sub stackpointer (word 13504),13504)]
+        [(pk,1184); (coins,32); (word pc,mlkem_native2_image_size)]
+       ==> ensures arm
+            (\s. aligned_bytes_loaded s (word pc) mlkem_native2_image_mc /\
+                 read PC s = word(pc + mlkem768_enc_derand) /\
+                 read SP s = stackpointer /\
+                 read X30 s = returnaddress /\
+                 C_ARGUMENTS [ct; ss; pk; coins] s /\
+                 read (memory :> bytes(pk,1184)) s = num_of_bytelist ek /\
+                 read events s = e)
+            (\s. read PC s = returnaddress /\
+                 C_RETURN s =
+                 (if mlkem_ek_check mlkem768 ek then word 0
+                  else word 0xfffffffc) /\
+                 (exists e2.
+                    read events s = APPEND e2 e /\
+                    e2 = f_events ct ss pk coins pc
+                           (word_sub stackpointer (word 13504))
+                           returnaddress ek /\
+                    memaccess_inbounds e2
+                     [pk,1184; coins,32; ct,1088; ss,32;
+                      word(pc + mlkem_native2_constants),6656;
+                      word_sub stackpointer (word 13504),13504]
+                     [ct,1088; ss,32;
+                      word_sub stackpointer (word 13504),13504]))
+            (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+             MAYCHANGE [memory :> bytes(ct,1088); memory :> bytes(ss,32);
+                        memory :> bytes(word_sub stackpointer (word 13504),
+                                        13504)])`,
+  MLKEM_NATIVE2_ENC_DERAND_SAFE_TAC 3 MLKEM768_ENC_DERAND_EXEC
+   MLKEM_GEN_MATRIX_K3_HASH_SUBROUTINE_SAFE
+   MLKEM768_PKE_ENCRYPT_SUBROUTINE_SAFE);;
+
+(* ------------------------------------------------------------------------- *)
+(* The constant-time and memory safety of decapsulation: the events depend   *)
+(* only on the addresses and on ek and h in dk, which are public, and on     *)
+(* whether h = H(ek) (the hash check). As in the proofs of the compiled C,   *)
+(* there are no results in the postcondition.                                *)
+(* ------------------------------------------------------------------------- *)
+
+let MLKEM768_DEC_SUBROUTINE_SAFE = time prove
+ (`exists f_events.
+     forall e ss ct sk (dk:byte list) pc stackpointer returnaddress.
+       aligned 4096 (word pc:int64) /\
+       pc + mlkem_native2_image_size <= 2 EXP 64 /\
+       aligned 16 stackpointer /\ LENGTH dk = 2400 /\
+       (!i j. i < 3 /\ j < 3
+              ==> mlkem_samplentt_terminates
+                   (APPEND (mlkem_slice 2304 32 dk) [word j; word i])) /\
+       nonoverlapping (ct,1088) (word pc,mlkem_native2_image_size) /\
+       nonoverlapping (sk,2400) (word pc,mlkem_native2_image_size) /\
+       nonoverlapping (ss,32) (word_sub stackpointer (word 15824),15824) /\
+       ALLPAIRS nonoverlapping
+        [(ss,32); (word_sub stackpointer (word 15824),15824)]
+        [(ct,1088); (sk,2400); (word pc,mlkem_native2_image_size)]
+       ==> ensures arm
+            (\s. aligned_bytes_loaded s (word pc) mlkem_native2_image_mc /\
+                 read PC s = word(pc + mlkem768_dec) /\
+                 read SP s = stackpointer /\
+                 read X30 s = returnaddress /\
+                 C_ARGUMENTS [ss; ct; sk] s /\
+                 read (memory :> bytes(sk,2400)) s = num_of_bytelist dk /\
+                 read events s = e)
+            (\s. read PC s = returnaddress /\
+                 (exists e2.
+                    read events s = APPEND e2 e /\
+                    e2 = f_events ss ct sk pc
+                           (word_sub stackpointer (word 15824)) returnaddress
+                           (mlkem_slice 1152 1184 dk)
+                           (mlkem_slice 2336 32 dk) /\
+                    memaccess_inbounds e2
+                     [ct,1088; sk,2400; ss,32;
+                      word(pc + mlkem_native2_constants),6656;
+                      word_sub stackpointer (word 15824),15824]
+                     [ss,32; word_sub stackpointer (word 15824),15824]))
+            (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+             MAYCHANGE [memory :> bytes(ss,32);
+                        memory :> bytes(word_sub stackpointer (word 15824),
+                                        15824)])`,
+  MLKEM_NATIVE2_DEC_SAFE_TAC 3 MLKEM768_DEC_EXEC
+   MLKEM_GEN_MATRIX_K3_HASHES_NOISE_SUBROUTINE_SAFE
+   (MLKEM768_PKE_DECRYPT_SUBROUTINE_SAFE,
+    MLKEM768_PKE_ENCRYPT_SUBROUTINE_SAFE));;
