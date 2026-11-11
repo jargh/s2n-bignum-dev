@@ -14,6 +14,7 @@
 
 needs "arm/proofs/utils/mlkem_native2_api.ml";;
 needs "arm/proofs/utils/mlkem_native2_kem.ml";;
+needs "arm/proofs/mlkem_gen_matrix_k4.ml";;
 needs "arm/proofs/utils/mlkem_native2_kem_safe.ml";;
 needs "arm/proofs/mlkem_gen_matrix_k4_safe.ml";;
 
@@ -266,7 +267,8 @@ let MLKEM1024_KEYPAIR_DERAND_SUBROUTINE_CORRECT = prove
            MAYCHANGE [memory :> bytes(pk,1568); memory :> bytes(sk,3168);
                       memory :> bytes(word_sub stackpointer (word 20656),
                                       20656)])`,
-  MLKEM_NATIVE2_KEYPAIR_DERAND_CORRECT_TAC 4 MLKEM1024_KEYPAIR_DERAND_EXEC);;
+  MLKEM_NATIVE2_KEYPAIR_DERAND_CORRECT_TAC 4 MLKEM1024_KEYPAIR_DERAND_EXEC
+   MLKEM_GEN_MATRIX_K4_NOISE_SUBROUTINE_CORRECT);;
 
 (* ------------------------------------------------------------------------- *)
 (* ML-KEM.Encaps_internal (FIPS 203 Algorithm 17) with coins = m, after the  *)
@@ -317,7 +319,8 @@ let MLKEM1024_ENC_DERAND_SUBROUTINE_CORRECT = prove
                       memory :> bytes(word_sub stackpointer (word 19392),
                                       19392)])`,
   MLKEM_NATIVE2_ENC_DERAND_CORRECT_TAC 4 MLKEM1024_ENC_DERAND_EXEC
-    MLKEM1024_PKE_ENCRYPT_SUBROUTINE_CORRECT);;
+   MLKEM_GEN_MATRIX_K4_HASH_SUBROUTINE_CORRECT
+   MLKEM1024_PKE_ENCRYPT_SUBROUTINE_CORRECT);;
 
 (* ------------------------------------------------------------------------- *)
 (* ML-KEM.Decaps_internal (FIPS 203 Algorithm 18), after the hash check of   *)
@@ -361,6 +364,7 @@ let MLKEM1024_DEC_SUBROUTINE_CORRECT = prove
                       memory :> bytes(word_sub stackpointer (word 22656),
                                       22656)])`,
   MLKEM_NATIVE2_DEC_CORRECT_TAC 4 MLKEM1024_DEC_EXEC
+   MLKEM_GEN_MATRIX_K4_HASHES_NOISE_SUBROUTINE_CORRECT
    (MLKEM1024_PKE_DECRYPT_SUBROUTINE_CORRECT,
     MLKEM1024_PKE_ENCRYPT_SUBROUTINE_CORRECT));;
 

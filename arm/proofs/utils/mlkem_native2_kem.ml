@@ -2242,16 +2242,11 @@ let KP_FINISH_TAC k ex next (cth,z1,z2) =
       ALL_TAC]) THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[pair];;
 
-(*** The instance of gen_matrix for keypair_derand ***)
+(*** The proof of keypair_derand for k, with the code ex of the function
+ *** and the theorem gmth for gen_matrix
+ ***)
 
-let kp_gm_th k = match k with
-    2 -> MLKEM_GEN_MATRIX_K2_SUBROUTINE_CORRECT
-  | 3 -> MLKEM_GEN_MATRIX_K3_NOISE_SUBROUTINE_CORRECT
-  | _ -> MLKEM_GEN_MATRIX_K4_NOISE_SUBROUTINE_CORRECT;;
-
-(*** The proof of keypair_derand for k, with the code ex of the function ***)
-
-let MLKEM_NATIVE2_KEYPAIR_DERAND_CORRECT_TAC k ex =
+let MLKEM_NATIVE2_KEYPAIR_DERAND_CORRECT_TAC k ex gmth =
   let nm = api_param k in
   let nx = API_TO_CALL_TAC ex (layout(nm ^ "_keypair_derand"))
                               (layout(nm ^ "_pke_encrypt")) in
@@ -2259,7 +2254,7 @@ let MLKEM_NATIVE2_KEYPAIR_DERAND_CORRECT_TAC k ex =
   let kth = match k with
       2 -> KPKE_KEYGEN_K2_BLOCKS | 3 -> KPKE_KEYGEN_K3_BLOCKS
     | _ -> KPKE_KEYGEN_K4_BLOCKS in
-  KP_SETUP_TAC k ex THEN KP_SAMPLE_TAC k ex nx (kp_gm_th k) THEN
+  KP_SETUP_TAC k ex THEN KP_SAMPLE_TAC k ex nx gmth THEN
   KP_NTT_TAC k ex nx THEN MAP_EVERY (KP_ROW_TAC k ex nx) (0--(k-1)) THEN
   KP_ENCODE_TAC k ex nx kth THEN KP_FINISH_TAC k ex nx lps;;
 
@@ -2604,23 +2599,16 @@ let EN_SETUP_TAC k ex =
   API_BYTES128_OF_32_TAC `coins:int64` `num_of_bytelist(m:byte list)` THEN
   ARM_STEPS_TAC ex (1--ninit) THEN MLKEM_NATIVE_ADRP_TAC;;
 
-(*** The instance of gen_matrix for enc_derand, and encapsulation as K and
- *** the K-PKE ciphertext
- ***)
-
-let en_gm_th k = match k with
-    2 -> MLKEM_GEN_MATRIX_K2_TRANSPOSED_SUBROUTINE_CORRECT
-  | 3 -> MLKEM_GEN_MATRIX_K3_HASH_SUBROUTINE_CORRECT
-  | _ -> MLKEM_GEN_MATRIX_K4_HASH_SUBROUTINE_CORRECT;;
+(*** Encapsulation as K and the K-PKE ciphertext ***)
 
 let en_encaps_pair k =
   REWRITE_RULE[GSYM(kp_param_def k)] (ISPECL (kp_params k) MLKEM_ENCAPS_PAIR);;
 
-(*** The valid path, after the check: m, H(ek), the matrix, (K, r), the
- *** noise, the ciphertext and the shared secret
+(*** The valid path, after the check: m, H(ek), the matrix by gmth,
+ *** (K, r), the noise, the ciphertext and the shared secret
  ***)
 
-let EN_VALID_TAC k ex next (pth,zth) =
+let EN_VALID_TAC k ex next gmth (pth,zth) =
   let ks = string_of_int k in
   let rho = en_rho k and n = mk_small_numeral in
   let sp x = kp_spn x in
@@ -2640,14 +2628,14 @@ let EN_VALID_TAC k ex next (pth,zth) =
      next THEN
      ON_STATE(fun kk gl ->
        (API_SLICE_AT_TAC `pk:int64` `ek:byte list` (384 * k) 32 kk THEN
-        API_CONSTS_TAC THEN API_GM_CALL_TAC ex (en_gm_th k)
+        API_CONSTS_TAC THEN API_GM_CALL_TAC ex gmth
          (fun r -> [r `X0`; r `X1`; rho; r `X4`; r `X5`; r `X6`; `pc:num`;
                     r `SP`; r `X30`]) kk) gl)
    else
      next THEN
      ON_STATE(fun kk gl ->
        (API_SLICE_AT_TAC `pk:int64` `ek:byte list` (384 * k) 32 kk THEN
-        API_CONSTS_TAC THEN API_GM_CALL_TAC ex (en_gm_th k)
+        API_CONSTS_TAC THEN API_GM_CALL_TAC ex gmth
          (fun r -> [r `X0`; r `X1`; rho; r `X4`; `word 0:int64`;
                     `word 0:int64`; `word 0:int64`; `pk:int64`;
                     `ek:byte list`; sp(en_gin k + 32); r `X5`; r `X6`;
@@ -2709,7 +2697,7 @@ let EN_INVALID_TAC k ex =
   API_TO_PC_TAC ex (-1) THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];;
 
-let EN_TAC k ex next (pth,zth) =
+let EN_TAC k ex next gmth (pth,zth) =
   let eks = ek_check_slice k in
   EN_SETUP_TAC k ex THEN
   next THEN ON_STATE(API_CHECK_ENCODING_CALL_TAC ex k `ek:byte list`) THEN
@@ -2717,20 +2705,20 @@ let EN_TAC k ex next (pth,zth) =
    (ASSUME(parse_term("LENGTH(ek:byte list) = "^string_of_int(kp_pkb k))))])
   THEN
   API_BOOL_CASE_TAC (parse_term("mlkem_ek_check "^api_param k^" ek")) THENL
-   [EN_VALID_TAC k ex next (pth,zth); EN_INVALID_TAC k ex];;
+   [EN_VALID_TAC k ex next gmth (pth,zth); EN_INVALID_TAC k ex];;
 
 (*** The proof of enc_derand for k, with the code ex of the function and
- *** the theorem pth for pke_encrypt
+ *** the theorems gmth and pth for gen_matrix and pke_encrypt
  ***)
 
-let MLKEM_NATIVE2_ENC_DERAND_CORRECT_TAC k ex pth =
+let MLKEM_NATIVE2_ENC_DERAND_CORRECT_TAC k ex gmth pth =
   let nm = api_param k in
   let nx = API_TO_CALL_TAC ex (layout(nm ^ "_enc_derand"))
                               (layout(nm ^ "_pke_decrypt")) in
   let zl = en_at k - en_gin k in
   let zth = prove(api_zero_tm (en_zero k) (en_zero k + 24) 96 zl,
                   API_ZERO_TAC ex (en_zero k) 3 (en_zero k + 24) 96 zl) in
-  EN_TAC k ex nx (pth,zth);;
+  EN_TAC k ex nx gmth (pth,zth);;
 
 (* ------------------------------------------------------------------------- *)
 (* dec                                                                       *)
@@ -2902,12 +2890,7 @@ let DE_HASH_BRANCH_TAC k kk =
 let de_skoff a = mk_comb(`word_add (sk:int64)`,
                          mk_comb(`word:num->int64`,mk_small_numeral a));;
 
-(*** The instance of gen_matrix for dec, and the setup ***)
-
-let de_gm_th k = match k with
-    2 -> MLKEM_GEN_MATRIX_K2_HASHES_SUBROUTINE_CORRECT
-  | 3 -> MLKEM_GEN_MATRIX_K3_HASHES_NOISE_SUBROUTINE_CORRECT
-  | _ -> MLKEM_GEN_MATRIX_K4_HASHES_NOISE_SUBROUTINE_CORRECT;;
+(*** The setup ***)
 
 let DE_SETUP_TAC k ex =
   MAP_EVERY X_GEN_TAC
@@ -2979,9 +2962,9 @@ let DE_ZC_TAC k ex (cp,_,_,_,_) =
        ASM_REWRITE_TAC[LENGTH_MLKEM_SLICE] THEN NO_TAC;
        CONV_TAC(ONCE_DEPTH_CONV NUM_ADD_CONV) THEN DISCH_TAC]) gl);;
 
-(*** The matrix with H(ek) and J(z || c), and the noise ***)
+(*** The matrix with H(ek) and J(z || c), and the noise, by gmth ***)
 
-let DE_GM_TAC k ex next =
+let DE_GM_TAC k ex next gmth =
   let sp x = kp_spn x and ks = string_of_int k in
   let rho = de_rho k in
   SUBGOAL_THEN (parse_term("!i j. i < "^ks^" /\\ j < "^ks^
@@ -2998,7 +2981,7 @@ let DE_GM_TAC k ex next =
     (API_SLICE_AT_TAC `sk:int64` `dk:byte list` (768 * k) 32 kk THEN
      API_SLICE_AT_TAC `sk:int64` `dk:byte list` (384 * k) (384 * k + 32) kk
      THEN API_CONSTS_TAC THEN
-     API_GM_CALL_TAC ex (de_gm_th k)
+     API_GM_CALL_TAC ex gmth
       (fun r ->
         [r `X0`; r `X1`; rho; r `X4`; de_skoff(384 * k); de_ek k;
          sp(de_hek k); sp(de_zc k); de_zcm k; sp(de_j k); r `X5`] @
@@ -3077,19 +3060,20 @@ let DE_INVALID_TAC k ex (_,_,_,_,zi) =
   API_TO_PC_TAC ex (-1) THEN
   ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];;
 
-let DE_TAC k ex next (pdth,peth) lps =
+let DE_TAC k ex next gmth (pdth,peth) lps =
   DE_SETUP_TAC k ex THEN
   DE_DECRYPT_TAC k ex next pdth THEN
   DE_ZC_TAC k ex lps THEN
-  DE_GM_TAC k ex next THEN
+  DE_GM_TAC k ex next gmth THEN
   DE_CHECK_TAC k ex THENL
    [DE_VALID_TAC k ex next peth lps; DE_INVALID_TAC k ex lps];;
 
 (*** The proof of dec for k, with the code ex of the function and the
- *** theorems pdth and peth for pke_decrypt and pke_encrypt
+ *** theorems gmth, pdth and peth for gen_matrix, pke_decrypt and
+ *** pke_encrypt
  ***)
 
-let MLKEM_NATIVE2_DEC_CORRECT_TAC k ex (pdth,peth) =
+let MLKEM_NATIVE2_DEC_CORRECT_TAC k ex gmth (pdth,peth) =
   let nx = API_TO_CALL_TAC ex (de_fn k) (de_after k) in
   let lps = de_loops k ex in
-  DE_TAC k ex nx (pdth,peth) lps;;
+  DE_TAC k ex nx gmth (pdth,peth) lps;;

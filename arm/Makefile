@@ -665,12 +665,21 @@ MLKEM_NATIVE2_MATRIX_PROOF = $(MLKEM_NATIVE2_NOISE_PROOF) \
                              mlkem/mlkem_rej_uniform_alt_VARIABLE_TIME.o \
                              proofs/mlkem_getnoise.ml \
                              mlkem_native2/mlkem_getnoise.o
-mlkem_native2/mlkem_gen_matrix.native: $(MLKEM_NATIVE2_MATRIX_PROOF)
-# The safety of mlkem_gen_matrix, for each k in its own file (each level of
-# the API needs only one)
-MLKEM_NATIVE2_GM_SAFE_PROOF = $(MLKEM_NATIVE2_MATRIX_PROOF) \
-                              proofs/mlkem_gen_matrix.ml \
-                              mlkem_native2/mlkem_gen_matrix.o \
+# The proofs of mlkem_gen_matrix, for each k in their own files (each level
+# of the API needs only those for its k)
+MLKEM_NATIVE2_GM_PROOF = $(MLKEM_NATIVE2_MATRIX_PROOF) \
+                         proofs/mlkem_gen_matrix.ml \
+                         mlkem_native2/mlkem_gen_matrix.o
+mlkem_native2/mlkem_gen_matrix_k2.native: \
+  proofs/mlkem_gen_matrix_k2.ml $(BASE_ML) $(MLKEM_NATIVE2_GM_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+mlkem_native2/mlkem_gen_matrix_k3.native: \
+  proofs/mlkem_gen_matrix_k3.ml $(BASE_ML) $(MLKEM_NATIVE2_GM_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+mlkem_native2/mlkem_gen_matrix_k4.native: \
+  proofs/mlkem_gen_matrix_k4.ml $(BASE_ML) $(MLKEM_NATIVE2_GM_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+MLKEM_NATIVE2_GM_SAFE_PROOF = $(MLKEM_NATIVE2_GM_PROOF) \
                               proofs/utils/mlkem_native2_safety.ml \
                               proofs/utils/mlkem_native2_keccak_full.ml \
                               proofs/utils/mlkem_native2_rej_full.ml \
@@ -735,12 +744,15 @@ MLKEM_NATIVE2_KEM_PROOF = $(MLKEM_NATIVE2_API_PROOF) \
                           mlkem/mlkem_decompress_d11.o
 mlkem_native2/mlkem512.native: $(MLKEM_NATIVE2_KEM_PROOF) \
                                 $(MLKEM_NATIVE2_GM_SAFE_PROOF) \
+                                proofs/mlkem_gen_matrix_k2.ml \
                                 proofs/mlkem_gen_matrix_k2_safe.ml
 mlkem_native2/mlkem768.native: $(MLKEM_NATIVE2_KEM_PROOF) \
                                $(MLKEM_NATIVE2_GM_SAFE_PROOF) \
+                               proofs/mlkem_gen_matrix_k3.ml \
                                proofs/mlkem_gen_matrix_k3_safe.ml
 mlkem_native2/mlkem1024.native: $(MLKEM_NATIVE2_KEM_PROOF) \
                                 $(MLKEM_NATIVE2_GM_SAFE_PROOF) \
+                                proofs/mlkem_gen_matrix_k4.ml \
                                 proofs/mlkem_gen_matrix_k4_safe.ml
 
 # Tutorial
@@ -793,7 +805,9 @@ tutorial: build_tutorial $(TUTORIAL_PROOF_LOGS);
 
 # The proofs of the mlkem_native2 functions, which are not in OBJ
 
-MLKEM_NATIVE2_PROOF_LOGS = mlkem_native2/mlkem_gen_matrix.correct \
+MLKEM_NATIVE2_PROOF_LOGS = mlkem_native2/mlkem_gen_matrix_k2.correct \
+                           mlkem_native2/mlkem_gen_matrix_k3.correct \
+                           mlkem_native2/mlkem_gen_matrix_k4.correct \
                            mlkem_native2/mlkem_gen_matrix_k2_safe.correct \
                            mlkem_native2/mlkem_gen_matrix_k3_safe.correct \
                            mlkem_native2/mlkem_gen_matrix_k4_safe.correct \

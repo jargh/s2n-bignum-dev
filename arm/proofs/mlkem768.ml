@@ -13,6 +13,7 @@
 
 needs "arm/proofs/utils/mlkem_native2_api.ml";;
 needs "arm/proofs/utils/mlkem_native2_kem.ml";;
+needs "arm/proofs/mlkem_gen_matrix_k3.ml";;
 needs "arm/proofs/utils/mlkem_native2_kem_safe.ml";;
 needs "arm/proofs/mlkem_gen_matrix_k3_safe.ml";;
 
@@ -264,7 +265,8 @@ let MLKEM768_KEYPAIR_DERAND_SUBROUTINE_CORRECT = prove
            MAYCHANGE [memory :> bytes(pk,1184); memory :> bytes(sk,2400);
                       memory :> bytes(word_sub stackpointer (word 13552),
                                       13552)])`,
-  MLKEM_NATIVE2_KEYPAIR_DERAND_CORRECT_TAC 3 MLKEM768_KEYPAIR_DERAND_EXEC);;
+  MLKEM_NATIVE2_KEYPAIR_DERAND_CORRECT_TAC 3 MLKEM768_KEYPAIR_DERAND_EXEC
+   MLKEM_GEN_MATRIX_K3_NOISE_SUBROUTINE_CORRECT);;
 
 (* ------------------------------------------------------------------------- *)
 (* ML-KEM.Encaps_internal (FIPS 203 Algorithm 17) with coins = m, after the  *)
@@ -315,7 +317,8 @@ let MLKEM768_ENC_DERAND_SUBROUTINE_CORRECT = prove
                       memory :> bytes(word_sub stackpointer (word 13504),
                                       13504)])`,
   MLKEM_NATIVE2_ENC_DERAND_CORRECT_TAC 3 MLKEM768_ENC_DERAND_EXEC
-    MLKEM768_PKE_ENCRYPT_SUBROUTINE_CORRECT);;
+   MLKEM_GEN_MATRIX_K3_HASH_SUBROUTINE_CORRECT
+   MLKEM768_PKE_ENCRYPT_SUBROUTINE_CORRECT);;
 
 (* ------------------------------------------------------------------------- *)
 (* ML-KEM.Decaps_internal (FIPS 203 Algorithm 18), after the hash check of   *)
@@ -359,6 +362,7 @@ let MLKEM768_DEC_SUBROUTINE_CORRECT = prove
                       memory :> bytes(word_sub stackpointer (word 15824),
                                       15824)])`,
   MLKEM_NATIVE2_DEC_CORRECT_TAC 3 MLKEM768_DEC_EXEC
+   MLKEM_GEN_MATRIX_K3_HASHES_NOISE_SUBROUTINE_CORRECT
    (MLKEM768_PKE_DECRYPT_SUBROUTINE_CORRECT,
     MLKEM768_PKE_ENCRYPT_SUBROUTINE_CORRECT));;
 

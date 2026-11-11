@@ -96,7 +96,10 @@ this layout of the image, and are checked again when it changes.
 - `mlkem_gen_matrix` for the nine configurations that the API uses (k = 2,
   3, 4 in key generation, encapsulation and decapsulation, with their hash
   jobs and noise), against `mlkem_sample_ntt`, `sha3_256`, `shake256` and
-  the coefficients of `mlkem_cbd` (`../proofs/mlkem_gen_matrix.ml`, and
+  the coefficients of `mlkem_cbd` (`../proofs/mlkem_gen_matrix_k2.ml`,
+  `_k3.ml` and `_k4.ml`, one file for each k as each level of the API needs
+  only its own, with the code and the common parts in
+  `../proofs/mlkem_gen_matrix.ml`, and
   `../proofs/utils/mlkem_native2_matrix.ml` for SampleNTT as the rejection
   sampling of whole blocks of SHAKE128 output, the seeds and the hash jobs
   as states of lanes, and the sponge by blocks, with the lemmas on FIPS 203
@@ -105,13 +108,12 @@ this layout of the image, and are checked again when it changes.
   safety, with the events a function of the addresses and of the public
   seed rho (and, for decapsulation, whose hash check branches on it, the
   digest H(ek) of the first hash job as a result), are in
-  `../proofs/mlkem_gen_matrix_k2_safe.ml`, `_k3_safe.ml` and `_k4_safe.ml`
-  (one file for each k, as they take hours), with the common parts in
-  `../proofs/utils/mlkem_native2_gm_safe.ml`, the tools for the callees in
-  `../proofs/utils/mlkem_native2_safety.ml`, and theorems of correctness
-  and safety in one for the callees on whose results the later events
-  depend, the Keccak permutations and the rejection sampler
-  (`../proofs/utils/mlkem_native2_keccak_full.ml` and
+  `../proofs/mlkem_gen_matrix_k2_safe.ml`, `_k3_safe.ml` and `_k4_safe.ml`,
+  with the common parts in `../proofs/utils/mlkem_native2_gm_safe.ml`, the
+  tools for the callees in `../proofs/utils/mlkem_native2_safety.ml`, and
+  theorems of correctness and safety in one for the callees on whose
+  results the later events depend, the Keccak permutations and the
+  rejection sampler (`../proofs/utils/mlkem_native2_keccak_full.ml` and
   `../proofs/utils/mlkem_native2_rej_full.ml`).
 - `mlkem_getnoise` for the configurations of n polynomials that the API
   uses (n = 4, 7, 8, 9 with eta1 = 2, and the first 4 of 4 or 2 of 5 with
