@@ -666,6 +666,27 @@ MLKEM_NATIVE2_MATRIX_PROOF = $(MLKEM_NATIVE2_NOISE_PROOF) \
                              proofs/mlkem_getnoise.ml \
                              mlkem_native2/mlkem_getnoise.o
 mlkem_native2/mlkem_gen_matrix.native: $(MLKEM_NATIVE2_MATRIX_PROOF)
+# The safety of mlkem_gen_matrix, for each k in its own file (each level of
+# the API needs only one)
+MLKEM_NATIVE2_GM_SAFE_PROOF = $(MLKEM_NATIVE2_MATRIX_PROOF) \
+                              proofs/mlkem_gen_matrix.ml \
+                              mlkem_native2/mlkem_gen_matrix.o \
+                              proofs/utils/mlkem_native2_safety.ml \
+                              proofs/utils/mlkem_native2_keccak_full.ml \
+                              proofs/utils/mlkem_native2_rej_full.ml \
+                              proofs/utils/mlkem_native2_gm_safe.ml
+mlkem_native2/mlkem_gen_matrix_k2_safe.native: \
+  proofs/mlkem_gen_matrix_k2_safe.ml $(BASE_ML) \
+  $(MLKEM_NATIVE2_GM_SAFE_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+mlkem_native2/mlkem_gen_matrix_k3_safe.native: \
+  proofs/mlkem_gen_matrix_k3_safe.ml $(BASE_ML) \
+  $(MLKEM_NATIVE2_GM_SAFE_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+mlkem_native2/mlkem_gen_matrix_k4_safe.native: \
+  proofs/mlkem_gen_matrix_k4_safe.ml $(BASE_ML) \
+  $(MLKEM_NATIVE2_GM_SAFE_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
 MLKEM_NATIVE2_KEM_PROOF = $(MLKEM_NATIVE2_API_PROOF) \
                           $(MLKEM_NATIVE2_MATRIX_PROOF) \
                           proofs/utils/mlkem_native2_kpke.ml \
@@ -764,6 +785,9 @@ tutorial: build_tutorial $(TUTORIAL_PROOF_LOGS);
 # The proofs of the mlkem_native2 functions, which are not in OBJ
 
 MLKEM_NATIVE2_PROOF_LOGS = mlkem_native2/mlkem_gen_matrix.correct \
+                           mlkem_native2/mlkem_gen_matrix_k2_safe.correct \
+                           mlkem_native2/mlkem_gen_matrix_k3_safe.correct \
+                           mlkem_native2/mlkem_gen_matrix_k4_safe.correct \
                            mlkem_native2/mlkem_getnoise.correct \
                            mlkem_native2/mlkem_hash_g.correct \
                            mlkem_native2/mlkem_hash_h.correct \
