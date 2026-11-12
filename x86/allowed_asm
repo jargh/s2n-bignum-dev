@@ -173,6 +173,7 @@
 : vpshufb$
 : vpslld$
 : vpsllvd$
+: vpsllvq$
 : vpsllq$
 : vpsllw$
 : vpsrad$
