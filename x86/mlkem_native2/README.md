@@ -139,8 +139,9 @@ decapsulation this means 13 x4 calls and 1 x1 call against 8 x4 and 22 x1.
 Then the codecs, CBD, frommsg/tomsg and the key check, which
 mlkem-native does in C, are in AVX2 assembly (frommsg 42 cycles against
 1532, tomsg 44 against 399, CBD2 62 against 165, CBD3 106 against 308, the
-key check for k = 3 159 against 651), and the rejection sampler is 1.36
-times faster (287 cycles against 391 for 504 bytes). The arithmetic
+key check for k = 3 159 against 651), and the rejection sampler is 1.8
+times faster (213 cycles against 391 for 504 bytes, 48 bytes per step
+while there is room for 32 more entries). The arithmetic
 kernels are mlkem-native's.
 
 Cycles per call (medians of 31 runs of 200 calls on one core, with the

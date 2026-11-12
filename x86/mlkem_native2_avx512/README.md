@@ -53,7 +53,7 @@ time.
    those < 3329 in an opmask register, and `vpcompressd` and `vpmovdw`
    write them to r (with a mask that keeps the writes inside r for the
    last 15 entries). It costs 140 cycles for 504 bytes (a typical matrix
-   polynomial) against 287 for the AVX2 one.
+   polynomial) against 213 for the AVX2 one.
  - The other leaves and the constants block are those of
    `../mlkem_native2` (in `../mlkem`), unchanged: AVX-512 gains little over
    AVX2 for them on these processors, and the 256-bit integer
@@ -101,7 +101,7 @@ On a Xeon Platinum 8259CL (Cascade Lake) the x4 permutation costs 1040
 cycles against 1723 for `sha3_keccak4_f1600_alt` (at the base AVX
 frequency licence: it uses no heavy or 512-bit instructions), the x1 732
 against 1260 for `sha3_keccak_f1600`, and the rejection sampler 140
-against 287 for 504 bytes (these two use zmm registers, at the licence of
+against 213 for 504 bytes (these two use zmm registers, at the licence of
 the arithmetic kernels). Key generation and `check_sk`, which hash the
 encapsulation key with the x1 permutation, gain most from the x1. Cycles
 per call, as for the AVX2 version (medians of 31 runs of 200 calls on one

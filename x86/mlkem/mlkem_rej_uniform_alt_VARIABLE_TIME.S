@@ -41,21 +41,28 @@ S2N_BN_SYMBOL(mlkem_rej_uniform_alt_VARIABLE_TIME):
         _CET_ENDBR
 
 #if WINDOWS_ABI
-        CFI_DEC_RSP(48)
+        CFI_DEC_RSP(128)
         CFI_STACKSAVEU(xmm6,0)
         CFI_STACKSAVEU(xmm7,16)
-        CFI_STACKSAVE(rdi,32)
-        CFI_STACKSAVE(rsi,40)
+        CFI_STACKSAVEU(xmm8,32)
+        CFI_STACKSAVEU(xmm9,48)
+        CFI_STACKSAVEU(xmm10,64)
+        CFI_STACKSAVEU(xmm11,80)
+        CFI_STACKSAVEU(xmm12,96)
+        CFI_STACKSAVE(rdi,112)
+        CFI_STACKSAVE(rsi,120)
         mov     rdi, rcx
         mov     rsi, rdx
         mov     rdx, r8
         mov     rcx, r9
-        mov     r8, [rsp+88]
+        mov     r8, [rsp+168]
 #endif
 
-// ymm3 = 3329 in each word, ymm5 = 0x0fff in each word, ymm6 = the
-// byte pairs of the fields (lane 1 from 4 bytes in); rdi points at
-// r[n], and there are 32 bytes on the stack for the last steps
+// ymm3 = 3329, ymm5 = 0x0fff and ymm12 = 3456 in each word, ymm6 = the
+// byte pairs of the fields (lane 1 from 4 bytes in), ymm10 and
+// ymm11 those of the first and the second halves of a chunk in
+// both lanes; rdi points at r[n], and there are 32 bytes on the
+// stack for the last steps
 
         mov     eax, 0xd010d01
         vmovd   xmm3, eax
@@ -63,6 +70,9 @@ S2N_BN_SYMBOL(mlkem_rej_uniform_alt_VARIABLE_TIME):
         mov     eax, 0xfff0fff
         vmovd   xmm5, eax
         vpbroadcastd ymm5, xmm5
+        mov     eax, 0xd800d80
+        vmovd   xmm12, eax
+        vpbroadcastd ymm12, xmm12
         movabs  rax, 0x0504040302010100
         vmovq   xmm6, rax
         movabs  rax, 0x0b0a0a0908070706
@@ -72,8 +82,83 @@ S2N_BN_SYMBOL(mlkem_rej_uniform_alt_VARIABLE_TIME):
         movabs  rax, 0x0f0e0e0d0c0b0b0a
         vpinsrq xmm7, xmm7, rax, 1
         vinserti128 ymm6, ymm6, xmm7, 1
+        vpermq  ymm10, ymm6, 0x44
+        vpermq  ymm11, ymm6, 0xee
         lea     rdi, [rdi+2*rsi]
         sub     rsp, 32
+
+// 48 bytes per step while there are 48 more and n <= 224
+
+        cmp     rcx, 48
+        jb      mlkem_rej_uniform_alt_loop
+        cmp     rsi, 224
+        ja      mlkem_rej_uniform_alt_loop
+
+// The fields of the chunks A and B, A0 and B0 (the first eight
+// of each) in ymm0, A1 and B1 in ymm7, those < 3329, and their
+// masks in the order A0, A1, B0, B1 in the bytes of eax
+
+        .balign 32
+mlkem_rej_uniform_alt_loop2:
+        vmovdqu xmm0, [rdx]
+        vinserti128 ymm0, ymm0, XMMWORD PTR [rdx+24], 1
+        vmovdqu xmm7, [rdx+8]
+        vinserti128 ymm7, ymm7, XMMWORD PTR [rdx+32], 1
+        add     rdx, 48
+        sub     rcx, 48
+        vpshufb ymm0, ymm0, ymm10
+        vpshufb ymm7, ymm7, ymm11
+        vpsrlw  ymm1, ymm0, 4
+        vpsrlw  ymm8, ymm7, 4
+        vpand   ymm0, ymm0, ymm5
+        vpand   ymm7, ymm7, ymm5
+        vpblendw ymm0, ymm0, ymm1, 0xaa
+        vpblendw ymm7, ymm7, ymm8, 0xaa
+        vpsubw  ymm2, ymm12, ymm0
+        vpsubw  ymm8, ymm12, ymm7
+        vpackuswb ymm2, ymm2, ymm8
+        vpmovmskb eax, ymm2
+
+// The table offsets 16 m of the four masks m, in r9 (A0), r10
+// (A1), r11 (B0) and rax (B1); the compactions; then the counts
+// (the popcounts of the offsets), and the four stores
+
+        mov     r9d, eax
+        shl     r9d, 4
+        and     r9d, 0xff0
+        mov     r10d, eax
+        shr     r10d, 4
+        and     r10d, 0xff0
+        mov     r11d, eax
+        shr     r11d, 12
+        and     r11d, 0xff0
+        shr     eax, 20
+        and     eax, 0xff0
+        vmovdqu xmm4, [r8+r9]
+        vinserti128 ymm4, ymm4, XMMWORD PTR [r8+r11], 1
+        vmovdqu xmm9, [r8+r10]
+        vinserti128 ymm9, ymm9, XMMWORD PTR [r8+rax], 1
+        vpshufb ymm0, ymm0, ymm4
+        vpshufb ymm7, ymm7, ymm9
+        popcnt  r9d, r9d
+        popcnt  r10d, r10d
+        popcnt  r11d, r11d
+        popcnt  eax, eax
+        vmovdqu [rdi], xmm0
+        vmovdqu [rdi+2*r9], xmm7
+        add     r9, r10
+        vextracti128 [rdi+2*r9], ymm0, 1
+        add     r9, r11
+        vextracti128 [rdi+2*r9], ymm7, 1
+        add     r9, rax
+        lea     rdi, [rdi+2*r9]
+        add     rsi, r9
+        cmp     rcx, 48
+        jb      mlkem_rej_uniform_alt_loop
+        cmp     rsi, 224
+        jbe     mlkem_rej_uniform_alt_loop2
+
+// Then 24 bytes per step
 
 mlkem_rej_uniform_alt_loop:
         cmp     rcx, 24
@@ -155,9 +240,14 @@ mlkem_rej_uniform_alt_end:
 #if WINDOWS_ABI
         CFI_STACKLOADU(xmm6,0)
         CFI_STACKLOADU(xmm7,16)
-        CFI_STACKLOAD(rdi,32)
-        CFI_STACKLOAD(rsi,40)
-        CFI_INC_RSP(48)
+        CFI_STACKLOADU(xmm8,32)
+        CFI_STACKLOADU(xmm9,48)
+        CFI_STACKLOADU(xmm10,64)
+        CFI_STACKLOADU(xmm11,80)
+        CFI_STACKLOADU(xmm12,96)
+        CFI_STACKLOAD(rdi,112)
+        CFI_STACKLOAD(rsi,120)
+        CFI_INC_RSP(128)
 #endif
         CFI_RET
 
