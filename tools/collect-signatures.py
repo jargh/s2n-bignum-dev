@@ -353,6 +353,7 @@ notInLibrary = {
     "mlkem_sub_reduce",
     "mlkem_tomsg",
     "sha3_keccak_f1600_alt",
+    "sha3_keccak_f1600_alt2",
     "sha3_keccak4_f1600_avx512",
     "sha3_keccak_f1600_avx512",
   ],

@@ -19,7 +19,10 @@
  * checked against the reference composed with mlkem_unpack, which is
  * checked to be that permutation, a fixed reordering of 256 entries.
  * The rejection sampler is also run with its buffer and output next to
- * pages without access, which must not be touched.
+ * pages without access, which must not be touched. The Keccak-f1600
+ * permutations on one state (sha3_keccak_f1600 and, on x86_64, its _alt,
+ * _alt2 and _avx512 versions, whichever are linked) are checked against
+ * the reference permutation.
  *
  * Functions missing from the link (weak symbols) are skipped.
  *
@@ -78,6 +81,13 @@ uint64_t mlkem_rej_uniform_alt_VARIABLE_TIME(int16_t r[256], uint64_t n,
                                              const uint8_t *table) WEAK;
 extern const uint8_t ref_rej_uniform_table[4096] WEAK;
 void mlkem_sub_reduce(int16_t r[256], const int16_t a[256]) WEAK;
+void ref_keccakf1600_permute(uint64_t s[25]);
+void sha3_keccak_f1600(uint64_t a[25], const uint64_t rc[24]) WEAK;
+#if defined(__x86_64__)
+void sha3_keccak_f1600_alt(uint64_t a[25], const uint64_t rc[24]) WEAK;
+void sha3_keccak_f1600_alt2(uint64_t a[25], const uint64_t rc[24]) WEAK;
+void sha3_keccak_f1600_avx512(uint64_t a[25], const uint64_t rc[24]) WEAK;
+#endif
 void mlkem_tomsg(uint8_t msg[32], const int16_t a[256]) WEAK;
 void mlkem_compress_d4(uint8_t r[128], const int16_t a[256]) WEAK;
 void mlkem_compress_d5(uint8_t r[160], const int16_t a[256]) WEAK;
@@ -573,6 +583,67 @@ static int test_rej_uniform_alt(void)
   return test_rej_with("mlkem_rej_uniform_alt", rej_with_table);
 }
 
+/* ------------------------------------------------------------------------- */
+/* Keccak-f1600 on one state against the reference permutation: random     */
+/* states, and the states of all zeros and all ones.                         */
+/* ------------------------------------------------------------------------- */
+
+static const uint64_t keccak_rc[24] = {
+    0x0000000000000001ULL, 0x0000000000008082ULL, 0x800000000000808aULL,
+    0x8000000080008000ULL, 0x000000000000808bULL, 0x0000000080000001ULL,
+    0x8000000080008081ULL, 0x8000000000008009ULL, 0x000000000000008aULL,
+    0x0000000000000088ULL, 0x0000000080008009ULL, 0x000000008000000aULL,
+    0x000000008000808bULL, 0x800000000000008bULL, 0x8000000000008089ULL,
+    0x8000000000008003ULL, 0x8000000000008002ULL, 0x8000000000000080ULL,
+    0x000000000000800aULL, 0x800000008000000aULL, 0x8000000080008081ULL,
+    0x8000000000008080ULL, 0x0000000080000001ULL, 0x8000000080008008ULL};
+
+static int test_keccak_with(const char *name,
+                            void (*f)(uint64_t[25], const uint64_t[24]))
+{
+  uint64_t a[25], want[25], rc[24];
+  memcpy(rc, keccak_rc, sizeof(rc));
+  for (unsigned long t = 0; t < 2 + ntests; t++)
+  {
+    for (int i = 0; i < 25; i++)
+      a[i] = t == 0 ? 0 : t == 1 ? ~(uint64_t)0 : rand64();
+    memcpy(want, a, sizeof(a));
+    ref_keccakf1600_permute(want);
+    f(a, rc);
+    checks++;
+    if (memcmp(a, want, sizeof(a)) != 0)
+    {
+      printf("FAIL %s test %lu: state differs from the reference\n", name, t);
+      return 1;
+    }
+    if (memcmp(rc, keccak_rc, sizeof(rc)) != 0)
+    {
+      printf("FAIL %s test %lu: round constants modified\n", name, t);
+      return 1;
+    }
+  }
+  return 0;
+}
+static int test_keccak(void)
+{
+  return test_keccak_with("sha3_keccak_f1600", sha3_keccak_f1600);
+}
+#if defined(__x86_64__)
+static int test_keccak_alt(void)
+{
+  return test_keccak_with("sha3_keccak_f1600_alt", sha3_keccak_f1600_alt);
+}
+static int test_keccak_alt2(void)
+{
+  return test_keccak_with("sha3_keccak_f1600_alt2", sha3_keccak_f1600_alt2);
+}
+static int test_keccak_avx512(void)
+{
+  return test_keccak_with("sha3_keccak_f1600_avx512",
+                          sha3_keccak_f1600_avx512);
+}
+#endif
+
 #if defined(__x86_64__)
 /* ------------------------------------------------------------------------- */
 /* x86_64: the custom NTT order. mlkem_unpack must be a fixed reordering:    */
@@ -745,6 +816,12 @@ int main(int argc, char **argv)
 #endif
       LEAF2(mlkem_check_encoding, test_check_encoding),
       LEAF2(mlkem_rej_uniform_alt_VARIABLE_TIME, test_rej_uniform_alt),
+      LEAF2(sha3_keccak_f1600, test_keccak),
+#if defined(__x86_64__)
+      LEAF2(sha3_keccak_f1600_alt, test_keccak_alt),
+      LEAF2(sha3_keccak_f1600_alt2, test_keccak_alt2),
+      LEAF2(sha3_keccak_f1600_avx512, test_keccak_avx512),
+#endif
       LEAF2(mlkem_add_reduce, test_add_reduce),
       LEAF2(mlkem_sub_reduce, test_sub_reduce),
       LEAF2(mlkem_frommsg, test_frommsg),

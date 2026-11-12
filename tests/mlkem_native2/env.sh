@@ -84,7 +84,9 @@ else
 # decompress kernels (mlkem_compress_d4_x86 and so on, which take their
 # tables from the constants block), and the existing x86 kernels
 # (mlkem_frombytes and mlkem_tobytes in the custom NTT order of the x86
-# backend, and mlkem_unpack into it). There is no enforcement of IBT on
+# backend, and mlkem_unpack into it), and among the Keccak kernels also
+# sha3_keccak_f1600_alt2, which mlkem_native2 does not use, for
+# test_leaf. There is no enforcement of IBT on
 # hosts without CET, so instead of the BTI runs the scripts check
 # statically that every global function starts with endbr64
 # (check_endbr.sh); leafmid.sh also checks that no instruction uses fs
@@ -98,7 +100,8 @@ LEAF_OBJS="add_reduce sub_reduce cbd2 cbd3 check_encoding compress_d4_x86
   frommsg tomsg rej_uniform_alt_VARIABLE_TIME tobytes unpack ntt intt
   mulcache_compute basemul_k2 basemul_k3 basemul_k4 reduce tomont
   rej_uniform_VARIABLE_TIME"
-SHA3_OBJS="sha3_keccak_f1600_alt sha3_keccak4_f1600_alt"
+SHA3_OBJS="sha3_keccak_f1600_alt sha3_keccak4_f1600_alt
+  sha3_keccak_f1600_alt2"
 BTI_FLAGS=""
 CF_CFLAGS=-fcf-protection=full
 ABI_STUB=$T/abi_stub_x86.S

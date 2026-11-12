@@ -104,7 +104,10 @@ custom NTT order of the x86 backend, so test_leaf checks them against
 the reference composed with `mlkem_unpack`, itself checked to be a fixed
 reordering. The rejection sampler also runs with its buffer and output
 next to pages without access, which catches reads and writes out of
-bounds.
+bounds, and the Keccak-f1600 permutations on one state that are linked
+(on x86_64 also `sha3_keccak_f1600_alt2`, which the build adds although
+mlkem_native2 does not use it) are checked against the reference
+permutation.
 
 `mutants.sh` checks the tests themselves, with a library that forwards
 to the reference with one deliberate fault at a time (`mutants.c`): each

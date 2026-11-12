@@ -39,7 +39,10 @@ The work is in three layers, as on AArch64.
       `../sha3` (the same function as `sha3_keccak_f1600`): the round of
       OpenSSL's AVX2 Keccak by Andy Polyakov (keccak1600-avx2.pl), with
       the state in seven ymm registers in an order in which pi is
-      intra-register, gathered from and scattered back to `a[25]`;
+      intra-register, gathered from and scattered back to `a[25]`. (An
+      AVX2 kernel of original design for the same function,
+      `sha3_keccak_f1600_alt2`, also in `../sha3`, is not used yet: 1087
+      cycles against 1063);
     - mlkem-native's AVX2 compress and decompress kernels for d = 4, 5, 10
       and 11, unchanged (byte for byte, so that mlkem-native's HOL Light
       proofs of them apply), as `mlkem_compress_d4_x86` and so on: they
