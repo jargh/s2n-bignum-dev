@@ -470,6 +470,22 @@ MLKEM_NATIVE2_IMAGE_OBJ = mlkem_native2/mlkem512.o \
                           sha3/sha3_keccak4_f1600_alt.o \
                           mlkem_native2/mlkem_native2_constants.o
 
+# The same for the AVX-512 version: its API, middle layer and Keccak
+# permutations, the same leaves and the same constants block
+
+MLKEM_NATIVE2_AVX512_IMAGE_OBJ = \
+        mlkem_native2_avx512/mlkem512_avx512.o \
+        mlkem_native2_avx512/mlkem768_avx512.o \
+        mlkem_native2_avx512/mlkem1024_avx512.o \
+        mlkem_native2_avx512/mlkem_gen_matrix_avx512.o \
+        mlkem_native2_avx512/mlkem_getnoise_avx512.o \
+        mlkem_native2_avx512/mlkem_hash_g_avx512.o \
+        mlkem_native2_avx512/mlkem_hash_h_avx512.o \
+        $(filter mlkem/%,$(MLKEM_NATIVE2_IMAGE_OBJ)) \
+        mlkem_native2_avx512/sha3_keccak_f1600_avx512.o \
+        mlkem_native2_avx512/sha3_keccak4_f1600_avx512.o \
+        mlkem_native2/mlkem_native2_constants.o
+
 # Tutorial assembly files
 
 TUTORIAL_PROOFS = $(wildcard tutorial/*.ml)
@@ -501,19 +517,37 @@ mlkem_native2/mlkem_native2_image.elf: $(MLKEM_NATIVE2_IMAGE_OBJ) \
 	ld --no-relax -e 0 -T mlkem_native2/mlkem_native2_image.ld \
 	  -o $@ $(MLKEM_NATIVE2_IMAGE_OBJ)
 
+mlkem_native2_avx512/mlkem_native2_avx512_image.elf: \
+        $(MLKEM_NATIVE2_AVX512_IMAGE_OBJ) \
+        mlkem_native2_avx512/mlkem_native2_avx512_image.ld
+	ld --no-relax -e 0 -T mlkem_native2_avx512/mlkem_native2_avx512_image.ld \
+	  -o $@ $(MLKEM_NATIVE2_AVX512_IMAGE_OBJ)
+
 # The code of the API is in the template that the files for the parameter
-# sets include, and the names of mlkem_native2_names.h
+# sets include, and the AVX-512 version is assembled from the same
+# sources, with the names of mlkem_native2_names.h
 
 MLKEM_NATIVE2_N2_DEPS = mlkem_native2/mlkem_native2_consts.h \
                         mlkem_native2/mlkem_native2_names.h
 mlkem_native2/mlkem512.o mlkem_native2/mlkem768.o \
 mlkem_native2/mlkem1024.o: mlkem_native2/mlkem_kem_template.S \
                            $(MLKEM_NATIVE2_N2_DEPS)
+mlkem_native2_avx512/mlkem512_avx512.o mlkem_native2_avx512/mlkem768_avx512.o \
+mlkem_native2_avx512/mlkem1024_avx512.o: mlkem_native2/mlkem_kem_template.S \
+                                         $(MLKEM_NATIVE2_N2_DEPS)
+mlkem_native2_avx512/mlkem_gen_matrix_avx512.o: \
+        mlkem_native2/mlkem_gen_matrix.S $(MLKEM_NATIVE2_N2_DEPS)
+mlkem_native2_avx512/mlkem_getnoise_avx512.o: \
+        mlkem_native2/mlkem_getnoise.S $(MLKEM_NATIVE2_N2_DEPS)
+mlkem_native2_avx512/mlkem_hash_g_avx512.o: \
+        mlkem_native2/mlkem_hash_g.S $(MLKEM_NATIVE2_N2_DEPS)
+mlkem_native2_avx512/mlkem_hash_h_avx512.o: \
+        mlkem_native2/mlkem_hash_h.S $(MLKEM_NATIVE2_N2_DEPS)
 
 winobj: $(WINOBJ) ;
 
 clean:; rm -f libs2nbignum.a */*.o */*.obj */*.correct */*.native \
-              mlkem_native2/*.elf
+              mlkem_native2/*.elf mlkem_native2_avx512/*.elf
 
 # Dynamically regenerate or destroy the files recording which functions
 # use BMI and/or ADX instructions in the x86 versions. These won't run
