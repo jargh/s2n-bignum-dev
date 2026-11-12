@@ -13,8 +13,9 @@
 # On x86_64, with VARIANT=avx512, the objects are those of the AVX-512
 # version instead, in WORK/obj_avx512: its API and middle layer with the
 # suffix _avx512 removed from their symbols (so that the tests and the
-# benchmarks use them as they are), its Keccak-f1600 permutations, and the
-# leaves and the constants block of the AVX2 version.
+# benchmarks use them as they are), its rejection sampler and Keccak-f1600
+# permutations, and the leaves and the constants block of the AVX2
+# version.
 #
 # usage: build.sh
 set -e
@@ -22,7 +23,7 @@ set -e
 O=$WORK/obj${VARIANT:+_$VARIANT}${CTFLAGS:+_ct}
 OBJS=""
 if [ "${VARIANT:-}" = avx512 ]; then
-  for n in $AVX512_N2_OBJS $AVX512_SHA3_OBJS; do
+  for n in $AVX512_N2_OBJS $AVX512_LEAF_OBJS; do
     OBJS="$OBJS mlkem_native2_avx512/$n.o"
   done
   OBJS="$OBJS mlkem_native2/mlkem_native2_constants.o"

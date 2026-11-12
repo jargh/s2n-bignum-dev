@@ -103,13 +103,15 @@ CF_CFLAGS=-fcf-protection=full
 ABI_STUB=$T/abi_stub_x86.S
 
 # The AVX-512 version (build.sh with VARIANT=avx512): its API and middle
-# layer and its Keccak-f1600 permutations in x86/mlkem_native2_avx512,
-# used with the leaves and the constants block above
+# layer, its rejection sampler and its Keccak-f1600 permutations in
+# x86/mlkem_native2_avx512, used with the leaves and the constants block
+# above
 
 AVX512_N2_OBJS="mlkem512_avx512 mlkem768_avx512 mlkem1024_avx512
   mlkem_gen_matrix_avx512 mlkem_getnoise_avx512 mlkem_hash_h_avx512
   mlkem_hash_g_avx512"
-AVX512_SHA3_OBJS="sha3_keccak_f1600_avx512 sha3_keccak4_f1600_avx512"
+AVX512_LEAF_OBJS="mlkem_rej_uniform_alt_VARIABLE_TIME_avx512
+  sha3_keccak_f1600_avx512 sha3_keccak4_f1600_avx512"
 
 ARCHDIR=x86
 asm_with() {

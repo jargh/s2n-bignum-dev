@@ -322,8 +322,8 @@ for arch in ["arm", "x86"]:
 # Functions in the assembly files that are not yet in the library, and so
 # are not declared in s2n-bignum.h either: the new ML-KEM functions in
 # arm/mlkem and arm/mlkem_native2, and in x86/mlkem, x86/mlkem_native2 and
-# x86/mlkem_native2_avx512, until they are verified. Remove each from this list when it is added to
-# the library.
+# x86/mlkem_native2_avx512, until they are verified. Remove each from this
+# list when it is added to the library.
 notInLibrary = {
   "arm": [
     "mlkem_gen_matrix",
@@ -350,6 +350,7 @@ notInLibrary = {
     "mlkem_hash_g",
     "mlkem_hash_h",
     "mlkem_rej_uniform_alt_VARIABLE_TIME",
+    "mlkem_rej_uniform_alt_VARIABLE_TIME_avx512",
     "mlkem_sub_reduce",
     "mlkem_tomsg",
     "sha3_keccak4_f1600_avx512",

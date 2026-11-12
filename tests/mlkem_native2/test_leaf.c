@@ -18,6 +18,11 @@
  * permutation into the custom NTT order of the x86 backend, so they are
  * checked against the reference composed with mlkem_unpack, which is
  * checked to be that permutation, a fixed reordering of 256 entries.
+ * The rejection sampler of the AVX-512 version,
+ * mlkem_rej_uniform_alt_VARIABLE_TIME_avx512, is tested as the other one.
+ * The samplers are also run with their buffer and output next to pages
+ * without access, which must not be touched (valgrind cannot check the
+ * AVX-512 code).
  *
  * Functions missing from the link (weak symbols) are skipped.
  *
@@ -27,6 +32,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #define Q 3329
 #define WEAK __attribute__((weak))
@@ -73,6 +80,11 @@ uint64_t mlkem_rej_uniform_alt_VARIABLE_TIME(int16_t r[256], uint64_t n,
                                              uint64_t buflen,
                                              const uint8_t *table) WEAK;
 extern const uint8_t ref_rej_uniform_table[4096] WEAK;
+#if defined(__x86_64__)
+uint64_t mlkem_rej_uniform_alt_VARIABLE_TIME_avx512(int16_t r[256], uint64_t n,
+                                                    const uint8_t *buf,
+                                                    uint64_t buflen) WEAK;
+#endif
 void mlkem_sub_reduce(int16_t r[256], const int16_t a[256]) WEAK;
 void mlkem_tomsg(uint8_t msg[32], const int16_t a[256]) WEAK;
 void mlkem_compress_d4(uint8_t r[128], const int16_t a[256]) WEAK;
@@ -456,15 +468,54 @@ static int test_add_reduce(void) { return test_addsub(0); }
 static int test_sub_reduce(void) { return test_addsub(1); }
 
 /* ------------------------------------------------------------------------- */
-/* Rejection sampling: the alt version against the direct definition, on    */
-/* random buffers with a varying proportion of rejected fields.              */
+/* Rejection sampling: the alt versions against the direct definition, on   */
+/* random buffers with a varying proportion of rejected fields; then with   */
+/* the buffer starting just after, or ending just before, a page without    */
+/* access, and r ending just before one.                                    */
 /* ------------------------------------------------------------------------- */
 
-static int test_rej_uniform_alt(void)
+typedef uint64_t (*rej_fn)(int16_t r[256], uint64_t n, const uint8_t *buf,
+                           uint64_t buflen);
+static uint64_t rej_with_table(int16_t r[256], uint64_t n, const uint8_t *buf,
+                               uint64_t buflen)
+{
+  return mlkem_rej_uniform_alt_VARIABLE_TIME(
+      r, n, buf, buflen, mlkem_native2_constants.rej_uniform_table);
+}
+
+/* The entries from n0 entries in want[] and len bytes of buf; returns n */
+static uint64_t rej_want(int16_t want[256], uint64_t n0, const uint8_t *buf,
+                         uint64_t len)
+{
+  uint64_t n = n0;
+  for (uint64_t i = 0; i + 3 <= len && n < 256; i += 3)
+  {
+    unsigned d1 = buf[i] | ((buf[i + 1] & 0xf) << 8);
+    unsigned d2 = (buf[i + 1] >> 4) | (buf[i + 2] << 4);
+    if (d1 < Q) want[n++] = (int16_t)d1;
+    if (d2 < Q && n < 256) want[n++] = (int16_t)d2;
+  }
+  return n;
+}
+
+static int rej_count(const char *name, unsigned long t, uint64_t got,
+                     uint64_t n)
+{
+  checks++;
+  if (got == n) return 0;
+  printf("FAIL %s test %lu: count %lu, want %lu\n", name, t,
+         (unsigned long)got, (unsigned long)n);
+  return 1;
+}
+
+static int test_rej_with(const char *name, rej_fn f)
 {
   static uint8_t buf[24 * 40], copy[sizeof(buf)];
   int16_t want[256];
   area o;
+  long page = sysconf(_SC_PAGESIZE);
+  uint8_t *pages;
+  int bad = 0;
   for (unsigned long t = 0; t < 30 * 40 + ntests; t++)
   {
     uint64_t len = 24 * (t % 41), n, n0, got;
@@ -478,37 +529,64 @@ static int test_rej_uniform_alt(void)
     n0 = t % 3 == 0 ? rand64() % 257 : 0;
     r = (int16_t *)out(&o);
     for (uint64_t i = 0; i < n0; i++) want[i] = r[i] = (int16_t)(rand64() % Q);
-    n = n0;
-    for (uint64_t i = 0; i + 3 <= len && n < 256; i += 3)
-    {
-      unsigned d1 = buf[i] | ((buf[i + 1] & 0xf) << 8);
-      unsigned d2 = (buf[i + 1] >> 4) | (buf[i + 2] << 4);
-      if (d1 < Q) want[n++] = (int16_t)d1;
-      if (d2 < Q && n < 256) want[n++] = (int16_t)d2;
-    }
-    got = mlkem_rej_uniform_alt_VARIABLE_TIME(
-        r, n0, buf, len, mlkem_native2_constants.rej_uniform_table);
-    checks++;
-    if (got != n)
-    {
-      printf("FAIL mlkem_rej_uniform_alt test %lu: count %lu, want %lu\n", t,
-             (unsigned long)got, (unsigned long)n);
-      return 1;
-    }
+    n = rej_want(want, n0, buf, len);
+    got = f(r, n0, buf, len);
+    if (rej_count(name, t, got, n)) return 1;
     /* r[n..255] may be written too, but nothing beyond r */
     for (size_t i = 0; i < GUARD; i++)
       if (o.b[i] != FILL || o.b[GUARD + 512 + i] != FILL)
       {
-        printf("FAIL mlkem_rej_uniform_alt test %lu: wrote outside r\n", t);
+        printf("FAIL %s test %lu: wrote outside r\n", name, t);
         return 1;
       }
     memset(o.b + GUARD + 2 * n, FILL, 512 - 2 * n);
-    if (compare("mlkem_rej_uniform_alt", &o, want, 2 * n, t) ||
-        same_input("mlkem_rej_uniform_alt", buf, copy, sizeof(buf), t))
+    if (compare(name, &o, want, 2 * n, t) ||
+        same_input(name, buf, copy, sizeof(buf), t))
       return 1;
   }
-  return 0;
+  /* Pages: none, buf (page 1), none, r (page 3), none */
+  pages = mmap(NULL, 5 * page, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (pages == MAP_FAILED ||
+      mprotect(pages + page, page, PROT_READ | PROT_WRITE) != 0 ||
+      mprotect(pages + 3 * page, page, PROT_READ | PROT_WRITE) != 0)
+  {
+    printf("FAIL %s: cannot map the pages\n", name);
+    return 1;
+  }
+  for (unsigned long t = 0; t < 2 * 41 * 4; t++)
+  {
+    uint64_t len = 24 * (t % 41), n0 = (t / 82) * 80, n, got;
+    uint8_t *b = pages + page + (t / 41 % 2 ? page - len : 0);
+    int16_t *r = (int16_t *)(pages + 4 * page - 512);
+    randfill(b, len);
+    memcpy(copy, b, len);
+    for (uint64_t i = 0; i < n0; i++) want[i] = r[i] = (int16_t)(rand64() % Q);
+    n = rej_want(want, n0, b, len);
+    got = f(r, n0, b, len);
+    if ((bad = rej_count(name, t, got, n)) != 0) break;
+    checks++;
+    if (memcmp(r, want, 2 * n) != 0 || memcmp(b, copy, len) != 0)
+    {
+      printf("FAIL %s test %lu: wrong entries or input modified\n", name, t);
+      bad = 1;
+      break;
+    }
+  }
+  munmap(pages, 5 * page);
+  return bad;
 }
+
+static int test_rej_uniform_alt(void)
+{
+  return test_rej_with("mlkem_rej_uniform_alt", rej_with_table);
+}
+#if defined(__x86_64__)
+static int test_rej_uniform_alt_avx512(void)
+{
+  return test_rej_with("mlkem_rej_uniform_alt_avx512",
+                       mlkem_rej_uniform_alt_VARIABLE_TIME_avx512);
+}
+#endif
 
 #if defined(__x86_64__)
 /* ------------------------------------------------------------------------- */
@@ -682,6 +760,10 @@ int main(int argc, char **argv)
 #endif
       LEAF2(mlkem_check_encoding, test_check_encoding),
       LEAF2(mlkem_rej_uniform_alt_VARIABLE_TIME, test_rej_uniform_alt),
+#if defined(__x86_64__)
+      LEAF2(mlkem_rej_uniform_alt_VARIABLE_TIME_avx512,
+            test_rej_uniform_alt_avx512),
+#endif
       LEAF2(mlkem_add_reduce, test_add_reduce),
       LEAF2(mlkem_sub_reduce, test_sub_reduce),
       LEAF2(mlkem_frommsg, test_frommsg),

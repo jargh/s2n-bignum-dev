@@ -277,7 +277,7 @@
         lea     rdx, [rsp+BUF+rdx]
         mov     ecx, BUFBYTES
         lea     r8, [c+MLKEM_C_REJ_UNIFORM_TABLE]
-        call    S2N_BN_SYMBOL(mlkem_rej_uniform_alt_VARIABLE_TIME)
+        call    S2N_BN_SYMBOL(N2_REJ_UNIFORM)
 1:
         cmp     rax, 256
         jae     2f
@@ -292,7 +292,7 @@
         laneaddr rdx, lane
         mov     ecx, SHAKE128_RATE
         lea     r8, [c+MLKEM_C_REJ_UNIFORM_TABLE]
-        call    S2N_BN_SYMBOL(mlkem_rej_uniform_alt_VARIABLE_TIME)
+        call    S2N_BN_SYMBOL(N2_REJ_UNIFORM)
         jmp     1b
 2:
         lea     rax, [idx+lane]
