@@ -38,6 +38,10 @@ let DEFLATE_CODEBITS_ADD = prove
   ASM_REWRITE_TAC[deflate_codebits; ADD_CLAUSES; MULT_CLAUSES; EXP_ADD] THEN
   REWRITE_TAC[ARITH_RULE `SUC(p + m) = (p + 1) + m`] THEN ARITH_TAC);;
 
+let DEFLATE_CODEBITS_1 = prove
+ (`!l q. deflate_codebits l q 1 = deflate_bits l q 1`,
+  REWRITE_TAC[num_CONV `1`; deflate_codebits; deflate_bits] THEN ARITH_TAC);;
+
 let DEFLATE_CODEBITS_SCALED = prove
  (`!l p m d e.
         deflate_codebits l p (m + d) * 2 EXP e <
@@ -48,6 +52,63 @@ let DEFLATE_CODEBITS_SCALED = prove
   MP_TAC THENL
    [REWRITE_TAC[LT_MULT_RCANCEL; EXP_EQ_0; ARITH_EQ; DEFLATE_CODEBITS_BOUND];
     ARITH_TAC]);;
+
+let DEFLATE_BITS_ADD = prove
+ (`!l p m n.
+        deflate_bits l p (m + n) =
+        deflate_bits l p m + 2 EXP m * deflate_bits l (p + m) n`,
+  GEN_TAC THEN ONCE_REWRITE_TAC[SWAP_FORALL_THM] THEN INDUCT_TAC THEN
+  ASM_REWRITE_TAC[deflate_bits; ADD_CLAUSES; MULT_CLAUSES; EXP] THEN
+  REWRITE_TAC[ARITH_RULE `SUC(p + m) = (p + 1) + m`] THEN ARITH_TAC);;
+
+let DIVMOD_ADD_MULT = prove
+ (`!a b n. a < n ==> (a + n * b) DIV n = b /\ (a + n * b) MOD n = a`,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN MATCH_MP_TAC DIVMOD_UNIQ THEN
+  ASM_ARITH_TAC);;
+
+let DEFLATE_BITS_SPLIT = prove
+ (`!l p n k.
+        k <= n
+        ==> deflate_bits l p n MOD 2 EXP k = deflate_bits l p k /\
+            deflate_bits l p n DIV 2 EXP k = deflate_bits l (p + k) (n - k)`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[LE_EXISTS] THEN
+  DISCH_THEN(X_CHOOSE_THEN `d:num` SUBST1_TAC) THEN
+  REWRITE_TAC[ADD_SUB2; DEFLATE_BITS_ADD] THEN
+  MP_TAC(SPECL [`l:byte list`; `p:num`; `k:num`] DEFLATE_BITS_BOUND) THEN
+  SIMP_TAC[DIVMOD_ADD_MULT]);;
+
+let DIVMOD_8_ADD = prove
+ (`!i k. k < 8 ==> (8 * i + k) DIV 8 = i /\ (8 * i + k) MOD 8 = k`,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN MATCH_MP_TAC DIVMOD_UNIQ THEN
+  ASM_ARITH_TAC);;
+
+(* Unfold deflate_bits l p n for a numeral n.                                *)
+
+let rec DEFLATE_BITS_UNFOLD_CONV tm =
+  match tm with
+    Comb(Comb(Comb(Const("deflate_bits",_),_),_),k) when is_numeral k ->
+      if dest_small_numeral k = 0 then REWR_CONV (CONJUNCT1 deflate_bits) tm
+      else (RAND_CONV num_CONV THENC REWR_CONV (CONJUNCT2 deflate_bits) THENC
+            RAND_CONV(RAND_CONV DEFLATE_BITS_UNFOLD_CONV)) tm
+  | _ -> failwith "DEFLATE_BITS_UNFOLD_CONV";;
+
+let DEFLATE_BITS_BYTE = prove
+ (`!l i. deflate_bits l (8 * i) 8 = val(EL i l:byte)`,
+  REPEAT GEN_TAC THEN CONV_TAC(LAND_CONV DEFLATE_BITS_UNFOLD_CONV) THEN
+  REWRITE_TAC[deflate_bit; GSYM ADD_ASSOC] THEN
+  CONV_TAC(DEPTH_CONV NUM_ADD_CONV) THEN
+  SIMP_TAC[DIVMOD_8_ADD; ARITH;
+           REWRITE_RULE[ADD_CLAUSES] (SPECL [`i:num`; `0`] DIVMOD_8_ADD)] THEN
+  SPEC_TAC(`EL i l:byte`,`b:byte`) THEN
+  REWRITE_TAC[val_def; DIMINDEX_8; NUMSEG_LT; ARITH] THEN GEN_TAC THEN
+  CONV_TAC(RAND_CONV EXPAND_NSUM_CONV) THEN CONV_TAC NUM_REDUCE_CONV THEN
+  ARITH_TAC);;
+
+let DEFLATE_BITS_EXTEND = prove
+ (`!l p n i. p + n = 8 * i
+             ==> deflate_bits l p n + 2 EXP n * val(EL i l:byte) =
+                 deflate_bits l p (n + 8)`,
+  SIMP_TAC[DEFLATE_BITS_ADD; DEFLATE_BITS_BYTE]);;
 
 (* ------------------------------------------------------------------------- *)
 (* Canonical codes. Codes are assigned in the order below, and scaled by     *)
@@ -540,6 +601,112 @@ let HUFFMAN_CODE_EXISTS = prove
   ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
   MATCH_MP_TAC MONO_EXISTS THEN X_GEN_TAC `s:num` THEN STRIP_TAC THEN
   ASM_SIMP_TAC[HUFFMAN_CODE_FIRST; HUFFMAN_RANK] THEN ASM_ARITH_TAC);;
+
+(* ------------------------------------------------------------------------- *)
+(* Decoding with the tables, trying the lengths n = 1, 2, ... in turn: the   *)
+(* code is found at length n if the first n bits are in the range of the     *)
+(* codes of length n, and there is no code if none of the lengths up to 15   *)
+(* has its code in range, or if the input runs out first. The bounds that    *)
+(* the Kraft inequality gives for the tables.                                *)
+(* ------------------------------------------------------------------------- *)
+
+let HUFFMAN_DECODE_NOT_FOUND = prove
+ (`!l lens p n.
+        ALL (\x. x <= 15) lens /\
+        (!m. 0 < m /\ m < n /\ p + m <= 8 * LENGTH l
+             ==> huffman_first lens m + huffman_count lens m <=
+                 deflate_codebits l p m) /\
+        (16 <= n \/ 8 * LENGTH l < p + n)
+        ==> ~(?s q. huffman_decode l lens p s q)`,
+  REWRITE_TAC[GSYM ALL_EL; huffman_decode; NOT_EXISTS_THM] THEN
+  MAP_EVERY X_GEN_TAC [`l:byte list`; `lens:num list`; `p:num`; `n:num`] THEN
+  DISCH_THEN(CONJUNCTS_THEN2 ASSUME_TAC
+   (CONJUNCTS_THEN2 (LABEL_TAC "m") ASSUME_TAC)) THEN
+  MAP_EVERY X_GEN_TAC [`s:num`; `q:num`] THEN STRIP_TAC THEN
+  MP_TAC(SPECL [`lens:num list`; `s:num`] HUFFMAN_CODE_RANGE) THEN
+  ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
+  SUBGOAL_THEN `EL s (lens:num list) <= 15` ASSUME_TAC THENL
+   [ASM_MESON_TAC[]; ALL_TAC] THEN
+  REMOVE_THEN "m" (MP_TAC o SPEC `EL s (lens:num list)`) THEN
+  ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC);;
+
+let HUFFMAN_DECODE_FOUND = prove
+ (`!l lens p n.
+        ~(n = 0) /\ p + n <= 8 * LENGTH l /\
+        huffman_first lens n <= deflate_codebits l p n /\
+        deflate_codebits l p n < huffman_first lens n + huffman_count lens n
+        ==> ?s. huffman_decode l lens p s (p + n) /\
+                huffman_rank lens s =
+                huffman_index lens n +
+                (deflate_codebits l p n - huffman_first lens n)`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`lens:num list`; `n:num`; `deflate_codebits l p n`]
+               HUFFMAN_CODE_EXISTS) THEN
+  ASM_REWRITE_TAC[huffman_decode] THEN
+  MATCH_MP_TAC MONO_EXISTS THEN GEN_TAC THEN STRIP_TAC THEN
+  ASM_REWRITE_TAC[]);;
+
+let HUFFMAN_FIRST_COUNT = prove
+ (`!lens n.
+        ~(n = 0)
+        ==> huffman_first lens n + huffman_count lens n =
+            nsum {t | t < LENGTH lens /\ ~(EL t lens = 0) /\ EL t lens <= n}
+                 (\t. 2 EXP (n - EL t lens))`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[huffman_first; huffman_count] THEN
+  SUBGOAL_THEN
+   `{t | t < LENGTH lens /\ ~(EL t lens = 0) /\ EL t lens <= n} =
+    {t | t < LENGTH lens /\ ~(EL t lens = 0) /\ EL t lens < n} UNION
+    {t | t < LENGTH lens /\ EL t (lens:num list) = n}`
+  SUBST1_TAC THENL
+   [REWRITE_TAC[EXTENSION; IN_UNION; IN_ELIM_THM] THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  W(MP_TAC o PART_MATCH (lhand o rand) NSUM_UNION o rand o snd) THEN
+  ANTS_TAC THENL
+   [REWRITE_TAC[FINITE_RESTRICT_LT; DISJOINT; EXTENSION; IN_INTER;
+                IN_ELIM_THM; NOT_IN_EMPTY] THEN ARITH_TAC;
+    DISCH_THEN SUBST1_TAC] THEN
+  AP_TERM_TAC THEN
+  SIMP_TAC[CARD_EQ_NSUM; FINITE_RESTRICT_LT] THEN
+  MATCH_MP_TAC NSUM_EQ THEN SIMP_TAC[IN_ELIM_THM; SUB_REFL; EXP]);;
+
+let HUFFMAN_FIRST_COUNT_BOUND = prove
+ (`!lens n.
+        huffman_kraft lens <= 2 EXP 15 /\ ~(n = 0) /\ n <= 15
+        ==> huffman_first lens n + huffman_count lens n <= 2 EXP n`,
+  REPEAT STRIP_TAC THEN ASM_SIMP_TAC[HUFFMAN_FIRST_COUNT] THEN
+  W(fun (asl,w) ->
+    let tm = lhand w in
+    SUBGOAL_THEN (mk_binop `(<=):num->num->bool`
+                   (mk_binop `( * ):num->num->num` `2 EXP (15 - n)` tm)
+                   `2 EXP (15 - n) * 2 EXP n`) MP_TAC) THENL
+   [ALL_TAC; REWRITE_TAC[LE_MULT_LCANCEL; EXP_EQ_0; ARITH_EQ]] THEN
+  REWRITE_TAC[GSYM EXP_ADD; GSYM NSUM_LMUL] THEN
+  ASM_SIMP_TAC[ARITH_RULE `n <= 15 ==> 15 - n + n = 15`] THEN
+  TRANS_TAC LE_TRANS `huffman_kraft lens` THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[huffman_kraft] THEN
+  TRANS_TAC LE_TRANS
+   `nsum {t | t < LENGTH lens /\ ~(EL t lens = 0) /\ EL t lens <= n}
+         (\s. 2 EXP (15 - EL s (lens:num list)))` THEN
+  CONJ_TAC THENL
+   [MATCH_MP_TAC EQ_IMP_LE THEN MATCH_MP_TAC NSUM_EQ THEN
+    REWRITE_TAC[IN_ELIM_THM; GSYM EXP_ADD] THEN REPEAT STRIP_TAC THEN
+    AP_TERM_TAC THEN ASM_ARITH_TAC;
+    MATCH_MP_TAC NSUM_SUBSET_SIMPLE THEN
+    REWRITE_TAC[FINITE_RESTRICT_LT; SUBSET; IN_ELIM_THM] THEN MESON_TAC[]]);;
+
+let HUFFMAN_COUNT_LE_LENGTH = prove
+ (`!lens n. huffman_count lens n <= LENGTH lens`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[huffman_count] THEN
+  GEN_REWRITE_TAC RAND_CONV [GSYM CARD_NUMSEG_LT] THEN
+  MATCH_MP_TAC CARD_SUBSET THEN REWRITE_TAC[FINITE_NUMSEG_LT] THEN
+  SET_TAC[]);;
+
+let HUFFMAN_INDEX_LE_LENGTH = prove
+ (`!lens n. huffman_index lens n <= LENGTH lens`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[huffman_index] THEN
+  GEN_REWRITE_TAC RAND_CONV [GSYM CARD_NUMSEG_LT] THEN
+  MATCH_MP_TAC CARD_SUBSET THEN REWRITE_TAC[FINITE_NUMSEG_LT] THEN
+  SET_TAC[]);;
 
 (* ------------------------------------------------------------------------- *)
 (* The Kraft sum and the conditions on code lengths in terms of the counts.  *)
