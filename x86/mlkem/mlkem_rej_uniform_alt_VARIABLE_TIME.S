@@ -34,7 +34,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(mlkem_rej_uniform_alt_VARIABLE_TIME)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(mlkem_rej_uniform_alt_VARIABLE_TIME)
         .text
-        .balign 4
+        .balign 32
 
 S2N_BN_SYMBOL(mlkem_rej_uniform_alt_VARIABLE_TIME):
         CFI_START

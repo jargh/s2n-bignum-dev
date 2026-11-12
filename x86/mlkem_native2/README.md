@@ -84,7 +84,11 @@ instructions are slow after AVX code that leaves the upper halves of the
 registers dirty, as the existing kernels do), and no PEXT (slow on AMD
 Zen 2). The polynomial buffers of the frames are 32-byte aligned, as the
 existing kernels require; the API functions take any alignment of their
-arguments.
+arguments. The new functions are 32-byte aligned, like the existing
+Keccak kernels, and no branch of their hot loops crosses or ends at a
+32-byte boundary, which on cores with the microcode fix for Intel's JCC
+erratum would make the loop run from the legacy decoders: their speed
+does not depend on where they are linked.
 
 ## Building
 

@@ -42,7 +42,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(N2(mlkem_getnoise))
         S2N_BN_SYM_PRIVACY_DIRECTIVE(N2(mlkem_getnoise))
         .text
-        .balign 4
+        .balign 32
 
 // The stack frame, 16-byte aligned after the six pushes: the x4 Keccak
 // state (four 200-byte lanes), a 192-byte buffer for each lane (for
@@ -232,12 +232,23 @@ mlkem_getnoise_postnext:
 mlkem_getnoise_end:
         vpxor   xmm0, xmm0, xmm0
         lea     rdi, [rsp+ST]
-        mov     ecx, ((CUR - ST) / 32)
+        mov     ecx, ((CUR - ST) / 128)
 mlkem_getnoise_zero:
         vmovdqu [rdi], ymm0
-        add     rdi, 32
+        vmovdqu [rdi+32], ymm0
+        vmovdqu [rdi+64], ymm0
+        vmovdqu [rdi+96], ymm0
+        add     rdi, 128
         dec     ecx
         jnz     mlkem_getnoise_zero
+        .if ((CUR - ST) % 32) != 0
+        .error  "the state and buffers must be a multiple of 32 bytes"
+        .endif
+        .set    i, 0
+        .rept   (((CUR - ST) % 128) / 32)
+        vmovdqu [rdi+i], ymm0
+        .set    i, i + 32
+        .endr
         vzeroupper
 
         CFI_INC_RSP(FRAME)

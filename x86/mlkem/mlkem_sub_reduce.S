@@ -24,7 +24,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(mlkem_sub_reduce)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(mlkem_sub_reduce)
         .text
-        .balign 4
+        .balign 32
 
 S2N_BN_SYMBOL(mlkem_sub_reduce):
         CFI_START

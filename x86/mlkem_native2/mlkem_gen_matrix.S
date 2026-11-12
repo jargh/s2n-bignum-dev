@@ -66,7 +66,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(N2(mlkem_gen_matrix))
         S2N_BN_SYM_PRIVACY_DIRECTIVE(N2(mlkem_gen_matrix))
         .text
-        .balign 4
+        .balign 32
 
 // The stack frame, 16-byte aligned after the six pushes: the x4 Keccak
 // state (four 200-byte lanes), the three-block output buffers of the four
@@ -128,7 +128,8 @@
         lea     \dst, [rsp+ST+\dst]
         .endm
 
-// zerolanes off, len: zero len bytes (a multiple of 16) of the state
+// zerolanes off, len: zero len bytes (a multiple of 16) of the state at
+// off, 128 bytes at a time and then the rest
 
         .macro zerolanes off, len
         .if ((\len) % 16) != 0
@@ -136,12 +137,25 @@
         .endif
         vpxor   xmm0, xmm0, xmm0
         lea     rdi, [rsp+ST+(\off)]
-        mov     ecx, ((\len) / 16)
+        .if ((\len) / 128) != 0
+        mov     ecx, ((\len) / 128)
 1:
-        vmovdqu [rdi], xmm0
-        add     rdi, 16
+        vmovdqu [rdi], ymm0
+        vmovdqu [rdi+32], ymm0
+        vmovdqu [rdi+64], ymm0
+        vmovdqu [rdi+96], ymm0
+        add     rdi, 128
         dec     ecx
         jnz     1b
+        .endif
+        .set    i, 0
+        .rept   (((\len) % 128) / 32)
+        vmovdqu [rdi+i], ymm0
+        .set    i, i + 32
+        .endr
+        .if ((\len) % 32) != 0
+        vmovdqu [rdi+i], xmm0
+        .endif
         .endm
 
 // initlane l, e: set lane l to the absorbed seed of matrix polynomial e

@@ -27,7 +27,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(mlkem_cbd3)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(mlkem_cbd3)
         .text
-        .balign 4
+        .balign 32
 
 S2N_BN_SYMBOL(mlkem_cbd3):
         CFI_START

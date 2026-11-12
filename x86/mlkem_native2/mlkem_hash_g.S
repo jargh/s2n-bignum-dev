@@ -33,7 +33,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(N2(mlkem_hash_g))
         S2N_BN_SYM_PRIVACY_DIRECTIVE(N2(mlkem_hash_g))
         .text
-        .balign 4
+        .balign 32
 
 // The stack frame: the 200-byte Keccak state at rsp (16-byte aligned after
 // the four pushes and the frame), out, in, len and c in rbx, rbp, r12

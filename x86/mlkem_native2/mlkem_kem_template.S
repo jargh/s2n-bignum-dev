@@ -119,7 +119,7 @@
 
         .intel_syntax noprefix
         .text
-        .balign 4
+        .balign 32
 
 // ----------------------------------------------------------------------------
 // Assembler macros for the frames and common steps
@@ -255,7 +255,8 @@
 #endif
         .endm
 
-// zero off, len: zero len bytes (a multiple of 32) of the frame at off
+// zero off, len: zero len bytes (a multiple of 32) of the frame at off,
+// 128 bytes at a time and then the rest
 
         .macro  zero off, len
         .if ((\len) % 32) != 0
@@ -263,12 +264,22 @@
         .endif
         vpxor   xmm0, xmm0, xmm0
         lea     rdi, [rsp+(\off)]
-        mov     ecx, ((\len) / 32)
+        .if ((\len) / 128) != 0
+        mov     ecx, ((\len) / 128)
 1:
         vmovdqu [rdi], ymm0
-        add     rdi, 32
+        vmovdqu [rdi+32], ymm0
+        vmovdqu [rdi+64], ymm0
+        vmovdqu [rdi+96], ymm0
+        add     rdi, 128
         dec     ecx
         jnz     1b
+        .endif
+        .set    i, 0
+        .rept   (((\len) % 128) / 32)
+        vmovdqu [rdi+i], ymm0
+        .set    i, i + 32
+        .endr
         .endm
 
 // copy dst, src, len: copy len bytes (a multiple of 32; the addresses

@@ -25,7 +25,7 @@
         S2N_BN_FUNCTION_TYPE_DIRECTIVE(mlkem_check_encoding)
         S2N_BN_SYM_PRIVACY_DIRECTIVE(mlkem_check_encoding)
         .text
-        .balign 4
+        .balign 32
 
 S2N_BN_SYMBOL(mlkem_check_encoding):
         CFI_START
