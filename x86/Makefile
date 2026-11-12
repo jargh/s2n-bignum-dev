@@ -502,10 +502,13 @@ mlkem_native2/mlkem_native2_image.elf: $(MLKEM_NATIVE2_IMAGE_OBJ) \
 	  -o $@ $(MLKEM_NATIVE2_IMAGE_OBJ)
 
 # The code of the API is in the template that the files for the parameter
-# sets include
+# sets include, and the names of mlkem_native2_names.h
 
+MLKEM_NATIVE2_N2_DEPS = mlkem_native2/mlkem_native2_consts.h \
+                        mlkem_native2/mlkem_native2_names.h
 mlkem_native2/mlkem512.o mlkem_native2/mlkem768.o \
-mlkem_native2/mlkem1024.o: mlkem_native2/mlkem_kem_template.S
+mlkem_native2/mlkem1024.o: mlkem_native2/mlkem_kem_template.S \
+                           $(MLKEM_NATIVE2_N2_DEPS)
 
 winobj: $(WINOBJ) ;
 

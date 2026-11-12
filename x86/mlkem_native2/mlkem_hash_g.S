@@ -21,12 +21,17 @@
 // ----------------------------------------------------------------------------
 
 #include "_internal_s2n_bignum_x86.h"
+#ifndef MLKEM_NATIVE2_CONSTS_H
 #include "mlkem_native2/mlkem_native2_consts.h"
+#endif
+#ifndef MLKEM_NATIVE2_NAMES_H
+#include "mlkem_native2/mlkem_native2_names.h"
+#endif
 
         .intel_syntax noprefix
-        S2N_BN_SYM_VISIBILITY_DIRECTIVE(mlkem_hash_g)
-        S2N_BN_FUNCTION_TYPE_DIRECTIVE(mlkem_hash_g)
-        S2N_BN_SYM_PRIVACY_DIRECTIVE(mlkem_hash_g)
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(N2(mlkem_hash_g))
+        S2N_BN_FUNCTION_TYPE_DIRECTIVE(N2(mlkem_hash_g))
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(N2(mlkem_hash_g))
         .text
         .balign 4
 
@@ -37,7 +42,7 @@
 #define FRAME 216
 #define RATE 72
 
-S2N_BN_SYMBOL(mlkem_hash_g):
+S2N_BN_SYMBOL(N2(mlkem_hash_g)):
         CFI_START
         _CET_ENDBR
         CFI_PUSH(rbx)
@@ -73,7 +78,7 @@ mlkem_hash_g_block:
         xor     [rsp+64], rax
         mov     rdi, rsp
         lea     rsi, [r13+MLKEM_C_RC]
-        call    S2N_BN_SYMBOL(sha3_keccak_f1600)
+        call    S2N_BN_SYMBOL(N2_KECCAK_X1)
         add     rbp, RATE
         sub     r12, RATE
         jmp     mlkem_hash_g_block
@@ -110,7 +115,7 @@ mlkem_hash_g_pad:
         xor     BYTE PTR [rsp+RATE-1], 0x80
         mov     rdi, rsp
         lea     rsi, [r13+MLKEM_C_RC]
-        call    S2N_BN_SYMBOL(sha3_keccak_f1600)
+        call    S2N_BN_SYMBOL(N2_KECCAK_X1)
 
 // The digest, then zero the state
 
@@ -134,7 +139,7 @@ mlkem_hash_g_pad:
         CFI_POP(rbx)
         CFI_RET
 
-S2N_BN_SIZE_DIRECTIVE(mlkem_hash_g)
+S2N_BN_SIZE_DIRECTIVE(N2(mlkem_hash_g))
 
 #if defined(__linux__) && defined(__ELF__)
 .section .note.GNU-stack,"",%progbits

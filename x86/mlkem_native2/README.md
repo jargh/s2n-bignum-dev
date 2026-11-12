@@ -13,9 +13,9 @@ for all three parameter sets:
 
 for L = 512, 768, 1024, with the same results as mlkem-native's (return
 values included). It is the x86_64 counterpart of `../../arm/mlkem_native2`,
-with the same design, for processors with AVX2, BMI1 and BMI2 (no
-AVX-512), written in the style of s2n-bignum and meant to be proved in HOL
-Light like the AArch64 version. The randomized `mlkemL_keypair` and
+with the same design, for processors with AVX2 (and POPCNT; no AVX-512),
+written in the style of s2n-bignum and meant to be proved in HOL Light
+like the AArch64 version. The randomized `mlkemL_keypair` and
 `mlkemL_enc` are not here, since they need a source of randomness: as in
 mlkem-native, they get 64 or 32 random bytes, call the deterministic
 function and zero the bytes (`../../tests/mlkem_native2/randomized.c`).

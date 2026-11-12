@@ -54,8 +54,10 @@
 // they call is System V code in either case.
 // ----------------------------------------------------------------------------
 
-// The including file has included _internal_s2n_bignum_x86.h and
-// mlkem_native2_consts.h.
+// The including file has included _internal_s2n_bignum_x86.h,
+// mlkem_native2_consts.h and mlkem_native2_names.h (for the names of the
+// AVX-512 version, which assembles this template with
+// MLKEM_NATIVE2_AVX512 defined).
 
 // The parameters
 
@@ -104,7 +106,7 @@
 
 #define CAT2(a, b) a##b
 #define CAT(a, b) CAT2(a, b)
-#define FN(f) CAT(CAT(mlkem, MLKEM_L), CAT(_, f))
+#define FN(f) N2(CAT(CAT(mlkem, MLKEM_L), CAT(_, f)))
 #define BASEMUL CAT(mlkem_basemul_k, MLKEM_K)
 #define COMPRESS_DU CAT(CAT(mlkem_compress_d, DU), _x86)
 #define COMPRESS_DV CAT(CAT(mlkem_compress_d, DV), _x86)
@@ -378,7 +380,7 @@ S2N_BN_SYMBOL(FN(check_sk)):
         lea     rsi, [rbx+VECBYTES]
         mov     edx, PKBYTES
         lea     rcx, [rip+S2N_BN_SYMBOL(mlkem_native2_constants)]
-        call    S2N_BN_SYMBOL(mlkem_hash_h)
+        call    S2N_BN_SYMBOL(N2(mlkem_hash_h))
         mov     rax, [rsp]
         xor     rax, [rbx+SKBYTES-64]
         mov     rcx, [rsp+8]
@@ -447,7 +449,7 @@ S2N_BN_SYMBOL(FN(keypair_derand)):
         lea     rsi, [rsp+KP_GIN]
         mov     edx, 33
         mov     rcx, r15
-        call    S2N_BN_SYMBOL(mlkem_hash_g)
+        call    S2N_BN_SYMBOL(N2(mlkem_hash_g))
 
 // rho is public, although computed from the secret d
 
@@ -473,7 +475,7 @@ S2N_BN_SYMBOL(FN(keypair_derand)):
         mov     ecx, GM_NOISE
         xor     r8d, r8d
         mov     [rsp], r15
-        call    S2N_BN_SYMBOL(mlkem_gen_matrix)
+        call    S2N_BN_SYMBOL(N2(mlkem_gen_matrix))
 #if ETA1 != 2
         lea     rdi, [rsp+KP_S]
         lea     rsi, [rsp+KP_G+32]
@@ -482,7 +484,7 @@ S2N_BN_SYMBOL(FN(keypair_derand)):
         mov     r8d, (2 * K)
         mov     r9d, ETA1
         mov     [rsp], r15
-        call    S2N_BN_SYMBOL(mlkem_getnoise)
+        call    S2N_BN_SYMBOL(N2(mlkem_getnoise))
 #endif
 
 // t = A s + e in the NTT domain, reduced
@@ -525,7 +527,7 @@ S2N_BN_SYMBOL(FN(keypair_derand)):
         mov     rsi, rbx
         mov     edx, PKBYTES
         mov     rcx, r15
-        call    S2N_BN_SYMBOL(mlkem_hash_h)
+        call    S2N_BN_SYMBOL(N2(mlkem_hash_h))
         copy    r12+SKBYTES-32, r13+32, 32
 
 // Zero the secrets: d, sigma, s, e and their mulcache (t is public)
@@ -710,7 +712,7 @@ S2N_BN_SYMBOL(FN(enc_derand)):
         lea     r8, [rsp+EN_JOBS]
         xor     r9d, r9d
         mov     [rsp], r15
-        call    S2N_BN_SYMBOL(mlkem_gen_matrix)
+        call    S2N_BN_SYMBOL(N2(mlkem_gen_matrix))
 
 // (K, r) = G(m || H(pk)), the noise from r, ct = K-PKE.Encrypt(pk, m, r),
 // ss = K
@@ -719,7 +721,7 @@ S2N_BN_SYMBOL(FN(enc_derand)):
         lea     rsi, [rsp+EN_GIN]
         mov     edx, 64
         mov     rcx, r15
-        call    S2N_BN_SYMBOL(mlkem_hash_g)
+        call    S2N_BN_SYMBOL(N2(mlkem_hash_g))
         lea     rdi, [rsp+EN_NOISE]
         lea     rsi, [rsp+EN_KR+32]
         xor     edx, edx
@@ -727,7 +729,7 @@ S2N_BN_SYMBOL(FN(enc_derand)):
         mov     r8d, K
         mov     r9d, ETA1
         mov     [rsp], r15
-        call    S2N_BN_SYMBOL(mlkem_getnoise)
+        call    S2N_BN_SYMBOL(N2(mlkem_getnoise))
         mov     rdi, rbx
         lea     rsi, [rsp+EN_AT]
         mov     rdx, r13
@@ -868,7 +870,7 @@ S2N_BN_SYMBOL(FN(dec)):
         lea     rsi, [rsp+DE_GIN]
         mov     edx, 64
         mov     rcx, r15
-        call    S2N_BN_SYMBOL(mlkem_hash_g)
+        call    S2N_BN_SYMBOL(N2(mlkem_hash_g))
 
 // z || c, and the matrix with H(ek) (job 0, lane 2) and J(z || c) (job 1,
 // lane 3) beside it, and the noise in idle lanes for eta1 = 2
@@ -905,7 +907,7 @@ S2N_BN_SYMBOL(FN(dec)):
         mov     ecx, (GM_TRANSPOSED + GM_JOBS + GM_NOISE)
         lea     r8, [rsp+DE_JOBS]
         mov     [rsp], r15
-        call    S2N_BN_SYMBOL(mlkem_gen_matrix)
+        call    S2N_BN_SYMBOL(N2(mlkem_gen_matrix))
 #if ETA1 != 2
         lea     rdi, [rsp+DE_NOISE]
         lea     rsi, [rsp+DE_KR+32]
@@ -914,7 +916,7 @@ S2N_BN_SYMBOL(FN(dec)):
         mov     r8d, K
         mov     r9d, ETA1
         mov     [rsp], r15
-        call    S2N_BN_SYMBOL(mlkem_getnoise)
+        call    S2N_BN_SYMBOL(N2(mlkem_getnoise))
 #endif
 
 // The hash check (its result is public)

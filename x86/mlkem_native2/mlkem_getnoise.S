@@ -30,12 +30,17 @@
 // ----------------------------------------------------------------------------
 
 #include "_internal_s2n_bignum_x86.h"
+#ifndef MLKEM_NATIVE2_CONSTS_H
 #include "mlkem_native2/mlkem_native2_consts.h"
+#endif
+#ifndef MLKEM_NATIVE2_NAMES_H
+#include "mlkem_native2/mlkem_native2_names.h"
+#endif
 
         .intel_syntax noprefix
-        S2N_BN_SYM_VISIBILITY_DIRECTIVE(mlkem_getnoise)
-        S2N_BN_FUNCTION_TYPE_DIRECTIVE(mlkem_getnoise)
-        S2N_BN_SYM_PRIVACY_DIRECTIVE(mlkem_getnoise)
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(N2(mlkem_getnoise))
+        S2N_BN_FUNCTION_TYPE_DIRECTIVE(N2(mlkem_getnoise))
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(N2(mlkem_getnoise))
         .text
         .balign 4
 
@@ -89,7 +94,7 @@
         mov     BYTE PTR [rdx+135], 0x80
         .endm
 
-S2N_BN_SYMBOL(mlkem_getnoise):
+S2N_BN_SYMBOL(N2(mlkem_getnoise)):
         CFI_START
         _CET_ENDBR
         CFI_PUSH(rbx)
@@ -157,14 +162,14 @@ mlkem_getnoise_found:
         imul    rdi, lane, 200
         lea     rdi, [rsp+ST+rdi]
         lea     rsi, [c+MLKEM_C_RC]
-        call    S2N_BN_SYMBOL(sha3_keccak_f1600)
+        call    S2N_BN_SYMBOL(N2_KECCAK_X1)
         jmp     mlkem_getnoise_post
 mlkem_getnoise_x4:
         lea     rdi, [rsp+ST]
         lea     rsi, [c+MLKEM_C_RC]
         lea     rdx, [c+MLKEM_C_KECCAK_RHO8]
         lea     rcx, [c+MLKEM_C_KECCAK_RHO56]
-        call    S2N_BN_SYMBOL(sha3_keccak4_f1600_alt)
+        call    S2N_BN_SYMBOL(N2_KECCAK_X4)
 
 // For each busy lane: with eta = 2, the coefficients come from the first
 // 128 bytes of the lane; with eta = 3, the first 136 bytes are saved and
@@ -244,7 +249,7 @@ mlkem_getnoise_zero:
         CFI_POP(rbx)
         CFI_RET
 
-S2N_BN_SIZE_DIRECTIVE(mlkem_getnoise)
+S2N_BN_SIZE_DIRECTIVE(N2(mlkem_getnoise))
 
 #if defined(__linux__) && defined(__ELF__)
 .section .note.GNU-stack,"",%progbits

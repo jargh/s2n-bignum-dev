@@ -54,12 +54,17 @@
 // ----------------------------------------------------------------------------
 
 #include "_internal_s2n_bignum_x86.h"
+#ifndef MLKEM_NATIVE2_CONSTS_H
 #include "mlkem_native2/mlkem_native2_consts.h"
+#endif
+#ifndef MLKEM_NATIVE2_NAMES_H
+#include "mlkem_native2/mlkem_native2_names.h"
+#endif
 
         .intel_syntax noprefix
-        S2N_BN_SYM_VISIBILITY_DIRECTIVE(mlkem_gen_matrix)
-        S2N_BN_FUNCTION_TYPE_DIRECTIVE(mlkem_gen_matrix)
-        S2N_BN_SYM_PRIVACY_DIRECTIVE(mlkem_gen_matrix)
+        S2N_BN_SYM_VISIBILITY_DIRECTIVE(N2(mlkem_gen_matrix))
+        S2N_BN_FUNCTION_TYPE_DIRECTIVE(N2(mlkem_gen_matrix))
+        S2N_BN_SYM_PRIVACY_DIRECTIVE(N2(mlkem_gen_matrix))
         .text
         .balign 4
 
@@ -279,7 +284,7 @@
         mov     [rsp+RCNT], rax
         laneaddr rdi, lane
         lea     rsi, [c+MLKEM_C_RC]
-        call    S2N_BN_SYMBOL(sha3_keccak_f1600)
+        call    S2N_BN_SYMBOL(N2_KECCAK_X1)
         lea     rax, [idx+lane]
         shl     rax, 9
         lea     rdi, [a+rax]
@@ -320,14 +325,14 @@
         lea     rsi, [c+MLKEM_C_RC]
         lea     rdx, [c+MLKEM_C_KECCAK_RHO8]
         lea     rcx, [c+MLKEM_C_KECCAK_RHO56]
-        call    S2N_BN_SYMBOL(sha3_keccak4_f1600_alt)
+        call    S2N_BN_SYMBOL(N2_KECCAK_X4)
         .endm
 
 // ----------------------------------------------------------------------------
 // The function
 // ----------------------------------------------------------------------------
 
-S2N_BN_SYMBOL(mlkem_gen_matrix):
+S2N_BN_SYMBOL(N2(mlkem_gen_matrix)):
         CFI_START
         _CET_ENDBR
         CFI_PUSH(rbx)
@@ -539,7 +544,7 @@ mlkem_gen_matrix_x1tail:
 mlkem_gen_matrix_x1loop:
         lea     rdi, [rsp+ST]
         lea     rsi, [c+MLKEM_C_RC]
-        call    S2N_BN_SYMBOL(sha3_keccak_f1600)
+        call    S2N_BN_SYMBOL(N2_KECCAK_X1)
         imul    rdi, step, SHAKE128_RATE
         lea     rdi, [rsp+BUF+rdi]
         lea     rsi, [rsp+ST]
@@ -584,7 +589,7 @@ mlkem_gen_matrix_noisetail:
         mov     r9d, 2
         sub     rsp, 16
         mov     [rsp], c
-        call    S2N_BN_SYMBOL(mlkem_getnoise)
+        call    S2N_BN_SYMBOL(N2(mlkem_getnoise))
         add     rsp, 16
 
 // Zero the Keccak state, which may hold secret hash and noise states, and
@@ -603,7 +608,7 @@ mlkem_gen_matrix_end:
         CFI_POP(rbx)
         CFI_RET
 
-S2N_BN_SIZE_DIRECTIVE(mlkem_gen_matrix)
+S2N_BN_SIZE_DIRECTIVE(N2(mlkem_gen_matrix))
 
 #if defined(__linux__) && defined(__ELF__)
 .section .note.GNU-stack,"",%progbits
