@@ -2246,6 +2246,18 @@ let KP_FINISH_TAC k ex next (cth,z1,z2) =
  *** and the theorem gmth for gen_matrix
  ***)
 
+(*** The termination of SampleNTT for the matrix of the seed rho, entry
+ *** (i,j) from rho || j || i if ji, else from rho || i || j, as the API
+ *** theorems would assume (MLKEM_SAMPLENTT_TERMINATES_TAC proves it)
+ ***)
+
+let api_terminates_tm k rho ji =
+  let ks = string_of_int k in
+  vsubst [rho,`rho:byte list`]
+   (parse_term("!i j. i < "^ks^" /\\ j < "^ks^
+               " ==> mlkem_samplentt_terminates (APPEND rho "^
+               (if ji then "[word j; word i]" else "[word i; word j]")^")"));;
+
 let MLKEM_NATIVE2_KEYPAIR_DERAND_CORRECT_TAC k ex gmth =
   let nm = api_param k in
   let nx = API_TO_CALL_TAC ex (layout(nm ^ "_keypair_derand"))
@@ -2254,9 +2266,10 @@ let MLKEM_NATIVE2_KEYPAIR_DERAND_CORRECT_TAC k ex gmth =
   let kth = match k with
       2 -> KPKE_KEYGEN_K2_BLOCKS | 3 -> KPKE_KEYGEN_K3_BLOCKS
     | _ -> KPKE_KEYGEN_K4_BLOCKS in
-  KP_SETUP_TAC k ex THEN KP_SAMPLE_TAC k ex nx gmth THEN
-  KP_NTT_TAC k ex nx THEN MAP_EVERY (KP_ROW_TAC k ex nx) (0--(k-1)) THEN
-  KP_ENCODE_TAC k ex nx kth THEN KP_FINISH_TAC k ex nx lps;;
+  MLKEM_SAMPLENTT_TERMINATES_TAC (api_terminates_tm k (kp_rho k) true)
+   (KP_SETUP_TAC k ex THEN KP_SAMPLE_TAC k ex nx gmth THEN
+    KP_NTT_TAC k ex nx THEN MAP_EVERY (KP_ROW_TAC k ex nx) (0--(k-1)) THEN
+    KP_ENCODE_TAC k ex nx kth THEN KP_FINISH_TAC k ex nx lps);;
 
 (* ------------------------------------------------------------------------- *)
 (* pke_encrypt                                                               *)
@@ -2446,8 +2459,10 @@ let MLKEM_NATIVE2_PKE_ENCRYPT_CORRECT_TAC k ex =
   let bth = match k with
       2 -> KPKE_ENCRYPT_K2_BLOCKS | 3 -> KPKE_ENCRYPT_K3_BLOCKS
     | _ -> KPKE_ENCRYPT_K4_BLOCKS in
-  PE_SETUP_TAC k ex THEN PE_LOAD_TAC k ex nx THEN PE_MUL_TAC k ex nx THEN
-  PE_ADD_TAC k ex nx THEN PE_STORE_TAC k ex nx lp bth;;
+  let rho = parse_term("mlkem_slice "^string_of_int(384 * k)^" 32 ek") in
+  MLKEM_SAMPLENTT_TERMINATES_TAC (api_terminates_tm k rho false)
+   (PE_SETUP_TAC k ex THEN PE_LOAD_TAC k ex nx THEN PE_MUL_TAC k ex nx THEN
+    PE_ADD_TAC k ex nx THEN PE_STORE_TAC k ex nx lp bth);;
 
 (* ------------------------------------------------------------------------- *)
 (* pke_decrypt                                                               *)
@@ -2718,7 +2733,8 @@ let MLKEM_NATIVE2_ENC_DERAND_CORRECT_TAC k ex gmth pth =
   let zl = en_at k - en_gin k in
   let zth = prove(api_zero_tm (en_zero k) (en_zero k + 24) 96 zl,
                   API_ZERO_TAC ex (en_zero k) 3 (en_zero k + 24) 96 zl) in
-  EN_TAC k ex nx gmth (pth,zth);;
+  MLKEM_SAMPLENTT_TERMINATES_TAC (api_terminates_tm k (en_rho k) true)
+   (EN_TAC k ex nx gmth (pth,zth));;
 
 (* ------------------------------------------------------------------------- *)
 (* dec                                                                       *)
@@ -3076,4 +3092,5 @@ let DE_TAC k ex next gmth (pdth,peth) lps =
 let MLKEM_NATIVE2_DEC_CORRECT_TAC k ex gmth (pdth,peth) =
   let nx = API_TO_CALL_TAC ex (de_fn k) (de_after k) in
   let lps = de_loops k ex in
-  DE_TAC k ex nx gmth (pdth,peth) lps;;
+  MLKEM_SAMPLENTT_TERMINATES_TAC (api_terminates_tm k (de_rho k) true)
+   (DE_TAC k ex nx gmth (pdth,peth) lps);;

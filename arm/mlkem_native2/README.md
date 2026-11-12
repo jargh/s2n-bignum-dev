@@ -138,7 +138,13 @@ this layout of the image, and are checked again when it changes.
   `../proofs/utils/mlkem_native2_kem.ml` and
   `../proofs/utils/mlkem_native2_kem_safe.ml`, and the lemmas on K-PKE of
   the proofs of mlkem-native's compiled C in
-  `../proofs/utils/mlkem_native2_kpke.ml`).
+  `../proofs/utils/mlkem_native2_kpke.ml`). Unlike those, the theorems of
+  the API do not assume that SampleNTT terminates for the seeds of the
+  matrix: it does for every seed of one block of SHAKE128, because
+  Keccak-f1600 is a permutation, so the squeezing is periodic and comes
+  back to the padded seed, whose last byte makes a 12-bit field < q
+  (`../../common/fips202_theory.ml` and
+  `../../common/fips203_terminates.ml`).
 
 ## Where the speed comes from
 

@@ -150,9 +150,6 @@ let MLKEM768_PKE_ENCRYPT_SUBROUTINE_CORRECT = prove
      aligned 4096 (word pc:int64) /\
      pc + mlkem_native2_image_size <= 2 EXP 64 /\
      aligned 16 stackpointer /\ LENGTH ek = 1184 /\ LENGTH m = 32 /\
-     (!i j. i < 3 /\ j < 3
-            ==> mlkem_samplentt_terminates
-                 (APPEND (mlkem_slice 1152 32 ek) [word i; word j])) /\
      PAIRWISE nonoverlapping
       [(ct,1088); (noise,3584); (word_sub stackpointer (word 5024),5024)] /\
      ALLPAIRS nonoverlapping
@@ -237,10 +234,6 @@ let MLKEM768_KEYPAIR_DERAND_SUBROUTINE_CORRECT = prove
      aligned 4096 (word pc:int64) /\
      pc + mlkem_native2_image_size <= 2 EXP 64 /\
      aligned 16 stackpointer /\ LENGTH d = 32 /\ LENGTH z = 32 /\
-     (!i j. i < 3 /\ j < 3
-            ==> mlkem_samplentt_terminates
-                 (APPEND (FST(mlkem_g(APPEND d [word 3])))
-                         [word j; word i])) /\
      PAIRWISE nonoverlapping
       [(pk,1184); (sk,2400); (word_sub stackpointer (word 13552),13552)] /\
      ALLPAIRS nonoverlapping
@@ -284,9 +277,6 @@ let MLKEM768_ENC_DERAND_SUBROUTINE_CORRECT = prove
      aligned 4096 (word pc:int64) /\
      pc + mlkem_native2_image_size <= 2 EXP 64 /\
      aligned 16 stackpointer /\ LENGTH ek = 1184 /\ LENGTH m = 32 /\
-     (!i j. i < 3 /\ j < 3
-            ==> mlkem_samplentt_terminates
-                 (APPEND (mlkem_slice 1152 32 ek) [word j; word i])) /\
      nonoverlapping (pk,1184) (word pc,mlkem_native2_image_size) /\
      PAIRWISE nonoverlapping
       [(ct,1088); (ss,32); (word_sub stackpointer (word 13504),13504)] /\
@@ -333,9 +323,6 @@ let MLKEM768_DEC_SUBROUTINE_CORRECT = prove
      aligned 4096 (word pc:int64) /\
      pc + mlkem_native2_image_size <= 2 EXP 64 /\
      aligned 16 stackpointer /\ LENGTH dk = 2400 /\ LENGTH c = 1088 /\
-     (!i j. i < 3 /\ j < 3
-            ==> mlkem_samplentt_terminates
-                 (APPEND (mlkem_slice 2304 32 dk) [word j; word i])) /\
      nonoverlapping (ct,1088) (word pc,mlkem_native2_image_size) /\
      nonoverlapping (sk,2400) (word pc,mlkem_native2_image_size) /\
      nonoverlapping (ss,32) (word_sub stackpointer (word 15824),15824) /\
@@ -458,10 +445,6 @@ let MLKEM768_KEYPAIR_DERAND_SUBROUTINE_SAFE = time prove
        aligned 4096 (word pc:int64) /\
        pc + mlkem_native2_image_size <= 2 EXP 64 /\
        aligned 16 stackpointer /\ LENGTH d = 32 /\
-       (!i j. i < 3 /\ j < 3
-              ==> mlkem_samplentt_terminates
-                   (APPEND (FST(mlkem_g(APPEND d [word 3])))
-                           [word j; word i])) /\
        PAIRWISE nonoverlapping
         [(pk,1184); (sk,2400); (word_sub stackpointer (word 13552),13552)] /\
        ALLPAIRS nonoverlapping
@@ -510,9 +493,6 @@ let MLKEM768_ENC_DERAND_SUBROUTINE_SAFE = time prove
        aligned 4096 (word pc:int64) /\
        pc + mlkem_native2_image_size <= 2 EXP 64 /\
        aligned 16 stackpointer /\ LENGTH ek = 1184 /\
-       (!i j. i < 3 /\ j < 3
-              ==> mlkem_samplentt_terminates
-                   (APPEND (mlkem_slice 1152 32 ek) [word j; word i])) /\
        nonoverlapping (pk,1184) (word pc,mlkem_native2_image_size) /\
        PAIRWISE nonoverlapping
         [(ct,1088); (ss,32); (word_sub stackpointer (word 13504),13504)] /\
@@ -563,9 +543,6 @@ let MLKEM768_DEC_SUBROUTINE_SAFE = time prove
        aligned 4096 (word pc:int64) /\
        pc + mlkem_native2_image_size <= 2 EXP 64 /\
        aligned 16 stackpointer /\ LENGTH dk = 2400 /\
-       (!i j. i < 3 /\ j < 3
-              ==> mlkem_samplentt_terminates
-                   (APPEND (mlkem_slice 2304 32 dk) [word j; word i])) /\
        nonoverlapping (ct,1088) (word pc,mlkem_native2_image_size) /\
        nonoverlapping (sk,2400) (word pc,mlkem_native2_image_size) /\
        nonoverlapping (ss,32) (word_sub stackpointer (word 15824),15824) /\

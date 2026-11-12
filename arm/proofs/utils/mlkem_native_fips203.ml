@@ -16,6 +16,7 @@
 needs "arm/proofs/utils/mlkem_native_image.ml";;
 needs "common/mlkem_mldsa.ml";;
 needs "common/fips203_theory.ml";;
+needs "common/fips203_terminates.ml";;
 
 (* ------------------------------------------------------------------------- *)
 (* Byte strings, bit fields and lists of words.                              *)
@@ -386,6 +387,43 @@ let MLKEM_SAMPLE_NTT_REJ = prove
 let mlkem_samplentt_terminates = new_definition
  `mlkem_samplentt_terminates (b:byte list) <=>
     ?J. 256 <= CARD {j | j < J /\ mlkem_xof_field (mlkem_xof b) j < 3329}`;;
+
+(* It holds for every seed of at most 167 bytes                              *)
+(* (MLKEM_SAMPLE_NTT_TERMINATES in common/fips203_terminates.ml), so for all *)
+(* the seeds rho || j || i of the matrix.                                    *)
+
+let MLKEM_SAMPLENTT_TERMINATES = prove
+ (`!b. LENGTH b < 168 ==> mlkem_samplentt_terminates b`,
+  SIMP_TAC[mlkem_samplentt_terminates; MLKEM_SAMPLE_NTT_TERMINATES]);;
+
+let MLKEM_SAMPLENTT_TERMINATES_SEED = prove
+ (`!rho (x:byte) (y:byte).
+        LENGTH rho = 32 ==> mlkem_samplentt_terminates (APPEND rho [x; y])`,
+  REPEAT STRIP_TAC THEN MATCH_MP_TAC MLKEM_SAMPLENTT_TERMINATES THEN
+  ASM_REWRITE_TAC[LENGTH_APPEND; LENGTH] THEN ARITH_TAC);;
+
+(* For theorems whose statements have no termination hypothesis: it proves   *)
+(* !x1 ... xn. p ==> q, or ?f. !x1 ... xn. p ==> q, by tac for the same goal *)
+(* with p /\ tm for p, where tm says that SampleNTT terminates for seeds     *)
+(* rho || x || y with rho of 32 bytes (such as mlkem_slice a 32 l, the first *)
+(* half of mlkem_g c, or a variable rho with LENGTH rho = 32 in p).          *)
+
+let MLKEM_SAMPLENTT_TERMINATES_TAC tm tac (asl,w) =
+  let addhyp w =
+    let vs,bod = strip_forall w in
+    let p,q = dest_imp bod in
+    list_mk_forall(vs,mk_imp(mk_conj(p,tm),q)) in
+  let isex = is_exists w in
+  let w' = if isex then let f,b = dest_exists w in mk_exists(f,addhyp b)
+           else addhyp w in
+  (SUBGOAL_THEN w' MP_TAC THENL
+    [tac;
+     (if isex then MATCH_MP_TAC MONO_EXISTS THEN GEN_TAC else ALL_TAC) THEN
+     DISCH_THEN(fun th -> REPEAT GEN_TAC THEN DISCH_TAC THEN
+                          MATCH_MP_TAC(SPEC_ALL th)) THEN
+     CONJ_TAC THENL [FIRST_ASSUM ACCEPT_TAC; ALL_TAC] THEN
+     REPEAT STRIP_TAC THEN MATCH_MP_TAC MLKEM_SAMPLENTT_TERMINATES_SEED THEN
+     ASM_REWRITE_TAC[mlkem_slice; mlkem_g; LENGTH_LIST_OF_SEQ]]) (asl,w);;
 
 let REJ_FIELDS_LIST = prove
  (`!s N M.
