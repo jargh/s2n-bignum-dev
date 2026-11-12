@@ -871,3 +871,201 @@ let HUFFMAN_COUNT_ALL_LE1 = prove
     ARITH_TAC;
     MAP_EVERY X_GEN_TAC [`n:num`; `i:num`] THEN
     FIRST_X_ASSUM(MP_TAC o SPEC `i:num`) THEN ARITH_TAC]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Decoding the block data one symbol at a time, as an implementation does.  *)
+(* ------------------------------------------------------------------------- *)
+
+let HUFFMAN_DECODE_POS = prove
+ (`!l lens p s q.
+        huffman_decode l lens p s q ==> p < q /\ q <= 8 * LENGTH l`,
+  REWRITE_TAC[huffman_decode] THEN ARITH_TAC);;
+
+let HUFFMAN_DECODE_SYMBOL = prove
+ (`!l lens p s q. huffman_decode l lens p s q ==> s < LENGTH lens`,
+  SIMP_TAC[huffman_decode]);;
+
+let LENGTH_LZ77_COPY = prove
+ (`!out distance n.
+        LENGTH(lz77_copy out distance n:byte list) = LENGTH out + n`,
+  GEN_REWRITE_TAC I [SWAP_FORALL_THM] THEN GEN_TAC THEN
+  ONCE_REWRITE_TAC[SWAP_FORALL_THM] THEN INDUCT_TAC THEN
+  ASM_REWRITE_TAC[lz77_copy; LENGTH_APPEND; LENGTH; ADD_CLAUSES]);;
+
+(* The copy extends the output by one byte at a time.                        *)
+
+let LZ77_COPY_SNOC = prove
+ (`!n out distance.
+        lz77_copy out distance (n + 1):byte list =
+        APPEND (lz77_copy out distance n)
+               [EL (LENGTH(lz77_copy out distance n) - distance)
+                   (lz77_copy out distance n)]`,
+  INDUCT_TAC THENL
+   [REWRITE_TAC[ADD_CLAUSES; num_CONV `1`; lz77_copy]; ALL_TAC] THEN
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[ARITH_RULE `SUC n + 1 = SUC(n + 1)`; lz77_copy] THEN
+  ASM_REWRITE_TAC[]);;
+
+let DEFLATE_CODES_LENGTH = prove
+ (`!l ll dl out p out' q.
+        deflate_codes l ll dl (out,p) (out',q)
+        ==> LENGTH out <= LENGTH out' /\ p < q`,
+  REPEAT GEN_TAC THEN
+  SUBGOAL_THEN
+   `!x r. deflate_codes l ll dl x r
+          ==> LENGTH(FST x:byte list) <= LENGTH(FST r:byte list) /\
+              SND x < SND r`
+   (fun th -> DISCH_THEN(MP_TAC o MATCH_MP th) THEN REWRITE_TAC[]) THEN
+  MATCH_MP_TAC DEFLATE_CODES_INDUCT THEN REWRITE_TAC[FST; SND; LE_REFL] THEN
+  REPEAT STRIP_TAC THENL
+   [ASM_MESON_TAC[HUFFMAN_DECODE_POS];
+    UNDISCH_TAC
+     `LENGTH(APPEND out [word s:byte]) <= LENGTH(FST(r:byte list#num))` THEN
+    REWRITE_TAC[LENGTH_APPEND; LENGTH] THEN ARITH_TAC;
+    ASM_MESON_TAC[HUFFMAN_DECODE_POS; LT_TRANS];
+    UNDISCH_TAC `LENGTH(lz77_copy out distance len) <=
+                 LENGTH(FST(r:byte list#num))` THEN
+    REWRITE_TAC[LENGTH_LZ77_COPY] THEN ARITH_TAC;
+    UNDISCH_TAC `deflate_lendist l ll dl p len distance q` THEN
+    REWRITE_TAC[deflate_lendist] THEN STRIP_TAC THEN
+    REPEAT(FIRST_X_ASSUM(MP_TAC o MATCH_MP HUFFMAN_DECODE_POS)) THEN
+    ASM_ARITH_TAC]);;
+
+(* The block data at p, if there is no symbol at p.                          *)
+
+let DEFLATE_CODES_NODECODE = prove
+ (`!l ll dl out p r.
+        ~(?s q. huffman_decode l ll p s q)
+        ==> ~deflate_codes l ll dl (out,p) r`,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  ONCE_REWRITE_TAC[DEFLATE_CODES_CASES] THEN
+  REWRITE_TAC[PAIR_EQ; deflate_lendist] THEN ASM_MESON_TAC[]);;
+
+(* The block data at p, if the symbol at p is the end of the block, a        *)
+(* literal, or a length, whose length and distance codes follow.             *)
+
+let DEFLATE_CODES_END = prove
+ (`!l ll dl out p q r.
+        ALL (\n. n <= 15) ll /\ huffman_decode l ll p 256 q
+        ==> (deflate_codes l ll dl (out,p) r <=> r = (out,q))`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN EQ_TAC THENL
+   [ONCE_REWRITE_TAC[DEFLATE_CODES_CASES] THEN
+    REWRITE_TAC[PAIR_EQ; deflate_lendist] THEN STRIP_TAC THEN
+    SUBST_VARS_TAC THEN REPEAT HUFFMAN_UNIQUE_TAC THEN SUBST_VARS_TAC THEN
+    FIRST [ASM_ARITH_TAC; ASM_MESON_TAC[]];
+    DISCH_THEN SUBST1_TAC THEN
+    MATCH_MP_TAC(CONJUNCT1(SPEC_ALL DEFLATE_CODES_RULES)) THEN
+    ASM_REWRITE_TAC[]]);;
+
+let DEFLATE_CODES_LITERAL = prove
+ (`!l ll dl out p s q r.
+        ALL (\n. n <= 15) ll /\ huffman_decode l ll p s q /\ s < 256
+        ==> (deflate_codes l ll dl (out,p) r <=>
+             deflate_codes l ll dl (APPEND out [word s],q) r)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN EQ_TAC THENL
+   [GEN_REWRITE_TAC LAND_CONV [DEFLATE_CODES_CASES] THEN
+    REWRITE_TAC[PAIR_EQ; deflate_lendist] THEN STRIP_TAC THEN
+    SUBST_VARS_TAC THEN REPEAT HUFFMAN_UNIQUE_TAC THEN SUBST_VARS_TAC THEN
+    FIRST [ASM_ARITH_TAC; ASM_MESON_TAC[]];
+    DISCH_TAC THEN
+    MATCH_MP_TAC(CONJUNCT1(CONJUNCT2(SPEC_ALL DEFLATE_CODES_RULES))) THEN
+    MAP_EVERY EXISTS_TAC [`q:num`; `s:num`] THEN ASM_REWRITE_TAC[]]);;
+
+let DEFLATE_LENDIST_AT = prove
+ (`!l ll dl p s q len distance q'.
+        ALL (\n. n <= 15) ll /\ huffman_decode l ll p s q
+        ==> (deflate_lendist l ll dl p len distance q' <=>
+             257 <= s /\ s <= 285 /\
+             ?d p2. huffman_decode l dl
+                     (q + EL (s - 257) deflate_length_extra) d p2 /\
+                    d < 30 /\ q' = p2 + EL d deflate_dist_extra /\
+                    q' <= 8 * LENGTH l /\
+                    len = EL (s - 257) deflate_length_base +
+                          deflate_bits l q
+                            (EL (s - 257) deflate_length_extra) /\
+                    distance = EL d deflate_dist_base +
+                               deflate_bits l p2 (EL d deflate_dist_extra))`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[deflate_lendist] THEN
+  EQ_TAC THEN STRIP_TAC THENL
+   [REPEAT HUFFMAN_UNIQUE_TAC THEN ASM_REWRITE_TAC[] THEN ASM_MESON_TAC[];
+    MAP_EVERY EXISTS_TAC [`s:num`; `q:num`; `d:num`; `p2:num`] THEN
+    ASM_REWRITE_TAC[]]);;
+
+let DEFLATE_CODES_LENDIST = prove
+ (`!l ll dl out p s q r.
+        ALL (\n. n <= 15) ll /\ ALL (\n. n <= 15) dl /\
+        huffman_decode l ll p s q /\ 256 < s
+        ==> (deflate_codes l ll dl (out,p) r <=>
+             ?len distance q'.
+                deflate_lendist l ll dl p len distance q' /\
+                distance <= LENGTH out /\
+                deflate_codes l ll dl (lz77_copy out distance len,q') r)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN EQ_TAC THENL
+   [GEN_REWRITE_TAC LAND_CONV [DEFLATE_CODES_CASES] THEN
+    REWRITE_TAC[PAIR_EQ] THEN STRIP_TAC THENL
+     [MP_TAC(SPECL [`l:byte list`; `ll:num list`; `p:num`; `s:num`; `q:num`;
+                    `256`; `q':num`] HUFFMAN_DECODE_UNIQUE) THEN
+      ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+      MP_TAC(SPECL [`l:byte list`; `ll:num list`; `p:num`; `s:num`; `q:num`;
+                    `s':num`; `q':num`] HUFFMAN_DECODE_UNIQUE) THEN
+      ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+      ASM_MESON_TAC[]];
+    STRIP_TAC THEN
+    MATCH_MP_TAC(CONJUNCT2(CONJUNCT2(SPEC_ALL DEFLATE_CODES_RULES))) THEN
+    MAP_EVERY EXISTS_TAC [`q':num`; `len:num`; `distance:num`] THEN
+    ASM_REWRITE_TAC[]]);;
+
+(* With the length symbol s at p, ending at q, and the distance symbol c     *)
+(* after its extra bits, ending at q1, the copy that they give.              *)
+
+let DEFLATE_CODES_COPY = prove
+ (`!l ll dl out p s q c q1 r.
+        ALL (\n. n <= 15) ll /\ ALL (\n. n <= 15) dl /\
+        huffman_decode l ll p s q /\ 256 < s /\ s <= 285 /\
+        huffman_decode l dl (q + EL (s - 257) deflate_length_extra) c q1 /\
+        c < 30 /\ q1 + EL c deflate_dist_extra <= 8 * LENGTH l
+        ==> (deflate_codes l ll dl (out,p) r <=>
+             EL c deflate_dist_base +
+             deflate_bits l q1 (EL c deflate_dist_extra) <= LENGTH out /\
+             deflate_codes l ll dl
+              (lz77_copy out
+                (EL c deflate_dist_base +
+                 deflate_bits l q1 (EL c deflate_dist_extra))
+                (EL (s - 257) deflate_length_base +
+                 deflate_bits l q (EL (s - 257) deflate_length_extra)),
+               q1 + EL c deflate_dist_extra) r)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPECL [`l:byte list`; `ll:num list`; `dl:num list`; `out:byte list`;
+                `p:num`; `s:num`; `q:num`; `r:byte list#num`]
+               DEFLATE_CODES_LENDIST) THEN
+  ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_THEN SUBST1_TAC] THEN
+  MP_TAC(SPECL [`l:byte list`; `ll:num list`; `dl:num list`; `p:num`;
+                `s:num`; `q:num`] DEFLATE_LENDIST_AT) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
+  ASM_SIMP_TAC[ARITH_RULE `256 < s ==> 257 <= s`] THEN EQ_TAC THENL
+   [STRIP_TAC THEN SUBST_VARS_TAC THEN REPEAT HUFFMAN_UNIQUE_TAC THEN
+    ASM_REWRITE_TAC[];
+    STRIP_TAC THEN
+    MAP_EVERY EXISTS_TAC
+     [`EL (s - 257) deflate_length_base +
+       deflate_bits l q (EL (s - 257) deflate_length_extra)`;
+      `EL c deflate_dist_base + deflate_bits l q1 (EL c deflate_dist_extra)`;
+      `q1 + EL c deflate_dist_extra`] THEN
+    ASM_REWRITE_TAC[] THEN
+    MAP_EVERY EXISTS_TAC [`c:num`; `q1:num`] THEN ASM_REWRITE_TAC[]]);;
+
+(* The bounds on the base lengths and distances and their extra bits.        *)
+
+let DEFLATE_TABLE_BOUNDS = prove
+ (`(!i. i < 29 ==> 3 <= EL i deflate_length_base /\
+                   EL i deflate_length_base <= 258) /\
+   (!i. i < 29 ==> EL i deflate_length_extra <= 5) /\
+   (!i. i < 30 ==> 1 <= EL i deflate_dist_base /\
+                   EL i deflate_dist_base <= 24577) /\
+   (!i. i < 30 ==> EL i deflate_dist_extra <= 13) /\
+   LENGTH deflate_length_base = 29 /\ LENGTH deflate_length_extra = 29 /\
+   LENGTH deflate_dist_base = 30 /\ LENGTH deflate_dist_extra = 30`,
+  REWRITE_TAC[deflate_length_base; deflate_length_extra; deflate_dist_base;
+              deflate_dist_extra; LENGTH] THEN
+  CONV_TAC(ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
+  CONV_TAC(DEPTH_CONV EL_CONV) THEN CONV_TAC NUM_REDUCE_CONV);;

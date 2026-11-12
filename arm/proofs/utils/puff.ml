@@ -223,6 +223,35 @@ let READ_MEMORY_BYTES8_BYTELIST = prove
     C CONJ (ASSUME `i < LENGTH(l:byte list)`)) THEN
   DISCH_THEN SUBST1_TAC THEN ASM_SIMP_TAC[NUM_OF_BYTELIST_BYTE; WORD_VAL]);;
 
+(* Writing a byte after the end of an array extends it.                      *)
+
+let NUM_OF_BYTELIST_APPEND = prove
+ (`!l1 l2:byte list.
+        num_of_bytelist(APPEND l1 l2) =
+        num_of_bytelist l1 + 2 EXP (8 * LENGTH l1) * num_of_bytelist l2`,
+  LIST_INDUCT_TAC THEN
+  ASM_REWRITE_TAC[APPEND; LENGTH; num_of_bytelist; MULT_CLAUSES; EXP;
+                  ADD_CLAUSES] THEN
+  REWRITE_TAC[EXP_ADD] THEN ARITH_TAC);;
+
+let VAL_READ_MEMORY_BYTES8 = prove
+ (`!x s:armstate.
+        read (bytes(x,1)) (read memory s) = val(read (memory :> bytes8 x) s)`,
+  REWRITE_TAC[BYTES8_WBYTES; READ_COMPONENT_COMPOSE; VAL_READ_WBYTES] THEN
+  REWRITE_TAC[DIMINDEX_8] THEN CONV_TAC NUM_REDUCE_CONV);;
+
+let READ_MEMORY_BYTELIST_SNOC = prove
+ (`!a:int64 (l:byte list) b s:armstate.
+        read (memory :> bytes(a,LENGTH l)) s = num_of_bytelist l /\
+        read (memory :> bytes8(word_add a (word(LENGTH l)))) s = b
+        ==> read (memory :> bytes(a,LENGTH l + 1)) s =
+            num_of_bytelist(APPEND l [b])`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[READ_COMPONENT_COMPOSE; READ_BYTES_COMBINE] THEN
+  REWRITE_TAC[VAL_READ_MEMORY_BYTES8; NUM_OF_BYTELIST_APPEND] THEN
+  ASM_REWRITE_TAC[] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[READ_COMPONENT_COMPOSE]) THEN
+  ASM_REWRITE_TAC[num_of_bytelist] THEN ARITH_TAC);;
 
 let READ_MEMORY_BYTES16_NUM_OF_WORDLIST = prove
  (`!a:int64 (l:int16 list) n j s:armstate.
@@ -431,6 +460,73 @@ let WORDLIST16_FROM_MEMORY = prove
                  `wordlist_from_memory(a,n) s:int16 list`; `s:armstate`]
                 WORDLIST_FROM_MEMORY_EQ_ALT) THEN
   REWRITE_TAC[DIMINDEX_16] THEN ANTS_TAC THENL [ARITH_TAC; MESON_TAC[]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* The tables of the base lengths and distances and their extra bits, of     *)
+(* 16-bit words in the read-only data at 0x10b0, 0x10f0, 0x1130 and 0x1170.  *)
+(* ------------------------------------------------------------------------- *)
+
+let PUFF_TABLE_BYTES = prove
+ (`num_of_bytelist(SUB_LIST(4272,58) puff_gcc12_O2_mc) =
+   num_of_wordlist(MAP (word:num->int16) deflate_length_base) /\
+   num_of_bytelist(SUB_LIST(4336,58) puff_gcc12_O2_mc) =
+   num_of_wordlist(MAP (word:num->int16) deflate_length_extra) /\
+   num_of_bytelist(SUB_LIST(4400,60) puff_gcc12_O2_mc) =
+   num_of_wordlist(MAP (word:num->int16) deflate_dist_base) /\
+   num_of_bytelist(SUB_LIST(4464,60) puff_gcc12_O2_mc) =
+   num_of_wordlist(MAP (word:num->int16) deflate_dist_extra)`,
+  REWRITE_TAC[puff_gcc12_O2_mc; deflate_length_base; deflate_length_extra;
+              deflate_dist_base; deflate_dist_extra] THEN
+  CONV_TAC(ONCE_DEPTH_CONV SUB_LIST_CONV) THEN
+  REWRITE_TAC[MAP; num_of_bytelist; num_of_wordlist; DIMINDEX_16] THEN
+  CONV_TAC(DEPTH_CONV WORD_RED_CONV) THEN CONV_TAC NUM_REDUCE_CONV);;
+
+let PUFF_TABLES_LOADED = prove
+ (`!s pc. aligned_bytes_loaded s (word pc) puff_gcc12_O2_mc
+          ==> read (memory :> bytes(word_add (word pc) (word 4272),58)) s =
+              num_of_wordlist(MAP (word:num->int16) deflate_length_base) /\
+              read (memory :> bytes(word_add (word pc) (word 4336),58)) s =
+              num_of_wordlist(MAP (word:num->int16) deflate_length_extra) /\
+              read (memory :> bytes(word_add (word pc) (word 4400),60)) s =
+              num_of_wordlist(MAP (word:num->int16) deflate_dist_base) /\
+              read (memory :> bytes(word_add (word pc) (word 4464),60)) s =
+              num_of_wordlist(MAP (word:num->int16) deflate_dist_extra)`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[aligned_bytes_loaded] THEN STRIP_TAC THEN
+  REWRITE_TAC[GSYM PUFF_TABLE_BYTES] THEN
+  MAP_EVERY (fun (m,n) ->
+    MP_TAC(ISPECL [`s:armstate`; `word pc:int64`; `puff_gcc12_O2_mc`;
+                   mk_small_numeral m; mk_small_numeral n]
+                  BYTES_LOADED_SUB_LIST))
+   [4272,58; 4336,58; 4400,60; 4464,60] THEN
+  ASM_REWRITE_TAC[bytes_loaded; READ_BYTELIST_EQ_BYTES; LENGTH_SUB_LIST;
+                  LENGTH_PUFF_GCC12_O2_MC] THEN
+  CONV_TAC NUM_REDUCE_CONV THEN SIMP_TAC[]);;
+
+let WORD_ADD_ASSOC_NUM = WORD_RULE
+ `word_add (word_add (x:int64) (word a)) (word b) = word_add x (word(a + b))`;;
+
+(*** The element idx of the table tbl, of n words at pc + off, in state s, ***)
+(*** as the fact read (memory :> bytes16(word_add (word pc)                ***)
+(*** (word(off + 2 * idx)))) s = word(EL idx tbl), the form of the address ***)
+(*** that the simulation gives                                             ***)
+
+let TABLE_ELEMENT_TAC off n tbl idx s =
+  let a = mk_comb(mk_comb(`word_add:int64->int64->int64`,`word pc:int64`),
+                  mk_comb(`word:num->int64`,mk_small_numeral off)) in
+  let lth = ASSUME(list_mk_comb
+    (`aligned_bytes_loaded:armstate->int64->byte list->bool`,
+     [s; `word pc:int64`; `puff_gcc12_O2_mc`])) in
+  let tth = CONV_RULE(ONCE_DEPTH_CONV NUM_MULT_CONV)
+              (MATCH_MP PUFF_TABLES_LOADED lth) in
+  MP_TAC(ISPECL [a; mk_comb(`MAP (word:num->int16)`,tbl); mk_small_numeral n;
+                 idx; s] READ_MEMORY_BYTES16_NUM_OF_WORDLIST) THEN
+  CONV_TAC(ONCE_DEPTH_CONV NUM_MULT_CONV) THEN
+  REWRITE_TAC[tth; LENGTH_MAP; DEFLATE_TABLE_BOUNDS] THEN
+  ANTS_TAC THENL [SIMPLE_ARITH_TAC; ALL_TAC] THEN
+  MP_TAC(ISPECL [`word:num->int16`; idx; tbl] EL_MAP) THEN
+  REWRITE_TAC[DEFLATE_TABLE_BOUNDS] THEN
+  ANTS_TAC THENL [SIMPLE_ARITH_TAC; DISCH_THEN SUBST1_TAC] THEN
+  REWRITE_TAC[WORD_ADD_ASSOC_NUM] THEN DISCH_TAC;;
 
 (* ------------------------------------------------------------------------- *)
 (* Reasoning about the 32-bit operations on small numbers that the compiled  *)
@@ -1145,6 +1241,16 @@ let puff_input = new_definition
     word(8 * ((p + 7) DIV 8) - p) /\
     read (memory :> bytes(inp,LENGTH l)) s = num_of_bytelist l`;;
 
+(* puff_output st outp outlen out s says that the output buffer is at outp,  *)
+(* of size outlen, and that the output so far is the list of bytes out.      *)
+
+let puff_output = new_definition
+ `puff_output (st:int64) (outp:int64) outlen (out:byte list) (s:armstate) <=>
+    read (memory :> bytes64 st) s = outp /\
+    read (memory :> bytes64(word_add st (word 8))) s = word outlen /\
+    read (memory :> bytes64(word_add st (word 16))) s = word(LENGTH out) /\
+    read (memory :> bytes(outp,LENGTH out)) s = num_of_bytelist out`;;
+
 (* ------------------------------------------------------------------------- *)
 (* A loop that runs at most k times, with the invariant lp i at the start of *)
 (* iteration i, whose iterations may exit early with the postcondition Q.    *)
@@ -1198,6 +1304,39 @@ let ENSURES_SEQUENCE_EXIT = prove
   ASM_REWRITE_TAC[] THEN
   UNDISCH_TAC `((=):A->A->bool) subsumed C` THEN
   REWRITE_TAC[subsumed] THEN MESON_TAC[]);;
+
+(* A loop with the invariant lp n, for a measure n that each iteration       *)
+(* decreases, unless it exits with the postcondition Q.                      *)
+
+let ENSURES_WHILE_MEASURE = prove
+ (`!(lp:num->A->bool) P Q C.
+        C ,, C = C /\ (=) subsumed C /\
+        ensures step P (\s. (?n. lp n s) \/ Q s) C /\
+        (!n. ensures step (lp n) (\s. (?m. m < n /\ lp m s) \/ Q s) C)
+        ==> ensures step P Q C`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  SUBGOAL_THEN `!n. ensures step ((lp:num->A->bool) n) Q C` ASSUME_TAC THENL
+   [MATCH_MP_TAC num_WF THEN X_GEN_TAC `n:num` THEN DISCH_TAC THEN
+    MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+    EXISTS_TAC `\s. (?m. m < n /\ (lp:num->A->bool) m s) \/ Q s` THEN
+    ASM_REWRITE_TAC[] THEN
+    REWRITE_TAC[ensures] THEN X_GEN_TAC `s:A` THEN STRIP_TAC THENL
+     [FIRST_X_ASSUM(MP_TAC o SPEC `m:num`) THEN ASM_REWRITE_TAC[ensures] THEN
+      DISCH_THEN(MP_TAC o SPEC `s:A`) THEN ASM_REWRITE_TAC[];
+      GEN_REWRITE_TAC I [eventually_CASES] THEN DISJ1_TAC THEN
+      ASM_REWRITE_TAC[] THEN
+      UNDISCH_TAC `((=):A->A->bool) subsumed C` THEN
+      REWRITE_TAC[subsumed] THEN MESON_TAC[]];
+    MATCH_MP_TAC ENSURES_TRANS_SIMPLE THEN
+    EXISTS_TAC `\s. (?n. (lp:num->A->bool) n s) \/ Q s` THEN
+    ASM_REWRITE_TAC[] THEN
+    REWRITE_TAC[ensures] THEN X_GEN_TAC `s:A` THEN STRIP_TAC THENL
+     [FIRST_X_ASSUM(MP_TAC o SPEC `n:num`) THEN REWRITE_TAC[ensures] THEN
+      DISCH_THEN(MP_TAC o SPEC `s:A`) THEN ASM_REWRITE_TAC[];
+      GEN_REWRITE_TAC I [eventually_CASES] THEN DISJ1_TAC THEN
+      ASM_REWRITE_TAC[] THEN
+      UNDISCH_TAC `((=):A->A->bool) subsumed C` THEN
+      REWRITE_TAC[subsumed] THEN MESON_TAC[]]]);;
 
 (* ------------------------------------------------------------------------- *)
 (* An existential in the precondition, which is pulled out of the conjuncts  *)
@@ -1369,3 +1508,102 @@ let PUFF_LONGJMP_TAC env ctx n =
   ARM_BIGSTEP_TAC PUFF_EXEC sname THEN
   TRY(ASM_REWRITE_TAC[] THEN NO_TAC) THEN
   RULE_ASSUM_TAC(CONV_RULE(ONCE_DEPTH_CONV WORD_REDUCE_CONV));;
+
+(* ------------------------------------------------------------------------- *)
+(* A call of one of the functions of puff from another, at step n, at which  *)
+(* the PC is the address of the callee, using its correctness theorem th     *)
+(* specialized at the terms vars. In these, `ctx0:int64 list`, for the       *)
+(* context of the caller that the callee preserves, is replaced by the       *)
+(* values of the components of jmp_context in the current state, for which   *)
+(* variables are introduced where they are not known.                        *)
+(* ------------------------------------------------------------------------- *)
+
+let jmp_components =
+  [`X19`; `X20`; `X21`; `X22`; `X23`; `X24`; `X25`; `X26`; `X27`; `X28`;
+   `X29`; `X30`; `SP`; `Q8 :> bottomhalf`; `Q9 :> bottomhalf`;
+   `Q10 :> bottomhalf`; `Q11 :> bottomhalf`; `Q12 :> bottomhalf`;
+   `Q13 :> bottomhalf`; `Q14 :> bottomhalf`; `Q15 :> bottomhalf`];;
+
+let jmp_values (asl,w) =
+  let s = rand w in
+  let value c =
+    let rd = list_mk_icomb "read" [c; s] in
+    try rhs(concl(snd(find (fun (_,th) ->
+              let t = concl th in is_eq t && lhs t = rd) asl)))
+    with Failure _ -> failwith("jmp_values: " ^ string_of_term c) in
+  mk_list(map value jmp_components,`:int64`);;
+
+let JMP_VALUES_GHOST_TAC : tactic =
+  fun (asl,w as gl) ->
+    let s = rand w in
+    let missing = filter (fun c ->
+      let rd = list_mk_icomb "read" [c; s] in
+      not (exists (fun (_,th) -> let t = concl th in is_eq t && lhs t = rd)
+                  asl)) jmp_components in
+    MAP_EVERY (fun c ->
+      let rd = list_mk_icomb "read" [c; s] in
+      let v = genvar `:int64` in
+      ABBREV_TAC (mk_eq(v,rd))) missing gl;;
+
+(*** The hypotheses of the callee theorem, from the assumptions ***)
+
+let CALLEE_HYPS_TAC =
+  REWRITE_TAC[NONOVERLAPPING_CLAUSES] THEN
+  REPEAT CONJ_TAC THEN
+  FIRST [FIRST_ASSUM ACCEPT_TAC;
+         ASM_REWRITE_TAC[] THEN NO_TAC;
+         ALIGNED_WORD_TAC THEN NO_TAC;
+         NONOVERLAPPING_TAC;
+         SIMPLE_ARITH_TAC];;
+
+(*** The stack frame of the callee as one region below the caller's ***)
+
+let WORD_SUB_SUB_NUM = WORD_RULE
+ `word_sub (word_sub (x:int64) (word a)) (word b) = word_sub x (word(a + b))`;;
+
+let PUFF_CALL_TAC th vars n =
+  JMP_VALUES_GHOST_TAC THEN
+  W(fun gl ->
+    let ctx0 = jmp_values gl in
+    let vars' = map (fun v -> if v = `ctx0:int64 list` then ctx0 else v)
+                    vars in
+    MP_TAC(ISPECL vars' th)) THEN
+  ANTS_TAC THENL [CALLEE_HYPS_TAC; ALL_TAC] THEN
+  REWRITE_TAC[C_ARGUMENTS; puff_input; puff_table; jmp_context; CONS_11;
+              MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MAYCHANGE_JMP_CONTEXT;
+              MODIFIABLE_GPRS; MODIFIABLE_SIMD_REGS;
+              MODIFIABLE_UPPER_SIMD_REGS; SOME_FLAGS] THEN
+  REWRITE_TAC[WORD_SUB_SUB_NUM] THEN
+  CONV_TAC(ONCE_DEPTH_CONV NUM_ADD_CONV) THEN
+  ARM_BIGSTEP_TAC PUFF_EXEC ("s"^string_of_int n) THEN
+  TRY(ASM_REWRITE_TAC[] THEN NO_TAC);;
+
+(*** After a call of decode at position p, that its symbol is in range and ***)
+(*** its code ends after p and within the input                            ***)
+
+let DECODE_FACTS_TAC p =
+  FIRST_ASSUM(fun th ->
+    match strip_comb(concl th) with
+      Const("huffman_decode",_),[_;_;p';_;_] when p' = p ->
+        ASSUME_TAC(MATCH_MP HUFFMAN_DECODE_SYMBOL th) THEN
+        STRIP_ASSUME_TAC(MATCH_MP HUFFMAN_DECODE_POS th)
+    | _ -> failwith "DECODE_FACTS_TAC");;
+
+(*** Decide the test of bit 31 of a register holding word n, for n small ***)
+
+let BIT_WORD_LT = prove
+ (`!n k. n < 2 EXP k ==> ~bit k (word n:N word)`,
+  SIMP_TAC[BIT_WORD; DIV_LT; ODD]);;
+
+let BIT31_DECIDE_TAC =
+  W(fun (asl,w) ->
+    let s = rand w in
+    let pcth = snd(find (fun (_,th) -> let t = concl th in
+      is_eq t && lhs t = list_mk_icomb "read" [`PC`; s] && is_cond(rhs t))
+      asl) in
+    let c0 = lhand(rator(rhs(concl pcth))) in
+    let c = if is_neg c0 then rand c0 else c0 in
+    let ith = PART_MATCH (rand o rand) BIT_WORD_LT c in
+    let bth = TAC_PROOF((asl,lhand(concl ith)),
+                CONV_TAC NUM_REDUCE_CONV THEN SIMPLE_ARITH_TAC) in
+    RULE_ASSUM_TAC(REWRITE_RULE[MP ith bth]));;
