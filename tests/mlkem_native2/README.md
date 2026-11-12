@@ -12,6 +12,11 @@ curl and the usual tools for building C programs. Everything downloaded
 or built goes under `work/` here (or `WORK`; see `env.sh` for this and
 the other settings).
 
+They are being ported to x86_64 Linux, for `x86/mlkem_native2`: the
+scripts choose the settings for the machine they run on (`ARCH` in
+`env.sh`). So far the setup and the benchmarks work there; the lists of
+objects under test are still empty.
+
 ## Setup
 
     ./setup.sh
@@ -88,6 +93,12 @@ fault must be caught and the harmless changes must pass.
 `baseline.sh` builds mlkem-native's multilevel library with its native
 backends, as its `examples/multilevel_build_native` does, and measures
 it; `bench.sh` measures a library and compares it with that baseline.
-The cycle counts come from the virtual counter and a measured clock
+The cycle counts come from a fixed-rate counter and a measured clock
 (there may be no access to the performance counters), as medians of 31
-runs of 200 calls; `CORE` pins the run to a core.
+runs of 200 calls; `CORE` pins the run to a core. On AArch64 the counter
+is the virtual counter and the clock is measured once. On x86_64 it is
+the TSC, and the clock is measured right after each run, since it
+varies with the turbo and the AVX frequency licences (on a Cascade Lake
+Xeon, for example, 3.1 GHz for scalar code, 2.7 GHz while 256-bit
+multiplications run): each line also gives the time per call in ns and
+the clock of the run.

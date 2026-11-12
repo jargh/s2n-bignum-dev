@@ -5,16 +5,18 @@
 # Build the reference: mlkem-native's portable C (no native backends),
 # all three parameter sets, with the namespace prefix "ref" (ref512_dec,
 # ref_poly_compress_d10, ref_shake256, ...) so that it links beside the
-# library under test, into WORK/ref/out/libref.a, and the same with BTI
-# landing pads (for the tests with BTI enforced) in WORK/ref/out_bti.
+# library under test, into WORK/ref/out/libref.a, and on AArch64 the same
+# with BTI landing pads (for the tests with BTI enforced) in
+# WORK/ref/out_bti.
 #
 # usage: ref.sh
 set -e
 . "$(dirname "$0")/env.sh"
 SRCS=$(cd "$MLKEM_NATIVE/mlkem" && find src -name '*.c' | sort)
-for v in out out_bti; do
+VARIANTS=out; [ $ARCH = aarch64 ] && VARIANTS="out out_bti"
+for v in $VARIANTS; do
   OUT=$WORK/ref/$v
-  EXTRA=; [ $v = out_bti ] && EXTRA=-mbranch-protection=bti
+  EXTRA=; [ $v = out_bti ] && EXTRA=$CF_CFLAGS
   rm -rf "$OUT"; mkdir -p "$OUT"
   for L in 512 768 1024; do
     if [ $L = 512 ]; then ML=MLK_CONFIG_MULTILEVEL_WITH_SHARED
