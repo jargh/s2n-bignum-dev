@@ -82,6 +82,12 @@ seconds here; results in `work/build/NAME`):
    reached by an indirect call has a landing pad. On x86_64 instead:
    every global function must start with endbr64 (`check_endbr.sh`).
 
+On x86_64, `VARIANT=avx512 ./build.sh` builds the AVX-512 version
+(`x86/mlkem_native2_avx512`) into `work/obj_avx512` instead, with the
+suffix `_avx512` removed from the names of its API and middle layer, so
+that all the scripts here run on it unchanged. valgrind does not run its
+EVEX code, so give it `VALGRIND=` (and `CTLIBS=none` for gate.sh).
+
 `leafmid.sh [OBJDIR]` tests the new leaves (test_leaf: each against the
 reference, exhaustively over the values of each coefficient or byte
 where the input space allows) and the middle layer (test_mid:

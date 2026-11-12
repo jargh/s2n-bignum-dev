@@ -19,7 +19,7 @@ OBJS=$(ls $O/*.o | grep -v randomized)
 REF=$WORK/ref/out/libref.a
 REFBTI=$WORK/ref/out_bti/libref.a
 CCF="$CC -O2 -Wall -Wextra -I $REPO/$ARCHDIR/mlkem_native2"
-MID=; [ -f "$O/mlkem_gen_matrix.o" ] && MID=1
+MID=; nm -g --defined-only $OBJS | grep -q ' T mlkem_gen_matrix$' && MID=1
 st=0
 $CCF -o $B/test_leaf $T/test_leaf.c $T/no_randombytes.c $OBJS $REF || exit 1
 if [ -n "$MID" ]; then
