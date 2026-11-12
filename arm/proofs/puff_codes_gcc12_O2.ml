@@ -680,10 +680,11 @@ let CODES_LENGTH_TAC =
 (* Given the state at st, with the stream read up to position p and the      *)
 (* output so far out0, and the tables at lh and dh for the codes with code   *)
 (* lengths ll and dl, either codes returns 0, and the block data from p      *)
-(* decodes with the output that it leaves, reading up to the end of the      *)
-(* block, or there is no decoding, or none whose output fits in the output   *)
-(* buffer, and codes returns another value, or calls longjmp with the        *)
-(* context ctx saved in the jmp_buf of the state if there is no decoding.    *)
+(* decodes with the output that it leaves, which fits in the output buffer,  *)
+(* reading up to the end of the block, or there is no decoding, or none      *)
+(* whose output fits in the output buffer, and codes returns another value,  *)
+(* or calls longjmp with the context ctx saved in the jmp_buf of the state   *)
+(* if there is no decoding.                                                  *)
 (* ------------------------------------------------------------------------- *)
 
 let PUFF_CODES_CORRECT = prove
@@ -729,6 +730,7 @@ let PUFF_CODES_CORRECT = prove
           (\s. read PC s = returnaddress /\ jmp_context s = ctx0 /\
                (word_zx(read X0 s):int32 = word 0
                 ==> ?out q. deflate_codes l ll dl (out0,p) (out,q) /\
+                            LENGTH out <= outlen /\
                             puff_input st inp l q s /\
                             puff_output st outp outlen out s) /\
                (~(word_zx(read X0 s):int32 = word 0)

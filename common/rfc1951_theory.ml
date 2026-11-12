@@ -1069,3 +1069,548 @@ let DEFLATE_TABLE_BOUNDS = prove
               deflate_dist_extra; LENGTH] THEN
   CONV_TAC(ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
   CONV_TAC(DEPTH_CONV EL_CONV) THEN CONV_TAC NUM_REDUCE_CONV);;
+
+(* ------------------------------------------------------------------------- *)
+(* Decoding a stream block by block, as an implementation does.              *)
+(* ------------------------------------------------------------------------- *)
+
+let EL_REPLICATE = prove
+ (`!n (x:A) i. i < n ==> EL i (REPLICATE n x) = x`,
+  INDUCT_TAC THEN GEN_TAC THEN INDUCT_TAC THEN
+  REWRITE_TAC[CONJUNCT1 LT; REPLICATE; EL; HD; TL; LT_SUC] THEN
+  ASM_SIMP_TAC[]);;
+
+let LIST_OF_SEQ_1 = prove
+ (`!f:num->A. list_of_seq f 1 = [f 0]`,
+  REWRITE_TAC[num_CONV `1`; list_of_seq; APPEND]);;
+
+let LIST_OF_SEQ_SNOC = prove
+ (`!f:num->A n. list_of_seq f (n + 1) = APPEND (list_of_seq f n) [f n]`,
+  REWRITE_TAC[GSYM ADD1; list_of_seq]);;
+
+let REPLICATE_SNOC = prove
+ (`!n x:A. REPLICATE (n + 1) x = APPEND (REPLICATE n x) [x]`,
+  INDUCT_TAC THEN
+  ASM_REWRITE_TAC[REPLICATE; APPEND; ADD_CLAUSES;
+                  ARITH_RULE `0 + 1 = SUC 0`]);;
+
+let DEFLATE_BITS_1 = prove
+ (`!l p. deflate_bits l p 1 = bitval(deflate_bit l p)`,
+  REWRITE_TAC[num_CONV `1`; deflate_bits] THEN ARITH_TAC);;
+
+(* The blocks from p: the block header at p, then the block, and the next    *)
+(* blocks unless the header bit BFINAL is set.                               *)
+
+let DEFLATE_BLOCKS_STEP = prove
+ (`!l out p r.
+        deflate_blocks l (out,p) r <=>
+        p + 3 <= 8 * LENGTH l /\
+        ?s. deflate_block l (deflate_bits l (p + 1) 2) (out,p + 3) s /\
+            (if deflate_bit l p then r = s else deflate_blocks l s r)`,
+  REPEAT GEN_TAC THEN GEN_REWRITE_TAC LAND_CONV [DEFLATE_BLOCKS_CASES] THEN
+  REWRITE_TAC[PAIR_EQ] THEN EQ_TAC THENL
+   [STRIP_TAC THEN SUBST_VARS_TAC THEN ASM_REWRITE_TAC[] THEN
+    ASM_MESON_TAC[];
+    ASM_CASES_TAC `deflate_bit l p` THEN ASM_REWRITE_TAC[] THEN
+    STRIP_TAC THENL
+     [DISJ1_TAC THEN MAP_EVERY EXISTS_TAC [`out:byte list`; `p:num`] THEN
+      ASM_MESON_TAC[];
+      DISJ2_TAC THEN
+      MAP_EVERY EXISTS_TAC [`out:byte list`; `p:num`; `s:byte list#num`] THEN
+      ASM_REWRITE_TAC[]]]);;
+
+let DEFLATE_BLOCK_LENGTH = prove
+ (`!l btype out p out' q.
+        deflate_block l btype (out,p) (out',q) ==> LENGTH out <= LENGTH out'`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[deflate_block; deflate_stored; deflate_dynamic; PAIR_EQ] THEN
+  STRIP_TAC THEN ASM_REWRITE_TAC[LENGTH_APPEND; LE_ADD] THEN
+  ASM_MESON_TAC[DEFLATE_CODES_LENGTH]);;
+
+let DEFLATE_BLOCKS_LENGTH = prove
+ (`!l out p out' q.
+        deflate_blocks l (out,p) (out',q) ==> LENGTH out <= LENGTH out'`,
+  REPEAT GEN_TAC THEN
+  SUBGOAL_THEN
+   `!x r. deflate_blocks l x r
+          ==> LENGTH(FST x:byte list) <= LENGTH(FST r:byte list)`
+   (fun th -> DISCH_THEN(MP_TAC o MATCH_MP th) THEN REWRITE_TAC[]) THEN
+  MATCH_MP_TAC DEFLATE_BLOCKS_INDUCT THEN REWRITE_TAC[FST] THEN
+  REPEAT STRIP_TAC THEN
+  FIRST_X_ASSUM(MP_TAC o check (fun th -> can (find_term (fun u ->
+    try fst(dest_const u) = "deflate_block" with _ -> false)) (concl th))) THEN
+  ONCE_REWRITE_TAC[GSYM PAIR] THEN
+  DISCH_THEN(MP_TAC o MATCH_MP DEFLATE_BLOCK_LENGTH) THEN
+  ASM_ARITH_TAC);;
+
+let DEFLATE_BLOCKS_NEXT = prove
+ (`!l out p s r.
+        p + 3 <= 8 * LENGTH l /\
+        deflate_block l (deflate_bits l (p + 1) 2) (out,p + 3) s
+        ==> (deflate_blocks l (out,p) r <=>
+             if deflate_bit l p then r = s else deflate_blocks l s r)`,
+  REPEAT STRIP_TAC THEN ONCE_REWRITE_TAC[DEFLATE_BLOCKS_STEP] THEN
+  ASM_REWRITE_TAC[] THEN EQ_TAC THENL
+   [DISCH_THEN(X_CHOOSE_THEN `s':byte list#num` STRIP_ASSUME_TAC) THEN
+    SUBGOAL_THEN `s':byte list#num = s` (fun th -> ASM_MESON_TAC[th]) THEN
+    ONCE_REWRITE_TAC[GSYM PAIR] THEN
+    MATCH_MP_TAC DEFLATE_BLOCK_UNIQUE THEN
+    MAP_EVERY EXISTS_TAC [`l:byte list`; `deflate_bits l (p + 1) 2`;
+                          `out:byte list`; `p + 3`] THEN
+    ASM_REWRITE_TAC[PAIR];
+    DISCH_TAC THEN EXISTS_TAC `s:byte list#num` THEN ASM_REWRITE_TAC[]]);;
+
+let DEFLATE_BLOCKS_AFTER = prove
+ (`!l out p out' q last btype.
+        p + 3 <= 8 * LENGTH l /\ (deflate_bit l p <=> last = 1) /\
+        deflate_bits l (p + 1) 2 = btype /\
+        deflate_block l btype (out,p + 3) (out',q)
+        ==> (last = 1 ==> !r. deflate_blocks l (out,p) r <=> r = (out',q)) /\
+            (last = 0 ==> !r. deflate_blocks l (out,p) r <=>
+                              deflate_blocks l (out',q) r)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPECL [`l:byte list`; `out:byte list`; `p:num`;
+                `(out':byte list),(q:num)`] DEFLATE_BLOCKS_NEXT) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN(fun th -> REWRITE_TAC[th]) THEN
+  ASM_REWRITE_TAC[] THEN ARITH_TAC);;
+
+(* There is no decoding (whose output fits in outlen bytes) if the blocks    *)
+(* from pk give the same result as the whole stream and the block at pk has  *)
+(* no decoding (whose output fits).                                          *)
+
+let DEFLATE_DECODE_NO_BLOCK = prove
+ (`!l outk pk btype outlen.
+        (!r. deflate_blocks l ([],0) r <=> deflate_blocks l (outk,pk) r) /\
+        deflate_bits l (pk + 1) 2 = btype /\
+        (!out q. deflate_block l btype (outk,pk + 3) (out,q)
+                 ==> outlen < LENGTH out)
+        ==> ~(?out n. deflate_decode l out n /\ LENGTH out <= outlen)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[deflate_decode; NOT_EXISTS_THM] THEN
+  MAP_EVERY X_GEN_TAC [`out:byte list`; `n:num`] THEN
+  ASM_REWRITE_TAC[] THEN ONCE_REWRITE_TAC[DEFLATE_BLOCKS_STEP] THEN
+  ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
+  UNDISCH_TAC `deflate_block l btype (outk,pk + 3) s` THEN
+  FIRST_X_ASSUM(MP_TAC o check (is_cond o concl)) THEN
+  SPEC_TAC(`s:byte list#num`,`s:byte list#num`) THEN
+  REWRITE_TAC[FORALL_PAIR_THM; PAIR_EQ] THEN
+  MAP_EVERY X_GEN_TAC [`o':byte list`; `q':num`] THEN
+  DISCH_TAC THEN DISCH_THEN(ANTE_RES_THEN ASSUME_TAC) THEN
+  FIRST_X_ASSUM(MP_TAC o check (is_cond o concl)) THEN
+  COND_CASES_TAC THENL
+   [DISCH_THEN(SUBST_ALL_TAC o CONJUNCT1) THEN ASM_ARITH_TAC;
+    DISCH_THEN(MP_TAC o MATCH_MP DEFLATE_BLOCKS_LENGTH) THEN ASM_ARITH_TAC]);;
+
+let DEFLATE_DECODE_NO_BLOCK_AT_ALL = prove
+ (`!l outk pk btype outlen.
+        (!r. deflate_blocks l ([],0) r <=> deflate_blocks l (outk,pk) r) /\
+        deflate_bits l (pk + 1) 2 = btype /\
+        (!out q. ~deflate_block l btype (outk,pk + 3) (out,q))
+        ==> ~(?out n. deflate_decode l out n /\ LENGTH out <= outlen)`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPEC_ALL DEFLATE_DECODE_NO_BLOCK) THEN ASM_MESON_TAC[]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Stored blocks, in terms of the bytes of the stream.                       *)
+(* ------------------------------------------------------------------------- *)
+
+let DEFLATE_BITS_2BYTES = prove
+ (`!l k. deflate_bits l (8 * k) 16 =
+         val(EL k l:byte) + 256 * val(EL (k + 1) l:byte)`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[ARITH_RULE `16 = 8 + 8`; DEFLATE_BITS_ADD] THEN
+  REWRITE_TAC[ARITH_RULE `8 * k + 8 = 8 * (k + 1)`; DEFLATE_BITS_BYTE] THEN
+  CONV_TAC NUM_REDUCE_CONV);;
+
+let DEFLATE_STORED_BYTES = prove
+ (`!l out p r k.
+        k = (p + 7) DIV 8
+        ==> (deflate_stored l (out,p) r <=>
+             k + 4 <= LENGTH l /\
+             val(EL (k + 2) l:byte) + 256 * val(EL (k + 3) l:byte) =
+             65535 - (val(EL k l:byte) + 256 * val(EL (k + 1) l:byte)) /\
+             k + 4 + (val(EL k l:byte) + 256 * val(EL (k + 1) l:byte))
+             <= LENGTH l /\
+             r = (APPEND out
+                   (list_of_seq (\i. EL (k + 4 + i) l)
+                     (val(EL k l:byte) + 256 * val(EL (k + 1) l:byte))),
+                  8 * (k + 4 +
+                       (val(EL k l:byte) + 256 * val(EL (k + 1) l:byte)))))`,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN REWRITE_TAC[deflate_stored] THEN
+  FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN
+  REWRITE_TAC[RIGHT_EXISTS_AND_THM; UNWIND_THM1; UNWIND_THM2] THEN
+  REWRITE_TAC[ARITH_RULE `8 * k + 16 = 8 * (k + 2)`; DEFLATE_BITS_2BYTES] THEN
+  REWRITE_TAC[ARITH_RULE `(k + 2) + 1 = k + 3`] THEN
+  SIMP_TAC[DIV_MULT; ARITH_EQ] THEN
+  REWRITE_TAC[ARITH_RULE `8 * k + 32 + 8 * n = 8 * (k + 4 + n)`;
+              LE_MULT_LCANCEL; ARITH_EQ] THEN
+  EQ_TAC THEN STRIP_TAC THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC);;
+
+let DEFLATE_STORED_BYTES_ALT = prove
+ (`!l out p k.
+        k = (p + 7) DIV 8
+        ==> !r. deflate_stored l (out,p) r <=>
+                k + 4 <= LENGTH l /\
+                val(EL (k + 2) l:byte) + 256 * val(EL (k + 3) l:byte) =
+                65535 - (val(EL k l:byte) + 256 * val(EL (k + 1) l:byte)) /\
+                k + 4 + (val(EL k l:byte) + 256 * val(EL (k + 1) l:byte))
+                <= LENGTH l /\
+                r = (APPEND out
+                      (list_of_seq (\i. EL (k + 4 + i) l)
+                        (val(EL k l:byte) + 256 * val(EL (k + 1) l:byte))),
+                     8 * (k + 4 +
+                          (val(EL k l:byte) + 256 * val(EL (k + 1) l:byte))))`,
+  MESON_TAC[DEFLATE_STORED_BYTES]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Blocks with the fixed codes.                                              *)
+(* ------------------------------------------------------------------------- *)
+
+let HUFFMAN_CODE_REPLICATE = prove
+ (`!n k s. s < n ==> huffman_code (REPLICATE n k) s = s`,
+  REPEAT STRIP_TAC THEN
+  ASM_SIMP_TAC[huffman_code; LENGTH_REPLICATE; EL_REPLICATE; LT_REFL] THEN
+  SUBGOAL_THEN
+   `{t | t < n /\ ~(EL t (REPLICATE n k) = 0) /\ EL t (REPLICATE n k) < k} =
+    {}`
+  SUBST1_TAC THENL
+   [REWRITE_TAC[EXTENSION; IN_ELIM_THM; NOT_IN_EMPTY] THEN
+    X_GEN_TAC `t:num` THEN ASM_CASES_TAC `t < n` THEN
+    ASM_SIMP_TAC[EL_REPLICATE; LT_REFL];
+    ALL_TAC] THEN
+  REWRITE_TAC[NSUM_CLAUSES; ADD_CLAUSES] THEN
+  GEN_REWRITE_TAC RAND_CONV [GSYM CARD_NUMSEG_LT] THEN
+  AP_TERM_TAC THEN REWRITE_TAC[EXTENSION; IN_ELIM_THM] THEN
+  X_GEN_TAC `t:num` THEN ASM_CASES_TAC `t < s` THEN ASM_REWRITE_TAC[] THEN
+  MATCH_MP_TAC EL_REPLICATE THEN ASM_ARITH_TAC);;
+
+let HUFFMAN_DECODE_REPLICATE = prove
+ (`!n k l p s q.
+        huffman_decode l (REPLICATE n k) p s q <=>
+        s < n /\ ~(k = 0) /\ q = p + k /\ q <= 8 * LENGTH l /\
+        deflate_codebits l p k = s`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[huffman_decode; LENGTH_REPLICATE] THEN
+  ASM_CASES_TAC `s < n` THEN
+  ASM_SIMP_TAC[EL_REPLICATE; HUFFMAN_CODE_REPLICATE]);;
+
+let DEFLATE_LENDIST_FIXED_DL = prove
+ (`!l ll p len distance q.
+        deflate_lendist l ll (REPLICATE 30 5) p len distance q <=>
+        deflate_lendist l ll (REPLICATE 32 5) p len distance q`,
+  REWRITE_TAC[deflate_lendist; HUFFMAN_DECODE_REPLICATE] THEN
+  MESON_TAC[ARITH_RULE `d < 30 ==> d < 32`]);;
+
+let DEFLATE_CODES_FIXED_DL = prove
+ (`!l ll x r. deflate_codes l ll (REPLICATE 30 5) x r <=>
+              deflate_codes l ll (REPLICATE 32 5) x r`,
+  REPEAT GEN_TAC THEN EQ_TAC THEN
+  MAP_EVERY (fun t -> SPEC_TAC(t,t))
+   [`r:byte list#num`; `x:byte list#num`] THEN
+  MATCH_MP_TAC DEFLATE_CODES_INDUCT THEN
+  MESON_TAC[DEFLATE_CODES_RULES; DEFLATE_LENDIST_FIXED_DL]);;
+
+let LENGTH_DEFLATE_FIXED_LL = prove
+ (`LENGTH deflate_fixed_ll = 288`,
+  REWRITE_TAC[deflate_fixed_ll; LENGTH_LIST_OF_SEQ]);;
+
+let HUFFMAN_KRAFT_FIXED_LL = prove
+ (`huffman_kraft deflate_fixed_ll = 2 EXP 15`,
+  REWRITE_TAC[huffman_kraft; LENGTH_DEFLATE_FIXED_LL] THEN
+  SUBGOAL_THEN
+   `!s. s < 288
+        ==> EL s deflate_fixed_ll =
+            if s < 144 then 8 else if s < 256 then 9
+            else if s < 280 then 7 else 8`
+  ASSUME_TAC THENL
+   [SIMP_TAC[deflate_fixed_ll; EL_LIST_OF_SEQ]; ALL_TAC] THEN
+  SUBGOAL_THEN
+   `{s | s < 288 /\ ~(EL s deflate_fixed_ll = 0)} = 0..287`
+  SUBST1_TAC THENL
+   [REWRITE_TAC[EXTENSION; IN_ELIM_THM; IN_NUMSEG] THEN
+    X_GEN_TAC `s:num` THEN ASM_CASES_TAC `s < 288` THEN
+    ASM_SIMP_TAC[] THEN TRY ASM_ARITH_TAC THEN
+    REPEAT COND_CASES_TAC THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  MATCH_MP_TAC EQ_TRANS THEN
+  EXISTS_TAC `nsum(0..287) (\s. 2 EXP (15 - (if s < 144 then 8
+                 else if s < 256 then 9 else if s < 280 then 7 else 8)))` THEN
+  CONJ_TAC THENL
+   [MATCH_MP_TAC NSUM_EQ THEN REWRITE_TAC[IN_NUMSEG] THEN
+    REPEAT STRIP_TAC THEN ASM_SIMP_TAC[ARITH_RULE `s <= 287 ==> s < 288`];
+    CONV_TAC(LAND_CONV EXPAND_NSUM_CONV) THEN CONV_TAC NUM_REDUCE_CONV]);;
+
+let HUFFMAN_KRAFT_REPLICATE = prove
+ (`!n k. ~(k = 0) ==> huffman_kraft (REPLICATE n k) = n * 2 EXP (15 - k)`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[huffman_kraft; LENGTH_REPLICATE] THEN
+  MATCH_MP_TAC EQ_TRANS THEN
+  EXISTS_TAC `nsum {s | s < n} (\s. 2 EXP (15 - k))` THEN
+  CONJ_TAC THENL
+   [MATCH_MP_TAC EQ_TRANS THEN
+    EXISTS_TAC `nsum {s | s < n} (\s. 2 EXP (15 - EL s (REPLICATE n k)))` THEN
+    CONJ_TAC THENL
+     [AP_THM_TAC THEN AP_TERM_TAC THEN
+      REWRITE_TAC[EXTENSION; IN_ELIM_THM] THEN ASM_MESON_TAC[EL_REPLICATE];
+      MATCH_MP_TAC NSUM_EQ THEN SIMP_TAC[IN_ELIM_THM; EL_REPLICATE]];
+    SIMP_TAC[NSUM_CONST; FINITE_NUMSEG_LT; CARD_NUMSEG_LT]]);;
+
+let HUFFMAN_KRAFT_DIST = prove
+ (`huffman_kraft (REPLICATE 30 5) = 30720`,
+  SIMP_TAC[HUFFMAN_KRAFT_REPLICATE; ARITH_EQ] THEN CONV_TAC NUM_REDUCE_CONV);;
+
+let ALL_DIST_BOUND = prove
+ (`ALL (\x. x <= 15) (REPLICATE 30 5)`,
+  REWRITE_TAC[ALL_REPLICATE] THEN CONV_TAC NUM_REDUCE_CONV);;
+
+let DEFLATE_CODES_BOUND = prove
+ (`!l ll dl out p out' q.
+        deflate_codes l ll dl (out,p) (out',q) ==> q <= 8 * LENGTH l`,
+  REPEAT GEN_TAC THEN
+  SUBGOAL_THEN
+   `!x r. deflate_codes l ll dl x r ==> SND r <= 8 * LENGTH(l:byte list)`
+   (fun th -> DISCH_THEN(MP_TAC o MATCH_MP th) THEN REWRITE_TAC[]) THEN
+  MATCH_MP_TAC DEFLATE_CODES_INDUCT THEN REWRITE_TAC[SND] THEN
+  MESON_TAC[HUFFMAN_DECODE_POS]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Blocks with dynamic codes: the header, the code length code (whose code   *)
+(* lengths are a permutation of the ones in the header, the rest 0) and the  *)
+(* code lengths of the literal/length and distance codes.                    *)
+(* ------------------------------------------------------------------------- *)
+
+let DEFLATE_DYNAMIC_HEADER = prove
+ (`!l out p r.
+        deflate_dynamic l (out,p) r
+        ==> 257 + deflate_bits l p 5 <= 286 /\
+            1 + deflate_bits l (p + 5) 5 <= 30 /\
+            p + 14 + 3 * (4 + deflate_bits l (p + 10) 4) <= 8 * LENGTH l`,
+  REWRITE_TAC[deflate_dynamic] THEN REPEAT STRIP_TAC THEN
+  SUBST_VARS_TAC THEN ASM_REWRITE_TAC[]);;
+
+let DEFLATE_CLEN_ORDER_BOUNDS = prove
+ (`LENGTH deflate_clen_order = 19 /\
+   (!i. i < 19 ==> EL i deflate_clen_order < 19)`,
+  REWRITE_TAC[deflate_clen_order; LENGTH] THEN
+  CONV_TAC(ONCE_DEPTH_CONV EXPAND_CASES_CONV) THEN
+  CONV_TAC(DEPTH_CONV EL_CONV) THEN CONV_TAC NUM_REDUCE_CONV);;
+
+let DEFLATE_CLEN_ORDER_INJ = prove
+ (`!i j. i < 19 /\ j < 19 /\ EL i deflate_clen_order = EL j deflate_clen_order
+         ==> i = j`,
+  REWRITE_TAC[IMP_CONJ; RIGHT_FORALL_IMP_THM] THEN
+  REWRITE_TAC[deflate_clen_order] THEN
+  CONV_TAC(DEPTH_CONV EXPAND_CASES_CONV) THEN
+  CONV_TAC(DEPTH_CONV EL_CONV) THEN CONV_TAC NUM_REDUCE_CONV);;
+
+let DEFLATE_CLEN_ORDER_SURJ = prove
+ (`!k. k < 19 ==> ?i. i < 19 /\ EL i deflate_clen_order = k`,
+  SUBGOAL_THEN `!k. k < 19 ==> MEM k deflate_clen_order` MP_TAC THENL
+   [CONV_TAC EXPAND_CASES_CONV THEN REWRITE_TAC[deflate_clen_order; MEM] THEN
+    CONV_TAC NUM_REDUCE_CONV;
+    REWRITE_TAC[MEM_EXISTS_EL; DEFLATE_CLEN_ORDER_BOUNDS] THEN
+    MESON_TAC[]]);;
+
+let DEFLATE_CLEN_UNIQUE = prove
+ (`!(cl:A list) cl' f.
+        LENGTH cl = 19 /\ LENGTH cl' = 19 /\
+        (!i. i < 19 ==> EL (EL i deflate_clen_order) cl = f i) /\
+        (!i. i < 19 ==> EL (EL i deflate_clen_order) cl' = f i)
+        ==> cl' = cl`,
+  REPEAT STRIP_TAC THEN ASM_REWRITE_TAC[LIST_EQ] THEN
+  X_GEN_TAC `k:num` THEN DISCH_TAC THEN
+  MP_TAC(SPEC `k:num` DEFLATE_CLEN_ORDER_SURJ) THEN ASM_REWRITE_TAC[] THEN
+  DISCH_THEN(X_CHOOSE_THEN `j:num`
+   (CONJUNCTS_THEN2 ASSUME_TAC (SUBST1_TAC o SYM))) THEN
+  ASM_SIMP_TAC[]);;
+
+let DEFLATE_DYNAMIC_EQ = prove
+ (`!l out p r nlen ndist ncode cl.
+        deflate_bits l p 5 + 257 = nlen /\ nlen <= 286 /\
+        deflate_bits l (p + 5) 5 + 1 = ndist /\ ndist <= 30 /\
+        deflate_bits l (p + 10) 4 + 4 = ncode /\
+        p + 14 + 3 * ncode <= 8 * LENGTH l /\
+        LENGTH cl = 19 /\
+        (!i. i < 19
+             ==> EL (EL i deflate_clen_order) cl =
+                 if i < ncode then deflate_bits l (p + 14 + 3 * i) 3 else 0)
+        ==> (deflate_dynamic l (out,p) r <=>
+             huffman_kraft cl = 2 EXP 15 /\
+             ?lens q.
+               deflate_lengths l cl (nlen + ndist)
+                               ([],p + 14 + 3 * ncode) (lens,q) /\
+               ~(EL 256 lens = 0) /\
+               huffman_ok (list_of_seq (\i. EL i lens) nlen) /\
+               huffman_ok (list_of_seq (\i. EL (nlen + i) lens) ndist) /\
+               deflate_codes l (list_of_seq (\i. EL i lens) nlen)
+                               (list_of_seq (\i. EL (nlen + i) lens) ndist)
+                               (out,q) r)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[deflate_dynamic] THEN
+  EQ_TAC THENL
+   [DISCH_THEN(X_CHOOSE_THEN `nlen':num` (X_CHOOSE_THEN `ndist':num`
+     (X_CHOOSE_THEN `ncode':num` (X_CHOOSE_THEN `cl':num list`
+     (X_CHOOSE_THEN `lens:num list` (X_CHOOSE_THEN `q:num`
+       STRIP_ASSUME_TAC)))))) THEN
+    SUBGOAL_THEN `nlen':num = nlen /\ ndist':num = ndist /\ ncode':num = ncode`
+     (REPEAT_TCL CONJUNCTS_THEN SUBST_ALL_TAC) THENL
+     [ASM_ARITH_TAC; ALL_TAC] THEN
+    UNDISCH_THEN `nlen = 257 + deflate_bits l p 5` (K ALL_TAC) THEN
+    UNDISCH_THEN `ndist = 1 + deflate_bits l (p + 5) 5` (K ALL_TAC) THEN
+    UNDISCH_THEN `ncode = 4 + deflate_bits l (p + 10) 4` (K ALL_TAC) THEN
+    SUBGOAL_THEN `cl':num list = cl` SUBST_ALL_TAC THENL
+     [MATCH_MP_TAC DEFLATE_CLEN_UNIQUE THEN
+      EXISTS_TAC `\i. if i < ncode then deflate_bits l (p + 14 + 3 * i) 3
+                      else 0` THEN
+      ASM_REWRITE_TAC[];
+      ASM_REWRITE_TAC[] THEN
+      MAP_EVERY EXISTS_TAC [`lens:num list`; `q:num`] THEN
+      ASM_REWRITE_TAC[]];
+    STRIP_TAC THEN
+    MAP_EVERY EXISTS_TAC [`nlen:num`; `ndist:num`; `ncode:num`;
+                          `cl:num list`; `lens:num list`; `q:num`] THEN
+    ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC]);;
+
+let DEFLATE_DYNAMIC_NO_LENGTHS = prove
+ (`!l out p r nlen ndist ncode cl.
+        deflate_bits l p 5 + 257 = nlen /\ nlen <= 286 /\
+        deflate_bits l (p + 5) 5 + 1 = ndist /\ ndist <= 30 /\
+        deflate_bits l (p + 10) 4 + 4 = ncode /\
+        p + 14 + 3 * ncode <= 8 * LENGTH l /\
+        LENGTH cl = 19 /\
+        (!i. i < 19
+             ==> EL (EL i deflate_clen_order) cl =
+                 if i < ncode then deflate_bits l (p + 14 + 3 * i) 3 else 0) /\
+        (huffman_kraft cl = 2 EXP 15
+         ==> !lens q. ~deflate_lengths l cl (nlen + ndist)
+                                      ([],p + 14 + 3 * ncode) (lens,q))
+        ==> ~deflate_dynamic l (out,p) r`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPECL [`l:byte list`; `out:byte list`; `p:num`; `r:byte list#num`;
+                `nlen:num`; `ndist:num`; `ncode:num`; `cl:num list`]
+               DEFLATE_DYNAMIC_EQ) THEN
+  ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_THEN SUBST1_TAC] THEN
+  ASM_MESON_TAC[]);;
+
+let DEFLATE_DYNAMIC_LENS = prove
+ (`!l out p r nlen ndist ncode cl lens q.
+        deflate_bits l p 5 + 257 = nlen /\ nlen <= 286 /\
+        deflate_bits l (p + 5) 5 + 1 = ndist /\ ndist <= 30 /\
+        deflate_bits l (p + 10) 4 + 4 = ncode /\
+        p + 14 + 3 * ncode <= 8 * LENGTH l /\
+        LENGTH cl = 19 /\
+        (!i. i < 19
+             ==> EL (EL i deflate_clen_order) cl =
+                 if i < ncode then deflate_bits l (p + 14 + 3 * i) 3 else 0) /\
+        (!r. deflate_lengths l cl (nlen + ndist) ([],p + 14 + 3 * ncode) r <=>
+             r = (lens,q))
+        ==> (deflate_dynamic l (out,p) r <=>
+             huffman_kraft cl = 2 EXP 15 /\
+             ~(EL 256 lens = 0) /\
+             huffman_ok (list_of_seq (\i. EL i lens) nlen) /\
+             huffman_ok (list_of_seq (\i. EL (nlen + i) lens) ndist) /\
+             deflate_codes l (list_of_seq (\i. EL i lens) nlen)
+                             (list_of_seq (\i. EL (nlen + i) lens) ndist)
+                             (out,q) r)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPECL [`l:byte list`; `out:byte list`; `p:num`; `r:byte list#num`;
+                `nlen:num`; `ndist:num`; `ncode:num`; `cl:num list`]
+               DEFLATE_DYNAMIC_EQ) THEN
+  ANTS_TAC THENL [ASM_REWRITE_TAC[]; DISCH_THEN SUBST1_TAC] THEN
+  ASM_REWRITE_TAC[PAIR_EQ] THEN MESON_TAC[]);;
+
+let HUFFMAN_DECODE_NOT_ALL_ZERO = prove
+ (`!l lens p s q. huffman_decode l lens p s q ==> ~ALL (\x. x = 0) lens`,
+  REWRITE_TAC[huffman_decode; GSYM ALL_EL] THEN MESON_TAC[]);;
+
+(* Decoding the code lengths one symbol at a time: a code length, or a       *)
+(* repeat of the last code length (16) or of zeros (17 and 18) with the      *)
+(* count in the extra bits.                                                  *)
+
+let DEFLATE_LENGTHS_DONE = prove
+ (`!l cl n lens p r.
+        LENGTH lens = n
+        ==> (deflate_lengths l cl n (lens,p) r <=> r = (lens,p))`,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  GEN_REWRITE_TAC LAND_CONV [DEFLATE_LENGTHS_CASES] THEN
+  REWRITE_TAC[PAIR_EQ] THEN EQ_TAC THENL
+   [STRIP_TAC THEN SUBST_VARS_TAC THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+    DISCH_TAC THEN DISJ1_TAC THEN
+    MAP_EVERY EXISTS_TAC [`lens:num list`; `p:num`] THEN
+    ASM_REWRITE_TAC[]]);;
+
+let DEFLATE_LENGTHS_NODECODE = prove
+ (`!l cl n lens p r.
+        LENGTH lens < n /\ ~(?s q. huffman_decode l cl p s q)
+        ==> ~deflate_lengths l cl n (lens,p) r`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  ONCE_REWRITE_TAC[DEFLATE_LENGTHS_CASES] THEN
+  REWRITE_TAC[PAIR_EQ] THEN ASM_MESON_TAC[LT_REFL]);;
+
+let DEFLATE_LENGTHS_LITERAL = prove
+ (`!l cl n lens p s q r.
+        ALL (\n. n <= 15) cl /\ LENGTH lens < n /\
+        huffman_decode l cl p s q /\ s < 16
+        ==> (deflate_lengths l cl n (lens,p) r <=>
+             deflate_lengths l cl n (APPEND lens [s],q) r)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN EQ_TAC THENL
+   [GEN_REWRITE_TAC LAND_CONV [DEFLATE_LENGTHS_CASES] THEN
+    REWRITE_TAC[PAIR_EQ] THEN STRIP_TAC THEN
+    SUBST_VARS_TAC THEN REPEAT HUFFMAN_UNIQUE_TAC THEN SUBST_VARS_TAC THEN
+    FIRST [ASM_ARITH_TAC; ASM_MESON_TAC[]];
+    DISCH_TAC THEN
+    MATCH_MP_TAC(CONJUNCT1(CONJUNCT2(SPEC_ALL DEFLATE_LENGTHS_RULES))) THEN
+    MAP_EVERY EXISTS_TAC [`q:num`; `s:num`] THEN ASM_REWRITE_TAC[]]);;
+
+let DEFLATE_LENGTHS_REPEAT_TAC rule =
+  REPEAT GEN_TAC THEN STRIP_TAC THEN EQ_TAC THENL
+   [GEN_REWRITE_TAC LAND_CONV [DEFLATE_LENGTHS_CASES] THEN
+    REWRITE_TAC[PAIR_EQ] THEN STRIP_TAC THEN
+    SUBST_VARS_TAC THEN REPEAT HUFFMAN_UNIQUE_TAC THEN SUBST_VARS_TAC THEN
+    FIRST [ASM_ARITH_TAC; ASM_MESON_TAC[]];
+    STRIP_TAC THEN MATCH_MP_TAC rule THEN
+    MAP_EVERY EXISTS_TAC [`q:num`] THEN ASM_MESON_TAC[]];;
+
+let DEFLATE_LENGTHS_REP16 = prove
+ (`!l cl n lens p q r.
+        ALL (\n. n <= 15) cl /\ LENGTH lens < n /\
+        huffman_decode l cl p 16 q
+        ==> (deflate_lengths l cl n (lens,p) r <=>
+             ~(lens = []) /\ q + 2 <= 8 * LENGTH l /\
+             LENGTH lens + 3 + deflate_bits l q 2 <= n /\
+             deflate_lengths l cl n
+              (APPEND lens (REPLICATE (3 + deflate_bits l q 2) (LAST lens)),
+               q + 2) r)`,
+  DEFLATE_LENGTHS_REPEAT_TAC
+   (CONJUNCT1(CONJUNCT2(CONJUNCT2(SPEC_ALL DEFLATE_LENGTHS_RULES)))));;
+
+let DEFLATE_LENGTHS_REP17 = prove
+ (`!l cl n lens p q r.
+        ALL (\n. n <= 15) cl /\ LENGTH lens < n /\
+        huffman_decode l cl p 17 q
+        ==> (deflate_lengths l cl n (lens,p) r <=>
+             q + 3 <= 8 * LENGTH l /\
+             LENGTH lens + 3 + deflate_bits l q 3 <= n /\
+             deflate_lengths l cl n
+              (APPEND lens (REPLICATE (3 + deflate_bits l q 3) 0),q + 3) r)`,
+  DEFLATE_LENGTHS_REPEAT_TAC
+   (CONJUNCT1(CONJUNCT2(CONJUNCT2(CONJUNCT2(SPEC_ALL
+     DEFLATE_LENGTHS_RULES))))));;
+
+let DEFLATE_LENGTHS_REP18 = prove
+ (`!l cl n lens p q r.
+        ALL (\n. n <= 15) cl /\ LENGTH lens < n /\
+        huffman_decode l cl p 18 q
+        ==> (deflate_lengths l cl n (lens,p) r <=>
+             q + 7 <= 8 * LENGTH l /\
+             LENGTH lens + 11 + deflate_bits l q 7 <= n /\
+             deflate_lengths l cl n
+              (APPEND lens (REPLICATE (11 + deflate_bits l q 7) 0),q + 7) r)`,
+  DEFLATE_LENGTHS_REPEAT_TAC
+   (CONJUNCT2(CONJUNCT2(CONJUNCT2(CONJUNCT2(SPEC_ALL
+     DEFLATE_LENGTHS_RULES))))));;
+
+let DEFLATE_LENGTHS_MONO = prove
+ (`!l cl n x r. deflate_lengths l cl n x r ==> SND x <= SND r`,
+  GEN_TAC THEN GEN_TAC THEN GEN_TAC THEN
+  MATCH_MP_TAC DEFLATE_LENGTHS_INDUCT THEN REWRITE_TAC[SND; LE_REFL] THEN
+  REPEAT STRIP_TAC THEN
+  FIRST_X_ASSUM(MP_TAC o MATCH_MP HUFFMAN_DECODE_POS) THEN
+  ASM_ARITH_TAC);;

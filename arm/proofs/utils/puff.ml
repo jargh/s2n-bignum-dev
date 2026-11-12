@@ -529,6 +529,149 @@ let TABLE_ELEMENT_TAC off n tbl idx s =
   REWRITE_TAC[WORD_ADD_ASSOC_NUM] THEN DISCH_TAC;;
 
 (* ------------------------------------------------------------------------- *)
+(* Arrays of 16-bit code lengths in memory, and arrays written by several    *)
+(* stores of 16 or 128 bits.                                                 *)
+(* ------------------------------------------------------------------------- *)
+
+(* Writing a 16-bit word after an array of them extends it.                  *)
+
+let READ_MEMORY_WORDLIST16_SNOC = prove
+ (`!a:int64 (l:int16 list) x s:armstate.
+        read (memory :> bytes(a,2 * LENGTH l)) s = num_of_wordlist l /\
+        read (memory :> bytes16(word_add a (word(2 * LENGTH l)))) s = x
+        ==> read (memory :> bytes(a,2 * LENGTH l + 2)) s =
+            num_of_wordlist(APPEND l [x])`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[READ_COMPONENT_COMPOSE; READ_BYTES_COMBINE] THEN
+  REWRITE_TAC[VAL_READ_MEMORY_BYTES16; NUM_OF_WORDLIST_APPEND] THEN
+  ASM_REWRITE_TAC[] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[READ_COMPONENT_COMPOSE]) THEN
+  ASM_REWRITE_TAC[num_of_wordlist; DIMINDEX_16] THEN
+  REWRITE_TAC[ARITH_RULE `8 * 2 * n = 16 * n`; MULT_CLAUSES; ADD_CLAUSES]);;
+
+let READ_MEMORY_LENGTHS_SNOC = prove
+ (`!a:int64 lens c s:armstate.
+        read (memory :> bytes(a,2 * LENGTH lens)) s =
+        num_of_wordlist(MAP (word:num->int16) lens) /\
+        read (memory :> bytes16(word_add a (word(2 * LENGTH lens)))) s =
+        word c
+        ==> read (memory :> bytes(a,2 * LENGTH(APPEND lens [c]))) s =
+            num_of_wordlist(MAP (word:num->int16) (APPEND lens [c]))`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[LENGTH_APPEND; MAP_APPEND; MAP; LENGTH;
+              ARITH_RULE `2 * (n + SUC 0) = 2 * n + 2`] THEN
+  MP_TAC(ISPECL [`a:int64`; `MAP (word:num->int16) lens`; `word c:int16`;
+                 `s:armstate`] READ_MEMORY_WORDLIST16_SNOC) THEN
+  ASM_REWRITE_TAC[LENGTH_MAP]);;
+
+(* A part of an array of code lengths.                                       *)
+
+let READ_MEMORY_LENGTHS_SUB = prove
+ (`!a:int64 lens m n s:armstate.
+        read (memory :> bytes(a,2 * LENGTH lens)) s =
+        num_of_wordlist(MAP (word:num->int16) lens) /\
+        m + n <= LENGTH lens
+        ==> read (memory :> bytes(word_add a (word(2 * m)),2 * n)) s =
+            num_of_wordlist(MAP (word:num->int16)
+                                (list_of_seq (\i. EL (m + i) lens) n))`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(ISPECL [`MAP (word:num->int16) (list_of_seq (\i. EL (m + i) lens) n)`;
+                 `word_add a (word(2 * m)):int64`; `s:armstate`]
+                READ_MEMORY_WORDLIST16_ELEMENTS) THEN
+  REWRITE_TAC[LENGTH_MAP; LENGTH_LIST_OF_SEQ] THEN
+  DISCH_THEN MATCH_MP_TAC THEN X_GEN_TAC `j:num` THEN DISCH_TAC THEN
+  ASM_SIMP_TAC[EL_MAP; LENGTH_LIST_OF_SEQ; EL_LIST_OF_SEQ] THEN
+  MP_TAC(ISPECL [`a:int64`; `MAP (word:num->int16) lens`;
+                 `LENGTH(lens:num list)`; `m + j:num`; `s:armstate`]
+                READ_MEMORY_BYTES16_NUM_OF_WORDLIST) THEN
+  ASM_REWRITE_TAC[LENGTH_MAP] THEN ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  ASM_SIMP_TAC[EL_MAP; ARITH_RULE `m + n <= l /\ j < n ==> m + j < l`] THEN
+  DISCH_THEN(SUBST1_TAC o SYM) THEN AP_THM_TAC THEN REPEAT AP_TERM_TAC THEN
+  REWRITE_TAC[GSYM WORD_ADD_ASSOC; GSYM WORD_ADD; LEFT_ADD_DISTRIB]);;
+
+let NUM_OF_WORDLIST_LIST_OF_SEQ16 = prove
+ (`!f n. num_of_wordlist(MAP (word:num->int16) (list_of_seq f n)) =
+         nsum {i | i < n} (\i. f i MOD 65536 * 2 EXP (16 * i))`,
+  GEN_TAC THEN INDUCT_TAC THEN
+  ASM_REWRITE_TAC[list_of_seq; MAP; MAP_APPEND; num_of_wordlist;
+                  NSUM_CLAUSES_NUMSEG_LT; NUM_OF_WORDLIST_APPEND;
+                  LENGTH_MAP; LENGTH_LIST_OF_SEQ; DIMINDEX_16; VAL_WORD;
+                  NUM_OF_WORDLIST_SING] THEN
+  CONV_TAC NUM_REDUCE_CONV THEN REWRITE_TAC[MULT_AC]);;
+
+let VAL_READ_MEMORY_BYTES128 = prove
+ (`!x s:armstate.
+        read (bytes(x,16)) (read memory s) =
+        val(read (memory :> bytes128 x) s)`,
+  REWRITE_TAC[BYTES128_WBYTES; READ_COMPONENT_COMPOSE; VAL_READ_WBYTES] THEN
+  REWRITE_TAC[DIMINDEX_128] THEN CONV_TAC NUM_REDUCE_CONV);;
+
+let READ_MEMORY_BYTES_CHUNK128 = prove
+ (`!b m n k x v s:armstate.
+        k = m + n /\
+        read (memory :> bytes(word_add b (word m),n)) s = x /\
+        read (memory :> bytes128(word_add b (word k))) s = v
+        ==> read (memory :> bytes(word_add b (word m),n + 16)) s =
+            x + 2 EXP (8 * n) * val v`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  FIRST_X_ASSUM(SUBST_ALL_TAC o check (is_var o lhs o concl)) THEN
+  REWRITE_TAC[READ_COMPONENT_COMPOSE; READ_BYTES_COMBINE] THEN
+  REWRITE_TAC[VAL_READ_MEMORY_BYTES128; WORD_ADD_ASSOC_NUM] THEN
+  ASM_REWRITE_TAC[GSYM READ_COMPONENT_COMPOSE]);;
+
+let READ_MEMORY_BYTES_CHUNK16 = prove
+ (`!b m n k x v s:armstate.
+        k = m + n /\
+        read (memory :> bytes(word_add b (word m),n)) s = x /\
+        read (memory :> bytes16(word_add b (word k))) s = v
+        ==> read (memory :> bytes(word_add b (word m),n + 2)) s =
+            x + 2 EXP (8 * n) * val v`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  FIRST_X_ASSUM(SUBST_ALL_TAC o check (is_var o lhs o concl)) THEN
+  REWRITE_TAC[READ_COMPONENT_COMPOSE; READ_BYTES_COMBINE] THEN
+  REWRITE_TAC[VAL_READ_MEMORY_BYTES16; WORD_ADD_ASSOC_NUM] THEN
+  ASM_REWRITE_TAC[GSYM READ_COMPONENT_COMPOSE]);;
+
+(* CHUNKS_TAC lem comp size b m n s: the fact read (memory :> bytes(word_add *)
+(* b (word m),size * n)) s = N, for the numeral N that the assumptions about *)
+(* the n values of the component comp (bytes16 or bytes128) of size bytes at *)
+(* word_add b (word (m + size * j)) give, combining them with lem            *)
+(* (READ_MEMORY_BYTES_CHUNK16 or READ_MEMORY_BYTES_CHUNK128).                *)
+
+let CHUNKS_TAC lem comp size b m n s =
+  W(fun (asl,w) ->
+    let bs = string_of_term b and ss = string_of_term s in
+    let chunk j =
+      let tm = parse_term("read (memory :> " ^ comp ^ " (word_add (" ^ bs ^
+                ") (word " ^ string_of_int (m + size * j) ^ "))) " ^ ss) in
+      snd(find (fun (_,th) -> is_eq(concl th) && lhs(concl th) = tm) asl) in
+    let th0 = prove
+     (parse_term("read (memory :> bytes(word_add (" ^ bs ^ ") (word " ^
+                 string_of_int m ^ "),0)) " ^ ss ^ " = 0"),
+      REWRITE_TAC[READ_COMPONENT_COMPOSE; READ_BYTES_TRIVIAL]) in
+    let conv = REWRITE_CONV[VAL_WORD; DIMINDEX_128; DIMINDEX_16] THENC
+               NUM_REDUCE_CONV in
+    let rec go j th =
+      if j = n then th else
+      let kth = NUM_REDUCE_CONV
+        (mk_binop `(+):num->num->num` (mk_small_numeral m)
+                  (mk_small_numeral(size * j))) in
+      let th' = MATCH_MP lem (CONJ (SYM kth) (CONJ th (chunk j))) in
+      go (j + 1) (CONV_RULE (BINOP_CONV(DEPTH_CONV NUM_ADD_CONV) THENC
+                             RAND_CONV conv) th') in
+    ASSUME_TAC(go 0 th0));;
+
+let REPLICATE_EXPAND_CONV =
+  let rec go tm =
+    match tm with
+      Comb(Comb(Const("REPLICATE",_),n),x) when is_numeral n ->
+        if dest_small_numeral n = 0 then REWR_CONV (CONJUNCT1 REPLICATE) tm
+        else (LAND_CONV num_CONV THENC REWR_CONV (CONJUNCT2 REPLICATE) THENC
+              RAND_CONV go) tm
+    | _ -> failwith "REPLICATE_EXPAND_CONV" in
+  go;;
+
+(* ------------------------------------------------------------------------- *)
 (* Reasoning about the 32-bit operations on small numbers that the compiled  *)
 (* code uses, and about the flags set when they are compared. These are as   *)
 (* in the mlkem branch (arm/proofs/utils/mlkem_native.ml and the proof for   *)
@@ -1002,6 +1145,37 @@ let SMALL_WORD_TAC:tactic =
       | _ -> th in
     RULE_ASSUM_TAC rule gl;;
 
+(* ival(word n) for small numbers n, and the rewriting of these in the       *)
+(* assumptions (after the comparisons of the signed branches).               *)
+
+let IVAL_WORD_SMALL = prove
+ (`!n. n < 2 EXP (dimindex(:N) - 1) ==> ival(word n:N word) = &n`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `n < 2 EXP dimindex(:N)` ASSUME_TAC THENL
+   [TRANS_TAC LTE_TRANS `2 EXP (dimindex(:N) - 1)` THEN
+    ASM_REWRITE_TAC[LE_EXP] THEN ARITH_TAC;
+    ALL_TAC] THEN
+  ASM_SIMP_TAC[ival; VAL_WORD; MOD_LT]);;
+
+let IVAL_SMALL_TAC =
+  W(fun (asl,w) ->
+    let is_iw t =
+      is_comb t && (try fst(dest_const(rator t)) = "ival" with _ -> false) &&
+      (try fst(dest_const(rator(rand t))) = "word" with _ -> false) in
+    let tms = setify(find_terms is_iw
+                       (list_mk_conj(map (concl o snd) asl))) in
+    MAP_EVERY (fun t ->
+      let n = rand(rand t) and ty = type_of(rand t) in
+      let th = INST_TYPE [hd(snd(dest_type ty)),`:N`] IVAL_WORD_SMALL in
+      TRY(MP_TAC(SPEC n th) THEN
+          REWRITE_TAC[DIMINDEX_8; DIMINDEX_16; DIMINDEX_32; DIMINDEX_64] THEN
+          CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
+          ANTS_TAC THENL
+           [SIMPLE_ARITH_TAC;
+            DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]))])) tms) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[INT_OF_NUM_ADD; INT_OF_NUM_LT; INT_OF_NUM_EQ;
+                              INT_OF_NUM_LE; CONJUNCT1 LT]);;
+
 (* ------------------------------------------------------------------------- *)
 (* The position in the stream as puff keeps it (see puff_input below).       *)
 (* ------------------------------------------------------------------------- *)
@@ -1426,6 +1600,22 @@ let STATE_PTR_NORM_TAC =
           when s' = s && not(mem c flags) -> CONV_RULE conv th
       | _ -> th) gl;;
 
+(*** The same with the offsets added up, keeping word pc separate in the   ***)
+(*** addresses of the code                                                 ***)
+
+let REG_PTR_NORM_TAC =
+  let conv = REWRITE_CONV[WORD_ADD_ASSOC_NUM] THENC NUM_REDUCE_CONV in
+  let flags = [`NF`; `ZF`; `CF`; `VF`; `PC`] in
+  fun (asl,w as gl) ->
+    let s = try rand w with Failure _ -> w in
+    RULE_ASSUM_TAC(fun th ->
+      match concl th with
+        Comb(Comb(Const("=",_),Comb(Comb(Const("read",_),c),s')),_)
+          when s' = s && not(mem c flags) &&
+               not(can (find_term (fun u -> u = `memory`)) c) ->
+            CONV_RULE (RAND_CONV conv) th
+      | _ -> th) gl;;
+
 (*** Replace the value tm of register r by the variable v ***)
 
 let REG_ABBREV_TAC r v tm =
@@ -1548,7 +1738,7 @@ let JMP_VALUES_GHOST_TAC : tactic =
 (*** The hypotheses of the callee theorem, from the assumptions ***)
 
 let CALLEE_HYPS_TAC =
-  REWRITE_TAC[NONOVERLAPPING_CLAUSES] THEN
+  REWRITE_TAC[NONOVERLAPPING_CLAUSES; ALLPAIRS; ALL] THEN
   REPEAT CONJ_TAC THEN
   FIRST [FIRST_ASSUM ACCEPT_TAC;
          ASM_REWRITE_TAC[] THEN NO_TAC;
@@ -1575,6 +1765,30 @@ let PUFF_CALL_TAC th vars n =
               MODIFIABLE_UPPER_SIMD_REGS; SOME_FLAGS] THEN
   REWRITE_TAC[WORD_SUB_SUB_NUM] THEN
   CONV_TAC(ONCE_DEPTH_CONV NUM_ADD_CONV) THEN
+  ARM_BIGSTEP_TAC PUFF_EXEC ("s"^string_of_int n) THEN
+  TRY(ASM_REWRITE_TAC[] THEN NO_TAC);;
+
+(*** The same, rewriting with ths and evaluating numerals first, for a     ***)
+(*** callee whose arguments are expressions, and with WORD_ADD_ASSOC_NUM   ***)
+(*** for arguments that are offsets from the frame of the caller           ***)
+
+let PUFF_CALL_THS_TAC ths th vars n =
+  JMP_VALUES_GHOST_TAC THEN
+  W(fun gl ->
+    let ctx0 = jmp_values gl in
+    let vars' = map (fun v -> if v = `ctx0:int64 list` then ctx0 else v)
+                    vars in
+    MP_TAC(ISPECL vars' th)) THEN
+  REWRITE_TAC ths THEN CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
+  ANTS_TAC THENL [CALLEE_HYPS_TAC; ALL_TAC] THEN
+  REWRITE_TAC[C_ARGUMENTS; puff_input; puff_output; puff_table; jmp_context;
+              CONS_11;
+              MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MAYCHANGE_JMP_CONTEXT;
+              MODIFIABLE_GPRS; MODIFIABLE_SIMD_REGS;
+              MODIFIABLE_UPPER_SIMD_REGS; SOME_FLAGS] THEN
+  REWRITE_TAC ths THEN
+  REWRITE_TAC[WORD_SUB_SUB_NUM; WORD_ADD_ASSOC_NUM] THEN
+  CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
   ARM_BIGSTEP_TAC PUFF_EXEC ("s"^string_of_int n) THEN
   TRY(ASM_REWRITE_TAC[] THEN NO_TAC);;
 

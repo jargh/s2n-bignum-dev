@@ -565,7 +565,8 @@ let CONSTRUCT_PHASE_D_TAC =
 (* returns 0 if the code is complete or has no codes and 2^15 minus the      *)
 (* Kraft sum otherwise, with the symbols in the order of their codes in the  *)
 (* symbol array. If the code is over-subscribed it returns a negative        *)
-(* number.                                                                   *)
+(* number. It changes only x0 to x9 and the flags among the registers, which *)
+(* puff relies on: gcc keeps a value in x10 across a call of construct.      *)
 (* ------------------------------------------------------------------------- *)
 
 let PUFF_CONSTRUCT_CORRECT = prove
@@ -609,7 +610,8 @@ let PUFF_CONSTRUCT_CORRECT = prove
                            huffman_table lens (huffman_counts lens) syms) /\
                (2 EXP 15 < huffman_kraft lens
                 ==> ival(word_zx(read X0 s):int32) < &0))
-          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+          (MAYCHANGE [PC; X0; X1; X2; X3; X4; X5; X6; X7; X8; X9] ,,
+           MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events] ,,
            MAYCHANGE [memory :> bytes(cnt,32);
                       memory :> bytes(sym,2 * LENGTH lens);
                       memory :> bytes(word_sub stackpointer (word 32),32)])`,

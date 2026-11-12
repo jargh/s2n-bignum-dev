@@ -76,6 +76,26 @@ python3 puff/check_transcription.py puff/puff_gcc12_O2.o - \
   <build>/libpuff.so 0x0
 ```
 
+## The proofs
+
+The proofs are in `../proofs`, one file for each function:
+
+| Function    | Proof                        | Theorem                  |
+|-------------|------------------------------|--------------------------|
+| `bits`      | `puff_bits_gcc12_O2.ml`      | `PUFF_BITS_CORRECT`      |
+| `decode`    | `puff_decode_gcc12_O2.ml`    | `PUFF_DECODE_CORRECT`    |
+| `construct` | `puff_construct_gcc12_O2.ml` | `PUFF_CONSTRUCT_CORRECT` |
+| `codes`     | `puff_codes_gcc12_O2.ml`     | `PUFF_CODES_CORRECT`     |
+| `puff`      | `puff_gcc12_O2.ml`           | `PUFF_CORRECT`           |
+
+`PUFF_CORRECT` says that if `puff` returns 0, the output and the number of
+bytes read that it stores are those of the decoding `deflate_decode` of the
+specification, and that otherwise there is no decoding whose output fits in
+the buffer. The calls of `_setjmp` and `longjmp` are given contracts, and
+the tables that `fixed` builds are part of an invariant. The common
+definitions and tactics are in `../proofs/utils/puff.ml`, and the facts
+about the specification in `../../common/rfc1951_theory.ml`.
+
 ## License
 
 The code in the transcription is compiled from `puff.c`, which comes with
