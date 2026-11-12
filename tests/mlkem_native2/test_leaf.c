@@ -4,11 +4,20 @@
  */
 
 /*
- * Tests of the new asm leaf functions (arm/mlkem) against the
- * reference: mlkem-native's portable C built with the prefix "ref". Where
+ * Tests of the new asm leaf functions (arm/mlkem, or x86/mlkem on x86_64)
+ * against the reference: mlkem-native's portable C built with the prefix
+ * "ref". Where
  * the input space allows, each coefficient or byte position sees every
  * possible value; otherwise inputs are random. Outputs sit between guard
  * bytes, which must survive, and inputs must be unchanged.
+ *
+ * On x86_64 the compress and decompress kernels are mlkem-native's,
+ * mlkem_compress_d4_x86 and so on, which take their tables from the
+ * constants block; they are called through adapters with the arm
+ * signatures. mlkem_frombytes and mlkem_tobytes there include the
+ * permutation into the custom NTT order of the x86 backend, so they are
+ * checked against the reference composed with mlkem_unpack, which is
+ * checked to be that permutation, a fixed reordering of 256 entries.
  *
  * Functions missing from the link (weak symbols) are skipped.
  *
@@ -44,6 +53,7 @@ void ref_poly_frommsg(poly *r, const uint8_t msg[32]);
 void ref_poly_tomsg(uint8_t msg[32], const poly *a);
 
 void ref_poly_frombytes(poly *r, const uint8_t a[384]);
+void ref_poly_tobytes(uint8_t r[384], const poly *a);
 void ref_poly_add(poly *r, const poly *b);
 void ref_poly_sub(poly *r, const poly *b);
 void ref_poly_reduce(poly *r);
@@ -73,6 +83,40 @@ void mlkem_decompress_d4(int16_t r[256], const uint8_t a[128]) WEAK;
 void mlkem_decompress_d5(int16_t r[256], const uint8_t a[160]) WEAK;
 void mlkem_decompress_d10(int16_t r[256], const uint8_t a[320]) WEAK;
 void mlkem_decompress_d11(int16_t r[256], const uint8_t a[352]) WEAK;
+void mlkem_tobytes(uint8_t r[384], const int16_t a[256]) WEAK;
+void mlkem_unpack(int16_t a[256]) WEAK;
+
+#include "mlkem_native2_consts.h"
+
+#if defined(__x86_64__)
+#define X86_CODEC(d, ct, dt)                                                \
+  void mlkem_compress_d##d##_x86(uint8_t *r, const int16_t *a,              \
+                                 const uint8_t data[ct]) WEAK;              \
+  void mlkem_decompress_d##d##_x86(int16_t *r, const uint8_t *a,            \
+                                   const uint8_t data[dt]) WEAK;            \
+  static void x86_compress_d##d(uint8_t *r, const int16_t *a)               \
+  {                                                                         \
+    mlkem_compress_d##d##_x86(r, a,                                         \
+                              mlkem_native2_constants.compress_d##d##_data); \
+  }                                                                         \
+  static void x86_decompress_d##d(int16_t *r, const uint8_t *a)             \
+  {                                                                         \
+    mlkem_decompress_d##d##_x86(                                            \
+        r, a, mlkem_native2_constants.decompress_d##d##_data);              \
+  }
+X86_CODEC(4, 32, 32)
+X86_CODEC(5, 32, 96)
+X86_CODEC(10, 32, 32)
+X86_CODEC(11, 64, 128)
+/* The candidate for test_compress_dN: the adapter, if the kernel exists */
+#define COMPRESS_FN(d) \
+  (mlkem_compress_d##d##_x86 ? x86_compress_d##d : NULL)
+#define DECOMPRESS_FN(d) \
+  (mlkem_decompress_d##d##_x86 ? x86_decompress_d##d : NULL)
+#else
+#define COMPRESS_FN(d) mlkem_compress_d##d
+#define DECOMPRESS_FN(d) mlkem_decompress_d##d
+#endif
 
 /* ------------------------------------------------------------------------- */
 
@@ -97,7 +141,7 @@ static unsigned long ntests = 10000, failures, checks;
 typedef struct
 {
   uint8_t b[GUARD + 4096 + GUARD];
-} area;
+} __attribute__((aligned(64))) area;
 static void *out(area *a)
 {
   memset(a->b, FILL, sizeof(a->b));
@@ -260,13 +304,13 @@ static int test_decompress(const char *name, unsigned d,
 #define COMPRESS_TEST(d)                                                  \
   static int test_compress_d##d(void)                                     \
   {                                                                       \
-    return test_compress("mlkem_compress_d" #d, d, mlkem_compress_d##d,   \
+    return test_compress("mlkem_compress_d" #d, d, COMPRESS_FN(d),        \
                          ref_poly_compress_d##d);                         \
   }                                                                       \
   static int test_decompress_d##d(void)                                   \
   {                                                                       \
-    return test_decompress("mlkem_decompress_d" #d, d,                    \
-                           mlkem_decompress_d##d, ref_poly_decompress_d##d); \
+    return test_decompress("mlkem_decompress_d" #d, d, DECOMPRESS_FN(d),  \
+                           ref_poly_decompress_d##d);                     \
   }
 COMPRESS_TEST(4)
 COMPRESS_TEST(5)
@@ -277,6 +321,7 @@ COMPRESS_TEST(11)
 /* 12-bit encodings                                                          */
 /* ------------------------------------------------------------------------- */
 
+#if !defined(__x86_64__)
 static int test_frombytes(void)
 {
   uint8_t in[384], copy[384];
@@ -298,6 +343,7 @@ static int test_frombytes(void)
   }
   return 0;
 }
+#endif
 
 /* The encoding check, against a direct model, for k = 0..4: valid
    encodings of random reduced coefficients, then one field changed to a
@@ -406,8 +452,6 @@ static int test_sub_reduce(void) { return test_addsub(1); }
 /* random buffers with a varying proportion of rejected fields.              */
 /* ------------------------------------------------------------------------- */
 
-#include "mlkem_native2_consts.h"
-
 static int test_rej_uniform_alt(void)
 {
   static uint8_t buf[24 * 40], copy[sizeof(buf)];
@@ -457,6 +501,101 @@ static int test_rej_uniform_alt(void)
   }
   return 0;
 }
+
+#if defined(__x86_64__)
+/* ------------------------------------------------------------------------- */
+/* x86_64: the custom NTT order. mlkem_unpack must be a fixed reordering:    */
+/* the permutation is read off from an input with distinct entries, then    */
+/* checked on random inputs; then frombytes = unpack o ref frombytes, and   */
+/* tobytes o unpack = ref tobytes on reduced coefficients.                  */
+/* ------------------------------------------------------------------------- */
+
+static int perm_known, perm[256];
+
+static int test_unpack(void)
+{
+  poly a, b;
+  int seen[256] = {0};
+  for (int i = 0; i < 256; i++) a.coeffs[i] = (int16_t)i;
+  mlkem_unpack(a.coeffs);
+  checks++;
+  for (int i = 0; i < 256; i++)
+  {
+    int v = a.coeffs[i];
+    if (v < 0 || v > 255 || seen[v]++)
+    {
+      printf("FAIL mlkem_unpack: not a permutation\n");
+      return 1;
+    }
+    perm[i] = v;
+  }
+  perm_known = 1;
+  for (unsigned long t = 0; t < ntests; t++)
+  {
+    randfill(&a, sizeof(a));
+    b = a;
+    mlkem_unpack(b.coeffs);
+    checks++;
+    for (int i = 0; i < 256; i++)
+      if (b.coeffs[i] != a.coeffs[perm[i]])
+      {
+        printf("FAIL mlkem_unpack test %lu: entry %d\n", t, i);
+        return 1;
+      }
+  }
+  return 0;
+}
+
+static void apply_unpack(poly *p)
+{
+  poly q = *p;
+  for (int i = 0; i < 256; i++) p->coeffs[i] = q.coeffs[perm[i]];
+}
+
+static int test_frombytes_custom(void)
+{
+  uint8_t in[384], copy[384];
+  poly want;
+  area o;
+  if (!perm_known && (!mlkem_unpack || test_unpack())) return 1;
+  for (unsigned long t = 0; t < 4096 + ntests; t++)
+  {
+    if (t < 4096)
+      for (unsigned i = 0; i < 256; i++)
+        set_field(in, 12, i, (unsigned)(t + 97 * i) & 4095);
+    else
+      randfill(in, 384);
+    memcpy(copy, in, 384);
+    ref_poly_frombytes(&want, in);
+    apply_unpack(&want);
+    mlkem_frombytes(out(&o), in);
+    if (compare("mlkem_frombytes", &o, &want, 512, t) ||
+        same_input("mlkem_frombytes", in, copy, 384, t))
+      return 1;
+  }
+  return 0;
+}
+
+static int test_tobytes_custom(void)
+{
+  uint8_t want[384];
+  poly a, copy;
+  area o;
+  if (!perm_known && (!mlkem_unpack || test_unpack())) return 1;
+  for (unsigned long t = 0; t < Q + ntests; t++)
+  {
+    canonical_input(&a, t);
+    ref_poly_tobytes(want, &a);
+    apply_unpack(&a);
+    copy = a;
+    mlkem_tobytes(out(&o), a.coeffs);
+    if (compare("mlkem_tobytes", &o, want, 384, t) ||
+        same_input("mlkem_tobytes", &a, &copy, sizeof(a), t))
+      return 1;
+  }
+  return 0;
+}
+#endif
 
 /* ------------------------------------------------------------------------- */
 /* Messages                                                                  */
@@ -509,27 +648,40 @@ typedef struct
 
 #define LEAF(f) {#f, (void *)(f), test_##f}
 #define LEAF2(f, t) {#f, (void *)(f), t}
+#if defined(__x86_64__)
+#define CODEC(d)                                                          \
+  {"mlkem_compress_d" #d "_x86", (void *)mlkem_compress_d##d##_x86,       \
+   test_compress_d##d},                                                   \
+  {"mlkem_decompress_d" #d "_x86", (void *)mlkem_decompress_d##d##_x86,   \
+   test_decompress_d##d}
+#else
+#define CODEC(d)                                                          \
+  LEAF2(mlkem_compress_d##d, test_compress_d##d),                         \
+  LEAF2(mlkem_decompress_d##d, test_decompress_d##d)
+#endif
 
 int main(int argc, char **argv)
 {
   const leaf leaves[] = {
       LEAF2(mlkem_cbd2, test_cbd2),
       LEAF2(mlkem_cbd3, test_cbd3),
+#if defined(__x86_64__)
+      LEAF2(mlkem_unpack, test_unpack),
+      LEAF2(mlkem_frombytes, test_frombytes_custom),
+      LEAF2(mlkem_tobytes, test_tobytes_custom),
+#else
       LEAF2(mlkem_frombytes, test_frombytes),
+#endif
       LEAF2(mlkem_check_encoding, test_check_encoding),
       LEAF2(mlkem_rej_uniform_alt_VARIABLE_TIME, test_rej_uniform_alt),
       LEAF2(mlkem_add_reduce, test_add_reduce),
       LEAF2(mlkem_sub_reduce, test_sub_reduce),
       LEAF2(mlkem_frommsg, test_frommsg),
       LEAF2(mlkem_tomsg, test_tomsg),
-      LEAF2(mlkem_compress_d4, test_compress_d4),
-      LEAF2(mlkem_compress_d5, test_compress_d5),
-      LEAF2(mlkem_compress_d10, test_compress_d10),
-      LEAF2(mlkem_compress_d11, test_compress_d11),
-      LEAF2(mlkem_decompress_d4, test_decompress_d4),
-      LEAF2(mlkem_decompress_d5, test_decompress_d5),
-      LEAF2(mlkem_decompress_d10, test_decompress_d10),
-      LEAF2(mlkem_decompress_d11, test_decompress_d11),
+      CODEC(4),
+      CODEC(5),
+      CODEC(10),
+      CODEC(11),
   };
   const char *only = argc > 2 ? argv[2] : NULL;
   unsigned tested = 0, skipped = 0;

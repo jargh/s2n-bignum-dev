@@ -14,8 +14,11 @@ the other settings).
 
 They are being ported to x86_64 Linux, for `x86/mlkem_native2`: the
 scripts choose the settings for the machine they run on (`ARCH` in
-`env.sh`). So far the setup and the benchmarks work there; the lists of
-objects under test are still empty.
+`env.sh`). So far the setup, the benchmarks, `build.sh` and `leafmid.sh`
+work there, for the x86 leaves written so far (the lists in `env.sh`).
+On x86_64 the system's valgrind (3.22 or later) runs the AVX2 code, and
+since IBT cannot be enforced without CET, `check_endbr.sh` checks instead
+that every global function starts with endbr64.
 
 ## Setup
 
@@ -78,8 +81,14 @@ seconds here; results in `work/build/NAME`):
 reference, exhaustively over the values of each coefficient or byte
 where the input space allows) and the middle layer (test_mid:
 mlkem_gen_matrix with its hash jobs and noise, mlkem_getnoise,
-mlkem_hash_h and mlkem_hash_g), natively, under memcheck and with BTI
-enforced.
+mlkem_hash_h and mlkem_hash_g, when the build has it), natively, under
+memcheck and with BTI enforced (on x86_64, the endbr64 check). On x86_64
+the compress and decompress kernels are mlkem-native's, which take their
+tables from the constants block (`mlkem_compress_d4_x86` and so on), and
+`mlkem_frombytes` and `mlkem_tobytes` include the permutation into the
+custom NTT order of the x86 backend, so test_leaf checks them against
+the reference composed with `mlkem_unpack`, itself checked to be a fixed
+reordering.
 
 `mutants.sh` checks the tests themselves, with a library that forwards
 to the reference with one deliberate fault at a time (`mutants.c`): each

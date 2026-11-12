@@ -65,18 +65,39 @@ BTI_FLAGS="-mbranch-protection=bti -Wl,-z,force-bti -Wl,-e,bti_start
   -Wl,-init,bti_init -Wl,-fini,bti_init $T/bti_start.S"
 CF_CFLAGS=-mbranch-protection=bti
 
+# The directory of the code, and how to assemble a per-level file
+# preprocessed with extra flags (build.sh with CTFLAGS)
+
+ARCHDIR=arm
+asm_with() {
+  cat "$1" | gcc -E -I../include $2 -xassembler-with-cpp - | tr ';' '\n' |
+    as -march=armv8.2-a+sha3 -march=armv8-a+crypto -o "$3" -
+}
+
 else
 
 # On x86_64 the objects are those of x86/mlkem_native2, x86/mlkem and
-# x86/sha3 (filled in as they are written). There is no enforcement of
-# IBT on hosts without CET, so instead of the BTI runs the gate checks
-# statically that every global function starts with endbr64.
+# x86/sha3 (filled in as they are written): the existing x86 kernels
+# (mlkem_frombytes and mlkem_tobytes in the custom NTT order of the x86
+# backend, and mlkem_unpack into it) and mlkem-native's compress and
+# decompress kernels (mlkem_compress_d4_x86 and so on). There is no
+# enforcement of IBT on hosts without CET, so instead of the BTI runs the
+# scripts check statically that every global function starts with
+# endbr64 (check_endbr.sh).
 
-NATIVE2_OBJS=""
-LEAF_OBJS=""
+NATIVE2_OBJS="mlkem_native2_constants"
+LEAF_OBJS="compress_d4_x86 compress_d5_x86 compress_d10_x86
+  compress_d11_x86 decompress_d4_x86 decompress_d5_x86 decompress_d10_x86
+  decompress_d11_x86 frombytes tobytes unpack"
 SHA3_OBJS=""
 BTI_FLAGS=""
 CF_CFLAGS=-fcf-protection=full
+
+ARCHDIR=x86
+asm_with() {
+  cat "$1" | gcc -E -I../include -DWINDOWS_ABI=0 $2 \
+    -xassembler-with-cpp - | tr ';' '\n' | as -o "$3" -
+}
 
 fi
 
