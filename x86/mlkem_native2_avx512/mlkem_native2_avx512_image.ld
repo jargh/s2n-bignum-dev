@@ -8,7 +8,8 @@
  * mlkem_native2 functions used in their proofs, built by the rule for
  * mlkem_native2_avx512/mlkem_native2_avx512_image.elf in ../Makefile: the
  * code of the objects in the order given there, linked at address 0,
- * followed by the constants block, all in the one section .text.
+ * followed by their read-only data (the table of the x1 permutation and
+ * the constants block), all in the one section .text.
  */
 
 SECTIONS
