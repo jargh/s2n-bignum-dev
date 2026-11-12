@@ -124,6 +124,28 @@ let FINITE_RESTRICT_LT = prove
   EXISTS_TAC `{t:num | t < n}` THEN
   SIMP_TAC[FINITE_NUMSEG_LT; SUBSET; IN_ELIM_THM]);;
 
+let CARD_RESTRICT_LT_ADD1 = prove
+ (`!P i. CARD {t | t < i + 1 /\ P t} =
+         CARD {t | t < i /\ P t} + (if P i then 1 else 0)`,
+  REPEAT GEN_TAC THEN
+  SUBGOAL_THEN
+   `{t | t < i + 1 /\ P t} =
+    if P i then i INSERT {t | t < i /\ P t} else {t | t < i /\ P t}`
+  SUBST1_TAC THENL
+   [COND_CASES_TAC THEN
+    REWRITE_TAC[EXTENSION; IN_INSERT; IN_ELIM_THM] THEN
+    GEN_TAC THEN REWRITE_TAC[ARITH_RULE `t < i + 1 <=> t < i \/ t = i`] THEN
+    ASM_MESON_TAC[];
+    COND_CASES_TAC THEN
+    SIMP_TAC[CARD_CLAUSES; FINITE_RESTRICT_LT; IN_ELIM_THM; LT_REFL] THEN
+    ARITH_TAC]);;
+
+let CARD_RESTRICT_LT_LE = prove
+ (`!P i. CARD {t | t < i /\ P t} <= i`,
+  REPEAT GEN_TAC THEN GEN_REWRITE_TAC RAND_CONV [GSYM CARD_NUMSEG_LT] THEN
+  MATCH_MP_TAC CARD_SUBSET THEN REWRITE_TAC[FINITE_NUMSEG_LT] THEN
+  SET_TAC[]);;
+
 let ALL_REPLICATE = prove
  (`!P n x:A. ALL P (REPLICATE n x) <=> n = 0 \/ P x`,
   GEN_TAC THEN INDUCT_TAC THEN ASM_REWRITE_TAC[REPLICATE; ALL; NOT_SUC] THEN
@@ -557,6 +579,40 @@ let HUFFMAN_COUNT_RANK = prove
    [ASM_MESON_TAC[LT_TRANS];
     DISCH_THEN(MP_TAC o SPEC `s:num`) THEN ASM_REWRITE_TAC[LT_REFL]]);;
 
+let HUFFMAN_RANK_LT_LENGTH = prove
+ (`!lens t. t < LENGTH lens ==> huffman_rank lens t < LENGTH lens`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[huffman_rank] THEN
+  GEN_REWRITE_TAC RAND_CONV [GSYM CARD_NUMSEG_LT] THEN
+  MATCH_MP_TAC CARD_PSUBSET THEN REWRITE_TAC[FINITE_NUMSEG_LT] THEN
+  REWRITE_TAC[PSUBSET; SUBSET; EXTENSION; IN_ELIM_THM] THEN
+  CONJ_TAC THENL [SIMP_TAC[]; ALL_TAC] THEN
+  DISCH_THEN(MP_TAC o SPEC `t:num`) THEN
+  ASM_REWRITE_TAC[HUFFMAN_BEFORE_IRREFL]);;
+
+let HUFFMAN_RANK_MONO = prove
+ (`!lens t u.
+        t < LENGTH lens /\ huffman_before lens t u
+        ==> huffman_rank lens t < huffman_rank lens u`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[huffman_rank] THEN
+  MATCH_MP_TAC CARD_PSUBSET THEN REWRITE_TAC[FINITE_RESTRICT_LT] THEN
+  REWRITE_TAC[PSUBSET; SUBSET; EXTENSION; IN_ELIM_THM] THEN
+  CONJ_TAC THENL [ASM_MESON_TAC[HUFFMAN_BEFORE_TRANS]; ALL_TAC] THEN
+  DISCH_THEN(MP_TAC o SPEC `t:num`) THEN
+  ASM_REWRITE_TAC[HUFFMAN_BEFORE_IRREFL]);;
+
+let HUFFMAN_RANK_INJ = prove
+ (`!lens t u.
+        t < LENGTH lens /\ u < LENGTH lens /\
+        ~(EL t lens = 0) /\ ~(EL u lens = 0) /\
+        huffman_rank lens t = huffman_rank lens u
+        ==> t = u`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`lens:num list`; `t:num`; `u:num`] HUFFMAN_BEFORE_TOTAL) THEN
+  ASM_REWRITE_TAC[] THEN STRIP_TAC THEN ASM_REWRITE_TAC[] THENL
+   [MP_TAC(SPECL [`lens:num list`; `t:num`; `u:num`] HUFFMAN_RANK_MONO);
+    MP_TAC(SPECL [`lens:num list`; `u:num`; `t:num`] HUFFMAN_RANK_MONO)] THEN
+  ASM_REWRITE_TAC[] THEN ARITH_TAC);;
+
 let CARD_RANK_EXISTS = prove
  (`!P n j. j < CARD {t | t < n /\ P t}
            ==> ?t. t < n /\ P t /\ CARD {u | u < t /\ P u} = j`,
@@ -694,6 +750,15 @@ let HUFFMAN_FIRST_COUNT_BOUND = prove
     MATCH_MP_TAC NSUM_SUBSET_SIMPLE THEN
     REWRITE_TAC[FINITE_RESTRICT_LT; SUBSET; IN_ELIM_THM] THEN MESON_TAC[]]);;
 
+let HUFFMAN_FIRST_COUNT_OVER = prove
+ (`!lens n.
+        ~(n = 0) /\ n <= 15 /\
+        2 EXP n < huffman_first lens n + huffman_count lens n
+        ==> 2 EXP 15 < huffman_kraft lens`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[GSYM NOT_LE] THEN DISCH_TAC THEN
+  MP_TAC(SPECL [`lens:num list`; `n:num`] HUFFMAN_FIRST_COUNT_BOUND) THEN
+  ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC);;
+
 let HUFFMAN_COUNT_LE_LENGTH = prove
  (`!lens n. huffman_count lens n <= LENGTH lens`,
   REPEAT GEN_TAC THEN REWRITE_TAC[huffman_count] THEN
@@ -754,6 +819,20 @@ let HUFFMAN_KRAFT_COUNT = prove
   CONJ_TAC THENL
    [MATCH_MP_TAC NSUM_EQ THEN SIMP_TAC[IN_ELIM_THM];
     SIMP_TAC[NSUM_CONST; FINITE_RESTRICT_LT; huffman_count]]);;
+
+let HUFFMAN_KRAFT_FIRST_COUNT = prove
+ (`!lens. ALL (\x. x <= 15) lens
+          ==> huffman_first lens 15 + huffman_count lens 15 =
+              huffman_kraft lens`,
+  GEN_TAC THEN REWRITE_TAC[GSYM ALL_EL] THEN DISCH_TAC THEN
+  SIMP_TAC[HUFFMAN_FIRST_COUNT; ARITH_EQ; huffman_kraft] THEN
+  AP_THM_TAC THEN AP_TERM_TAC THEN
+  REWRITE_TAC[EXTENSION; IN_ELIM_THM] THEN ASM_MESON_TAC[]);;
+
+let HUFFMAN_KRAFT_ALL_ZERO = prove
+ (`!lens. ALL (\x. x = 0) lens ==> huffman_kraft lens = 0`,
+  GEN_TAC THEN REWRITE_TAC[GSYM ALL_EL; huffman_kraft] THEN DISCH_TAC THEN
+  MATCH_MP_TAC NSUM_EQ_0 THEN REWRITE_TAC[IN_ELIM_THM] THEN ASM_MESON_TAC[]);;
 
 let HUFFMAN_COUNT_ALL_ZERO = prove
  (`!lens. huffman_count lens 0 = LENGTH lens <=> ALL (\n. n = 0) lens`,
