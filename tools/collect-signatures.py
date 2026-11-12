@@ -332,6 +332,10 @@ notInLibrary = {
     "mlkem_hash_h",
   ],
   "x86": [
+    "mlkem_add_reduce",
+    "mlkem_cbd2",
+    "mlkem_cbd3",
+    "mlkem_check_encoding",
     "mlkem_compress_d10_x86",
     "mlkem_compress_d11_x86",
     "mlkem_compress_d4_x86",
@@ -340,6 +344,10 @@ notInLibrary = {
     "mlkem_decompress_d11_x86",
     "mlkem_decompress_d4_x86",
     "mlkem_decompress_d5_x86",
+    "mlkem_frommsg",
+    "mlkem_rej_uniform_alt_VARIABLE_TIME",
+    "mlkem_sub_reduce",
+    "mlkem_tomsg",
   ],
 }
 

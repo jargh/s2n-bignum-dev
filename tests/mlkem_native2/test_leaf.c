@@ -394,7 +394,8 @@ static int test_check_encoding(void)
 
 /* ------------------------------------------------------------------------- */
 /* Add or subtract and reduce, for inputs whose sum or difference is less    */
-/* than 2^15 in magnitude: random, extreme and boundary values.              */
+/* than 2^15 in magnitude: every sum or difference z (-32767..32767), as     */
+/* (z, 0), (0, +/-z) and halves; then random, extreme and boundary values.   */
 /* ------------------------------------------------------------------------- */
 
 static int16_t edge_value(unsigned long t, unsigned i)
@@ -411,12 +412,19 @@ static int test_addsub(int sub)
   const char *name = sub ? "mlkem_sub_reduce" : "mlkem_add_reduce";
   poly r, a, copy, want;
   area o;
-  for (unsigned long t = 0; t < 20 + ntests; t++)
+  for (unsigned long t = 0; t < 3 * 256 + 20 + ntests; t++)
   {
     for (int i = 0; i < 256; i++)
     {
       int x, y, z;
-      if (t < 20)
+      if (t < 3 * 256)
+      {
+        int w = -32767 + (int)(256 * (t % 256)) + i, d = (int)(t / 256);
+        if (w > 32767) w = 32767;
+        x = d == 0 ? w : d == 1 ? 0 : w / 2;
+        y = sub ? x - w : w - x; /* x + y = w, or x - y = w */
+      }
+      else if (t < 3 * 256 + 20)
         x = edge_value(t, (unsigned)i), y = edge_value(t * 7 + 3, (unsigned)i);
       else if (t % 3 == 0)
         x = (int)(rand64() % 32768) - 16384,

@@ -359,7 +359,11 @@ OBJ = curve25519/bignum_add_p25519.o \
 # The files of mlkem_native2 and its new leaves, which are not in the
 # library (see ../x86/Makefile), are translated too
 
-NATIVE2_OBJ = mlkem/mlkem_compress_d10_x86.o \
+NATIVE2_OBJ = mlkem/mlkem_add_reduce.o \
+              mlkem/mlkem_cbd2.o \
+              mlkem/mlkem_cbd3.o \
+              mlkem/mlkem_check_encoding.o \
+              mlkem/mlkem_compress_d10_x86.o \
               mlkem/mlkem_compress_d11_x86.o \
               mlkem/mlkem_compress_d4_x86.o \
               mlkem/mlkem_compress_d5_x86.o \
@@ -367,6 +371,10 @@ NATIVE2_OBJ = mlkem/mlkem_compress_d10_x86.o \
               mlkem/mlkem_decompress_d11_x86.o \
               mlkem/mlkem_decompress_d4_x86.o \
               mlkem/mlkem_decompress_d5_x86.o \
+              mlkem/mlkem_frommsg.o \
+              mlkem/mlkem_rej_uniform_alt_VARIABLE_TIME.o \
+              mlkem/mlkem_sub_reduce.o \
+              mlkem/mlkem_tomsg.o \
               mlkem_native2/mlkem_native2_constants.o
 
 # The AT&T syntax source files

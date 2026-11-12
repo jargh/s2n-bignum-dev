@@ -77,18 +77,21 @@ asm_with() {
 else
 
 # On x86_64 the objects are those of x86/mlkem_native2, x86/mlkem and
-# x86/sha3 (filled in as they are written): the existing x86 kernels
+# x86/sha3 (filled in as they are written): the new leaves, with the same
+# names and contracts as on AArch64, mlkem-native's compress and
+# decompress kernels (mlkem_compress_d4_x86 and so on, which take their
+# tables from the constants block), and the existing x86 kernels
 # (mlkem_frombytes and mlkem_tobytes in the custom NTT order of the x86
-# backend, and mlkem_unpack into it) and mlkem-native's compress and
-# decompress kernels (mlkem_compress_d4_x86 and so on). There is no
-# enforcement of IBT on hosts without CET, so instead of the BTI runs the
-# scripts check statically that every global function starts with
-# endbr64 (check_endbr.sh).
+# backend, and mlkem_unpack into it). There is no enforcement of IBT on
+# hosts without CET, so instead of the BTI runs the scripts check
+# statically that every global function starts with endbr64
+# (check_endbr.sh).
 
 NATIVE2_OBJS="mlkem_native2_constants"
-LEAF_OBJS="compress_d4_x86 compress_d5_x86 compress_d10_x86
-  compress_d11_x86 decompress_d4_x86 decompress_d5_x86 decompress_d10_x86
-  decompress_d11_x86 frombytes tobytes unpack"
+LEAF_OBJS="add_reduce sub_reduce cbd2 cbd3 check_encoding compress_d4_x86
+  compress_d5_x86 compress_d10_x86 compress_d11_x86 decompress_d4_x86
+  decompress_d5_x86 decompress_d10_x86 decompress_d11_x86 frombytes
+  frommsg tomsg rej_uniform_alt_VARIABLE_TIME tobytes unpack"
 SHA3_OBJS=""
 BTI_FLAGS=""
 CF_CFLAGS=-fcf-protection=full
