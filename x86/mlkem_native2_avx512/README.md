@@ -13,10 +13,9 @@ functions of mlkem-native's ML-KEM API, for all three parameter sets,
 
 with the same results and the same contracts as those without the suffix
 (see `../mlkem_native2/README.md`), for processors with AVX-512F,
-AVX-512VL, AVX-512BW and AVX-512DQ besides AVX2. All the global symbols
-of the API and of the middle layer have the suffix `_avx512`, so that
-both versions link into one library and the version can be chosen at run
-time.
+AVX-512VL and AVX-512DQ besides AVX2. All the global symbols of the API
+and of the middle layer have the suffix `_avx512`, so that both versions
+link into one library and the version can be chosen at run time.
 
 ## Structure
 
@@ -25,61 +24,42 @@ time.
    `mlkem_gen_matrix_avx512.S`, `mlkem_getnoise_avx512.S`,
    `mlkem_hash_h_avx512.S` and `mlkem_hash_g_avx512.S` include them, and
    `../mlkem_native2/mlkem_native2_names.h` then gives the suffixed names
-   and the Keccak-f1600 permutations and the rejection sampler below. The
-   code is thus the same, the schedule of the Keccak work over the lanes
-   included, except for the functions it calls.
- - Two Keccak-f1600 permutations, generated (from scripts kept outside
-   the repository, like the prototypes measured for the design), both
-   with the whole state in registers, the rotations by `vprolq` or
-   `vprolvq` and the five-way XORs of theta and chi by `vpternlogq`:
-    - `sha3_keccak4_f1600_avx512`, a drop-in for `sha3_keccak4_f1600_alt`
-      with AVX-512VL: four separate states, transposed into and out of 25
-      ymm registers (lane i of state j in quadword j of register i), where
-      pi is a renaming of the registers, undone every four rounds;
-    - `sha3_keccak_f1600_avx512`, a drop-in for `sha3_keccak_f1600` with
-      AVX-512F: one state in five zmm registers, five lanes in each. The
-      registers hold sets of lanes that pi maps onto each other (so it
-      moves no lane between registers), each in two orders, one in which
-      theta is a vertical XOR of the registers and one in which chi takes
-      whole registers, with `vpermq` between them; every three rounds
-      masked blends and `vpermi2q` change the sets (the comments of the
-      file explain the layouts). Its index vectors and rotation counts
-      are a table in `.rodata`, which it reads RIP-relatively.
- - A rejection sampler with AVX-512F and AVX-512BW,
-   `mlkem_rej_uniform_alt_VARIABLE_TIME_avx512`, with the contract of
-   `mlkem_rej_uniform_alt_VARIABLE_TIME` but no table (the calls still
-   pass one, which it ignores): each 24 bytes of the buffer give 16
-   fields in the dwords of a zmm register, `vpcmpgtd` gives the mask of
-   those < 3329 in an opmask register, and `vpcompressd` and `vpmovdw`
-   write them to r (with a mask that keeps the writes inside r for the
-   last 15 entries). It costs 140 cycles for 504 bytes (a typical matrix
-   polynomial) against 213 for the AVX2 one.
- - The other leaves and the constants block are those of
-   `../mlkem_native2` (in `../mlkem`), unchanged: AVX-512 gains little over
-   AVX2 for them on these processors, and the 256-bit integer
-   multiplications of the arithmetic kernels keep the core at the same AVX
-   frequency licence.
+   and the Keccak-f1600 permutations below. The code is thus the same, the
+   schedule of the Keccak work over the lanes included, except for the
+   permutations it calls.
+ - Two Keccak-f1600 permutations with AVX-512VL, generated (from a script
+   kept outside the repository, like the prototypes measured for the
+   design): `sha3_keccak4_f1600_avx512`, a drop-in for
+   `sha3_keccak4_f1600_alt` (four separate states, transposed into and out
+   of 25 ymm registers), and `sha3_keccak_f1600_avx512`, a drop-in for
+   `sha3_keccak_f1600` (one state, a lane in each of 25 xmm registers).
+   Both keep the whole state in registers (32 of them with AVX-512) and
+   do the rotations with `vprolq` and the five-way XORs of theta and chi
+   with `vpternlogq`; pi is a renaming of the registers, undone every
+   four rounds.
+ - The leaves and the constants block are those of `../mlkem_native2`
+   (in `../mlkem`), unchanged: AVX-512 gains little over AVX2 for them on
+   these processors, and the 256-bit integer multiplications of the
+   arithmetic kernels keep the core at the same AVX frequency licence.
 
-The EVEX-encoded instructions of the x4 permutation are all on ymm or xmm
-registers (no zmm) and without masking: `vpternlogq`, `vprolq`,
+The EVEX-encoded instructions, all in the two permutations, all on ymm
+or xmm registers (no zmm) and without masking: `vpternlogq`, `vprolq`,
 `vmovdqa64` (register moves), `vshufi64x2`, `vpunpcklqdq`, `vpunpckhqdq`,
 `vmovdqu64`, `vmovq`, `vpinsrq` and `vpextrq` (these as EVEX forms since
 they use registers 16-31), `vinserti32x4`, `vextracti32x4` and `vpxorq`
-with a broadcast memory operand (`{1to4}`). Those of the x1 permutation
-are on zmm registers, with the opmask registers k1-k6: `vpternlogq`,
-`vpxorq` (also merge-masked, with a broadcast memory operand `{1to8}`),
-`vprolq`, `vprolvq` (with the counts from memory), `vpermq`, `vpermi2q`,
-`vpblendmq`, `vmovdqa64` (register moves, also merge-masked, and loads),
-`vmovdqu64` (zero-masked loads and masked stores of the rows) and `kmovw`
-(from a general register). Those of the sampler are on zmm registers, with
-the opmask registers k1-k4: `vpmovzxwd`, `vpbroadcastd` (from a general
-register), `kmovw` (both ways), `vbroadcasti32x4` (from memory, also
-merge-masked), `vpshufb`, `vpsrld` (merge-masked), `vpandd`, `vpcmpgtd`
-(into an opmask register), `vpcompressd` (zero-masked) and `vpmovdw` (to
-memory, also masked). The EVEX forms of `vpinsrq` and `vpextrq` need
-AVX-512DQ, and `vpshufb` on zmm registers AVX-512BW. The state of the x86
-model already has the 32 zmm and the 8 opmask registers, but it decodes no
-EVEX instruction yet.
+with a broadcast memory operand (`{1to4}`, `{1to2}`). The EVEX forms of
+`vpinsrq` and `vpextrq` need AVX-512DQ. The state of the x86 model already
+has the 32 zmm and the 8 opmask registers, but it decodes no EVEX
+instruction yet.
+
+No zmm registers are used. On the processor measured, 512-bit
+instructions together with the 256-bit integer multiplications of the
+arithmetic kernels, which every ML-KEM operation runs, put the core at
+its lowest AVX frequency licence (2.39 GHz instead of 2.69 GHz), for every
+instruction around them. Earlier versions of the x1 permutation and of
+the rejection sampler on zmm registers (732 cycles against 949, and 140
+against 213 for 504 bytes) were therefore faster in cycles but slower in
+time: encapsulation and decapsulation took 7-8% longer.
 
 ## Building and the image
 
@@ -88,46 +68,43 @@ the proofs is `mlkem_native2_avx512_image.elf` (`make
 mlkem_native2_avx512/mlkem_native2_avx512_image.elf` in `x86`), linked at
 address 0 by `mlkem_native2_avx512_image.ld` from the objects in
 `MLKEM_NATIVE2_AVX512_IMAGE_OBJ` of `../Makefile`: this directory's, the
-leaves of `../mlkem` but the AVX2 rejection sampler, and the constants
-block of `../mlkem_native2`. As for the AVX2 version, it has no
-relocations and every call in it is a direct call; the read-only data is
-at the end, addressed RIP-relatively: the table of the x1 permutation,
-then the constants block. The ABI is the same too (System V, with
-Microsoft x64 wrappers of the API functions under `WINDOWS_ABI`).
+leaves of `../mlkem` and the constants block of `../mlkem_native2`. As for
+the AVX2 version, it has no relocations, every call in it is a direct call
+and the constants block is at the end, addressed RIP-relatively. The ABI
+is the same too (System V, with Microsoft x64 wrappers of the API
+functions under `WINDOWS_ABI`).
 
 ## Speed
 
 On a Xeon Platinum 8259CL (Cascade Lake) the x4 permutation costs 1040
-cycles against 1723 for `sha3_keccak4_f1600_alt` (at the base AVX
-frequency licence: it uses no heavy or 512-bit instructions), the x1 732
-against 1063 for `sha3_keccak_f1600_alt` of the AVX2 version (1260 for
-`sha3_keccak_f1600`), and the rejection sampler 140 against 213 for 504
-bytes (these two use zmm registers, at the licence of the arithmetic
-kernels). Key generation and `check_sk`, which hash the encapsulation key
-with the x1 permutation, gain most from the x1. Cycles per call, as for
-the AVX2 version (medians of 31 runs of 200 calls on one core, with the
-clock measured after each run):
+cycles against 1723 for `sha3_keccak4_f1600_alt`, and the x1 949 against
+1063 for `sha3_keccak_f1600_alt` of the AVX2 version (1260 for
+`sha3_keccak_f1600`), both at the base AVX frequency licence (they use no
+heavy or 512-bit instructions). Cycles per call, as for the AVX2 version
+(medians of 31 runs of 200 calls on one core, with the clock measured
+after each run; the same clock as for mlkem-native, so the speedup in
+cycles is the speedup in time):
 
-| function | mlkem-native | AVX2 version | here | vs mlkem-native |
+| function | mlkem-native | AVX2 version | here | speedup |
 |---|---|---|---|---|
-| mlkem512_keypair_derand | 24950 | 20238 | 14292 | -42.7% |
-| mlkem512_enc_derand | 29269 | 20124 | 14012 | -52.1% |
-| mlkem512_dec | 39724 | 21728 | 15796 | -60.2% |
-| mlkem512_check_sk | 8717 | 6592 | 4563 | -47.7% |
-| mlkem768_keypair_derand | 43129 | 33245 | 23032 | -46.6% |
-| mlkem768_enc_derand | 46425 | 28550 | 20049 | -56.8% |
-| mlkem768_dec | 61619 | 34174 | 24488 | -60.3% |
-| mlkem768_check_sk | 13028 | 9962 | 6879 | -47.2% |
-| mlkem1024_keypair_derand | 59056 | 49177 | 33974 | -42.5% |
-| mlkem1024_enc_derand | 64784 | 44460 | 31005 | -52.1% |
-| mlkem1024_dec | 84822 | 52957 | 37390 | -55.9% |
-| mlkem1024_check_sk | 17303 | 13246 | 9136 | -47.2% |
+| mlkem512_keypair_derand | 24950 | 20238 | 16371 | 1.52x |
+| mlkem512_enc_derand | 29269 | 20124 | 14632 | 2.00x |
+| mlkem512_dec | 39724 | 21728 | 16415 | 2.42x |
+| mlkem512_check_sk | 8717 | 6592 | 5847 | 1.49x |
+| mlkem768_keypair_derand | 43129 | 33245 | 26299 | 1.64x |
+| mlkem768_enc_derand | 46425 | 28550 | 21074 | 2.20x |
+| mlkem768_dec | 61619 | 34174 | 25461 | 2.42x |
+| mlkem768_check_sk | 13028 | 9962 | 8924 | 1.46x |
+| mlkem1024_keypair_derand | 59056 | 49177 | 38406 | 1.54x |
+| mlkem1024_enc_derand | 64784 | 44460 | 32844 | 1.97x |
+| mlkem1024_dec | 84822 | 52957 | 39326 | 2.16x |
+| mlkem1024_check_sk | 17303 | 13246 | 11776 | 1.47x |
 
 (check_pk is as in the AVX2 version.) Stack use, in bytes (keypair_derand,
-enc_derand, dec): 9048, 8552, 10216 for ML-KEM-512; 13400, 13416, 15720 for
+enc_derand, dec): 9080, 8552, 10216 for ML-KEM-512; 13432, 13416, 15720 for
 ML-KEM-768; 20520, 19304, 22568 for ML-KEM-1024 (224 more through the
 Windows wrappers), a little less than the AVX2 version since the
-permutations and the sampler use no stack.
+permutations use no stack.
 
 ## Constant time and testing
 

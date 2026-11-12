@@ -153,27 +153,27 @@ entries). The arithmetic kernels are mlkem-native's.
 
 Cycles per call (medians of 31 runs of 200 calls on one core, with the
 clock measured after each run since it varies with the AVX frequency
-licences; 2.69 GHz for these functions), against mlkem-native (main at
-9b96caa1) built with clang 18 -O3 and its native backends (the fastest
-of the builds tried):
+licences; the same clock as for mlkem-native, so the speedup in cycles is
+the speedup in time), against mlkem-native (main at 9b96caa1) built with
+clang 18 -O3 and its native backends (the fastest of the builds tried):
 
-| function | mlkem-native | here | change |
+| function | mlkem-native | here | speedup |
 |---|---|---|---|
-| mlkem512_keypair_derand | 24950 | 20238 | -18.9% |
-| mlkem512_enc_derand | 29269 | 20124 | -31.2% |
-| mlkem512_dec | 39724 | 21728 | -45.3% |
-| mlkem512_check_pk | 421 | 111 | -73.6% |
-| mlkem512_check_sk | 8717 | 6592 | -24.4% |
-| mlkem768_keypair_derand | 43129 | 33245 | -22.9% |
-| mlkem768_enc_derand | 46425 | 28550 | -38.5% |
-| mlkem768_dec | 61619 | 34174 | -44.5% |
-| mlkem768_check_pk | 649 | 159 | -75.5% |
-| mlkem768_check_sk | 13028 | 9962 | -23.5% |
-| mlkem1024_keypair_derand | 59056 | 49177 | -16.7% |
-| mlkem1024_enc_derand | 64784 | 44460 | -31.4% |
-| mlkem1024_dec | 84822 | 52957 | -37.6% |
-| mlkem1024_check_pk | 885 | 207 | -76.6% |
-| mlkem1024_check_sk | 17303 | 13246 | -23.4% |
+| mlkem512_keypair_derand | 24950 | 20238 | 1.23x |
+| mlkem512_enc_derand | 29269 | 20124 | 1.45x |
+| mlkem512_dec | 39724 | 21728 | 1.83x |
+| mlkem512_check_pk | 421 | 111 | 3.79x |
+| mlkem512_check_sk | 8717 | 6592 | 1.32x |
+| mlkem768_keypair_derand | 43129 | 33245 | 1.30x |
+| mlkem768_enc_derand | 46425 | 28550 | 1.63x |
+| mlkem768_dec | 61619 | 34174 | 1.80x |
+| mlkem768_check_pk | 649 | 159 | 4.08x |
+| mlkem768_check_sk | 13028 | 9962 | 1.31x |
+| mlkem1024_keypair_derand | 59056 | 49177 | 1.20x |
+| mlkem1024_enc_derand | 64784 | 44460 | 1.46x |
+| mlkem1024_dec | 84822 | 52957 | 1.60x |
+| mlkem1024_check_pk | 885 | 207 | 4.28x |
+| mlkem1024_check_sk | 17303 | 13246 | 1.31x |
 
 Key generation gains least: its H(pk) is a serial tail on the x1
 permutation, with nothing to run beside it. (check_pk takes 100-210

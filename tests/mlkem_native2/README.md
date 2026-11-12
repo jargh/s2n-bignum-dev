@@ -102,10 +102,9 @@ constants block (`mlkem_compress_d4_x86` and so on), and
 `mlkem_frombytes` and `mlkem_tobytes` include the permutation into the
 custom NTT order of the x86 backend, so test_leaf checks them against
 the reference composed with `mlkem_unpack`, itself checked to be a fixed
-reordering. The rejection samplers (on x86_64 also the one of the
-AVX-512 version) run too with their buffer and output next to pages
-without access, which catches reads and writes out of bounds where
-valgrind cannot run.
+reordering. The rejection sampler also runs with its buffer and output
+next to pages without access, which catches reads and writes out of
+bounds.
 
 `mutants.sh` checks the tests themselves, with a library that forwards
 to the reference with one deliberate fault at a time (`mutants.c`): each

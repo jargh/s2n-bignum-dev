@@ -350,7 +350,6 @@ notInLibrary = {
     "mlkem_hash_g",
     "mlkem_hash_h",
     "mlkem_rej_uniform_alt_VARIABLE_TIME",
-    "mlkem_rej_uniform_alt_VARIABLE_TIME_avx512",
     "mlkem_sub_reduce",
     "mlkem_tomsg",
     "sha3_keccak_f1600_alt",

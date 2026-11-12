@@ -13,9 +13,8 @@
 # On x86_64, with VARIANT=avx512, the objects are those of the AVX-512
 # version instead, in WORK/obj_avx512: its API and middle layer with the
 # suffix _avx512 removed from their symbols (so that the tests and the
-# benchmarks use them as they are), its rejection sampler and Keccak-f1600
-# permutations, and the leaves and the constants block of the AVX2
-# version.
+# benchmarks use them as they are), its Keccak-f1600 permutations, and the
+# leaves and the constants block of the AVX2 version.
 #
 # usage: build.sh
 set -e

@@ -18,11 +18,8 @@
  * permutation into the custom NTT order of the x86 backend, so they are
  * checked against the reference composed with mlkem_unpack, which is
  * checked to be that permutation, a fixed reordering of 256 entries.
- * The rejection sampler of the AVX-512 version,
- * mlkem_rej_uniform_alt_VARIABLE_TIME_avx512, is tested as the other one.
- * The samplers are also run with their buffer and output next to pages
- * without access, which must not be touched (valgrind cannot check the
- * AVX-512 code).
+ * The rejection sampler is also run with its buffer and output next to
+ * pages without access, which must not be touched.
  *
  * Functions missing from the link (weak symbols) are skipped.
  *
@@ -80,11 +77,6 @@ uint64_t mlkem_rej_uniform_alt_VARIABLE_TIME(int16_t r[256], uint64_t n,
                                              uint64_t buflen,
                                              const uint8_t *table) WEAK;
 extern const uint8_t ref_rej_uniform_table[4096] WEAK;
-#if defined(__x86_64__)
-uint64_t mlkem_rej_uniform_alt_VARIABLE_TIME_avx512(int16_t r[256], uint64_t n,
-                                                    const uint8_t *buf,
-                                                    uint64_t buflen) WEAK;
-#endif
 void mlkem_sub_reduce(int16_t r[256], const int16_t a[256]) WEAK;
 void mlkem_tomsg(uint8_t msg[32], const int16_t a[256]) WEAK;
 void mlkem_compress_d4(uint8_t r[128], const int16_t a[256]) WEAK;
@@ -468,7 +460,7 @@ static int test_add_reduce(void) { return test_addsub(0); }
 static int test_sub_reduce(void) { return test_addsub(1); }
 
 /* ------------------------------------------------------------------------- */
-/* Rejection sampling: the alt versions against the direct definition, on   */
+/* Rejection sampling: the alt version against the direct definition, on   */
 /* random buffers with a varying proportion of rejected fields; then with   */
 /* the buffer starting just after, or ending just before, a page without    */
 /* access, and r ending just before one.                                    */
@@ -580,13 +572,6 @@ static int test_rej_uniform_alt(void)
 {
   return test_rej_with("mlkem_rej_uniform_alt", rej_with_table);
 }
-#if defined(__x86_64__)
-static int test_rej_uniform_alt_avx512(void)
-{
-  return test_rej_with("mlkem_rej_uniform_alt_avx512",
-                       mlkem_rej_uniform_alt_VARIABLE_TIME_avx512);
-}
-#endif
 
 #if defined(__x86_64__)
 /* ------------------------------------------------------------------------- */
@@ -760,10 +745,6 @@ int main(int argc, char **argv)
 #endif
       LEAF2(mlkem_check_encoding, test_check_encoding),
       LEAF2(mlkem_rej_uniform_alt_VARIABLE_TIME, test_rej_uniform_alt),
-#if defined(__x86_64__)
-      LEAF2(mlkem_rej_uniform_alt_VARIABLE_TIME_avx512,
-            test_rej_uniform_alt_avx512),
-#endif
       LEAF2(mlkem_add_reduce, test_add_reduce),
       LEAF2(mlkem_sub_reduce, test_sub_reduce),
       LEAF2(mlkem_frommsg, test_frommsg),

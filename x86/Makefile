@@ -470,9 +470,8 @@ MLKEM_NATIVE2_IMAGE_OBJ = mlkem_native2/mlkem512.o \
                           sha3/sha3_keccak4_f1600_alt.o \
                           mlkem_native2/mlkem_native2_constants.o
 
-# The same for the AVX-512 version: its API, middle layer, rejection
-# sampler and Keccak permutations, the other leaves and the same constants
-# block
+# The same for the AVX-512 version: its API, middle layer and Keccak
+# permutations, the same leaves and the same constants block
 
 MLKEM_NATIVE2_AVX512_IMAGE_OBJ = \
         mlkem_native2_avx512/mlkem512_avx512.o \
@@ -482,9 +481,7 @@ MLKEM_NATIVE2_AVX512_IMAGE_OBJ = \
         mlkem_native2_avx512/mlkem_getnoise_avx512.o \
         mlkem_native2_avx512/mlkem_hash_g_avx512.o \
         mlkem_native2_avx512/mlkem_hash_h_avx512.o \
-        $(filter-out mlkem/mlkem_rej_uniform_alt_VARIABLE_TIME.o, \
-          $(filter mlkem/%,$(MLKEM_NATIVE2_IMAGE_OBJ))) \
-        mlkem_native2_avx512/mlkem_rej_uniform_alt_VARIABLE_TIME_avx512.o \
+        $(filter mlkem/%,$(MLKEM_NATIVE2_IMAGE_OBJ)) \
         mlkem_native2_avx512/sha3_keccak_f1600_avx512.o \
         mlkem_native2_avx512/sha3_keccak4_f1600_avx512.o \
         mlkem_native2/mlkem_native2_constants.o
