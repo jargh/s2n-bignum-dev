@@ -113,9 +113,8 @@ constant-time list) are the conditional branches (on public data only),
 forms of `mov`, `xor` and `movzx`, and the NOPs of the padding between
 functions; all are decoded by the x86 model.
 
-The AT&T versions of the files here are not yet in `../../x86_att`: the
-naive translator there does not handle the assembler macros and the byte
-operations of the middle layer and the API (the new leaves are there).
+There are no AT&T versions of these files, or of the new leaves, in
+`../../x86_att`.
 
 ## Where the speed comes from
 

@@ -356,34 +356,13 @@ OBJ = curve25519/bignum_add_p25519.o \
       sm2/sm2_montjscalarmul.o \
       sm2/sm2_montjscalarmul_alt.o
 
-# The files of mlkem_native2 and its new leaves, which are not in the
-# library (see ../x86/Makefile), are translated too
-
-NATIVE2_OBJ = mlkem/mlkem_add_reduce.o \
-              mlkem/mlkem_cbd2.o \
-              mlkem/mlkem_cbd3.o \
-              mlkem/mlkem_check_encoding.o \
-              mlkem/mlkem_compress_d10_x86.o \
-              mlkem/mlkem_compress_d11_x86.o \
-              mlkem/mlkem_compress_d4_x86.o \
-              mlkem/mlkem_compress_d5_x86.o \
-              mlkem/mlkem_decompress_d10_x86.o \
-              mlkem/mlkem_decompress_d11_x86.o \
-              mlkem/mlkem_decompress_d4_x86.o \
-              mlkem/mlkem_decompress_d5_x86.o \
-              mlkem/mlkem_frommsg.o \
-              mlkem/mlkem_rej_uniform_alt_VARIABLE_TIME.o \
-              mlkem/mlkem_sub_reduce.o \
-              mlkem/mlkem_tomsg.o \
-              mlkem_native2/mlkem_native2_constants.o
-
 # The AT&T syntax source files
 
-ATTSOURCES = $(OBJ:.o=.S) $(NATIVE2_OBJ:.o=.S)
+ATTSOURCES = $(OBJ:.o=.S)
 
 code: $(ATTSOURCES)
 
-all: $(OBJ) $(NATIVE2_OBJ);
+all: $(OBJ);
 
 %.o : %.S ; ($(CC) -E -I../include $< | as -o $@ -); (cd ../x86; $(CC) -E -I../include $< | as -o /tmp/original_object.o); cmp -s $@ /tmp/original_object.o
 
@@ -398,7 +377,6 @@ sha3/%.S :: ../x86/sha3/%.S               ; (cat $< | sed -E -f ./attrofy.sed >$
 sm2/%.S :: ../x86/sm2/%.S               ; (cat $< | sed -E -f ./attrofy.sed >$@) && ($(CC) -E -I../include -DWINDOWS_ABI=0 $@ | as -o /tmp/translated_object.o) ; ($(CC) -E -I../include -DWINDOWS_ABI=1 $@ | as -o /tmp/translated_object.obj) ; ($(CC) -E -I../include -DWINDOWS_ABI=0 $< | as -o /tmp/original_object.o) ; ($(CC) -E -I../include -DWINDOWS_ABI=1 $< | as -o /tmp/original_object.obj) ; (cmp -s /tmp/translated_object.o /tmp/original_object.o && cmp -s /tmp/translated_object.obj /tmp/original_object.obj)
 mldsa/%.S :: ../x86/mldsa/%.S           ; (cat $< | sed -E -f ./attrofy.sed >$@) && ($(CC) -E -I../include -DWINDOWS_ABI=0 $@ | as -o /tmp/translated_object.o) ; ($(CC) -E -I../include -DWINDOWS_ABI=1 $@ | as -o /tmp/translated_object.obj) ; ($(CC) -E -I../include -DWINDOWS_ABI=0 $< | as -o /tmp/original_object.o) ; ($(CC) -E -I../include -DWINDOWS_ABI=1 $< | as -o /tmp/original_object.obj) ; (cmp -s /tmp/translated_object.o /tmp/original_object.o && cmp -s /tmp/translated_object.obj /tmp/original_object.obj)
 mlkem/%.S :: ../x86/mlkem/%.S           ; (cat $< | sed -E -f ./attrofy.sed >$@) && ($(CC) -E -I../include -DWINDOWS_ABI=0 $@ | as -o /tmp/translated_object.o) ; ($(CC) -E -I../include -DWINDOWS_ABI=1 $@ | as -o /tmp/translated_object.obj) ; ($(CC) -E -I../include -DWINDOWS_ABI=0 $< | as -o /tmp/original_object.o) ; ($(CC) -E -I../include -DWINDOWS_ABI=1 $< | as -o /tmp/original_object.obj) ; (cmp -s /tmp/translated_object.o /tmp/original_object.o && cmp -s /tmp/translated_object.obj /tmp/original_object.obj)
-mlkem_native2/%.S :: ../x86/mlkem_native2/%.S        ; (cat $< | sed -E -f ./attrofy.sed >$@) && ($(CC) -E -I../include -DWINDOWS_ABI=0 $@ | as -o /tmp/translated_object.o) ; ($(CC) -E -I../include -DWINDOWS_ABI=1 $@ | as -o /tmp/translated_object.obj) ; ($(CC) -E -I../include -DWINDOWS_ABI=0 $< | as -o /tmp/original_object.o) ; ($(CC) -E -I../include -DWINDOWS_ABI=1 $< | as -o /tmp/original_object.obj) ; (cmp -s /tmp/translated_object.o /tmp/original_object.o && cmp -s /tmp/translated_object.obj /tmp/original_object.obj)
 
 
 clean:; rm -f */*.o
