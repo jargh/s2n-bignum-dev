@@ -19,7 +19,9 @@ later) runs the AVX2 code; the ABI check uses `abi_stub_x86.S` and also
 checks the Microsoft x64 entries (the API built with `WINDOWS_ABI`, which
 `build.sh` renames with the prefix `ms_`); and since IBT cannot be
 enforced without CET, `check_endbr.sh` checks instead that every global
-function starts with endbr64.
+function starts with endbr64. `check_noseg.sh` checks that no
+instruction of the assembly uses fs or gs, as the stack protector of
+compiled C does (the x86 model has no segmentation).
 
 ## Setup
 
@@ -93,9 +95,10 @@ reference, exhaustively over the values of each coefficient or byte
 where the input space allows) and the middle layer (test_mid:
 mlkem_gen_matrix with its hash jobs and noise, mlkem_getnoise,
 mlkem_hash_h and mlkem_hash_g, when the build has it), natively, under
-memcheck and with BTI enforced (on x86_64, the endbr64 check). On x86_64
-the compress and decompress kernels are mlkem-native's, which take their
-tables from the constants block (`mlkem_compress_d4_x86` and so on), and
+memcheck and with BTI enforced (on x86_64, the endbr64 check, and the
+check that no instruction uses fs or gs). On x86_64 the compress and
+decompress kernels are mlkem-native's, which take their tables from the
+constants block (`mlkem_compress_d4_x86` and so on), and
 `mlkem_frombytes` and `mlkem_tobytes` include the permutation into the
 custom NTT order of the x86 backend, so test_leaf checks them against
 the reference composed with `mlkem_unpack`, itself checked to be a fixed

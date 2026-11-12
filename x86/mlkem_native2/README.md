@@ -105,7 +105,11 @@ mlkem_native2/mlkem_native2_image.elf` in `x86`, with GNU ld): the code of
 the objects in that order, then the constants block (64-byte aligned) at
 the end of the one section `.text`. The image has no relocations, every
 call in it is a direct call, and the only RIP-relative references are the
-18 to the constants block.
+18 to the constants block. It is all assembly, so there is no
+stack-protector code: no instruction uses fs or gs, the segment registers
+with a base in 64-bit mode (`check_noseg.sh` in the tests checks this),
+and the only segment prefixes are the CS prefixes of some of the NOPs of
+the padding.
 
 The instructions of the image that are not in `../allowed_asm` (the
 constant-time list) are the conditional branches (on public data only),

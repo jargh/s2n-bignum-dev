@@ -87,7 +87,8 @@ else
 # backend, and mlkem_unpack into it). There is no enforcement of IBT on
 # hosts without CET, so instead of the BTI runs the scripts check
 # statically that every global function starts with endbr64
-# (check_endbr.sh).
+# (check_endbr.sh); leafmid.sh also checks that no instruction uses fs
+# or gs (check_noseg.sh).
 
 NATIVE2_OBJS="mlkem512 mlkem768 mlkem1024 mlkem_gen_matrix mlkem_getnoise
   mlkem_hash_h mlkem_hash_g mlkem_native2_constants"

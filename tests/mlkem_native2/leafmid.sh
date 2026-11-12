@@ -5,7 +5,8 @@
 # The tests of the leaves and of the middle layer (test_leaf, test_mid)
 # on the objects of a build: natively, under memcheck with fewer
 # iterations (if there is a VALGRIND), and with BTI enforced (on x86_64,
-# instead, the check that every global function starts with endbr64).
+# instead, the check that every global function starts with endbr64, and
+# also the check that no instruction uses fs or gs).
 # test_mid runs only if the build has the middle layer. The randomized
 # API is left out of the link.
 #
@@ -56,6 +57,8 @@ if [ $ARCH = aarch64 ]; then
 else
   $T/check_endbr.sh $OBJS > $B/endbr.log 2>&1
   result "endbr64 at every global function" $?
+  $T/check_noseg.sh $OBJS > $B/noseg.log 2>&1
+  result "no fs or gs (no stack-protector code)" $?
 fi
 [ $st = 0 ] && echo "leafmid: OK" || echo "leafmid: FAIL (logs in $B)"
 exit $st
