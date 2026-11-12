@@ -1253,17 +1253,33 @@ extern uint64_t mlkem_check_encoding(const uint8_t *a,uint64_t k);
 // Input a[256] (signed 16-bit words); output r[320] (bytes)
 extern void mlkem_compress_d10(uint8_t r[S2N_BIGNUM_STATIC 320],const int16_t a[S2N_BIGNUM_STATIC 256]);
 
+// Compress ML-KEM polynomial coefficients to 10 bits and pack them
+// Inputs a[256] (signed 16-bit words), data[32] (bytes); output r[320] (bytes)
+extern void mlkem_compress_d10_x86(uint8_t r[S2N_BIGNUM_STATIC 320],const int16_t a[S2N_BIGNUM_STATIC 256],const uint8_t data[S2N_BIGNUM_STATIC 32]);
+
 // Compress ML-KEM polynomial coefficients to 11 bits and pack them
 // Input a[256] (signed 16-bit words); output r[352] (bytes)
 extern void mlkem_compress_d11(uint8_t r[S2N_BIGNUM_STATIC 352],const int16_t a[S2N_BIGNUM_STATIC 256]);
+
+// Compress ML-KEM polynomial coefficients to 11 bits and pack them
+// Inputs a[256] (signed 16-bit words), data[64] (bytes); output r[352] (bytes)
+extern void mlkem_compress_d11_x86(uint8_t r[S2N_BIGNUM_STATIC 352],const int16_t a[S2N_BIGNUM_STATIC 256],const uint8_t data[S2N_BIGNUM_STATIC 64]);
 
 // Compress ML-KEM polynomial coefficients to 4 bits and pack them
 // Input a[256] (signed 16-bit words); output r[128] (bytes)
 extern void mlkem_compress_d4(uint8_t r[S2N_BIGNUM_STATIC 128],const int16_t a[S2N_BIGNUM_STATIC 256]);
 
+// Compress ML-KEM polynomial coefficients to 4 bits and pack them
+// Inputs a[256] (signed 16-bit words), data[32] (bytes); output r[128] (bytes)
+extern void mlkem_compress_d4_x86(uint8_t r[S2N_BIGNUM_STATIC 128],const int16_t a[S2N_BIGNUM_STATIC 256],const uint8_t data[S2N_BIGNUM_STATIC 32]);
+
 // Compress ML-KEM polynomial coefficients to 5 bits and pack them
 // Input a[256] (signed 16-bit words); output r[160] (bytes)
 extern void mlkem_compress_d5(uint8_t r[S2N_BIGNUM_STATIC 160],const int16_t a[S2N_BIGNUM_STATIC 256]);
+
+// Compress ML-KEM polynomial coefficients to 5 bits and pack them
+// Inputs a[256] (signed 16-bit words), data[32] (bytes); output r[160] (bytes)
+extern void mlkem_compress_d5_x86(uint8_t r[S2N_BIGNUM_STATIC 160],const int16_t a[S2N_BIGNUM_STATIC 256],const uint8_t data[S2N_BIGNUM_STATIC 32]);
 
 // Canonical modular reduction of polynomial coefficients for ML-KEM
 // Input a[256] (signed 16-bit words); output a[256] (signed 16-bit words)
@@ -1277,17 +1293,33 @@ extern void mlkem_frommsg(int16_t r[S2N_BIGNUM_STATIC 256],const uint8_t msg[S2N
 // Input a[320] (bytes); output r[256] (signed 16-bit words)
 extern void mlkem_decompress_d10(int16_t r[S2N_BIGNUM_STATIC 256],const uint8_t a[S2N_BIGNUM_STATIC 320]);
 
+// Unpack 10-bit ML-KEM compressed coefficients and decompress them
+// Inputs a[320], data[32] (bytes); output r[256] (signed 16-bit words)
+extern void mlkem_decompress_d10_x86(int16_t r[S2N_BIGNUM_STATIC 256],const uint8_t a[S2N_BIGNUM_STATIC 320],const uint8_t data[S2N_BIGNUM_STATIC 32]);
+
 // Unpack 11-bit ML-KEM compressed coefficients and decompress them
 // Input a[352] (bytes); output r[256] (signed 16-bit words)
 extern void mlkem_decompress_d11(int16_t r[S2N_BIGNUM_STATIC 256],const uint8_t a[S2N_BIGNUM_STATIC 352]);
+
+// Unpack 11-bit ML-KEM compressed coefficients and decompress them
+// Inputs a[352], data[128] (bytes); output r[256] (signed 16-bit words)
+extern void mlkem_decompress_d11_x86(int16_t r[S2N_BIGNUM_STATIC 256],const uint8_t a[S2N_BIGNUM_STATIC 352],const uint8_t data[S2N_BIGNUM_STATIC 128]);
 
 // Unpack 4-bit ML-KEM compressed coefficients and decompress them
 // Input a[128] (bytes); output r[256] (signed 16-bit words)
 extern void mlkem_decompress_d4(int16_t r[S2N_BIGNUM_STATIC 256],const uint8_t a[S2N_BIGNUM_STATIC 128]);
 
+// Unpack 4-bit ML-KEM compressed coefficients and decompress them
+// Inputs a[128], data[32] (bytes); output r[256] (signed 16-bit words)
+extern void mlkem_decompress_d4_x86(int16_t r[S2N_BIGNUM_STATIC 256],const uint8_t a[S2N_BIGNUM_STATIC 128],const uint8_t data[S2N_BIGNUM_STATIC 32]);
+
 // Unpack 5-bit ML-KEM compressed coefficients and decompress them
 // Input a[160] (bytes); output r[256] (signed 16-bit words)
 extern void mlkem_decompress_d5(int16_t r[S2N_BIGNUM_STATIC 256],const uint8_t a[S2N_BIGNUM_STATIC 160]);
+
+// Unpack 5-bit ML-KEM compressed coefficients and decompress them
+// Inputs a[160], data[96] (bytes); output r[256] (signed 16-bit words)
+extern void mlkem_decompress_d5_x86(int16_t r[S2N_BIGNUM_STATIC 256],const uint8_t a[S2N_BIGNUM_STATIC 160],const uint8_t data[S2N_BIGNUM_STATIC 96]);
 
 // Unpack ML-KEM polynomial coefficients
 // Input a[384] (bytes); output r[256] (signed 16-bit words)

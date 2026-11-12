@@ -320,10 +320,11 @@ for arch in ["arm", "x86"]:
         i += 1
 
 # Functions in the assembly files that are not yet in the library, and so
-# are not declared in s2n-bignum.h either: the new ML-KEM functions in
-# arm/mlkem and arm/mlkem_native2, and in x86/mlkem, x86/mlkem_native2 and
-# x86/mlkem_native2_avx512, until they are verified. Remove each from this
-# list when it is added to the library.
+# are not declared in s2n-bignum.h either: the middle layer of
+# mlkem_native2 in arm/mlkem_native2 and x86/mlkem_native2,
+# sha3_keccak_f1600_alt2 and the functions of x86/mlkem_native2_avx512,
+# until they are verified. Remove each from this list when it is added to
+# the library.
 notInLibrary = {
   "arm": [
     "mlkem_gen_matrix",
@@ -332,27 +333,10 @@ notInLibrary = {
     "mlkem_hash_h",
   ],
   "x86": [
-    "mlkem_add_reduce",
-    "mlkem_cbd2",
-    "mlkem_cbd3",
-    "mlkem_check_encoding",
-    "mlkem_compress_d10_x86",
-    "mlkem_compress_d11_x86",
-    "mlkem_compress_d4_x86",
-    "mlkem_compress_d5_x86",
-    "mlkem_decompress_d10_x86",
-    "mlkem_decompress_d11_x86",
-    "mlkem_decompress_d4_x86",
-    "mlkem_decompress_d5_x86",
-    "mlkem_frommsg",
     "mlkem_gen_matrix",
     "mlkem_getnoise",
     "mlkem_hash_g",
     "mlkem_hash_h",
-    "mlkem_rej_uniform_alt_VARIABLE_TIME",
-    "mlkem_sub_reduce",
-    "mlkem_tomsg",
-    "sha3_keccak_f1600_alt",
     "sha3_keccak_f1600_alt2",
     "sha3_keccak4_f1600_avx512",
     "sha3_keccak_f1600_avx512",
@@ -403,13 +387,9 @@ onlyInArm = [
   "mldsa_rej_uniform_eta2_VARIABLE_TIME",
   "mldsa_rej_uniform_eta4_VARIABLE_TIME",
   "mldsa_rej_uniform_VARIABLE_TIME",
-  "mlkem_add_reduce",
   "mlkem_basemul_k2_alt",
   "mlkem_basemul_k3_alt",
   "mlkem_basemul_k4_alt",
-  "mlkem_cbd2",
-  "mlkem_cbd3",
-  "mlkem_check_encoding",
   "mlkem_compress_d10",
   "mlkem_compress_d11",
   "mlkem_compress_d4",
@@ -418,17 +398,13 @@ onlyInArm = [
   "mlkem_decompress_d11",
   "mlkem_decompress_d4",
   "mlkem_decompress_d5",
-  "mlkem_frommsg",
   "mlkem_intt_alt",
   "mlkem_ntt_alt",
-  "mlkem_sub_reduce",
   "mlkem_tobytes_alt",
-  "mlkem_tomsg",
   "mlkem_ntt",
   "mlkem_intt",
   "mlkem_mulcache_compute",
   "mlkem_rej_uniform_VARIABLE_TIME",
-  "mlkem_rej_uniform_alt_VARIABLE_TIME",
 ]
 onlyInX86 = [
   "bignum_cmul_p25519_alt",
@@ -468,6 +444,14 @@ onlyInX86 = [
   "mldsa_rej_uniform_VARIABLE_TIME_x86",
   "mldsa_rej_uniform_eta2_VARIABLE_TIME_x86",
   "mldsa_rej_uniform_eta4_VARIABLE_TIME_x86",
+  "mlkem_compress_d10_x86",
+  "mlkem_compress_d11_x86",
+  "mlkem_compress_d4_x86",
+  "mlkem_compress_d5_x86",
+  "mlkem_decompress_d10_x86",
+  "mlkem_decompress_d11_x86",
+  "mlkem_decompress_d4_x86",
+  "mlkem_decompress_d5_x86",
   "mlkem_mulcache_compute_x86",
   "mlkem_ntt_x86",
   "mlkem_intt_x86",
