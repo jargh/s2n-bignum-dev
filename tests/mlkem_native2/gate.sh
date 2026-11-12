@@ -6,7 +6,8 @@
 # tests against the reference (test_api, several shards in parallel), the
 # KAT hashes, the ACVP and Wycheproof vectors, memcheck (exact-size heap
 # buffers), the constant-time check under memcheck, the ABI check and the
-# same calls with BTI enforced.
+# same calls with BTI enforced (on x86_64, the check that every global
+# function starts with endbr64 instead).
 #
 # usage: gate.sh NAME LIBRARY...
 #   NAME     results go to WORK/build/NAME
@@ -19,7 +20,8 @@
 #            (e.g. a build with declassification hooks); "none" skips it
 #   NOX18    if set, x18 changes are warnings in the ABI check
 #   NOBTI    if set, skip the BTI check (for libraries built without BTI
-#            landing pads, such as compiled C without -mbranch-protection)
+#            landing pads, such as compiled C without -mbranch-protection),
+#            or on x86_64 the endbr64 check
 set -u
 . "$(dirname "$0")/env.sh"
 NAME=$1; shift
@@ -35,11 +37,11 @@ st=0
 
 $CCF -o $B/test_api $T/test_api.c $LIBS $REF || exit 1
 $CCF -o $B/kat $T/kat.c $LIBS $REF || exit 1
-$CCF -o $B/test_abi $T/test_abi.c $T/abi_stub.S $LIBS $REF || exit 1
+$CCF -o $B/test_abi $T/test_abi.c $ABI_STUB $LIBS $REF || exit 1
 if [ "$CT" != none ]; then
   $CCF -o $B/test_ct $T/test_ct.c $CT || exit 1
 fi
-if [ -z "${NOBTI:-}" ]; then
+if [ -z "${NOBTI:-}" ] && [ $ARCH = aarch64 ]; then
   $CCF $BTI_FLAGS -o $B/test_api_bti $T/test_api.c $LIBS $REFBTI \
     2> $B/bti_link.log || exit 1
   $CCF $BTI_FLAGS -o $B/test_abi_bti $T/test_abi.c $T/abi_stub.S $LIBS \
@@ -71,11 +73,14 @@ else
   result "memcheck and constant time (no VALGRIND)" skip
 fi
 $B/test_abi ${NOX18:+-x18} > $B/abi.log 2>&1; result "ABI" $?
-if [ -z "${NOBTI:-}" ]; then
+if [ -z "${NOBTI:-}" ] && [ $ARCH = aarch64 ]; then
   r=0
   $B/test_api_bti 50 7 > $B/test_api_bti.log 2>&1 || r=1
   $B/test_abi_bti ${NOX18:+-x18} > $B/abi_bti.log 2>&1 || r=1
   result "BTI enforced (calls through pointers and blr)" $r
+elif [ -z "${NOBTI:-}" ]; then
+  $T/check_endbr.sh $LIBS > $B/endbr.log 2>&1
+  result "endbr64 at every global function" $?
 fi
 grep -h "matrix polynomials" $B/test_api_[0-9]*.log | \
   awk '{n[$1]+=$4; t[$1]+=$6} END {for (l in n) print "  " l, n[l], "of", \

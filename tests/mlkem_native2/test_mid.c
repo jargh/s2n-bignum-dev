@@ -14,7 +14,11 @@
  *    which must not be read, and inactive jobs (ds = 0) have a message and
  *    an output, which must not be written.
  *
- * Outputs sit between guard bytes, inputs must be unchanged.
+ * Outputs sit between guard bytes, inputs must be unchanged. Functions
+ * missing from the link (weak symbols) are skipped. On x86_64 the matrix
+ * is compared in the custom NTT order of the x86 backend (each reference
+ * polynomial permuted by mlkem_unpack), and the buffers are 64-byte
+ * aligned, as the x86 kernels need.
  *
  * usage: test_mid [ITERATIONS [SEED]]   (default 1000, 1)
  */
@@ -40,18 +44,26 @@ typedef struct
   int16_t *out;
 } mlkem_noise_job;
 
+#define WEAK __attribute__((weak))
+
 void mlkem_gen_matrix(int16_t *a, const uint8_t rho[32], uint64_t k,
                       uint64_t flags, const mlkem_hash_job jobs[2],
                       const mlkem_noise_job *noise,
-                      const mlkem_native2_consts *c);
+                      const mlkem_native2_consts *c) WEAK;
 
 void mlkem_getnoise(int16_t *r, const uint8_t sigma[32], uint64_t nonce0,
                     uint64_t n, uint64_t n1, uint64_t eta1,
-                    const mlkem_native2_consts *c);
+                    const mlkem_native2_consts *c) WEAK;
 void mlkem_hash_h(uint8_t out[32], const uint8_t *in, uint64_t len,
-                    const mlkem_native2_consts *c);
+                    const mlkem_native2_consts *c) WEAK;
 void mlkem_hash_g(uint8_t out[64], const uint8_t *in, uint64_t len,
-                    const mlkem_native2_consts *c);
+                    const mlkem_native2_consts *c) WEAK;
+
+#if defined(__x86_64__)
+/* On x86_64 the matrix is in the custom NTT order of the x86 backend:
+   mlkem_unpack applied to each polynomial of the reference */
+void mlkem_unpack(int16_t a[256]);
+#endif
 void ref_sha3_512(uint8_t *out, const uint8_t *in, size_t inlen);
 void ref_poly_cbd2(int16_t *r, const uint8_t buf[128]);
 void ref_poly_cbd3(int16_t *r, const uint8_t buf[192]);
@@ -111,7 +123,8 @@ static int guarded_same(const char *what, const uint8_t *g, const void *want,
 
 static int test_gen_matrix(unsigned long it)
 {
-  static uint8_t ga[GUARD + 16 * 512 + GUARD], gd[2][GUARD + 32 + GUARD];
+  static uint8_t ga[GUARD + 16 * 512 + GUARD] __attribute__((aligned(64))),
+      gd[2][GUARD + 32 + GUARD];
   static int16_t want[16 * 256] __attribute__((aligned(32)));
   static uint8_t msg[2][2048], copy[2][2048];
   uint8_t rho[32], rho2[32], wantd[2][32];
@@ -142,7 +155,7 @@ static int test_gen_matrix(unsigned long it)
   if (mode == 2 || mode == 3) jobs[0].ds = 0x1f;
 
   /* A noise job in half the tests: 0 to 9 polynomials of eta = 2 */
-  static uint8_t gn[GUARD + 9 * 512 + GUARD];
+  static uint8_t gn[GUARD + 9 * 512 + GUARD] __attribute__((aligned(64)));
   static int16_t wantn[9 * 256] __attribute__((aligned(32)));
   uint8_t sigma[32];
   unsigned nn = (it / 24) % 2 ? (unsigned)(rand64() % 10) : 0;
@@ -169,6 +182,9 @@ static int test_gen_matrix(unsigned long it)
   if (k == 2) ref512_gen_matrix(want, rho, (int)transposed);
   if (k == 3) ref768_gen_matrix(want, rho, (int)transposed);
   if (k == 4) ref1024_gen_matrix(want, rho, (int)transposed);
+#if defined(__x86_64__)
+  for (unsigned i = 0; i < k * k; i++) mlkem_unpack(want + 256 * i);
+#endif
   bad |= guarded_same("mlkem_gen_matrix (matrix)", ga, want, 512 * k * k, it);
   checks++;
   if (memcmp(rho, rho2, 32) != 0)
@@ -206,7 +222,7 @@ static int test_gen_matrix(unsigned long it)
 
 static int test_getnoise(unsigned long it)
 {
-  static uint8_t gr[GUARD + 12 * 512 + GUARD];
+  static uint8_t gr[GUARD + 12 * 512 + GUARD] __attribute__((aligned(64)));
   static int16_t want[12 * 256] __attribute__((aligned(32)));
   uint8_t sigma[32], sigma2[32], in[33], buf[192];
   unsigned n, n1, eta1, nonce0;
@@ -276,13 +292,16 @@ int main(int argc, char **argv)
   rng = argc > 2 ? strtoull(argv[2], NULL, 0) : 1;
   for (unsigned long it = 0; it < n; it++)
   {
-    if (test_gen_matrix(it)) failures++;
-    if (test_getnoise(it)) failures++;
-    if (test_sha3(it)) failures++;
+    if (mlkem_gen_matrix && test_gen_matrix(it)) failures++;
+    if (mlkem_getnoise && test_getnoise(it)) failures++;
+    if (mlkem_hash_h && mlkem_hash_g && test_sha3(it)) failures++;
     if (failures > 10) break;
   }
-  printf("%s: mlkem_gen_matrix, mlkem_getnoise, mlkem_hash_h/g %lu "
+  printf("%s: mlkem_gen_matrix%s, mlkem_getnoise%s, mlkem_hash_h/g%s %lu "
          "iterations, %lu checks, %lu failures\n",
-         failures ? "FAIL" : "OK", n, checks, failures);
+         failures ? "FAIL" : "OK", mlkem_gen_matrix ? "" : " (absent)",
+         mlkem_getnoise ? "" : " (absent)",
+         mlkem_hash_h && mlkem_hash_g ? "" : " (absent)", n, checks,
+         failures);
   return failures != 0;
 }

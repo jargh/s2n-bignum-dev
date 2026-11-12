@@ -21,6 +21,13 @@
  *    the shared secret, z), since secrets on the stack must be zeroed
  *    (-leaks reports these as warnings instead, for compiled C).
  *
+ * On x86_64 the stub is abi_stub_x86.S, which randomizes all the general
+ * and vector registers but rsp; rbx, rbp, r12..r15 and rsp must be
+ * preserved (System V), and for the Microsoft x64 entries (the API built
+ * with WINDOWS_ABI, its symbols renamed with the prefix ms_, called through
+ * abi_call_ms), also rdi, rsi and the low halves of xmm6..xmm15. The
+ * -x18 option has no effect there.
+ *
  * usage: test_abi [-x18] [-leaks]
  */
 #include <stdint.h>
@@ -30,6 +37,11 @@
 
 uint64_t abi_call(void *fn, const uint64_t args[8], const uint64_t in[96],
                   uint64_t out[96], void *stack_top);
+#if defined(__x86_64__)
+uint64_t abi_call_ms(void *fn, const uint64_t args[8],
+                     const uint64_t in[96], uint64_t out[96],
+                     void *stack_top);
+#endif
 
 #define DECLARE(L)                                                     \
   int mlkem##L##_keypair_derand(uint8_t *, uint8_t *, const uint8_t *); \
@@ -41,6 +53,22 @@ uint64_t abi_call(void *fn, const uint64_t args[8], const uint64_t in[96],
 DECLARE(512)
 DECLARE(768)
 DECLARE(1024)
+
+#if defined(__x86_64__)
+#define MS __attribute__((ms_abi))
+#define MSW __attribute__((ms_abi, weak))
+#define DECLARE_MS(L)                                                        \
+  MSW int ms_mlkem##L##_keypair_derand(uint8_t *, uint8_t *,                 \
+                                       const uint8_t *);                     \
+  MSW int ms_mlkem##L##_enc_derand(uint8_t *, uint8_t *, const uint8_t *,    \
+                                   const uint8_t *);                         \
+  MSW int ms_mlkem##L##_dec(uint8_t *, const uint8_t *, const uint8_t *);    \
+  MSW int ms_mlkem##L##_check_pk(const uint8_t *);                           \
+  MSW int ms_mlkem##L##_check_sk(const uint8_t *);
+DECLARE_MS(512)
+DECLARE_MS(768)
+DECLARE_MS(1024)
+#endif
 
 int randombytes(uint8_t *out, size_t outlen);
 int randombytes(uint8_t *out, size_t outlen)
@@ -112,6 +140,7 @@ typedef struct
   uint8_t *out[2];
   size_t outlen[2];
   const uint8_t *in[3];
+  int ms; /* x86_64: the Microsoft x64 entry */
 } call;
 
 /* Calls fn(args) directly and then three times through abi_call, and
@@ -126,6 +155,23 @@ static void check(unsigned level, call *c)
   for (int i = 0; i < nout; i++) args[i] = (uint64_t)c->out[i];
   for (int i = nout; i < c->nargs; i++)
     args[i] = (uint64_t)c->in[i - nout];
+#if defined(__x86_64__)
+  if (c->ms) switch (c->nargs)
+  {
+    case 1:
+      want_ret = ((MS int (*)(uint64_t))c->fn)(args[0]);
+      break;
+    case 3:
+      want_ret = ((MS int (*)(uint64_t, uint64_t, uint64_t))c->fn)(
+          args[0], args[1], args[2]);
+      break;
+    default:
+      want_ret = ((MS int (*)(uint64_t, uint64_t, uint64_t, uint64_t))c->fn)(
+          args[0], args[1], args[2], args[3]);
+      break;
+  }
+  else
+#endif
   switch (c->nargs)
   {
     case 1:
@@ -149,6 +195,38 @@ static void check(unsigned level, call *c)
     for (int i = 0; i < 96; i++) in[i] = rand64(), out[i] = 0;
     for (int i = 0; i < nout; i++) memset(c->out[i], 0, c->outlen[i]);
     memset(stack, PATTERN, STACK);
+#if defined(__x86_64__)
+    {
+      static const char *gpr[16] = {"rax", "rbx", "rcx", "rdx", "rsi", "rdi",
+                                    "rbp", "rsp", "r8",  "r9",  "r10", "r11",
+                                    "r12", "r13", "r14", "r15"};
+      static const int sysv[] = {1, 6, 12, 13, 14, 15}, msx[] = {4, 5};
+      ret = (int)(c->ms ? abi_call_ms : abi_call)(c->fn, args, in, out,
+                                                  stack + STACK);
+      for (size_t i = 0; i < sizeof(sysv) / sizeof(sysv[0]); i++)
+        if (out[sysv[i]] != in[sysv[i]])
+          printf("FAIL ML-KEM-%u %s: %s not preserved\n", level, c->name,
+                 gpr[sysv[i]]),
+              bad = 1;
+      if (c->ms)
+      {
+        for (size_t i = 0; i < sizeof(msx) / sizeof(msx[0]); i++)
+          if (out[msx[i]] != in[msx[i]])
+            printf("FAIL ML-KEM-%u %s: %s not preserved\n", level, c->name,
+                   gpr[msx[i]]),
+                bad = 1;
+        for (int q = 6; q <= 15; q++)
+          if (out[16 + 4 * q] != in[16 + 4 * q] ||
+              out[17 + 4 * q] != in[17 + 4 * q])
+            printf("FAIL ML-KEM-%u %s: xmm%d not preserved\n", level,
+                   c->name, q),
+                bad = 1;
+      }
+      if (out[7] != (uint64_t)(stack + STACK))
+        printf("FAIL ML-KEM-%u %s: rsp not preserved\n", level, c->name),
+            bad = 1;
+    }
+#else
     ret = (int)abi_call(c->fn, args, in, out, stack + STACK);
     for (int x = 19; x <= 29; x++)
       if (out[x] != in[x])
@@ -167,6 +245,7 @@ static void check(unsigned level, call *c)
              strict_x18 ? "FAIL" : "warning", level, c->name);
       bad |= strict_x18;
     }
+#endif
     if (ret != want_ret)
       printf("FAIL ML-KEM-%u %s: return value %d, direct call %d\n", level,
              c->name, ret, want_ret),
@@ -194,7 +273,7 @@ static void check(unsigned level, call *c)
            strict_leaks ? "FAIL" : "warning", level, c->name, leaks);
     failures += strict_leaks;
   }
-  printf("ML-KEM-%-4u %-16s stack %6zu bytes, residue %5zu bytes\n", level,
+  printf("ML-KEM-%-4u %-19s stack %6zu bytes, residue %5zu bytes\n", level,
          c->name, depth, residue);
 }
 
@@ -252,19 +331,51 @@ static void set_secrets(unsigned k, size_t i, const uint8_t *coins,
     bad[0] ^= 1;                                                             \
     call cs[] = {                                                            \
         {"keypair_derand", (void *)mlkem##L##_keypair_derand, 3, {pk, sk},  \
-         {PKB, SKB}, {coins}},                                               \
+         {PKB, SKB}, {coins}, 0},                                            \
         {"enc_derand", (void *)mlkem##L##_enc_derand, 4, {ct, ss},           \
-         {CTB, 32}, {pk, coins}},                                            \
-        {"dec", (void *)mlkem##L##_dec, 3, {ss}, {32}, {ct, sk}},            \
-        {"dec(reject)", (void *)mlkem##L##_dec, 3, {ss}, {32}, {bad, sk}},   \
-        {"check_pk", (void *)mlkem##L##_check_pk, 1, {0}, {0}, {pk}},        \
-        {"check_sk", (void *)mlkem##L##_check_sk, 1, {0}, {0}, {sk}}};       \
+         {CTB, 32}, {pk, coins}, 0},                                         \
+        {"dec", (void *)mlkem##L##_dec, 3, {ss}, {32}, {ct, sk}, 0},         \
+        {"dec(reject)", (void *)mlkem##L##_dec, 3, {ss}, {32}, {bad, sk},    \
+         0},                                                                 \
+        {"check_pk", (void *)mlkem##L##_check_pk, 1, {0}, {0}, {pk}, 0},     \
+        {"check_sk", (void *)mlkem##L##_check_sk, 1, {0}, {0}, {sk}, 0}};    \
     for (size_t i = 0; i < sizeof(cs) / sizeof(cs[0]); i++)                 \
     {                                                                        \
       set_secrets(L / 256, i, coins, sk, ss, pk);                            \
       check(L, &cs[i]);                                                      \
     }                                                                        \
+    RUN_MS(L, PKB, SKB, CTB);                                                \
   } while (0)
+
+#if defined(__x86_64__)
+#define RUN_MS(L, PKB, SKB, CTB)                                             \
+  do                                                                         \
+  {                                                                          \
+    call ms[] = {                                                            \
+        {"ms keypair_derand", (void *)ms_mlkem##L##_keypair_derand, 3,       \
+         {pk, sk}, {PKB, SKB}, {coins}, 1},                                  \
+        {"ms enc_derand", (void *)ms_mlkem##L##_enc_derand, 4, {ct, ss},     \
+         {CTB, 32}, {pk, coins}, 1},                                         \
+        {"ms dec", (void *)ms_mlkem##L##_dec, 3, {ss}, {32}, {ct, sk}, 1},   \
+        {"ms dec(reject)", (void *)ms_mlkem##L##_dec, 3, {ss}, {32},         \
+         {bad, sk}, 1},                                                      \
+        {"ms check_pk", (void *)ms_mlkem##L##_check_pk, 1, {0}, {0}, {pk},   \
+         1},                                                                 \
+        {"ms check_sk", (void *)ms_mlkem##L##_check_sk, 1, {0}, {0}, {sk},   \
+         1}};                                                                \
+    for (size_t i = 0; i < sizeof(ms) / sizeof(ms[0]); i++)                 \
+      if (ms[i].fn)                                                          \
+      {                                                                      \
+        set_secrets(L / 256, i, coins, sk, ss, pk);                          \
+        check(L, &ms[i]);                                                    \
+      }                                                                      \
+  } while (0)
+#else
+#define RUN_MS(L, PKB, SKB, CTB) \
+  do                             \
+  {                              \
+  } while (0)
+#endif
 
 int main(int argc, char **argv)
 {

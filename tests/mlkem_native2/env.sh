@@ -64,9 +64,11 @@ SHA3_OBJS="sha3_keccak_f1600 sha3_keccak4_f1600_alt2"
 BTI_FLAGS="-mbranch-protection=bti -Wl,-z,force-bti -Wl,-e,bti_start
   -Wl,-init,bti_init -Wl,-fini,bti_init $T/bti_start.S"
 CF_CFLAGS=-mbranch-protection=bti
+ABI_STUB=$T/abi_stub.S
 
 # The directory of the code, and how to assemble a per-level file
-# preprocessed with extra flags (build.sh with CTFLAGS)
+# preprocessed with extra flags (build.sh with CTFLAGS): asm_with FILE
+# FLAGS OUTPUT [WINDOWS_ABI], the last for x86_64 only (default 0)
 
 ARCHDIR=arm
 asm_with() {
@@ -87,18 +89,22 @@ else
 # statically that every global function starts with endbr64
 # (check_endbr.sh).
 
-NATIVE2_OBJS="mlkem_native2_constants"
+NATIVE2_OBJS="mlkem512 mlkem768 mlkem1024 mlkem_gen_matrix mlkem_getnoise
+  mlkem_hash_h mlkem_hash_g mlkem_native2_constants"
 LEAF_OBJS="add_reduce sub_reduce cbd2 cbd3 check_encoding compress_d4_x86
   compress_d5_x86 compress_d10_x86 compress_d11_x86 decompress_d4_x86
   decompress_d5_x86 decompress_d10_x86 decompress_d11_x86 frombytes
-  frommsg tomsg rej_uniform_alt_VARIABLE_TIME tobytes unpack"
-SHA3_OBJS=""
+  frommsg tomsg rej_uniform_alt_VARIABLE_TIME tobytes unpack ntt intt
+  mulcache_compute basemul_k2 basemul_k3 basemul_k4 reduce tomont
+  rej_uniform_VARIABLE_TIME"
+SHA3_OBJS="sha3_keccak_f1600 sha3_keccak4_f1600_alt"
 BTI_FLAGS=""
 CF_CFLAGS=-fcf-protection=full
+ABI_STUB=$T/abi_stub_x86.S
 
 ARCHDIR=x86
 asm_with() {
-  cat "$1" | gcc -E -I../include -DWINDOWS_ABI=0 $2 \
+  cat "$1" | gcc -E -I../include -DWINDOWS_ABI=${4:-0} $2 \
     -xassembler-with-cpp - | tr ';' '\n' | as -o "$3" -
 }
 

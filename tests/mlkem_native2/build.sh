@@ -29,6 +29,23 @@ if [ -n "${CTFLAGS:-}" ]; then
     fi
   done
 fi
+# On x86_64, also the API with the Microsoft x64 ABI (WINDOWS_ABI), its
+# symbols renamed with the prefix ms_ so that it links beside the System V
+# API (test_abi calls it through abi_call_ms): the code it calls is the
+# same System V code
+if [ $ARCH = x86_64 ]; then
+  for L in 512 768 1024; do
+    if [ -f "$REPO/x86/mlkem_native2/mlkem$L.S" ]; then
+      (cd "$REPO/x86" &&
+       asm_with mlkem_native2/mlkem$L.S "${CTFLAGS:-}" \
+         "$O/win_mlkem$L.tmp" 1)
+      args=$(nm -g --defined-only "$O/win_mlkem$L.tmp" |
+             awk '{printf " --redefine-sym %s=ms_%s", $3, $3}')
+      objcopy $args "$O/win_mlkem$L.tmp" "$O/ms_mlkem$L.o"
+      rm -f "$O/win_mlkem$L.tmp"
+    fi
+  done
+fi
 $CC -O2 -Wall -Wextra $CF_CFLAGS -c "$T/randomized.c" \
   -o "$O/mlkem_native2_randomized.o"
 echo "built $(ls "$O" | wc -l) objects in $O"

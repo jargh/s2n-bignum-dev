@@ -12,13 +12,14 @@ curl and the usual tools for building C programs. Everything downloaded
 or built goes under `work/` here (or `WORK`; see `env.sh` for this and
 the other settings).
 
-They are being ported to x86_64 Linux, for `x86/mlkem_native2`: the
-scripts choose the settings for the machine they run on (`ARCH` in
-`env.sh`). So far the setup, the benchmarks, `build.sh` and `leafmid.sh`
-work there, for the x86 leaves written so far (the lists in `env.sh`).
-On x86_64 the system's valgrind (3.22 or later) runs the AVX2 code, and
-since IBT cannot be enforced without CET, `check_endbr.sh` checks instead
-that every global function starts with endbr64.
+They also run on x86_64 Linux, for `x86/mlkem_native2` and the new
+leaves in `x86/mlkem`: the scripts choose the settings for the machine
+they run on (`ARCH` in `env.sh`). There the system's valgrind (3.22 or
+later) runs the AVX2 code; the ABI check uses `abi_stub_x86.S` and also
+checks the Microsoft x64 entries (the API built with `WINDOWS_ABI`, which
+`build.sh` renames with the prefix `ms_`); and since IBT cannot be
+enforced without CET, `check_endbr.sh` checks instead that every global
+function starts with endbr64.
 
 ## Setup
 
@@ -72,10 +73,14 @@ seconds here; results in `work/build/NAME`):
    x18 must survive, and no 16-byte window of a secret (the coins, the
    seeds derived from them, the secret vector, the shared secret, z) may
    be left on the stack. It reports the stack depth and the bytes left
-   there (`work/build/NAME/abi.log`).
+   there (`work/build/NAME/abi.log`). On x86_64 the stub (abi_stub_x86.S)
+   randomizes all the registers but rsp; rbx, rbp, r12-r15 and rsp must
+   survive, and for the Microsoft x64 entries also rdi, rsi and the low
+   halves of xmm6-xmm15.
  - BTI: test_api and test_abi again, linked so that the kernel enforces
    BTI (`bti_start.S` explains how), which checks that every function
-   reached by an indirect call has a landing pad.
+   reached by an indirect call has a landing pad. On x86_64 instead:
+   every global function must start with endbr64 (`check_endbr.sh`).
 
 `leafmid.sh [OBJDIR]` tests the new leaves (test_leaf: each against the
 reference, exhaustively over the values of each coefficient or byte

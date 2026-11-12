@@ -18,7 +18,7 @@ st=0
 for m in 0 1 2 3 4 5 6 7 8 9; do
   $CCF -DMUTANT=$m -o $B/test_api_$m $T/test_api.c $T/mutants.c $REF ||
     exit 1
-  $CCF -DMUTANT=$m -o $B/test_abi_$m $T/test_abi.c $T/abi_stub.S \
+  $CCF -DMUTANT=$m -o $B/test_abi_$m $T/test_abi.c $ABI_STUB \
     $T/mutants.c $REF || exit 1
   r=0
   $B/test_api_$m 1000 1 > $B/test_api_$m.log 2>&1 || r=1
