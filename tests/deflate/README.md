@@ -15,6 +15,11 @@ decoding (RFC 1951), against zlib.
   incomplete, over-subscribed and single-code codes, bad repeat codes,
   missing end-of-block codes, distances too far back and so on. It reports
   which corners were reached.
+* `diff_puff.py PUFF_RUN SEED N` compares a build of zlib's puff (see
+  `../../arm/puff`) with the mirror on N streams of all the kinds above,
+  using the program `puff_run` built from `puff_run.c` by
+  `../../arm/puff/build_puff.sh`. It also checks that puff reports when the
+  output buffer is too small.
 * `rfc1951_checks.ml` checks in HOL that the fixed Huffman codes of the
   specification agree with the table in section 3.2.6 of the RFC and are
   complete.
