@@ -3195,10 +3195,11 @@ let save_literal_from_elf deffile objfile =
    Backward-compatible for plain `mc = [bytes]` definitions. For mc theorems
    parameterised over `pc` and rodata symbols (as produced by
    define_assert_relocs_from_elf), the new definition is keyed on the post-
-   ENDBR64 entry pc: any literal `&pc + &n` reference inside the bytelist is
-   shifted by -4 so that, when the trimmed bytes are loaded at the post-
-   ENDBR64 pc, RIP-relative displacements still resolve to the same absolute
-   targets as the original mc. *)
+   ENDBR64 entry pc: any literal `&pc + &n` or `&pc + -- &n` reference
+   inside the bytelist is shifted by -4 (the latter, as for a reference to
+   a local symbol, to `&pc + -- &(n + 4)`) so that, when the trimmed bytes
+   are loaded at the post-ENDBR64 pc, RIP-relative displacements still
+   resolve to the same absolute targets as the original mc. *)
 
 let define_trimmed =
   let trim_size = 4 in
@@ -3223,13 +3224,19 @@ let define_trimmed =
           try
             let l,r = dest_binop `(+):int->int->int` t in
             if l = pc_int then
-              let _,n = dest_comb r in
+              let f,n = dest_comb r in
               if is_numeral n then
                 let nv = dest_numeral n in
                 if nv >=/ num trim_size then
                   mk_binop `(+):int->int->int` pc_int
                     (mk_comb(`int_of_num`, mk_numeral (nv -/ num trim_size)))
                 else t
+              else if f = `int_neg` && is_comb n &&
+                      rator n = `int_of_num` && is_numeral(rand n) then
+                mk_binop `(+):int->int->int` pc_int
+                  (mk_comb(`int_neg`,
+                     mk_comb(`int_of_num`,
+                       mk_numeral (dest_numeral(rand n) +/ num trim_size))))
               else t
             else
               (match t with
