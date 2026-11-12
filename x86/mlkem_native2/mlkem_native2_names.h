@@ -24,7 +24,7 @@
 #define N2_REJ_UNIFORM mlkem_rej_uniform_alt_VARIABLE_TIME_avx512
 #else
 #define N2(f) f
-#define N2_KECCAK_X1 sha3_keccak_f1600
+#define N2_KECCAK_X1 sha3_keccak_f1600_alt
 #define N2_KECCAK_X4 sha3_keccak4_f1600_alt
 #define N2_REJ_UNIFORM mlkem_rej_uniform_alt_VARIABLE_TIME
 #endif

@@ -98,7 +98,7 @@ LEAF_OBJS="add_reduce sub_reduce cbd2 cbd3 check_encoding compress_d4_x86
   frommsg tomsg rej_uniform_alt_VARIABLE_TIME tobytes unpack ntt intt
   mulcache_compute basemul_k2 basemul_k3 basemul_k4 reduce tomont
   rej_uniform_VARIABLE_TIME"
-SHA3_OBJS="sha3_keccak_f1600 sha3_keccak4_f1600_alt"
+SHA3_OBJS="sha3_keccak_f1600_alt sha3_keccak4_f1600_alt"
 BTI_FLAGS=""
 CF_CFLAGS=-fcf-protection=full
 ABI_STUB=$T/abi_stub_x86.S

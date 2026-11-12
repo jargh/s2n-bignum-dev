@@ -353,6 +353,7 @@ notInLibrary = {
     "mlkem_rej_uniform_alt_VARIABLE_TIME_avx512",
     "mlkem_sub_reduce",
     "mlkem_tomsg",
+    "sha3_keccak_f1600_alt",
     "sha3_keccak4_f1600_avx512",
     "sha3_keccak_f1600_avx512",
   ],
