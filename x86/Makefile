@@ -692,6 +692,23 @@ mlkem_native2/mlkem_gen_matrix_k3.native: \
 mlkem_native2/mlkem_gen_matrix_k4.native: \
   proofs/mlkem_gen_matrix_k4.ml $(BASE_ML) $(MLKEM_NATIVE2_GM_PROOF) ; \
   ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+MLKEM_NATIVE2_GM_SAFE_PROOF = $(MLKEM_NATIVE2_GM_PROOF) \
+                              proofs/utils/mlkem_native2_safety.ml \
+                              proofs/utils/mlkem_native2_keccak_full.ml \
+                              proofs/utils/mlkem_native2_rej_full.ml \
+                              proofs/utils/mlkem_native2_gm_safe.ml
+mlkem_native2/mlkem_gen_matrix_k2_safe.native: \
+  proofs/mlkem_gen_matrix_k2_safe.ml $(BASE_ML) \
+  $(MLKEM_NATIVE2_GM_SAFE_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+mlkem_native2/mlkem_gen_matrix_k3_safe.native: \
+  proofs/mlkem_gen_matrix_k3_safe.ml $(BASE_ML) \
+  $(MLKEM_NATIVE2_GM_SAFE_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+mlkem_native2/mlkem_gen_matrix_k4_safe.native: \
+  proofs/mlkem_gen_matrix_k4_safe.ml $(BASE_ML) \
+  $(MLKEM_NATIVE2_GM_SAFE_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
 
 # Tutorial
 
@@ -724,6 +741,9 @@ tutorial: build_tutorial $(TUTORIAL_PROOF_LOGS);
 MLKEM_NATIVE2_PROOF_LOGS = mlkem_native2/mlkem_gen_matrix_k2.correct \
                            mlkem_native2/mlkem_gen_matrix_k3.correct \
                            mlkem_native2/mlkem_gen_matrix_k4.correct \
+                           mlkem_native2/mlkem_gen_matrix_k2_safe.correct \
+                           mlkem_native2/mlkem_gen_matrix_k3_safe.correct \
+                           mlkem_native2/mlkem_gen_matrix_k4_safe.correct \
                            mlkem_native2/mlkem_getnoise.correct \
                            mlkem_native2/mlkem_hash_g.correct \
                            mlkem_native2/mlkem_hash_h.correct
