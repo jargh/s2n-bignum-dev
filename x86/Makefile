@@ -709,6 +709,27 @@ mlkem_native2/mlkem_gen_matrix_k4_safe.native: \
   proofs/mlkem_gen_matrix_k4_safe.ml $(BASE_ML) \
   $(MLKEM_NATIVE2_GM_SAFE_PROOF) ; \
   ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+# The proofs of the API functions, for each parameter set in its own file
+MLKEM_NATIVE2_API_PROOF = $(MLKEM_NATIVE2_NOISE_PROOF) \
+                          proofs/utils/mlkem_native2_safety.ml \
+                          proofs/utils/mlkem_compress_consts.ml \
+                          proofs/utils/mlkem_native2_api.ml \
+                          proofs/mlkem_ntt.ml \
+                          mlkem/mlkem_ntt.o mlkem/mlkem_ntt.obj \
+                          proofs/mlkem_rej_uniform_alt_VARIABLE_TIME.ml \
+                          mlkem/mlkem_rej_uniform_alt_VARIABLE_TIME.o \
+                          proofs/mlkem_hash_h.ml \
+                          proofs/mlkem_check_encoding.ml \
+                          mlkem/mlkem_check_encoding.o
+mlkem_native2/mlkem512.native: \
+  proofs/mlkem512.ml $(BASE_ML) $(MLKEM_NATIVE2_API_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+mlkem_native2/mlkem768.native: \
+  proofs/mlkem768.ml $(BASE_ML) $(MLKEM_NATIVE2_API_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+mlkem_native2/mlkem1024.native: \
+  proofs/mlkem1024.ml $(BASE_ML) $(MLKEM_NATIVE2_API_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
 
 # Tutorial
 
@@ -746,7 +767,10 @@ MLKEM_NATIVE2_PROOF_LOGS = mlkem_native2/mlkem_gen_matrix_k2.correct \
                            mlkem_native2/mlkem_gen_matrix_k4_safe.correct \
                            mlkem_native2/mlkem_getnoise.correct \
                            mlkem_native2/mlkem_hash_g.correct \
-                           mlkem_native2/mlkem_hash_h.correct
+                           mlkem_native2/mlkem_hash_h.correct \
+                           mlkem_native2/mlkem512.correct \
+                           mlkem_native2/mlkem768.correct \
+                           mlkem_native2/mlkem1024.correct
 
 mlkem_native2_proofs: $(MLKEM_NATIVE2_PROOF_LOGS);
 
