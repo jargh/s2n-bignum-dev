@@ -23,13 +23,23 @@
 (* puff_fixed_tables about the tables of the fixed codes, which puff builds  *)
 (* in the data of the image (at pc + 0x20040) when it first needs them.      *)
 (*                                                                           *)
+(* PUFF_MEMSAFE says that, for any input, puff returns, its loads being from *)
+(* the input, the output buffer, *destlen and *sourcelen, its stack frame    *)
+(* (with those of the functions that it calls), the image and the region     *)
+(* (ea,el) of setjmp and longjmp, and its stores to the output buffer,       *)
+(* *destlen, *sourcelen, the stack frame and the data of the image for the   *)
+(* fixed codes (the flag at pc + 0x20028 and the tables). Both follow from   *)
+(* PUFF_CORRECT_MEMSAFE, which states them together.                         *)
+(*                                                                           *)
 (* The proof follows the loop over the blocks, at 0xb48, with the invariant  *)
 (* puff_inv n for n bits left in the input, and each block through the       *)
 (* dispatch on the block type (puff_dispatch) and its end (puff_blockend),   *)
 (* and the loops in the blocks with ENSURES_LOOP_EXIT and                    *)
 (* ENSURES_WHILE_MEASURE. The calls of bits, decode, construct and codes use *)
-(* their correctness theorems, and the theory of the specification gives the *)
-(* decoding of a stream one block at a time.                                 *)
+(* their theorems of correctness and memory safety, each assertion also      *)
+(* bounds the trace of loads and stores so far (with_memsafe), and the       *)
+(* theory of the specification gives the decoding of a stream one block at a *)
+(* time.                                                                     *)
 (*                                                                           *)
 (* In the listing, in hex, 0x570 is _setjmp (by the PLT), 0x7a0 bits, 0x830  *)
 (* decode, 0x6a0 construct and 0x900 codes. In the frame, from sp after the  *)
@@ -288,7 +298,20 @@ let puff_sctx = `[ctx_x19:int64; ctx_x20; ctx_x21; ctx_x22; ctx_x23; ctx_x24;
   word (pc + 2852); word_sub stackpointer (word 2448); ctx_d8; ctx_d9;
   ctx_d10; ctx_d11; ctx_d12; ctx_d13; ctx_d14; ctx_d15]`;;
 
-let puff_inv = subst [puff_sctx,`sctx:int64 list`] `\n s.
+(*** The regions that puff reads and writes ***)
+
+let puff_rr =
+ `[source,LENGTH(l:byte list); dest,outlen; destlen,8; sourcelen,8;
+   word_sub stackpointer (word 2560),2560; word pc,0x20320;
+   ea,el]:(int64#num)list`
+and puff_wr =
+ `[dest,outlen; destlen,8; sourcelen,8;
+   word_sub stackpointer (word 2560),2560;
+   word_add (word pc) (word 131112),4;
+   word_add (word pc) (word 131136),732]:(int64#num)list`;;
+
+let puff_inv = with_memsafe puff_rr puff_wr
+ (subst [puff_sctx,`sctx:int64 list`] `\n s.
   ?outk pk.
    aligned_bytes_loaded s (word pc) puff_gcc12_O2_mc /\
    read PC s = word(pc + 0xb48) /\
@@ -362,7 +385,7 @@ let puff_inv = subst [puff_sctx,`sctx:int64 list`] `\n s.
    read (memory :> bytes(ea,el)) s = ev /\
    puff_fixed_tables pc s /\
    pk <= 8 * LENGTH l /\ n = 8 * LENGTH l - pk /\ LENGTH outk <= outlen /\
-   (!r. deflate_blocks l ([],0) r <=> deflate_blocks l (outk,pk) r)`;;
+   (!r. deflate_blocks l ([],0) r <=> deflate_blocks l (outk,pk) r)`);;
 
 let puff_frame =
  `MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,, MAYCHANGE [X18] ,,
@@ -389,7 +412,7 @@ let PUFF_FRAME_TAC =
   SUBSUMED_MAYCHANGE_TAC;;
 
 let PUFF_SETJMP_TAC env n =
-  JMP_VALUES_GHOST_TAC THEN
+  JMP_VALUES_GHOST_TAC THEN EVENTS_ABBREV_TAC THEN
   W(fun (asl,w as gl) ->
     let ctx = jmp_values gl in
     let s = rand w in
@@ -398,21 +421,22 @@ let PUFF_SETJMP_TAC env n =
     FIRST_ASSUM(fun th ->
       match strip_comb(concl th) with
         Const("setjmp_contract",_),[_;_;_;_;_] ->
-          MP_TAC(SPECL [env; ret; ctx] (REWRITE_RULE[setjmp_contract] th))
+          MP_TAC(EVENTS_SPEC gl
+                  (SPECL [env; ret; ctx] (REWRITE_RULE[setjmp_contract] th)))
       | _ -> NO_TAC)) THEN
   ANTS_TAC THENL [CALLEE_HYPS_TAC; ALL_TAC] THEN
   REWRITE_TAC[C_ARGUMENTS; jmp_context; CONS_11;
               MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MODIFIABLE_GPRS;
               MODIFIABLE_SIMD_REGS; MODIFIABLE_UPPER_SIMD_REGS;
               SOME_FLAGS] THEN
-  ARM_BIGSTEP_TAC PUFF_EXEC ("s"^string_of_int n) THEN
+  ARM_BIGSTEP_TAC PUFF_EXEC ("s"^string_of_int n) THEN EVENTS_UNABBREV_TAC THEN
   TRY(ASM_REWRITE_TAC[] THEN NO_TAC);;
 
 (* From the entry to the loop over the blocks, through the call of setjmp.   *)
 
 let PUFF_ENTRY_TAC =
   FIXED_TABLES_INTRO_TAC THEN
-  ENSURES_INIT_TAC "s0" THEN PUFF_STEPS_TAC (1--22) THEN PUFF_ADRP_TAC THEN
+  PUFF_INIT_TAC "s0" THEN PUFF_STEPS_TAC (1--22) THEN PUFF_ADRP_TAC THEN
   PUFF_STEPS_TAC (23--25) THEN
   PUFF_SETJMP_TAC
    `word_add (word_sub stackpointer (word 2448)) (word 344):int64` 26 THEN
@@ -426,7 +450,7 @@ let PUFF_ENTRY_TAC =
   REWRITE_TAC[WORD_ADD_ASSOC_NUM] THEN
   CONV_TAC(ONCE_DEPTH_CONV NUM_ADD_CONV) THEN
   CONV_TAC(ONCE_DEPTH_CONV WORD_REDUCE_CONV) THEN STRIP_TAC THEN
-  ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN
+  PUFF_FINAL_TAC THEN DISJ1_TAC THEN
   EXISTS_TAC `8 * LENGTH(l:byte list)` THEN BETA_TAC THEN
   MAP_EVERY EXISTS_TAC [`[]:byte list`; `0`] THEN
   CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
@@ -460,12 +484,12 @@ let puff_dispatch = mk_abs(`s:armstate`,
 (*** PUFF_CALL_TAC for arguments that are offsets from the frame of puff ***)
 
 let PUFF_FRAME_CALL_TAC th vars n =
-  JMP_VALUES_GHOST_TAC THEN
+  JMP_VALUES_GHOST_TAC THEN EVENTS_ABBREV_TAC THEN
   W(fun gl ->
     let ctx0 = jmp_values gl in
     let vars' = map (fun v -> if v = `ctx0:int64 list` then ctx0 else v)
                     vars in
-    MP_TAC(ISPECL vars' th)) THEN
+    MP_TAC(EVENTS_SPEC gl (ISPECL vars' th))) THEN
   ANTS_TAC THENL [CALLEE_HYPS_TAC; ALL_TAC] THEN
   REWRITE_TAC[C_ARGUMENTS; puff_input; puff_table; jmp_context; CONS_11;
               MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MAYCHANGE_JMP_CONTEXT;
@@ -473,7 +497,7 @@ let PUFF_FRAME_CALL_TAC th vars n =
               MODIFIABLE_UPPER_SIMD_REGS; SOME_FLAGS] THEN
   REWRITE_TAC[WORD_SUB_SUB_NUM; WORD_ADD_ASSOC_NUM] THEN
   CONV_TAC(ONCE_DEPTH_CONV NUM_ADD_CONV) THEN
-  ARM_BIGSTEP_TAC PUFF_EXEC ("s"^string_of_int n) THEN
+  ARM_BIGSTEP_TAC PUFF_EXEC ("s"^string_of_int n) THEN EVENTS_UNABBREV_TAC THEN
   TRY(ASM_REWRITE_TAC[] THEN NO_TAC);;
 
 let PUFF_BITS_VARS need p ret =
@@ -498,7 +522,7 @@ let PUFF_SP_RESTORE = WORD_RULE
 
 let PUFF_ESCAPE_TAC sel n tac =
   RULE_ASSUM_TAC(CONV_RULE(ONCE_DEPTH_CONV EL_CONV)) THEN
-  PUFF_STEPS_TAC ((n+1)--(n+11)) THEN ENSURES_FINAL_STATE_TAC THEN sel THEN
+  PUFF_STEPS_TAC ((n+1)--(n+11)) THEN PUFF_FINAL_TAC THEN sel THEN
   REWRITE_TAC[jmp_context; CONS_11] THEN ASM_REWRITE_TAC[PUFF_SP_RESTORE] THEN
   CONV_TAC(ONCE_DEPTH_CONV WORD_REDUCE_CONV) THEN REWRITE_TAC[] THEN
   CONJ_TAC THENL [FIXED_TABLES_KEEP_TAC; tac];;
@@ -511,9 +535,9 @@ let NO_HEADER_TAC =
   SIMPLE_ARITH_TAC;;
 
 let PUFF_HEADER_TAC =
-  FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+  FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
   PUFF_STEPS_TAC (1--4) THEN
-  PUFF_FRAME_CALL_TAC PUFF_BITS_CORRECT
+  PUFF_FRAME_CALL_TAC PUFF_BITS_CORRECT_MEMSAFE
    (PUFF_BITS_VARS `1` `pk:num` `word(pc + 2904):int64`) 5 THENL
    [ALL_TAC; PUFF_ESCAPE_TAC (DISJ2_TAC THEN DISJ2_TAC) 5 NO_HEADER_TAC] THEN
   SUBGOAL_THEN `deflate_bits l pk 1 < 2` ASSUME_TAC THENL
@@ -521,11 +545,11 @@ let PUFF_HEADER_TAC =
     CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN REWRITE_TAC[];
     ALL_TAC] THEN
   PUFF_STEPS_TAC (6--9) THEN
-  PUFF_FRAME_CALL_TAC PUFF_BITS_CORRECT
+  PUFF_FRAME_CALL_TAC PUFF_BITS_CORRECT_MEMSAFE
    (PUFF_BITS_VARS `2` `pk + 1` `word(pc + 2920):int64`) 10 THENL
    [ALL_TAC; PUFF_ESCAPE_TAC (DISJ2_TAC THEN DISJ2_TAC) 10 NO_HEADER_TAC] THEN
   RULE_ASSUM_TAC(REWRITE_RULE[ARITH_RULE `(pk + 1) + 2 = pk + 3`]) THEN
-  ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN
+  PUFF_FINAL_TAC THEN DISJ1_TAC THEN
   MAP_EVERY EXISTS_TAC
    [`deflate_bits l pk 1`; `deflate_bits l (pk + 1) 2`] THEN
   ASM_REWRITE_TAC[DEFLATE_BITS_1] THEN
@@ -538,7 +562,7 @@ let PUFF_HEADER_TAC =
     FIXED_TABLES_KEEP_TAC];;
 
 let PUFF_RETURN_TAC sel steps tac =
-  PUFF_STEPS_TAC steps THEN ENSURES_FINAL_STATE_TAC THEN sel THEN
+  PUFF_STEPS_TAC steps THEN PUFF_FINAL_TAC THEN sel THEN
   REWRITE_TAC[jmp_context; CONS_11] THEN ASM_REWRITE_TAC[PUFF_SP_RESTORE] THEN
   CONV_TAC(ONCE_DEPTH_CONV WORD_REDUCE_CONV) THEN REWRITE_TAC[] THEN
   CONJ_TAC THENL [FIXED_TABLES_KEEP_TAC; tac];;
@@ -568,10 +592,10 @@ let PUFF_BLOCKEND_TAC =
   ENSURES_EXISTS_PRE_TAC `outk':byte list` THEN
   ENSURES_EXISTS_PRE_TAC `pk':num` THEN
   GLOBALIZE_PRECONDITION_TAC THEN FIXED_TABLES_INTRO_TAC THEN
-  ENSURES_INIT_TAC "s0" THEN ASM_CASES_TAC `last = 0` THENL
+  PUFF_INIT_TAC "s0" THEN ASM_CASES_TAC `last = 0` THENL
    [PUFF_STEPS_TAC [1] THEN
     RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `last = 0`; ARITH_EQ]) THEN
-    ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN
+    PUFF_FINAL_TAC THEN DISJ1_TAC THEN
     EXISTS_TAC `8 * LENGTH(l:byte list) - pk'` THEN
     CONJ_TAC THENL [SIMPLE_ARITH_TAC; ALL_TAC] THEN
     MAP_EVERY EXISTS_TAC [`outk':byte list`; `pk':num`] THEN
@@ -580,7 +604,7 @@ let PUFF_BLOCKEND_TAC =
      [SIMPLE_ARITH_TAC; ALL_TAC] THEN
     RULE_ASSUM_TAC(REWRITE_RULE[ARITH_EQ]) THEN
     PUFF_STEPS_TAC (1--17) THEN
-    ENSURES_FINAL_STATE_TAC THEN DISJ2_TAC THEN
+    PUFF_FINAL_TAC THEN DISJ2_TAC THEN
     REWRITE_TAC[jmp_context; CONS_11] THEN
     ASM_REWRITE_TAC[PUFF_SP_RESTORE] THEN
     CONV_TAC(ONCE_DEPTH_CONV WORD_REDUCE_CONV) THEN REWRITE_TAC[] THEN
@@ -742,7 +766,7 @@ let STORED_END_TAC sel len =
      [ASM_REWRITE_TAC[]; DISCH_THEN(fun th -> REWRITE_TAC[th])] THEN
     ASM_REWRITE_TAC[] THEN SIMPLE_ARITH_TAC;
     STRIP_TAC] THEN
-  ENSURES_FINAL_STATE_TAC THEN sel THEN
+  PUFF_FINAL_TAC THEN sel THEN
   MAP_EVERY EXISTS_TAC [outk'; pk'] THEN
   ASM_REWRITE_TAC[LENGTH_APPEND; LENGTH_LIST_OF_SEQ; LIST_OF_SEQ_1;
                   CONJUNCT1 list_of_seq; APPEND_NIL] THEN
@@ -769,7 +793,7 @@ let stored_mid = mk_abs(`s:armstate`,
 let STORED_HEAD_TAC =
   let sel3 = DISJ2_TAC THEN DISJ2_TAC THEN DISJ2_TAC
   and sel2 = DISJ2_TAC THEN DISJ1_TAC in
-  FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+  FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
   PUFF_STEPS_TAC (1--5) THEN
   ASM_CASES_TAC `k + 4 <= LENGTH(l:byte list)` THEN PUFF_STEPS_TAC [6] THENL
    [ALL_TAC; PUFF_RETURN_TAC sel3 (7--15) NO_STORED_TAC] THEN
@@ -827,7 +851,7 @@ let STORED_HEAD_TAC =
   ASM_REWRITE_TAC[WORD_VAL] THEN DISCH_TAC THEN
   ASM_CASES_TAC `len = 1` THEN PUFF_STEPS_TAC (45--46) THENL
    [STORED_END_TAC sel2 `1`; ALL_TAC] THEN
-  ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN EXISTS_TAC `len:num` THEN
+  PUFF_FINAL_TAC THEN DISJ1_TAC THEN EXISTS_TAC `len:num` THEN
   ASM_REWRITE_TAC[LIST_OF_SEQ_1; ADD_CLAUSES] THEN
   CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN ASM_REWRITE_TAC[] THEN
   REPEAT CONJ_TAC THENL
@@ -846,7 +870,7 @@ let STORED_COPY_TAC =
       CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN SIMP_TAC[];
       SUBSUMED_ID_MAYCHANGE_TAC];
     X_GEN_TAC `i:num` THEN STRIP_TAC THEN
-    FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+    FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
     FIRST_X_ASSUM(ASSUME_TAC o C MP (ASSUME `i < len - 1`)) THEN
     MP_TAC(ISPECL [`source:int64`; `l:byte list`; `k + 4 + i + 1`;
                    `s0:armstate`] READ_MEMORY_BYTES8_BYTELIST) THEN
@@ -864,7 +888,7 @@ let STORED_COPY_TAC =
       APPEND outk (list_of_seq (\j. EL (k + 4 + j) l) ((i + 1) + 1)):byte list`
     SUBST1_TAC THENL
      [REWRITE_TAC[LIST_OF_SEQ_SNOC; GSYM APPEND_ASSOC]; DISCH_TAC] THEN
-    ENSURES_FINAL_STATE_TAC THEN
+    PUFF_FINAL_TAC THEN
     REWRITE_TAC[ARITH_RULE
      `LENGTH(outk:byte list) + (i + 1) + 1 = (LENGTH outk + i + 1) + 1`;
      ARITH_RULE `k + 4 + (i + 1) + 1 = (k + 4 + i + 1) + 1`] THEN
@@ -878,13 +902,13 @@ let STORED_COPY_TAC =
       W(fun (asl,w) -> CONV_TAC(LAND_CONV(SMALL_WORD_CONV asl))) THEN
       SIMPLE_ARITH_TAC];
     X_GEN_TAC `i:num` THEN STRIP_TAC THEN
-    FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+    FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
     FIRST_X_ASSUM(ASSUME_TAC o C MP (ASSUME `i < len - 1`)) THEN
-    PUFF_STEPS_TAC [1] THEN ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    PUFF_STEPS_TAC [1] THEN PUFF_FINAL_TAC THEN ASM_REWRITE_TAC[] THEN
     FIXED_TABLES_KEEP_TAC;
     SUBGOAL_THEN `(len - 1) + 1 = len` (fun th -> REWRITE_TAC[th]) THENL
      [SIMPLE_ARITH_TAC; ALL_TAC] THEN
-    FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+    FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
     PUFF_STEPS_TAC [1] THEN STORED_END_TAC DISJ1_TAC `len:num`];;
 
 let STORED_TAC =
@@ -974,13 +998,15 @@ let NUM_OF_WORDLIST_FIXED_LL = prove
 (*** rewrites ths to evaluate the length of the code lengths               ***)
 
 let PUFF_CONSTRUCT_CALL_TAC ths vars n =
-  MP_TAC(ISPECL vars PUFF_CONSTRUCT_CORRECT) THEN
+  EVENTS_ABBREV_TAC THEN
+  W(fun gl ->
+    MP_TAC(EVENTS_SPEC gl (ISPECL vars PUFF_CONSTRUCT_CORRECT_MEMSAFE))) THEN
   REWRITE_TAC ths THEN CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
   ANTS_TAC THENL [CALLEE_HYPS_TAC; ALL_TAC] THEN
   REWRITE_TAC[C_ARGUMENTS; SOME_FLAGS] THEN
   REWRITE_TAC[WORD_SUB_SUB_NUM; WORD_ADD_ASSOC_NUM] THEN
   CONV_TAC(ONCE_DEPTH_CONV NUM_ADD_CONV) THEN
-  ARM_BIGSTEP_TAC PUFF_EXEC ("s"^string_of_int n);;
+  ARM_BIGSTEP_TAC PUFF_EXEC ("s"^string_of_int n) THEN EVENTS_UNABBREV_TAC;;
 
 let PUFF_CODES_VARS lh lcnt lsym ll lcnts lsyms dh dcnt dsym dl dcnts dsyms
                     ret =
@@ -1029,14 +1055,14 @@ let NO_FIXED_AT_ALL_TAC =
     SIMP_TAC[]];;
 
 let PUFF_RETURN_TABS_TAC tabtac sel steps tac =
-  PUFF_STEPS_TAC steps THEN ENSURES_FINAL_STATE_TAC THEN sel THEN
+  PUFF_STEPS_TAC steps THEN PUFF_FINAL_TAC THEN sel THEN
   REWRITE_TAC[jmp_context; CONS_11] THEN ASM_REWRITE_TAC[PUFF_SP_RESTORE] THEN
   CONV_TAC(ONCE_DEPTH_CONV WORD_REDUCE_CONV) THEN REWRITE_TAC[] THEN
   CONJ_TAC THENL [tabtac; tac];;
 
 let PUFF_ESCAPE_TABS_TAC tabtac sel n tac =
   RULE_ASSUM_TAC(CONV_RULE(ONCE_DEPTH_CONV EL_CONV)) THEN
-  PUFF_STEPS_TAC ((n+1)--(n+11)) THEN ENSURES_FINAL_STATE_TAC THEN sel THEN
+  PUFF_STEPS_TAC ((n+1)--(n+11)) THEN PUFF_FINAL_TAC THEN sel THEN
   REWRITE_TAC[jmp_context; CONS_11] THEN ASM_REWRITE_TAC[PUFF_SP_RESTORE] THEN
   CONV_TAC(ONCE_DEPTH_CONV WORD_REDUCE_CONV) THEN REWRITE_TAC[] THEN
   CONJ_TAC THENL [tabtac; tac];;
@@ -1069,13 +1095,13 @@ let DISCARD_BYTES128_TAC =
 
 let FIXED_HEAD_TAC =
   let sp = `word_sub stackpointer (word 2448):int64` in
-  FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+  FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
   PUFF_STEPS_TAC (1--5) THEN
   ASM_CASES_TAC `vflag:int32 = word 0` THENL
    [SUBGOAL_THEN `val(vflag:int32) = 0` ASSUME_TAC THENL
      [ASM_REWRITE_TAC[VAL_EQ_0]; ALL_TAC] THEN
     PUFF_STEPS_TAC [6] THEN FIXED_TABLES_VALID_TAC THEN
-    ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN
+    PUFF_FINAL_TAC THEN DISJ1_TAC THEN
     MAP_EVERY EXISTS_TAC [`lcnts:int16 list`; `lsyms:int16 list`;
                           `dcnts:int16 list`; `dsyms:int16 list`] THEN
     ASM_REWRITE_TAC[];
@@ -1124,7 +1150,7 @@ let FIXED_HEAD_TAC =
       `REPLICATE 30 5`; `pc:num`; `word(pc + 4044):int64`; sp] 246 THEN
     MAP_EVERY (fun n -> PUFF_STEPS_TAC [n] THEN REG_PTR_NORM_TAC) [247;248]
     THEN
-    ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN
+    PUFF_FINAL_TAC THEN DISJ1_TAC THEN
     MAP_EVERY EXISTS_TAC
      [`huffman_counts deflate_fixed_ll`; `syms:int16 list`;
       `huffman_counts (REPLICATE 30 5)`; `syms':int16 list`] THEN
@@ -1139,7 +1165,7 @@ let FIXED_CODES_TAC =
   MAP_EVERY ASSUME_TAC [CONJUNCT1 DEFLATE_FIXED_BOUND; ALL_DIST_BOUND;
     LENGTH_DEFLATE_FIXED_LL; HUFFMAN_KRAFT_FIXED_LL; HUFFMAN_KRAFT_DIST;
     ISPECL [`30`; `5`] LENGTH_REPLICATE] THEN
-  ENSURES_INIT_TAC "s0" THEN
+  PUFF_INIT_TAC "s0" THEN
   PUFF_STEPS_TAC [1] THEN PUFF_ADRP_TAC THEN
   MAP_EVERY (fun n -> PUFF_STEPS_TAC [n] THEN REG_PTR_NORM_TAC) (2--5) THEN
   PUFF_CALL_THS_TAC
@@ -1147,7 +1173,7 @@ let FIXED_CODES_TAC =
     ASSUME `LENGTH(dsyms:int16 list) = 30`;
     LENGTH_DEFLATE_FIXED_LL; LENGTH_REPLICATE; HUFFMAN_KRAFT_FIXED_LL;
     HUFFMAN_KRAFT_DIST]
-   PUFF_CODES_CORRECT
+   PUFF_CODES_CORRECT_MEMSAFE
    (PUFF_CODES_VARS `word_add (word pc) (word 131136):int64`
       `word_add (word pc) (word 131152):int64`
       `word_add (word pc) (word 131184):int64` `deflate_fixed_ll`
@@ -1180,7 +1206,7 @@ let FIXED_CODES_TAC =
         then MP_TAC(MATCH_MP DEFLATE_CODES_LENGTH th) THEN
              MP_TAC(MATCH_MP DEFLATE_CODES_BOUND th)
         else failwith "") THEN REPEAT STRIP_TAC THEN
-      ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN
+      PUFF_FINAL_TAC THEN DISJ1_TAC THEN
       MAP_EVERY EXISTS_TAC [`out:byte list`; `q:num`] THEN
       ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THEN TRY SIMPLE_ARITH_TAC THEN
       FIXED_TABLES_NEW_TAC;
@@ -1289,20 +1315,20 @@ let dyn_a0 = mk_abs(`s:armstate`,
 (*** return of -3 (DYN_HEAD_NEG_TAC)                                       ***)
 
 let DYN_HEAD_PREFIX_TAC sel =
-  FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+  FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
   MAP_EVERY (fun n -> PUFF_STEPS_TAC [n] THEN REG_PTR_NORM_TAC) (1--14) THEN
-  PUFF_FRAME_CALL_TAC PUFF_BITS_CORRECT
+  PUFF_FRAME_CALL_TAC PUFF_BITS_CORRECT_MEMSAFE
    (PUFF_BITS_VARS `5` `p3:num` `word(pc + 2976):int64`) 15 THENL
    [ALL_TAC; PUFF_ESCAPE_TAC sel 15 NO_DYN_TAC] THEN
   BITS_BOUND_TAC `p3:num` 5 THEN
   MAP_EVERY (fun n -> PUFF_STEPS_TAC [n] THEN REG_PTR_NORM_TAC) (16--19) THEN
-  PUFF_FRAME_CALL_TAC PUFF_BITS_CORRECT
+  PUFF_FRAME_CALL_TAC PUFF_BITS_CORRECT_MEMSAFE
    (PUFF_BITS_VARS `5` `p3 + 5` `word(pc + 2992):int64`) 20 THENL
    [ALL_TAC; PUFF_ESCAPE_TAC sel 20 NO_DYN_TAC] THEN
   RULE_ASSUM_TAC(REWRITE_RULE[ARITH_RULE `(p3 + 5) + 5 = p3 + 10`]) THEN
   BITS_BOUND_TAC `p3 + 5` 5 THEN
   MAP_EVERY (fun n -> PUFF_STEPS_TAC [n] THEN REG_PTR_NORM_TAC) (21--24) THEN
-  PUFF_FRAME_CALL_TAC PUFF_BITS_CORRECT
+  PUFF_FRAME_CALL_TAC PUFF_BITS_CORRECT_MEMSAFE
    (PUFF_BITS_VARS `4` `p3 + 10` `word(pc + 3008):int64`) 25 THENL
    [ALL_TAC; PUFF_ESCAPE_TAC sel 25 NO_DYN_TAC] THEN
   RULE_ASSUM_TAC(REWRITE_RULE[ARITH_RULE `(p3 + 10) + 4 = p3 + 14`]) THEN
@@ -1318,7 +1344,7 @@ let DYN_HEAD_TAC =
   CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
   DISCH_THEN(X_CHOOSE_THEN `c:int16 list` STRIP_ASSUME_TAC) THEN
   SUBGOAL_THEN `0 < ncode` ASSUME_TAC THENL [SIMPLE_ARITH_TAC; ALL_TAC] THEN
-  ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN
+  PUFF_FINAL_TAC THEN DISJ1_TAC THEN
   REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES; CONJUNCT1 LT] THEN
   ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
    [AP_TERM_TAC THEN SIMPLE_ARITH_TAC;
@@ -1419,7 +1445,7 @@ let dyn_cl = mk_abs(`s:armstate`,
 let DYN_A_ITER_END_TAC =
   RULE_ASSUM_TAC(REWRITE_RULE[ARITH_RULE
    `(p3 + 14 + 3 * i) + 3 = p3 + 14 + 3 * (i + 1)`]) THEN
-  ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN ASM_REWRITE_TAC[] THEN
+  PUFF_FINAL_TAC THEN DISJ1_TAC THEN ASM_REWRITE_TAC[] THEN
   REPEAT CONJ_TAC THEN TRY(AP_TERM_TAC THEN SIMPLE_ARITH_TAC THEN NO_TAC) THENL
    [EXISTS_TAC `list_of_seq (\m. if m = t
                                  then word(deflate_bits l (p3 + 14 + 3 * i) 3)
@@ -1446,9 +1472,9 @@ let DYN_A_ITER_TAC =
   X_GEN_TAC `i:num` THEN DISCH_TAC THEN BETA_TAC THEN
   REWRITE_TAC[ASSUME `i < ncode`] THEN
   ENSURES_EXISTS_PRE_TAC `c:int16 list` THEN GLOBALIZE_PRECONDITION_TAC THEN
-  FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+  FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
   MAP_EVERY (fun n -> PUFF_STEPS_TAC [n] THEN REG_PTR_NORM_TAC) (1--3) THEN
-  PUFF_FRAME_CALL_TAC PUFF_BITS_CORRECT
+  PUFF_FRAME_CALL_TAC PUFF_BITS_CORRECT_MEMSAFE
    (PUFF_BITS_VARS `3` `p3 + 14 + 3 * i` `word(pc + 3064):int64`) 4 THENL
    [ALL_TAC; PUFF_ESCAPE_TAC sel 4 NO_DYN_TAC] THEN
   BITS_BOUND_TAC `p3 + 14 + 3 * i` 3 THEN
@@ -1516,13 +1542,13 @@ let dyn_b = mk_abs(`j:num`,mk_abs(`s:armstate`, list_mk_conj
 
 let DYN_B_ENTRY_TAC =
   let fin =
-    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN CONJ_TAC THENL
+    PUFF_FINAL_TAC THEN ASM_REWRITE_TAC[] THEN CONJ_TAC THENL
      [EXISTS_TAC `c:int16 list` THEN ASM_REWRITE_TAC[] THEN
       X_GEN_TAC `j:num` THEN DISCH_TAC THEN ASM_SIMP_TAC[];
       FIXED_TABLES_KEEP_TAC] in
   BETA_TAC THEN REWRITE_TAC[ADD_CLAUSES] THEN
   ENSURES_EXISTS_PRE_TAC `c:int16 list` THEN GLOBALIZE_PRECONDITION_TAC THEN
-  FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+  FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
   ASM_CASES_TAC `ncode < 19` THENL
    [PUFF_STEPS_TAC (1--6) THEN fin; PUFF_STEPS_TAC (1--3) THEN fin];;
 
@@ -1531,7 +1557,7 @@ let DYN_B_ENTRY_TAC =
 let DYN_B_ITER_END_TAC =
   RULE_ASSUM_TAC(REWRITE_RULE[ARITH_RULE
    `(ncode + i) + 1 = ncode + i + 1`]) THEN
-  ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN ASM_REWRITE_TAC[] THEN
+  PUFF_FINAL_TAC THEN DISJ1_TAC THEN ASM_REWRITE_TAC[] THEN
   REPEAT CONJ_TAC THEN TRY(AP_TERM_TAC THEN SIMPLE_ARITH_TAC THEN NO_TAC) THENL
    [EXISTS_TAC `list_of_seq (\m. if m = t then word 0 else EL m c:int16)
                             19` THEN
@@ -1557,7 +1583,7 @@ let DYN_B_ITER_TAC =
    [SIMPLE_ARITH_TAC; ALL_TAC] THEN
   REWRITE_TAC[ASSUME `ncode + i < 19`] THEN
   ENSURES_EXISTS_PRE_TAC `c:int16 list` THEN GLOBALIZE_PRECONDITION_TAC THEN
-  FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+  FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
   ORDER_ELEMENT_TAC `ncode + i` `s0:armstate` THEN
   SUBGOAL_THEN `val(word(ncode + i):int64) = ncode + i` ASSUME_TAC THENL
    [MATCH_MP_TAC VAL_WORD_SMALL THEN REWRITE_TAC[DIMINDEX_64] THEN
@@ -1690,7 +1716,7 @@ let DYN_CL_TAC =
   let sel = DISJ2_TAC THEN DISJ2_TAC THEN DISJ2_TAC
   and sp = `word_sub stackpointer (word 2448):int64` in
   ENSURES_EXISTS_PRE_TAC `cl:num list` THEN GLOBALIZE_PRECONDITION_TAC THEN
-  FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+  FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
   MAP_EVERY (fun n -> PUFF_STEPS_TAC [n] THEN REG_PTR_NORM_TAC) (1--6) THEN
   SUBGOAL_THEN `ALL (\x. x <= 15) (cl:num list)` ASSUME_TAC THENL
    [UNDISCH_TAC `ALL (\x. x <= 7) (cl:num list)` THEN
@@ -1714,7 +1740,7 @@ let DYN_CL_TAC =
        (fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THENL
        [COND_CASES_TAC THEN ASM_MESON_TAC[SUB_REFL]; ALL_TAC] THEN
       PUFF_STEPS_TAC [8] THEN
-      ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN BETA_TAC THEN
+      PUFF_FINAL_TAC THEN DISJ1_TAC THEN BETA_TAC THEN
       MAP_EVERY EXISTS_TAC [`cl:num list`; `csyms:int16 list`] THEN
       ASM_REWRITE_TAC[] THEN FIXED_TABLES_KEEP_TAC;
       FIRST_X_ASSUM(STRIP_ASSUME_TAC o REWRITE_RULE[DE_MORGAN_THM]) THEN
@@ -1792,9 +1818,9 @@ let dyn_lens = mk_abs(`s:armstate`,
 (*** From 0xd84 to the head of loop C ***)
 
 let DYN_C_ENTRY_TAC =
-  FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+  FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
   MAP_EVERY (fun n -> PUFF_STEPS_TAC [n] THEN REG_PTR_NORM_TAC) (1--6) THEN
-  ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN
+  PUFF_FINAL_TAC THEN DISJ1_TAC THEN
   EXISTS_TAC `nlen + ndist` THEN BETA_TAC THEN
   MAP_EVERY EXISTS_TAC [`[]:num list`; `p3 + 14 + 3 * ncode`] THEN
   ASM_REWRITE_TAC[LENGTH; ALL; SUB_0; MAP; MULT_CLAUSES; num_of_wordlist;
@@ -1884,13 +1910,13 @@ let DYN_C_ZEROS_TAC rule nb b nbl ret nret =
     (mk_binop `(+):num->num->num` `LENGTH(lens:num list)`
       (mk_binop `(+):num->num->num` bt bits)) `nlen + ndist` in
   PUFF_STEPS_TAC (6--nbl) THEN
-  PUFF_FRAME_CALL_TAC PUFF_BITS_CORRECT
+  PUFF_FRAME_CALL_TAC PUFF_BITS_CORRECT_MEMSAFE
    (PUFF_BITS_VARS nbt `q:num` ret) ncall THENL
    [BITS_BOUND_TAC `q:num` nb THEN
     ASM_CASES_TAC check THEN
     PUFF_STEPS_TAC ((ncall+1)--(ncall+6-(if nb = 7 then 1 else 0))) THENL
      [MP_TAC rth THEN ASM_REWRITE_TAC[kth] THEN DISCH_TAC THEN
-      ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN BETA_TAC THEN
+      PUFF_FINAL_TAC THEN DISJ1_TAC THEN BETA_TAC THEN
       MAP_EVERY EXISTS_TAC [k; `0`; mk_binop `(+):num->num->num` `q:num` nbt]
       THEN ASM_REWRITE_TAC[] THEN
       REPEAT CONJ_TAC THEN TRY SIMPLE_ARITH_TAC THEN
@@ -1947,7 +1973,7 @@ let DYN_C_LITERAL_TAC =
   PUFF_STEPS_TAC [9] THEN
   ASM_CASES_TAC `LENGTH(lens:num list) + 1 < nlen + ndist` THEN
   PUFF_STEPS_TAC (10--11) THENL
-   [ENSURES_FINAL_STATE_TAC THEN DISJ2_TAC THEN DISJ1_TAC THEN
+   [PUFF_FINAL_TAC THEN DISJ2_TAC THEN DISJ1_TAC THEN
     EXISTS_TAC `(nlen + ndist) - (LENGTH(lens:num list) + 1)` THEN
     BETA_TAC THEN CONJ_TAC THENL [SIMPLE_ARITH_TAC; ALL_TAC] THEN
     MAP_EVERY EXISTS_TAC [`APPEND lens [c:num]`; `q:num`] THEN
@@ -1963,7 +1989,7 @@ let DYN_C_LITERAL_TAC =
     ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
     UNDISCH_THEN `LENGTH(lens:num list) + 1 = nlen + ndist`
      (fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]) THEN ASSUME_TAC th) THEN
-    ENSURES_FINAL_STATE_TAC THEN DISJ2_TAC THEN DISJ2_TAC THEN DISJ1_TAC THEN
+    PUFF_FINAL_TAC THEN DISJ2_TAC THEN DISJ2_TAC THEN DISJ1_TAC THEN
     BETA_TAC THEN MAP_EVERY EXISTS_TAC [`APPEND lens [c:num]`; `q:num`] THEN
     REWRITE_TAC[LENGTH_APPEND; LENGTH; ARITH_RULE `n + SUC 0 = n + 1`;
                 ALL_APPEND; ALL] THEN
@@ -2008,7 +2034,7 @@ let DYN_C_REP16_TAC =
     UNDISCH_THEN `word(LENGTH(lens:num list) - 1):int64 = v3`
      (SUBST_ALL_TAC o SYM) THEN
     PUFF_STEPS_TAC (15--16) THEN
-    PUFF_FRAME_CALL_TAC PUFF_BITS_CORRECT
+    PUFF_FRAME_CALL_TAC PUFF_BITS_CORRECT_MEMSAFE
      (PUFF_BITS_VARS `2` `q:num` `word(pc + 3788):int64`) 17 THENL
      [BITS_BOUND_TAC `q:num` 2 THEN
       ASM_CASES_TAC
@@ -2023,7 +2049,7 @@ let DYN_C_REP16_TAC =
         ASM_REWRITE_TAC[ARITH_RULE
          `3 + deflate_bits l q 2 = deflate_bits l q 2 + 3`] THEN
         DISCH_TAC THEN
-        ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN BETA_TAC THEN
+        PUFF_FINAL_TAC THEN DISJ1_TAC THEN BETA_TAC THEN
         MAP_EVERY EXISTS_TAC [`deflate_bits l q 2 + 3`; `v:num`; `q + 2`] THEN
         ASM_REWRITE_TAC[] THEN
         REPEAT CONJ_TAC THEN TRY SIMPLE_ARITH_TAC THEN
@@ -2041,11 +2067,12 @@ let DYN_C_REP16_TAC =
 (*** From the head of loop C to dyn_fill, the next iteration or the end ***)
 
 let DYN_C_HEAD_TAC =
-  FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+  FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
   MAP_EVERY (fun n -> PUFF_STEPS_TAC [n] THEN REG_PTR_NORM_TAC) (1--3) THEN
   PUFF_CALL_THS_TAC
    [ASSUME `LENGTH(csyms:int16 list) = 19`; ASSUME `LENGTH(cl:num list) = 19`]
-   PUFF_DECODE_CORRECT (PUFF_DECODE_VARS `p:num` `word(pc + 3516):int64`) 4
+   PUFF_DECODE_CORRECT_MEMSAFE
+   (PUFF_DECODE_VARS `p:num` `word(pc + 3516):int64`) 4
   THENL
    [DECODE_FACTS_TAC `p:num` THEN KRAFT_TAC THEN
     PUFF_STEPS_TAC [5] THEN BIT31_DECIDE_TAC THEN
@@ -2087,9 +2114,9 @@ let dyn_d = mk_abs(`j:num`,mk_abs(`s:armstate`, list_mk_conj
 let DYN_D_ENTRY_TAC =
   BETA_TAC THEN REWRITE_TAC[ADD_CLAUSES; SUB_0; REPLICATE; APPEND_NIL] THEN
   SUBGOAL_THEN `0 < k` ASSUME_TAC THENL [SIMPLE_ARITH_TAC; ALL_TAC] THEN
-  FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+  FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
   MAP_EVERY (fun n -> PUFF_STEPS_TAC [n] THEN REG_PTR_NORM_TAC) (1--6) THEN
-  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+  PUFF_FINAL_TAC THEN ASM_REWRITE_TAC[] THEN
   REPEAT CONJ_TAC THEN TRY SIMPLE_ARITH_TAC THEN FIXED_TABLES_KEEP_TAC;;
 
 (*** An iteration of loop D, storing the copy j of v ***)
@@ -2097,7 +2124,7 @@ let DYN_D_ENTRY_TAC =
 let DYN_D_ITER_TAC =
   X_GEN_TAC `j:num` THEN DISCH_TAC THEN BETA_TAC THEN
   REWRITE_TAC[ASSUME `j < k`] THEN
-  FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+  FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
   ASM_CASES_TAC `j + 1 < k` THENL
    [ALL_TAC;
     SUBGOAL_THEN `k - 1 - j = 0` (fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]))
@@ -2116,21 +2143,21 @@ let DYN_D_ITER_TAC =
   RULE_ASSUM_TAC(REWRITE_RULE
    [ARITH_RULE `k - 1 - j - 1 = k - 1 - (j + 1)`;
     ARITH_RULE `(1816 + 2 * (n + j)) + 2 = 1816 + 2 * (n + j + 1)`]) THEN
-  ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN ASM_REWRITE_TAC[] THEN
+  PUFF_FINAL_TAC THEN DISJ1_TAC THEN ASM_REWRITE_TAC[] THEN
   FIXED_TABLES_KEEP_TAC;;
 
 (*** From 0xe20 after loop D, to the head of loop C or to 0xe30 ***)
 
 let DYN_D_EXIT_TAC =
   BETA_TAC THEN REWRITE_TAC[LT_REFL] THEN
-  FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+  FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
   MAP_EVERY (fun n -> PUFF_STEPS_TAC [n] THEN REG_PTR_NORM_TAC) (1--2) THEN
   SUBGOAL_THEN `(LENGTH(lens:num list) + 1) + (k - 1) = LENGTH lens + k`
    (fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THENL
    [SIMPLE_ARITH_TAC; ALL_TAC] THEN
   ASM_CASES_TAC `LENGTH(lens:num list) + k < nlen + ndist` THEN
   MAP_EVERY (fun n -> PUFF_STEPS_TAC [n] THEN REG_PTR_NORM_TAC) (3--4) THENL
-   [ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN
+   [PUFF_FINAL_TAC THEN DISJ1_TAC THEN
     EXISTS_TAC `(nlen + ndist) - (LENGTH(lens:num list) + k)` THEN
     BETA_TAC THEN
     CONJ_TAC THENL [SIMPLE_ARITH_TAC; ALL_TAC] THEN
@@ -2147,7 +2174,7 @@ let DYN_D_EXIT_TAC =
     DISCH_TAC THEN
     UNDISCH_THEN `LENGTH(lens:num list) + k = nlen + ndist`
      (fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th]) THEN ASSUME_TAC th) THEN
-    ENSURES_FINAL_STATE_TAC THEN DISJ2_TAC THEN DISJ1_TAC THEN BETA_TAC THEN
+    PUFF_FINAL_TAC THEN DISJ2_TAC THEN DISJ1_TAC THEN BETA_TAC THEN
     MAP_EVERY EXISTS_TAC [`APPEND lens (REPLICATE k (v:num))`; `q:num`] THEN
     REWRITE_TAC[LENGTH_APPEND; LENGTH_REPLICATE; ALL_APPEND;
                 ALL_REPLICATE] THEN
@@ -2314,7 +2341,7 @@ let DYN_TABLE_CHECK_TAC ll n c cnt fin =
 (*** The final state at 0xe68 ***)
 
 let DYN_LC_FIN_TAC =
-  ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN BETA_TAC THEN
+  PUFF_FINAL_TAC THEN DISJ1_TAC THEN BETA_TAC THEN
   EXISTS_TAC `syms:int16 list` THEN ASM_REWRITE_TAC[] THEN
   FIXED_TABLES_KEEP_TAC;;
 
@@ -2351,14 +2378,14 @@ let dyn_dc = mk_abs(`s:armstate`,
     subst [`q:num`,`pk:num`] puff_state]));;
 
 let DYN_DC_FIN_TAC =
-  ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN BETA_TAC THEN
+  PUFF_FINAL_TAC THEN DISJ1_TAC THEN BETA_TAC THEN
   MAP_EVERY EXISTS_TAC [`lsyms:int16 list`; `syms:int16 list`] THEN
   ASM_REWRITE_TAC[] THEN FIXED_TABLES_KEEP_TAC;;
 
 (*** The literal/length code table, from 0xe30 ***)
 
 let DYN_LL_TAC =
-  FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+  FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
   SUBGOAL_THEN `256 < LENGTH(lens:num list)` ASSUME_TAC THENL
    [SIMPLE_ARITH_TAC; ALL_TAC] THEN
   SUBGOAL_THEN `EL 256 lens <= 15` ASSUME_TAC THENL
@@ -2411,7 +2438,7 @@ let DYN_LL_TAC =
 (*** The distance code table, from 0xe68 ***)
 
 let DYN_DL_TAC =
-  FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+  FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
   MAP_EVERY (fun n -> PUFF_STEPS_TAC [n] THEN REG_PTR_NORM_TAC) (1--5) THEN
   MP_TAC(ISPECL
    [`word_add (word_sub stackpointer (word 2448)) (word 1816):int64`;
@@ -2504,12 +2531,12 @@ let DYN_CODES_TAC =
                  `([]:num list,p3 + 14 + 3 * ncode)`; `(lens:num list,q:num)`]
                 DEFLATE_LENGTHS_MONO) THEN
   ASM_REWRITE_TAC[SND] THEN DISCH_TAC THEN
-  FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+  FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
   MAP_EVERY (fun n -> PUFF_STEPS_TAC [n] THEN REG_PTR_NORM_TAC) (1--4) THEN
   PUFF_CALL_THS_TAC
    [ASSUME `LENGTH(ls:int16 list) = nlen`;
     ASSUME `LENGTH(ds:int16 list) = ndist`; LENGTH_LIST_OF_SEQ]
-   PUFF_CODES_CORRECT
+   PUFF_CODES_CORRECT_MEMSAFE
    [fr 288; fr 128; fr 160; fr 656; ll; mk_comb(`huffman_counts`,ll);
     `ls:int16 list`; fr 144; fr 192; fr 224; dl;
     mk_comb(`huffman_counts`,dl); `ds:int16 list`;
@@ -2547,7 +2574,7 @@ let DYN_CODES_TAC =
         then MP_TAC(MATCH_MP DEFLATE_CODES_LENGTH th) THEN
              MP_TAC(MATCH_MP DEFLATE_CODES_BOUND th)
         else failwith "") THEN REPEAT STRIP_TAC THEN
-      ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN
+      PUFF_FINAL_TAC THEN DISJ1_TAC THEN
       MAP_EVERY EXISTS_TAC [`out:byte list`; `q2:num`] THEN
       ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THEN TRY SIMPLE_ARITH_TAC THEN
       FIXED_TABLES_KEEP_TAC;
@@ -2644,7 +2671,7 @@ let DYN_TAC =
 
 let PUFF_TYPE3_TAC =
   SUBGOAL_THEN `btype = 3` SUBST_ALL_TAC THENL [SIMPLE_ARITH_TAC; ALL_TAC] THEN
-  FIXED_TABLES_INTRO_TAC THEN ENSURES_INIT_TAC "s0" THEN
+  FIXED_TABLES_INTRO_TAC THEN PUFF_INIT_TAC "s0" THEN
   PUFF_RETURN_TAC (REPEAT DISJ2_TAC) (1--23) NO_BLOCK_TAC;;
 
 (*** An iteration of the loop over the blocks, from 0xb48: the header,     ***)
@@ -2669,6 +2696,86 @@ let PUFF_ITER_TAC =
 
 (* ------------------------------------------------------------------------- *)
 (* The correctness of puff.                                                  *)
+(* ------------------------------------------------------------------------- *)
+
+let PUFF_CORRECT_MEMSAFE = prove
+ (`!dest destlen source sourcelen outlen l fs fl ea el ev enc ctx0
+    pc returnaddress stackpointer e.
+     setjmp_contract fs ea el ev enc /\ longjmp_contract fl ea el ev enc /\
+     aligned 4096 (word pc:int64) /\ pc + 0x20320 <= 2 EXP 64 /\
+     aligned 16 stackpointer /\
+     LENGTH l < 2 EXP 60 /\ ~(dest = word 0) /\ outlen < 2 EXP 60 /\
+     ALLPAIRS nonoverlapping
+      [(word_sub stackpointer (word 2560),2560); (dest,outlen)]
+      [(word pc,0x20320); (source,LENGTH l); (destlen,8); (sourcelen,8);
+       (ea,el)] /\
+     nonoverlapping (word_sub stackpointer (word 2560),2560) (dest,outlen) /\
+     ALLPAIRS nonoverlapping [(destlen,8); (sourcelen,8)]
+      [(word pc,0x20320); (source,LENGTH l); (ea,el)] /\
+     nonoverlapping (destlen,8) (sourcelen,8) /\
+     ALLPAIRS nonoverlapping [(source,LENGTH l); (ea,el)]
+      [(word pc,0x20320)]
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) puff_gcc12_O2_mc /\
+               read PC s = word(pc + 0xad0) /\
+               read SP s = stackpointer /\
+               read X30 s = returnaddress /\
+               jmp_context s = ctx0 /\
+               C_ARGUMENTS [dest; destlen; source; sourcelen] s /\
+               read (memory :> bytes64 destlen) s = word outlen /\
+               read (memory :> bytes64 sourcelen) s = word(LENGTH l) /\
+               read (memory :> bytes(source,LENGTH l)) s = num_of_bytelist l /\
+               read (memory :> bytes64(word(pc + 0x20000))) s = fs /\
+               read (memory :> bytes64(word(pc + 0x20018))) s = fl /\
+               read (memory :> bytes(ea,el)) s = ev /\
+               puff_fixed_tables pc s /\
+               read events s = e)
+          (\s. read PC s = returnaddress /\ jmp_context s = ctx0 /\
+               puff_fixed_tables pc s /\
+               (word_zx(read X0 s):int32 = word 0
+                ==> ?out n. deflate_decode l out n /\
+                            read (memory :> bytes(dest,LENGTH out)) s =
+                            num_of_bytelist out /\
+                            read (memory :> bytes64 destlen) s =
+                            word(LENGTH out) /\
+                            read (memory :> bytes64 sourcelen) s = word n) /\
+               (~(word_zx(read X0 s):int32 = word 0)
+                ==> ~(?out n. deflate_decode l out n /\
+                              LENGTH out <= outlen)) /\
+               (?e2. read events s = APPEND e2 e /\
+                     memaccess_inbounds e2
+                      [source,LENGTH l; dest,outlen; destlen,8; sourcelen,8;
+                       word_sub stackpointer (word 2560),2560;
+                       word pc,0x20320; ea,el]
+                      [dest,outlen; destlen,8; sourcelen,8;
+                       word_sub stackpointer (word 2560),2560;
+                       word(pc + 0x20028),4; word(pc + 0x20040),0x2dc]))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,, MAYCHANGE [X18] ,,
+           MAYCHANGE_JMP_CONTEXT ,,
+           MAYCHANGE [memory :> bytes(word_sub stackpointer (word 2560),2560);
+                      memory :> bytes(dest,outlen);
+                      memory :> bytes(destlen,8); memory :> bytes(sourcelen,8);
+                      memory :> bytes(word(pc + 0x20028),4);
+                      memory :> bytes(word(pc + 0x20040),0x2dc)])`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[ALLPAIRS; ALL] THEN STRIP_TAC THEN
+  REWRITE_TAC[C_ARGUMENTS; SPECL [`pc:num`; `0x20000`] WORD_ADD;
+              SPECL [`pc:num`; `0x20028`] WORD_ADD;
+              SPECL [`pc:num`; `0x20040`] WORD_ADD] THEN
+  CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
+  MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN EXISTS_TAC puff_frame THEN
+  CONJ_TAC THENL [PUFF_FRAME_TAC; ALL_TAC] THEN
+  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MAYCHANGE_JMP_CONTEXT;
+              MODIFIABLE_GPRS; MODIFIABLE_SIMD_REGS;
+              MODIFIABLE_UPPER_SIMD_REGS; SOME_FLAGS] THEN
+  JMP_CONTEXT_INTRO_TAC THEN
+  MATCH_MP_TAC(ISPEC puff_inv ENSURES_WHILE_MEASURE) THEN
+  REPEAT CONJ_TAC THENL
+   [MAYCHANGE_IDEMPOT_TAC; SUBSUMED_ID_MAYCHANGE_TAC; PUFF_ENTRY_TAC;
+    PUFF_ITER_TAC]);;
+
+(* ------------------------------------------------------------------------- *)
+(* The correctness alone, and the memory safety alone: puff returns, and its *)
+(* loads and stores are within the regions above, whatever the input.        *)
 (* ------------------------------------------------------------------------- *)
 
 let PUFF_CORRECT = prove
@@ -2720,18 +2827,54 @@ let PUFF_CORRECT = prove
                       memory :> bytes(destlen,8); memory :> bytes(sourcelen,8);
                       memory :> bytes(word(pc + 0x20028),4);
                       memory :> bytes(word(pc + 0x20040),0x2dc)])`,
-  REPEAT GEN_TAC THEN REWRITE_TAC[ALLPAIRS; ALL] THEN STRIP_TAC THEN
-  REWRITE_TAC[C_ARGUMENTS; SPECL [`pc:num`; `0x20000`] WORD_ADD;
-              SPECL [`pc:num`; `0x20028`] WORD_ADD;
-              SPECL [`pc:num`; `0x20040`] WORD_ADD] THEN
-  CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
-  MATCH_MP_TAC ENSURES_FRAME_SUBSUMED THEN EXISTS_TAC puff_frame THEN
-  CONJ_TAC THENL [PUFF_FRAME_TAC; ALL_TAC] THEN
-  REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MAYCHANGE_JMP_CONTEXT;
-              MODIFIABLE_GPRS; MODIFIABLE_SIMD_REGS;
-              MODIFIABLE_UPPER_SIMD_REGS; SOME_FLAGS] THEN
-  JMP_CONTEXT_INTRO_TAC THEN
-  MATCH_MP_TAC(ISPEC puff_inv ENSURES_WHILE_MEASURE) THEN
-  REPEAT CONJ_TAC THENL
-   [MAYCHANGE_IDEMPOT_TAC; SUBSUMED_ID_MAYCHANGE_TAC; PUFF_ENTRY_TAC;
-    PUFF_ITER_TAC]);;
+  EVENTS_FORGET_TAC PUFF_CORRECT_MEMSAFE);;
+
+let PUFF_MEMSAFE = prove
+ (`!dest destlen source sourcelen outlen l fs fl ea el ev enc ctx0
+    pc returnaddress stackpointer e.
+     setjmp_contract fs ea el ev enc /\ longjmp_contract fl ea el ev enc /\
+     aligned 4096 (word pc:int64) /\ pc + 0x20320 <= 2 EXP 64 /\
+     aligned 16 stackpointer /\
+     LENGTH l < 2 EXP 60 /\ ~(dest = word 0) /\ outlen < 2 EXP 60 /\
+     ALLPAIRS nonoverlapping
+      [(word_sub stackpointer (word 2560),2560); (dest,outlen)]
+      [(word pc,0x20320); (source,LENGTH l); (destlen,8); (sourcelen,8);
+       (ea,el)] /\
+     nonoverlapping (word_sub stackpointer (word 2560),2560) (dest,outlen) /\
+     ALLPAIRS nonoverlapping [(destlen,8); (sourcelen,8)]
+      [(word pc,0x20320); (source,LENGTH l); (ea,el)] /\
+     nonoverlapping (destlen,8) (sourcelen,8) /\
+     ALLPAIRS nonoverlapping [(source,LENGTH l); (ea,el)]
+      [(word pc,0x20320)]
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) puff_gcc12_O2_mc /\
+               read PC s = word(pc + 0xad0) /\
+               read SP s = stackpointer /\
+               read X30 s = returnaddress /\
+               jmp_context s = ctx0 /\
+               C_ARGUMENTS [dest; destlen; source; sourcelen] s /\
+               read (memory :> bytes64 destlen) s = word outlen /\
+               read (memory :> bytes64 sourcelen) s = word(LENGTH l) /\
+               read (memory :> bytes(source,LENGTH l)) s = num_of_bytelist l /\
+               read (memory :> bytes64(word(pc + 0x20000))) s = fs /\
+               read (memory :> bytes64(word(pc + 0x20018))) s = fl /\
+               read (memory :> bytes(ea,el)) s = ev /\
+               puff_fixed_tables pc s /\
+               read events s = e)
+          (\s. read PC s = returnaddress /\
+               (?e2. read events s = APPEND e2 e /\
+                     memaccess_inbounds e2
+                      [source,LENGTH l; dest,outlen; destlen,8; sourcelen,8;
+                       word_sub stackpointer (word 2560),2560;
+                       word pc,0x20320; ea,el]
+                      [dest,outlen; destlen,8; sourcelen,8;
+                       word_sub stackpointer (word 2560),2560;
+                       word(pc + 0x20028),4; word(pc + 0x20040),0x2dc]))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,, MAYCHANGE [X18] ,,
+           MAYCHANGE_JMP_CONTEXT ,,
+           MAYCHANGE [memory :> bytes(word_sub stackpointer (word 2560),2560);
+                      memory :> bytes(dest,outlen);
+                      memory :> bytes(destlen,8); memory :> bytes(sourcelen,8);
+                      memory :> bytes(word(pc + 0x20028),4);
+                      memory :> bytes(word(pc + 0x20040),0x2dc)])`,
+  ENSURES_WEAKEN_TAC PUFF_CORRECT_MEMSAFE);;

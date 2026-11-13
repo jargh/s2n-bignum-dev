@@ -123,9 +123,18 @@ let CSTEPS_TAC ns = MAP_EVERY CSTEP_TAC ns;;
 
 let CSTEPS_TAC ns = MAP_EVERY CSTEP_TAC ns;;
 
+(*** The regions that construct reads and writes ***)
+
+let construct_rr =
+ `[h,16; len,2 * LENGTH(lens:num list); cnt,32;
+   word_sub stackpointer (word 32),32]:(int64#num)list`
+and construct_wr =
+ `[cnt,32; sym,2 * LENGTH(lens:num list);
+   word_sub stackpointer (word 32),32]:(int64#num)list`;;
+
 (*** The state at 0x6dc, with the counts in h->count ***)
 
-let construct_ab = `\s.
+let construct_ab = with_memsafe construct_rr construct_wr `\s.
   read SP s = stackpointer /\ read X30 s = returnaddress /\
   read X1 s = len /\ read X2 s = word(LENGTH lens) /\
   read X5 s = cnt /\ read X9 s = h /\
@@ -137,7 +146,8 @@ let construct_ab = `\s.
 
 (*** The invariant of the loop counting the lengths, at 0x6c0 ***)
 
-let construct_hist = `\i s.
+let construct_hist =
+  with_memsafe_loop construct_rr construct_wr `\i s.
   (read SP s = stackpointer /\ read X30 s = returnaddress /\
    read X1 s = len /\ read X2 s = word(LENGTH lens) /\
    read X5 s = cnt /\ read X9 s = h /\
@@ -156,10 +166,10 @@ let construct_hist = `\i s.
 
 let CONSTRUCT_PHASE_A_TAC =
   ASM_CASES_TAC `LENGTH(lens:num list) = 0` THENL
-   [ENSURES_INIT_TAC "s0" THEN PUFF_STEPS_TAC (1--6) THEN
+   [PUFF_INIT_TAC "s0" THEN PUFF_STEPS_TAC (1--6) THEN
     MP_TAC(SPECL [`cnt:int64`; `s6:armstate`] READ_MEMORY_BYTES32_ZERO) THEN
     ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
-    ENSURES_FINAL_STATE_TAC THEN
+    PUFF_FINAL_TAC THEN
     RULE_ASSUM_TAC(REWRITE_RULE[ASSUME `LENGTH(lens:num list) = 0`]) THEN
     ASM_REWRITE_TAC[huffman_counts; huffman_count; LT; EMPTY_GSPEC;
                     CARD_CLAUSES; NUM_OF_WORDLIST_LIST_OF_SEQ_0] THEN
@@ -169,10 +179,10 @@ let CONSTRUCT_PHASE_A_TAC =
   ENSURES_WHILE_PUP_TAC `LENGTH(lens:num list)` `pc + 0x6c0` `pc + 0x6d8`
     construct_hist THEN
   ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
-   [ENSURES_INIT_TAC "s0" THEN PUFF_STEPS_TAC (1--8) THEN
+   [PUFF_INIT_TAC "s0" THEN PUFF_STEPS_TAC (1--8) THEN
     MP_TAC(SPECL [`cnt:int64`; `s8:armstate`] READ_MEMORY_BYTES32_ZERO) THEN
     ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
-    ENSURES_FINAL_STATE_TAC THEN
+    PUFF_FINAL_TAC THEN
     REWRITE_TAC[MULT_CLAUSES; WORD_ADD_0; LT; EMPTY_GSPEC; CARD_CLAUSES;
                 NUM_OF_WORDLIST_LIST_OF_SEQ_0] THEN
     ASM_REWRITE_TAC[];
@@ -183,7 +193,7 @@ let CONSTRUCT_PHASE_A_TAC =
       UNDISCH_TAC `ALL (\x. x <= 15) lens` THEN REWRITE_TAC[GSYM ALL_EL] THEN
       DISCH_THEN MATCH_MP_TAC THEN ASM_REWRITE_TAC[];
       ALL_TAC] THEN
-    ENSURES_INIT_TAC "s0" THEN
+    PUFF_INIT_TAC "s0" THEN
     MP_TAC(ISPECL [`len:int64`; `MAP (word:num->int16) lens`;
                    `LENGTH(lens:num list)`; `i:num`; `s0:armstate`]
                   READ_MEMORY_BYTES16_NUM_OF_WORDLIST) THEN
@@ -214,18 +224,18 @@ let CONSTRUCT_PHASE_A_TAC =
       X_GEN_TAC `m:num` THEN STRIP_TAC THEN COND_CASES_TAC THEN
       ASM_REWRITE_TAC[ADD_CLAUSES] THEN ASM_MESON_TAC[];
       DISCH_TAC] THEN
-    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    PUFF_FINAL_TAC THEN ASM_REWRITE_TAC[] THEN
     REWRITE_TAC[ARITH_RULE `2 * (i + 1) = 2 * i + 2`] THEN
     ASM_REWRITE_TAC[] THEN ARITH_TAC;
-    X_GEN_TAC `i:num` THEN STRIP_TAC THEN ENSURES_INIT_TAC "s0" THEN
-    PUFF_STEPS_TAC [1] THEN ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];
-    ENSURES_INIT_TAC "s0" THEN PUFF_STEPS_TAC [1] THEN
-    ENSURES_FINAL_STATE_TAC THEN
+    X_GEN_TAC `i:num` THEN STRIP_TAC THEN PUFF_INIT_TAC "s0" THEN
+    PUFF_STEPS_TAC [1] THEN PUFF_FINAL_TAC THEN ASM_REWRITE_TAC[];
+    PUFF_INIT_TAC "s0" THEN PUFF_STEPS_TAC [1] THEN
+    PUFF_FINAL_TAC THEN
     ASM_REWRITE_TAC[huffman_counts; huffman_count]];;
 
 (*** The invariant of the loop checking the lengths, at 0x714, L = i + 1 ***)
 
-let construct_left = `\i s.
+let construct_left = with_memsafe construct_rr construct_wr `\i s.
   aligned_bytes_loaded s (word pc) puff_gcc12_O2_mc /\
   read PC s = word(pc + 0x714) /\
   read SP s = stackpointer /\ read X30 s = returnaddress /\
@@ -247,7 +257,7 @@ let construct_left0 = rhs(concl(BETA_CONV(mk_comb(construct_left,`0`))));;
 
 (*** The state at 0x758, with the offsets computed ***)
 
-let construct_d = `\s.
+let construct_d = with_memsafe construct_rr construct_wr `\s.
   aligned_bytes_loaded s (word pc) puff_gcc12_O2_mc /\
   read PC s = word(pc + 0x758) /\
   read SP s = word_sub stackpointer (word 32) /\
@@ -271,14 +281,14 @@ let CONSTRUCT_PHASE_BC_TAC =
   MATCH_MP_TAC ENSURES_SEQUENCE_EXIT THEN EXISTS_TAC construct_left0 THEN
   REPEAT CONJ_TAC THENL
    [MAYCHANGE_IDEMPOT_TAC; SUBSUMED_ID_MAYCHANGE_TAC;
-    ENSURES_INIT_TAC "s0" THEN CNT_ELEMENT_TAC `0` `s0:armstate` THEN
+    PUFF_INIT_TAC "s0" THEN CNT_ELEMENT_TAC `0` `s0:armstate` THEN
     CNT_ELEMENT_TAC `1` `s0:armstate` THEN
     COUNT_BOUND_TAC `0` THEN COUNT_BOUND_TAC `1` THEN
     PUFF_STEPS_TAC (1--3) THEN
     ASM_CASES_TAC `ALL (\x. x = 0) lens` THENL
      [SUBGOAL_THEN `huffman_count lens 0 = LENGTH(lens:num list)` ASSUME_TAC
       THENL [ASM_REWRITE_TAC[HUFFMAN_COUNT_ALL_ZERO]; ALL_TAC] THEN
-      PUFF_STEPS_TAC (4--5) THEN ENSURES_FINAL_STATE_TAC THEN
+      PUFF_STEPS_TAC (4--5) THEN PUFF_FINAL_TAC THEN
       ASM_SIMP_TAC[HUFFMAN_KRAFT_ALL_ZERO; HUFFMAN_TABLE_ALL_ZERO; LE_0] THEN
       CONV_TAC NUM_REDUCE_CONV THEN REWRITE_TAC[] THEN
       MP_TAC(SPECL [`sym:int64`; `LENGTH(lens:num list)`; `s5:armstate`]
@@ -289,9 +299,9 @@ let CONSTRUCT_PHASE_BC_TAC =
     ASSUME_TAC THENL [ASM_REWRITE_TAC[HUFFMAN_COUNT_ALL_ZERO]; ALL_TAC] THEN
     PUFF_STEPS_TAC (4--7) THEN
     ASM_CASES_TAC `huffman_count lens 1 <= 2` THEN W32_DECIDE_FLAGS_TAC THENL
-     [PUFF_STEPS_TAC (8--11) THEN ENSURES_FINAL_STATE_TAC THEN
+     [PUFF_STEPS_TAC (8--11) THEN PUFF_FINAL_TAC THEN
       DISJ1_TAC THEN ASM_REWRITE_TAC[HUFFMAN_FIRST_CLAUSES; ADD_CLAUSES];
-      PUFF_STEPS_TAC (8--9) THEN ENSURES_FINAL_STATE_TAC THEN
+      PUFF_STEPS_TAC (8--9) THEN PUFF_FINAL_TAC THEN
       DISJ2_TAC THEN DISJ2_TAC THEN
       SUBGOAL_THEN `32768 < huffman_kraft lens` ASSUME_TAC THENL
        [MP_TAC(SPECL [`lens:num list`; `1`] HUFFMAN_FIRST_COUNT_OVER) THEN
@@ -311,7 +321,7 @@ let CONSTRUCT_PHASE_BC_TAC =
         CONV_TAC NUM_REDUCE_CONV THEN SIMPLE_ARITH_TAC;
         ALL_TAC] THEN
       COUNT_BOUND_TAC `i + 1` THEN COUNT_BOUND_TAC `i + 2` THEN
-      ENSURES_INIT_TAC "s0" THEN
+      PUFF_INIT_TAC "s0" THEN
       CNT_ELEMENT_SYM_TAC `i + 2` `s0:armstate` THEN
       PUFF_STEPS_TAC (1--4) THEN PTR_NORM_TAC `X4` THEN PUFF_STEPS_TAC [5] THEN
       ASM_CASES_TAC
@@ -319,7 +329,7 @@ let CONSTRUCT_PHASE_BC_TAC =
         2 * (2 EXP (i + 1) -
              (huffman_first lens (i + 1) + huffman_count lens (i + 1)))` THEN
       W32_DECIDE_FLAGS_TAC THENL
-       [PUFF_STEPS_TAC [6] THEN ENSURES_FINAL_STATE_TAC THEN
+       [PUFF_STEPS_TAC [6] THEN PUFF_FINAL_TAC THEN
         DISJ1_TAC THEN
         REWRITE_TAC[MATCH_MP (CONJUNCT2(CONJUNCT2(SPEC `lens:num list`
                        HUFFMAN_FIRST_CLAUSES))) (ARITH_RULE `~(i + 1 = 0)`);
@@ -329,7 +339,7 @@ let CONSTRUCT_PHASE_BC_TAC =
         ASM_REWRITE_TAC[] THEN
         REPEAT CONJ_TAC THEN
         FIRST [AP_TERM_TAC THEN SIMPLE_ARITH_TAC; SIMPLE_ARITH_TAC];
-        PUFF_STEPS_TAC (6--7) THEN ENSURES_FINAL_STATE_TAC THEN
+        PUFF_STEPS_TAC (6--7) THEN PUFF_FINAL_TAC THEN
         DISJ2_TAC THEN DISJ2_TAC THEN
         SUBGOAL_THEN `2 EXP 15 < huffman_kraft lens` ASSUME_TAC THENL
          [MATCH_MP_TAC HUFFMAN_FIRST_COUNT_OVER THEN EXISTS_TAC `i + 2` THEN
@@ -350,7 +360,7 @@ let CONSTRUCT_PHASE_BC_TAC =
         ASM_REWRITE_TAC[GSYM NOT_LT; WORD_ZX_ZX_32_64] THEN
         MATCH_MP_TAC IVAL_WORD_SUB_NEG THEN SIMPLE_ARITH_TAC];
       BETA_TAC THEN CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
-      ENSURES_INIT_TAC "s0" THEN
+      PUFF_INIT_TAC "s0" THEN
       MAP_EVERY (fun k -> CNT_ELEMENT_TAC (mk_small_numeral k) `s0:armstate`)
                 (0--15) THEN
       MAP_EVERY (fun k -> COUNT_BOUND_TAC (mk_small_numeral k)) (0--15) THEN
@@ -376,13 +386,14 @@ let CONSTRUCT_PHASE_BC_TAC =
         ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THEN AP_TERM_TAC THEN
         ARITH_TAC;
         ALL_TAC] THEN
-      ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN
+      PUFF_FINAL_TAC THEN DISJ1_TAC THEN
       ASM_SIMP_TAC[GSYM HUFFMAN_KRAFT_FIRST_COUNT] THEN
       CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN ASM_REWRITE_TAC[]]];;
 
 (*** The invariant of the loop placing the symbols, at 0x768 for symbol i ***)
 
-let construct_place = `\i s.
+let construct_place =
+  with_memsafe_loop construct_rr construct_wr `\i s.
   (read SP s = word_sub stackpointer (word 32) /\
    read X30 s = returnaddress /\
    read X0 s = word(2 EXP 15 - huffman_kraft lens) /\
@@ -416,7 +427,7 @@ let CONSTRUCT_PLACE_TAC =
     UNDISCH_TAC `ALL (\x. x <= 15) lens` THEN REWRITE_TAC[GSYM ALL_EL] THEN
     DISCH_THEN MATCH_MP_TAC THEN ASM_REWRITE_TAC[];
     ALL_TAC] THEN
-  ENSURES_INIT_TAC "s0" THEN
+  PUFF_INIT_TAC "s0" THEN
   MP_TAC(ISPECL [`len:int64`; `MAP (word:num->int16) lens`;
                  `LENGTH(lens:num list)`; `i:num`; `s0:armstate`]
                 READ_MEMORY_BYTES16_NUM_OF_WORDLIST) THEN
@@ -425,7 +436,7 @@ let CONSTRUCT_PLACE_TAC =
   PUFF_STEPS_TAC [1] THEN
   ASM_CASES_TAC `j0 = 0` THENL
    [PUFF_STEPS_TAC (2--4) THEN PTR_DECIDE_FLAGS_TAC THEN
-    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    PUFF_FINAL_TAC THEN ASM_REWRITE_TAC[] THEN
     CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
     REWRITE_TAC[CARD_RESTRICT_LT_ADD1] THEN ASM_REWRITE_TAC[] THEN
     CONJ_TAC THENL
@@ -501,7 +512,7 @@ let CONSTRUCT_PLACE_TAC =
     `r:num`; `s9:armstate`] READ_MEMORY_WORDLIST16_UPDATE) THEN
   ASM_REWRITE_TAC[LENGTH_LIST_OF_SEQ] THEN
   ASM_SIMP_TAC[EL_LIST_OF_SEQ] THEN DISCH_TAC THEN
-  ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+  PUFF_FINAL_TAC THEN ASM_REWRITE_TAC[] THEN
   CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN REWRITE_TAC[] THEN
   EXISTS_TAC `list_of_seq (\m. if m = r then word i else EL m syms:int16)
                           (LENGTH(lens:num list))` THEN
@@ -527,8 +538,8 @@ let CONSTRUCT_PHASE_D_TAC =
   ENSURES_WHILE_PUP_TAC `LENGTH(lens:num list)` `pc + 0x768` `pc + 0x78c`
     construct_place THEN
   ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
-   [ENSURES_INIT_TAC "s0" THEN PUFF_STEPS_TAC (1--4) THEN
-    ENSURES_FINAL_STATE_TAC THEN
+   [PUFF_INIT_TAC "s0" THEN PUFF_STEPS_TAC (1--4) THEN
+    PUFF_FINAL_TAC THEN
     REWRITE_TAC[LT; EMPTY_GSPEC; CARD_CLAUSES; ADD_CLAUSES] THEN
     ASM_REWRITE_TAC[] THEN
     CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
@@ -537,14 +548,14 @@ let CONSTRUCT_PHASE_D_TAC =
     X_GEN_TAC `i:num` THEN STRIP_TAC THEN
     ENSURES_EXISTS_PRE_TAC `syms:int16 list` THEN
     GLOBALIZE_PRECONDITION_TAC THEN
-    ENSURES_INIT_TAC "s0" THEN PUFF_STEPS_TAC [1] THEN
-    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    PUFF_INIT_TAC "s0" THEN PUFF_STEPS_TAC [1] THEN
+    PUFF_FINAL_TAC THEN ASM_REWRITE_TAC[] THEN
     CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN REWRITE_TAC[] THEN
     EXISTS_TAC `syms:int16 list` THEN ASM_REWRITE_TAC[];
     ENSURES_EXISTS_PRE_TAC `syms:int16 list` THEN
     GLOBALIZE_PRECONDITION_TAC THEN
-    ENSURES_INIT_TAC "s0" THEN PUFF_STEPS_TAC (1--3) THEN
-    ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[] THEN
+    PUFF_INIT_TAC "s0" THEN PUFF_STEPS_TAC (1--3) THEN
+    PUFF_FINAL_TAC THEN ASM_REWRITE_TAC[] THEN
     CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
     ASM_REWRITE_TAC[WORD_SUB_ADD; GSYM NOT_LE] THEN
     RULE_ASSUM_TAC(CONV_RULE(ONCE_DEPTH_CONV NUM_REDUCE_CONV)) THEN
@@ -566,8 +577,80 @@ let CONSTRUCT_PHASE_D_TAC =
 (* Kraft sum otherwise, with the symbols in the order of their codes in the  *)
 (* symbol array. If the code is over-subscribed it returns a negative        *)
 (* number. It changes only x0 to x9 and the flags among the registers, which *)
-(* puff relies on: gcc keeps a value in x10 across a call of construct.      *)
+(* puff relies on: gcc keeps a value in x10 across a call of construct. Its  *)
+(* loads are from h, the code lengths, the count array and the array of      *)
+(* offsets on the stack, and its stores are to the arrays of the table and   *)
+(* the offsets.                                                              *)
 (* ------------------------------------------------------------------------- *)
+
+let PUFF_CONSTRUCT_CORRECT_MEMSAFE = prove
+ (`!h cnt sym len lens pc returnaddress stackpointer e.
+     aligned 4096 (word pc:int64) /\ pc + 0x20320 <= 2 EXP 64 /\
+     aligned 16 stackpointer /\
+     ALL (\x. x <= 15) lens /\ LENGTH lens <= 320 /\
+     nonoverlapping (word pc,0x11d8) (cnt,32) /\
+     nonoverlapping (word pc,0x11d8) (sym,2 * LENGTH lens) /\
+     nonoverlapping (word pc,0x11d8) (word_sub stackpointer (word 32),32) /\
+     nonoverlapping (cnt,32) (h,16) /\
+     nonoverlapping (cnt,32) (len,2 * LENGTH lens) /\
+     nonoverlapping (cnt,32) (sym,2 * LENGTH lens) /\
+     nonoverlapping (cnt,32) (word_sub stackpointer (word 32),32) /\
+     nonoverlapping (sym,2 * LENGTH lens) (h,16) /\
+     nonoverlapping (sym,2 * LENGTH lens) (len,2 * LENGTH lens) /\
+     nonoverlapping (sym,2 * LENGTH lens)
+                    (word_sub stackpointer (word 32),32) /\
+     nonoverlapping (word_sub stackpointer (word 32),32) (h,16) /\
+     nonoverlapping (word_sub stackpointer (word 32),32)
+                    (len,2 * LENGTH lens)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) puff_gcc12_O2_mc /\
+               read PC s = word(pc + 0x6a0) /\
+               read SP s = stackpointer /\
+               read X30 s = returnaddress /\
+               C_ARGUMENTS [h; len; word(LENGTH lens)] s /\
+               read (memory :> bytes64 h) s = cnt /\
+               read (memory :> bytes64(word_add h (word 8))) s = sym /\
+               read (memory :> bytes(len,2 * LENGTH lens)) s =
+               num_of_wordlist(MAP (word:num->int16) lens) /\
+               read events s = e)
+          (\s. read PC s = returnaddress /\
+               read (memory :> bytes(cnt,32)) s =
+               num_of_wordlist(huffman_counts lens) /\
+               (huffman_kraft lens <= 2 EXP 15
+                ==> read X0 s = word(if ALL (\x. x = 0) lens then 0
+                                     else 2 EXP 15 - huffman_kraft lens) /\
+                    ?syms. LENGTH syms = LENGTH lens /\
+                           read (memory :> bytes(sym,2 * LENGTH lens)) s =
+                           num_of_wordlist syms /\
+                           huffman_table lens (huffman_counts lens) syms) /\
+               (2 EXP 15 < huffman_kraft lens
+                ==> ival(word_zx(read X0 s):int32) < &0) /\
+               (?e2. read events s = APPEND e2 e /\
+                     memaccess_inbounds e2
+                      [h,16; len,2 * LENGTH lens; cnt,32;
+                       word_sub stackpointer (word 32),32]
+                      [cnt,32; sym,2 * LENGTH lens;
+                       word_sub stackpointer (word 32),32]))
+          (MAYCHANGE [PC; X0; X1; X2; X3; X4; X5; X6; X7; X8; X9] ,,
+           MAYCHANGE SOME_FLAGS ,, MAYCHANGE [events] ,,
+           MAYCHANGE [memory :> bytes(cnt,32);
+                      memory :> bytes(sym,2 * LENGTH lens);
+                      memory :> bytes(word_sub stackpointer (word 32),32)])`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[C_ARGUMENTS; MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI;
+              MODIFIABLE_GPRS; MODIFIABLE_SIMD_REGS;
+              MODIFIABLE_UPPER_SIMD_REGS; SOME_FLAGS] THEN
+  ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
+  GHOST_INTRO_TAC `o0:int16`
+   `read (memory :> bytes16(word_sub stackpointer (word 32)))` THEN
+  ENSURES_SEQUENCE_TAC `pc + 0x6dc` construct_ab THEN CONJ_TAC THENL
+   [CONSTRUCT_PHASE_A_TAC; ALL_TAC] THEN
+  MATCH_MP_TAC ENSURES_SEQUENCE_EXIT THEN EXISTS_TAC construct_d THEN
+  REPEAT CONJ_TAC THENL
+   [MAYCHANGE_IDEMPOT_TAC; SUBSUMED_ID_MAYCHANGE_TAC;
+    CONSTRUCT_PHASE_BC_TAC; CONSTRUCT_PHASE_D_TAC]);;
+
+(*** The same without the events ***)
 
 let PUFF_CONSTRUCT_CORRECT = prove
  (`!h cnt sym len lens pc returnaddress stackpointer.
@@ -615,16 +698,4 @@ let PUFF_CONSTRUCT_CORRECT = prove
            MAYCHANGE [memory :> bytes(cnt,32);
                       memory :> bytes(sym,2 * LENGTH lens);
                       memory :> bytes(word_sub stackpointer (word 32),32)])`,
-  REPEAT GEN_TAC THEN STRIP_TAC THEN
-  REWRITE_TAC[C_ARGUMENTS; MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI;
-              MODIFIABLE_GPRS; MODIFIABLE_SIMD_REGS;
-              MODIFIABLE_UPPER_SIMD_REGS; SOME_FLAGS] THEN
-  ENSURES_EXISTING_PRESERVED_TAC `SP` THEN
-  GHOST_INTRO_TAC `o0:int16`
-   `read (memory :> bytes16(word_sub stackpointer (word 32)))` THEN
-  ENSURES_SEQUENCE_TAC `pc + 0x6dc` construct_ab THEN CONJ_TAC THENL
-   [CONSTRUCT_PHASE_A_TAC; ALL_TAC] THEN
-  MATCH_MP_TAC ENSURES_SEQUENCE_EXIT THEN EXISTS_TAC construct_d THEN
-  REPEAT CONJ_TAC THENL
-   [MAYCHANGE_IDEMPOT_TAC; SUBSUMED_ID_MAYCHANGE_TAC;
-    CONSTRUCT_PHASE_BC_TAC; CONSTRUCT_PHASE_D_TAC]);;
+  EVENTS_FORGET_TAC PUFF_CONSTRUCT_CORRECT_MEMSAFE);;

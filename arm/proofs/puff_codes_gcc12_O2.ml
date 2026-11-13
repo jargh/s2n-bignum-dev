@@ -97,9 +97,21 @@ needs "arm/proofs/puff_decode_gcc12_O2.ml";;
 (* data has no decoding, or none whose output fits in the output buffer.     *)
 (* ------------------------------------------------------------------------- *)
 
+(*** The regions that codes reads and writes ***)
+
+let codes_rr =
+ `[st,368; inp,LENGTH(l:byte list); lh,16; lcnt,32;
+   lsym,2 * LENGTH(lsyms:int16 list); dh,16; dcnt,32;
+   dsym,2 * LENGTH(dsyms:int16 list); outp,outlen;
+   word_sub stackpointer (word 112),112; word pc,0x20320;
+   ea,el]:(int64#num)list`
+and codes_wr =
+ `[word_sub stackpointer (word 112),112; word_add st (word 16),8;
+   word_add st (word 40),16; outp,outlen]:(int64#num)list`;;
+
 (*** The invariant at 0x954, with the measure n ***)
 
-let codes_inv = `\n s.
+let codes_inv = with_memsafe codes_rr codes_wr `\n s.
   ?outk pk sym qk.
    aligned_bytes_loaded s (word pc) puff_gcc12_O2_mc /\
    read PC s = word(pc + 0x954) /\
@@ -205,31 +217,31 @@ let CODES_RETURN_TAC tac =
   DISJ1_TAC THEN CONV_TAC WORD_REDUCE_CONV THEN REWRITE_TAC[] THEN tac;;
 
 let CODES_ERROR_TAC steps tac =
-  PUFF_STEPS_TAC steps THEN ENSURES_FINAL_STATE_TAC THEN
+  PUFF_STEPS_TAC steps THEN PUFF_FINAL_TAC THEN
   DISJ2_TAC THEN CODES_RETURN_TAC tac;;
 
 let CODES_HEAD_ERROR_TAC steps tac =
-  PUFF_STEPS_TAC steps THEN ENSURES_FINAL_STATE_TAC THEN
+  PUFF_STEPS_TAC steps THEN PUFF_FINAL_TAC THEN
   DISJ2_TAC THEN DISJ2_TAC THEN CODES_RETURN_TAC tac;;
 
 let CODES_ESCAPE_TAC tac =
-  ENSURES_FINAL_STATE_TAC THEN DISJ2_TAC THEN DISJ2_TAC THEN
+  PUFF_FINAL_TAC THEN DISJ2_TAC THEN DISJ2_TAC THEN
   ASM_REWRITE_TAC[jmp_context] THEN tac;;
 
 let CODES_HEAD_ESCAPE_TAC tac =
-  ENSURES_FINAL_STATE_TAC THEN DISJ2_TAC THEN DISJ2_TAC THEN DISJ2_TAC THEN
+  PUFF_FINAL_TAC THEN DISJ2_TAC THEN DISJ2_TAC THEN DISJ2_TAC THEN
   ASM_REWRITE_TAC[jmp_context] THEN tac;;
 
 (*** From the entry to 0x954 after the first symbol ***)
 
 let CODES_ENTRY_TAC =
-  ENSURES_INIT_TAC "s0" THEN PUFF_STEPS_TAC (1--18) THEN PUFF_ADRP_TAC THEN
+  PUFF_INIT_TAC "s0" THEN PUFF_STEPS_TAC (1--18) THEN PUFF_ADRP_TAC THEN
   PUFF_STEPS_TAC [19] THEN
-  PUFF_CALL_TAC PUFF_DECODE_CORRECT
+  PUFF_CALL_TAC PUFF_DECODE_CORRECT_MEMSAFE
     (DECODE_LL_VARS `p:num` `word(pc + 2380):int64`) 20 THENL
    [DECODE_FACTS_TAC `p:num` THEN
     PUFF_STEPS_TAC (21--22) THEN BIT31_DECIDE_TAC THEN
-    ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN
+    PUFF_FINAL_TAC THEN DISJ1_TAC THEN
     EXISTS_TAC `8 * LENGTH(l:byte list) - q` THEN BETA_TAC THEN
     MAP_EVERY EXISTS_TAC [`out0:byte list`; `p:num`; `c:num`; `q:num`] THEN
     ASM_REWRITE_TAC[];
@@ -256,7 +268,7 @@ let CODES_ITER_INTRO_TAC =
 (*** The end of the block ***)
 
 let CODES_END_TAC =
-  PUFF_STEPS_TAC (1--13) THEN ENSURES_FINAL_STATE_TAC THEN
+  PUFF_STEPS_TAC (1--13) THEN PUFF_FINAL_TAC THEN
   DISJ2_TAC THEN DISJ1_TAC THEN ASM_REWRITE_TAC[jmp_context] THEN
   CONV_TAC WORD_REDUCE_CONV THEN REWRITE_TAC[] THEN
   REWRITE_TAC[CODES_SP_RESTORE] THEN
@@ -301,11 +313,11 @@ let CODES_LITERAL_TAC =
     MP_TAC(ISPECL [`outp:int64`; `outk:byte list`; `word sym:byte`;
                    `s15:armstate`] READ_MEMORY_BYTELIST_SNOC) THEN
     ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
-    PUFF_CALL_TAC PUFF_DECODE_CORRECT
+    PUFF_CALL_TAC PUFF_DECODE_CORRECT_MEMSAFE
       (DECODE_LL_VARS `qk:num` `word(pc + 2448):int64`) 16 THENL
      [DECODE_FACTS_TAC `qk:num` THEN
       PUFF_STEPS_TAC (17--18) THEN BIT31_DECIDE_TAC THEN
-      ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN
+      PUFF_FINAL_TAC THEN DISJ1_TAC THEN
       EXISTS_TAC `8 * LENGTH(l:byte list) - q` THEN BETA_TAC THEN
       CONJ_TAC THENL [SIMPLE_ARITH_TAC; ALL_TAC] THEN
       MAP_EVERY EXISTS_TAC
@@ -323,7 +335,7 @@ let CODES_LITERAL_TAC =
 (*** copied, for a copy of len bytes from dst back, with the distance      ***)
 (*** symbol c, and with the stream read up to position q2                  ***)
 
-let codes_copy_state = `
+let codes_copy_state = memsafe_conj codes_rr codes_wr `s:armstate` `
    read SP s = word_sub stackpointer (word 96) /\
    read X29 s = word_sub stackpointer (word 96) /\
    read X19 s = word c /\
@@ -495,7 +507,7 @@ let COPY_OVERFLOW_TAC =
 (*** For a length symbol, from 0x954 to codes_mid at 0xa88 ***)
 
 let CODES_LENGTH_HEAD_TAC =
-  ENSURES_INIT_TAC "s0" THEN PUFF_STEPS_TAC (1--6) THEN
+  PUFF_INIT_TAC "s0" THEN PUFF_STEPS_TAC (1--6) THEN
   ASM_CASES_TAC `sym - 257 <= 28` THEN W32_DECIDE_FLAGS_TAC THENL
    [ALL_TAC; CODES_HEAD_ERROR_TAC (7--17) LENDIST_NO_TAC] THEN
   SXTW_ABBREV_TAC `X19` `w19v:int64` `sym - 257` THEN PUFF_STEPS_TAC [7] THEN
@@ -508,7 +520,7 @@ let CODES_LENGTH_HEAD_TAC =
   ANTS_TAC THENL [SIMPLE_ARITH_TAC; DISCH_TAC] THEN
   ANTS_TAC THENL [SIMPLE_ARITH_TAC; STRIP_TAC] THEN
   PUFF_STEPS_TAC (8--11) THEN
-  PUFF_CALL_TAC PUFF_BITS_CORRECT
+  PUFF_CALL_TAC PUFF_BITS_CORRECT_MEMSAFE
     (BITS_VARS `EL (sym - 257) deflate_length_extra` `qk:num`
                `word(pc + 2524):int64`) 12 THENL
    [ALL_TAC; CODES_HEAD_ESCAPE_TAC LENDIST_NO_TAC] THEN
@@ -519,7 +531,7 @@ let CODES_LENGTH_HEAD_TAC =
     CONV_TAC NUM_REDUCE_CONV THEN SIMPLE_ARITH_TAC;
     ALL_TAC] THEN
   PUFF_STEPS_TAC (13--16) THEN
-  PUFF_CALL_TAC PUFF_DECODE_CORRECT
+  PUFF_CALL_TAC PUFF_DECODE_CORRECT_MEMSAFE
     (DECODE_DL_VARS `qk + EL (sym - 257) deflate_length_extra`
                     `word(pc + 2540):int64`) 17 THENL
    [ALL_TAC;
@@ -538,7 +550,7 @@ let CODES_LENGTH_HEAD_TAC =
   TABLE_ELEMENT_TAC 4400 30 `deflate_dist_base` `c:num` `s19:armstate` THEN
   SXTW_ABBREV_TAC `X0` `w0d:int64` `c:num` THEN
   PUFF_STEPS_TAC (20--23) THEN
-  PUFF_CALL_TAC PUFF_BITS_CORRECT
+  PUFF_CALL_TAC PUFF_BITS_CORRECT_MEMSAFE
     (BITS_VARS `EL c deflate_dist_extra` `q:num` `word(pc + 2564):int64`) 24
   THENL [ALL_TAC; CODES_HEAD_ESCAPE_TAC LENDIST_NO_UNIQ_TAC] THEN
   SUBGOAL_THEN `deflate_bits l q (EL c deflate_dist_extra) < 8192`
@@ -583,7 +595,7 @@ let CODES_LENGTH_HEAD_TAC =
   REWRITE_TAC[ADD_CLAUSES; lz77_copy] THEN
   DISCH_THEN(SUBST1_TAC o SYM) THEN DISCH_TAC THEN
   PUFF_STEPS_TAC (40--45) THEN
-  ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN
+  PUFF_FINAL_TAC THEN DISJ1_TAC THEN
   MAP_EVERY EXISTS_TAC
    [`len:num`; `c:num`; `dst:num`; `q + EL c deflate_dist_extra`] THEN
   ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
@@ -622,7 +634,7 @@ let CODES_COPY_TAC =
       CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN SIMP_TAC[];
       SUBSUMED_ID_MAYCHANGE_TAC];
     X_GEN_TAC `i:num` THEN STRIP_TAC THEN
-    ENSURES_INIT_TAC "s0" THEN
+    PUFF_INIT_TAC "s0" THEN
     FIRST_X_ASSUM(ASSUME_TAC o C MP (ASSUME `i < len - 1`)) THEN
     MP_TAC(ISPECL [`outp:int64`; `lz77_copy outk dst (i + 1):byte list`;
                    `(LENGTH(outk:byte list) + i + 1) - dst`; `s0:armstate`]
@@ -637,7 +649,7 @@ let CODES_COPY_TAC =
     REWRITE_TAC[LENGTH_LZ77_COPY] THEN ASM_REWRITE_TAC[WORD_VAL] THEN
     MP_TAC(ISPECL [`i + 1`; `outk:byte list`; `dst:num`] LZ77_COPY_SNOC) THEN
     REWRITE_TAC[LENGTH_LZ77_COPY] THEN DISCH_THEN(SUBST1_TAC o SYM) THEN
-    DISCH_TAC THEN ENSURES_FINAL_STATE_TAC THEN
+    DISCH_TAC THEN PUFF_FINAL_TAC THEN
     REWRITE_TAC[ARITH_RULE
      `LENGTH(outk:byte list) + (i + 1) + 1 = (LENGTH outk + i + 1) + 1`] THEN
     ASM_REWRITE_TAC[WORD_ZX_ZX_32_64] THEN
@@ -648,17 +660,17 @@ let CODES_COPY_TAC =
       AP_TERM_TAC THEN SIMPLE_ARITH_TAC;
       W(fun (asl,w) -> CONV_TAC(LAND_CONV(SMALL_WORD_CONV asl))) THEN
       SIMPLE_ARITH_TAC];
-    X_GEN_TAC `i:num` THEN STRIP_TAC THEN ENSURES_INIT_TAC "s0" THEN
+    X_GEN_TAC `i:num` THEN STRIP_TAC THEN PUFF_INIT_TAC "s0" THEN
     FIRST_X_ASSUM(ASSUME_TAC o C MP (ASSUME `i < len - 1`)) THEN
-    PUFF_STEPS_TAC [1] THEN ENSURES_FINAL_STATE_TAC THEN ASM_REWRITE_TAC[];
+    PUFF_STEPS_TAC [1] THEN PUFF_FINAL_TAC THEN ASM_REWRITE_TAC[];
     SUBGOAL_THEN `(len - 1) + 1 = len` (fun th -> REWRITE_TAC[th]) THENL
      [SIMPLE_ARITH_TAC; ALL_TAC] THEN
-    ENSURES_INIT_TAC "s0" THEN PUFF_STEPS_TAC (1--7) THEN
-    PUFF_CALL_TAC PUFF_DECODE_CORRECT
+    PUFF_INIT_TAC "s0" THEN PUFF_STEPS_TAC (1--7) THEN
+    PUFF_CALL_TAC PUFF_DECODE_CORRECT_MEMSAFE
       (DECODE_LL_VARS `q2:num` `word(pc + 2380):int64`) 8 THENL
      [DECODE_FACTS_TAC `q2:num` THEN
       PUFF_STEPS_TAC (9--10) THEN BIT31_DECIDE_TAC THEN
-      ENSURES_FINAL_STATE_TAC THEN DISJ1_TAC THEN
+      PUFF_FINAL_TAC THEN DISJ1_TAC THEN
       EXISTS_TAC `8 * LENGTH(l:byte list) - q` THEN BETA_TAC THEN
       CONJ_TAC THENL [SIMPLE_ARITH_TAC; ALL_TAC] THEN
       MAP_EVERY EXISTS_TAC
@@ -684,8 +696,99 @@ let CODES_LENGTH_TAC =
 (* reading up to the end of the block, or there is no decoding, or none      *)
 (* whose output fits in the output buffer, and codes returns another value,  *)
 (* or calls longjmp with the context ctx saved in the jmp_buf of the state   *)
-(* if there is no decoding.                                                  *)
+(* if there is no decoding. Its loads are from the state, the input, the     *)
+(* tables, the output buffer (for the copies), its stack frame and those of  *)
+(* bits and decode, the image (the tables of the lengths and distances and   *)
+(* the GOT) and (ea,el), and its stores are to the stack frames, the fields  *)
+(* outcnt, incnt, bitbuf and bitcnt of the state, and the output buffer.     *)
 (* ------------------------------------------------------------------------- *)
+
+let PUFF_CODES_CORRECT_MEMSAFE = prove
+ (`!st lh lcnt lsym ll lcnts lsyms dh dcnt dsym dl dcnts dsyms
+    l inp p outp outlen out0 fl ea el ev enc ctx ctx0
+    pc returnaddress stackpointer e.
+     longjmp_contract fl ea el ev enc /\
+     aligned 4096 (word pc:int64) /\ pc + 0x20320 <= 2 EXP 64 /\
+     aligned 16 stackpointer /\
+     p <= 8 * LENGTH l /\ LENGTH l < 2 EXP 60 /\
+     ~(outp = word 0) /\ LENGTH out0 <= outlen /\ outlen < 2 EXP 60 /\
+     ALL (\n. n <= 15) ll /\ LENGTH ll <= 288 /\
+     huffman_kraft ll <= 2 EXP 15 /\ huffman_table ll lcnts lsyms /\
+     LENGTH lsyms <= 320 /\
+     ALL (\n. n <= 15) dl /\ LENGTH dl <= 30 /\
+     huffman_kraft dl <= 2 EXP 15 /\ huffman_table dl dcnts dsyms /\
+     LENGTH dsyms <= 320 /\
+     ALLPAIRS nonoverlapping
+      [(word_sub stackpointer (word 112),112); (outp,outlen)]
+      [(word pc,0x20320); (st,368); (inp,LENGTH l); (lh,16); (lcnt,32);
+       (lsym,2 * LENGTH lsyms); (dh,16); (dcnt,32); (dsym,2 * LENGTH dsyms);
+       (ea,el)] /\
+     nonoverlapping (word_sub stackpointer (word 112),112) (outp,outlen) /\
+     ALLPAIRS nonoverlapping [(st,368)]
+      [(word pc,0x20320); (inp,LENGTH l); (lh,16); (lcnt,32);
+       (lsym,2 * LENGTH lsyms); (dh,16); (dcnt,32); (dsym,2 * LENGTH dsyms)] /\
+     nonoverlapping (ea,el) (word_add st (word 16),8) /\
+     nonoverlapping (ea,el) (word_add st (word 40),16)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) puff_gcc12_O2_mc /\
+               read PC s = word(pc + 0x900) /\
+               read SP s = stackpointer /\
+               read X30 s = returnaddress /\
+               jmp_context s = ctx0 /\
+               C_ARGUMENTS [st; lh; dh] s /\
+               puff_output st outp outlen out0 s /\
+               puff_input st inp l p s /\
+               puff_table lh lcnt lsym lcnts lsyms s /\
+               puff_table dh dcnt dsym dcnts dsyms s /\
+               read (memory :> bytes(word_add st (word 56),312)) s = enc ctx /\
+               read (memory :> bytes64(word(pc + 0x20018))) s = fl /\
+               read (memory :> bytes(ea,el)) s = ev /\
+               read events s = e)
+          (\s. (read PC s = returnaddress /\ jmp_context s = ctx0 /\
+                (word_zx(read X0 s):int32 = word 0
+                 ==> ?out q. deflate_codes l ll dl (out0,p) (out,q) /\
+                             LENGTH out <= outlen /\
+                             puff_input st inp l q s /\
+                             puff_output st outp outlen out s) /\
+                (~(word_zx(read X0 s):int32 = word 0)
+                 ==> ~(?out q. deflate_codes l ll dl (out0,p) (out,q) /\
+                               LENGTH out <= outlen)) \/
+                read PC s = EL 11 ctx /\ jmp_context s = ctx /\
+                word_zx(read X0 s):int32 = word 1 /\
+                ~(?out q. deflate_codes l ll dl (out0,p) (out,q))) /\
+               (?e2. read events s = APPEND e2 e /\
+                     memaccess_inbounds e2
+                      [st,368; inp,LENGTH l; lh,16; lcnt,32;
+                       lsym,2 * LENGTH lsyms; dh,16; dcnt,32;
+                       dsym,2 * LENGTH dsyms; outp,outlen;
+                       word_sub stackpointer (word 112),112;
+                       word pc,0x20320; ea,el]
+                      [word_sub stackpointer (word 112),112;
+                       word_add st (word 16),8; word_add st (word 40),16;
+                       outp,outlen]))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,, MAYCHANGE [X18] ,,
+           MAYCHANGE_JMP_CONTEXT ,,
+           MAYCHANGE [memory :> bytes(word_sub stackpointer (word 96),96);
+                      memory :> bytes(word_sub stackpointer (word 112),16);
+                      memory :> bytes(word_add st (word 16),8);
+                      memory :> bytes(word_add st (word 40),16);
+                      memory :> bytes(outp,outlen)])`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[ALLPAIRS; ALL] THEN STRIP_TAC THEN
+  REWRITE_TAC[C_ARGUMENTS; puff_input; puff_output; puff_table;
+              MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MAYCHANGE_JMP_CONTEXT;
+              MODIFIABLE_GPRS; MODIFIABLE_SIMD_REGS;
+              MODIFIABLE_UPPER_SIMD_REGS; SOME_FLAGS] THEN
+  JMP_CONTEXT_INTRO_TAC THEN
+  MATCH_MP_TAC(ISPEC codes_inv ENSURES_WHILE_MEASURE) THEN
+  REPEAT CONJ_TAC THENL
+   [MAYCHANGE_IDEMPOT_TAC; SUBSUMED_ID_MAYCHANGE_TAC; CODES_ENTRY_TAC;
+    CODES_ITER_INTRO_TAC THEN
+    ASM_CASES_TAC `sym = 256` THENL
+     [PUFF_INIT_TAC "s0" THEN CODES_END_TAC; ALL_TAC] THEN
+    ASM_CASES_TAC `sym < 256` THENL
+     [PUFF_INIT_TAC "s0" THEN CODES_LITERAL_TAC; CODES_LENGTH_TAC]]);;
+
+(*** The same without the events ***)
 
 let PUFF_CODES_CORRECT = prove
  (`!st lh lcnt lsym ll lcnts lsyms dh dcnt dsym dl dcnts dsyms
@@ -746,17 +849,4 @@ let PUFF_CODES_CORRECT = prove
                       memory :> bytes(word_add st (word 16),8);
                       memory :> bytes(word_add st (word 40),16);
                       memory :> bytes(outp,outlen)])`,
-  REPEAT GEN_TAC THEN REWRITE_TAC[ALLPAIRS; ALL] THEN STRIP_TAC THEN
-  REWRITE_TAC[C_ARGUMENTS; puff_input; puff_output; puff_table;
-              MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MAYCHANGE_JMP_CONTEXT;
-              MODIFIABLE_GPRS; MODIFIABLE_SIMD_REGS;
-              MODIFIABLE_UPPER_SIMD_REGS; SOME_FLAGS] THEN
-  JMP_CONTEXT_INTRO_TAC THEN
-  MATCH_MP_TAC(ISPEC codes_inv ENSURES_WHILE_MEASURE) THEN
-  REPEAT CONJ_TAC THENL
-   [MAYCHANGE_IDEMPOT_TAC; SUBSUMED_ID_MAYCHANGE_TAC; CODES_ENTRY_TAC;
-    CODES_ITER_INTRO_TAC THEN
-    ASM_CASES_TAC `sym = 256` THENL
-     [ENSURES_INIT_TAC "s0" THEN CODES_END_TAC; ALL_TAC] THEN
-    ASM_CASES_TAC `sym < 256` THENL
-     [ENSURES_INIT_TAC "s0" THEN CODES_LITERAL_TAC; CODES_LENGTH_TAC]]);;
+  EVENTS_FORGET_TAC PUFF_CODES_CORRECT_MEMSAFE);;

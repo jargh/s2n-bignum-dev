@@ -80,21 +80,33 @@ python3 puff/check_transcription.py puff/puff_gcc12_O2.o - \
 
 The proofs are in `../proofs`, one file for each function:
 
-| Function    | Proof                        | Theorem                  |
-|-------------|------------------------------|--------------------------|
-| `bits`      | `puff_bits_gcc12_O2.ml`      | `PUFF_BITS_CORRECT`      |
-| `decode`    | `puff_decode_gcc12_O2.ml`    | `PUFF_DECODE_CORRECT`    |
-| `construct` | `puff_construct_gcc12_O2.ml` | `PUFF_CONSTRUCT_CORRECT` |
-| `codes`     | `puff_codes_gcc12_O2.ml`     | `PUFF_CODES_CORRECT`     |
-| `puff`      | `puff_gcc12_O2.ml`           | `PUFF_CORRECT`           |
+| Function  | Proof                        | Theorem                          |
+|-----------|------------------------------|----------------------------------|
+| bits      | `puff_bits_gcc12_O2.ml`      | `PUFF_BITS_CORRECT_MEMSAFE`      |
+| decode    | `puff_decode_gcc12_O2.ml`    | `PUFF_DECODE_CORRECT_MEMSAFE`    |
+| construct | `puff_construct_gcc12_O2.ml` | `PUFF_CONSTRUCT_CORRECT_MEMSAFE` |
+| codes     | `puff_codes_gcc12_O2.ml`     | `PUFF_CODES_CORRECT_MEMSAFE`     |
+| puff      | `puff_gcc12_O2.ml`           | `PUFF_CORRECT_MEMSAFE`           |
+
+Each theorem states the correctness of the function and its memory safety:
+whatever the input, the loads and stores of its code, in the trace
+`read events`, are within lists of readable and writable regions
+(`memaccess_inbounds`). The same theorems without the trace are the
+corollaries `PUFF_BITS_CORRECT` and so on, and `PUFF_MEMSAFE` is the memory
+safety of `puff` alone.
 
 `PUFF_CORRECT` says that if `puff` returns 0, the output and the number of
 bytes read that it stores are those of the decoding `deflate_decode` of the
 specification, and that otherwise there is no decoding whose output fits in
-the buffer. The calls of `_setjmp` and `longjmp` are given contracts, and
-the tables that `fixed` builds are part of an invariant. The common
-definitions and tactics are in `../proofs/utils/puff.ml`, and the facts
-about the specification in `../../common/rfc1951_theory.ml`.
+the buffer. `PUFF_MEMSAFE` says that `puff` returns, with its loads from the
+input, the output buffer, `*destlen` and `*sourcelen`, its stack frame, the
+image and the region of `_setjmp` and `longjmp`, and its stores to the
+output buffer, `*destlen`, `*sourcelen`, the stack frame and the data in the
+image for the tables of the fixed codes. The calls of `_setjmp` and
+`longjmp` are given contracts, which include the regions of their own loads
+and stores, and the tables that `fixed` builds are part of an invariant. The
+common definitions and tactics are in `../proofs/utils/puff.ml`, and the
+facts about the specification in `../../common/rfc1951_theory.ml`.
 
 ## License
 

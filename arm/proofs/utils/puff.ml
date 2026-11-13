@@ -890,7 +890,7 @@ let DECIDE_IFS_TAC =
     let conds = setify(List.concat(mapfilter (fun (_,th) ->
       match concl th with
         Comb(Comb(Const("=",_),Comb(Comb(Const("read",_),c),s')),t)
-          when s' = s && not(c = `PC`) ->
+          when s' = s && not(c = `PC`) && not(c = `events`) ->
             map (lhand o rator) (find_terms is_cond t)
       | _ -> failwith "") asl)) in
     MAP_EVERY (fun c -> TRY(DECIDE_PROP_TAC c)) conds);;
@@ -1134,7 +1134,7 @@ let SMALL_WORD_CONV asl =
 (* which may depend on them.                                                 *)
 
 let SMALL_WORD_TAC:tactic =
-  let flags = [`NF`; `ZF`; `CF`; `VF`; `PC`] in
+  let flags = [`NF`; `ZF`; `CF`; `VF`; `PC`; `events`] in
   fun (asl,w as gl) ->
     let s = try rand w with Failure _ -> w in
     let conv = SMALL_WORD_CONV asl in
@@ -1240,7 +1240,8 @@ let PUFF_BITCNT_MOD = prove
 (* halves of Q8-Q15. It is saved in the 312 bytes of the jmp_buf in an       *)
 (* unspecified encoding enc, the same for both, and longjmp(env,v) returns   *)
 (* as if from the call of _setjmp that saved it, with the 32-bit result v,   *)
-(* or 1 if v is 0, and no memory changed.                                    *)
+(* or 1 if v is 0, and no memory changed. Their loads are from the jmp_buf   *)
+(* and (ea,el), and the only stores, of _setjmp, are to the jmp_buf.         *)
 (* ------------------------------------------------------------------------- *)
 
 let jmp_context = new_definition
@@ -1264,17 +1265,20 @@ let MAYCHANGE_JMP_CONTEXT = new_definition
 let setjmp_contract = new_definition
  `setjmp_contract (fs:int64) (ea:int64) (el:num) (ev:num)
                   (enc:int64 list->num) <=>
-    !env returnaddress ctx.
+    !env returnaddress ctx e.
         nonoverlapping (env,312) (ea,el)
         ==> ensures arm
              (\s. read PC s = fs /\
                   read X30 s = returnaddress /\
                   C_ARGUMENTS [env] s /\
                   jmp_context s = ctx /\
-                  read (memory :> bytes(ea,el)) s = ev)
+                  read (memory :> bytes(ea,el)) s = ev /\
+                  read events s = e)
              (\s. read PC s = returnaddress /\
                   word_zx(read X0 s):int32 = word 0 /\
-                  read (memory :> bytes(env,312)) s = enc ctx)
+                  read (memory :> bytes(env,312)) s = enc ctx /\
+                  (?e2. read events s = APPEND e2 e /\
+                        memaccess_inbounds e2 [env,312; ea,el] [env,312]))
              (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
               MAYCHANGE [X18; X30] ,,
               MAYCHANGE [memory :> bytes(env,312)])`;;
@@ -1282,16 +1286,19 @@ let setjmp_contract = new_definition
 let longjmp_contract = new_definition
  `longjmp_contract (fl:int64) (ea:int64) (el:num) (ev:num)
                    (enc:int64 list->num) <=>
-    !env v ctx.
+    !env v ctx e.
         ensures arm
          (\s. read PC s = fl /\
               C_ARGUMENTS [env; v] s /\
               read (memory :> bytes(env,312)) s = enc ctx /\
-              read (memory :> bytes(ea,el)) s = ev)
+              read (memory :> bytes(ea,el)) s = ev /\
+              read events s = e)
          (\s. read PC s = EL 11 ctx /\
               jmp_context s = ctx /\
               word_zx(read X0 s):int32 =
-              (if word_zx v:int32 = word 0 then word 1 else word_zx v))
+              (if word_zx v:int32 = word 0 then word 1 else word_zx v) /\
+              (?e2. read events s = APPEND e2 e /\
+                    memaccess_inbounds e2 [env,312; ea,el] []))
          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
           MAYCHANGE [X18] ,, MAYCHANGE_JMP_CONTEXT)`;;
 
@@ -1562,8 +1569,8 @@ let PUFF_STEP_TAC n =
     let s = rand w in
     exists (fun (_,th) ->
       match concl th with
-        Comb(Comb(Const("=",_),Comb(Comb(Const("read",_),_),s')),t)
-          when s' = s -> can (find_term is_cond) t
+        Comb(Comb(Const("=",_),Comb(Comb(Const("read",_),c),s')),t)
+          when s' = s && not(c = `events`) -> can (find_term is_cond) t
       | _ -> false) asl in
   ARM_STEPS_TAC PUFF_EXEC [n] THEN SMALL_WORD_TAC THEN
   (fun gl -> if conditional gl then
@@ -1591,7 +1598,7 @@ let PTR_NORM_TAC r =
 let STATE_PTR_NORM_TAC =
   let conv = REWRITE_CONV[GSYM WORD_ADD_ASSOC; WORD_ADD_0] THENC
              REWRITE_CONV[GSYM WORD_ADD] THENC NUM_REDUCE_CONV in
-  let flags = [`NF`; `ZF`; `CF`; `VF`; `PC`] in
+  let flags = [`NF`; `ZF`; `CF`; `VF`; `PC`; `events`] in
   fun (asl,w as gl) ->
     let s = try rand w with Failure _ -> w in
     RULE_ASSUM_TAC(fun th ->
@@ -1605,7 +1612,7 @@ let STATE_PTR_NORM_TAC =
 
 let REG_PTR_NORM_TAC =
   let conv = REWRITE_CONV[WORD_ADD_ASSOC_NUM] THENC NUM_REDUCE_CONV in
-  let flags = [`NF`; `ZF`; `CF`; `VF`; `PC`] in
+  let flags = [`NF`; `ZF`; `CF`; `VF`; `PC`; `events`] in
   fun (asl,w as gl) ->
     let s = try rand w with Failure _ -> w in
     RULE_ASSUM_TAC(fun th ->
@@ -1679,33 +1686,389 @@ let ADDR16_TAC base k e =
     else failwith "ADDR16_TAC");;
 
 (* ------------------------------------------------------------------------- *)
+(* Memory safety. The theorem for each function states also that the loads   *)
+(* and stores of its code, the entries EventLoad and EventStore of the trace *)
+(* read events, are within given lists rr and wr of readable and writable    *)
+(* regions: its precondition has read events s = e, its postcondition has    *)
+(*                                                                           *)
+(*   ?e2. read events s = APPEND e2 e /\ memaccess_inbounds e2 rr wr         *)
+(*                                                                           *)
+(* and each assertion in the proof, made by with_memsafe rr wr from that     *)
+(* without the events, has the same as a conjunct puff_memsafe e rr wr s. In *)
+(* a proof, PUFF_INIT_TAC is ENSURES_INIT_TAC taking the conjunct of the     *)
+(* precondition apart, as read events s0 = APPEND e_acc e and the fact       *)
+(* memaccess_inbounds e_acc rr wr, so that the simulation adds the events of *)
+(* the steps to it, and PUFF_FINAL_TAC is ENSURES_FINAL_STATE_TAC proving    *)
+(* the conjuncts of the postcondition about the events (with MEMSAFE_TAC)    *)
+(* and removing them from the goal. Calls of other functions and of longjmp  *)
+(* and setjmp add the trace e2 of the callee, which is within its own        *)
+(* regions, to that of the caller.                                           *)
+(* ------------------------------------------------------------------------- *)
+
+let MEMACCESS_INBOUNDS_NIL = prove
+ (`!rr wr. memaccess_inbounds ([]:uarch_event list) rr wr`,
+  REWRITE_TAC[memaccess_inbounds; ALL]);;
+
+let puff_memsafe = new_definition
+ `puff_memsafe e rr wr (s:armstate) <=>
+    ?e2. read events s = APPEND e2 e /\ memaccess_inbounds e2 rr wr`;;
+
+let is_memsafe_clause tm =
+  match strip_comb tm with
+    Const("puff_memsafe",_),[_;_;_;_] -> true
+  | _ ->
+  is_exists tm &&
+  let e2,bod = dest_exists tm in
+  is_conj bod &&
+  let c1,c2 = dest_conj bod in
+  is_eq c1 && is_read_events(lhs c1) &&
+  (match strip_comb(rhs c1) with Const("APPEND",_),[x;_] -> x = e2
+                               | _ -> false) &&
+  (match strip_comb c2 with Const("memaccess_inbounds",_),[x;_;_] -> x = e2
+                          | _ -> false);;
+
+(*** The arguments e, rr, wr and s of such a conjunct ***)
+
+let memsafe_clause_args tm =
+  match strip_comb tm with
+    Const("puff_memsafe",_),[e;rr;wr;s] -> e,rr,wr,s
+  | _ -> let _,bod = dest_exists tm in
+         let c1,c2 = dest_conj bod in
+         let _,[_;rr;wr] = strip_comb c2 in
+         rand(rhs c1),rr,wr,rand(lhs c1);;
+
+(*** An assertion \x1 ... s. ?y1 ... yn. P with the conjunct puff_memsafe  ***)
+(*** e rr wr s added at the end of P, and an invariant \i s. P /\ Q for    ***)
+(*** ENSURES_WHILE_PUP_TAC, where Q holds at the end of an iteration, with ***)
+(*** it added to P                                                         ***)
+
+let memsafe_conj =
+  let tm = `puff_memsafe e` in
+  fun rr wr s ->
+    let rec body t =
+      if is_exists t then let v,b = dest_exists t in mk_exists(v,body b)
+      else list_mk_conj(conjuncts t @ [list_mk_comb(tm,[rr;wr;s])]) in
+    body;;
+
+let with_memsafe rr wr t =
+  let vs,bod = strip_abs t in
+  list_mk_abs(vs,memsafe_conj rr wr (last vs) bod);;
+
+let with_memsafe_loop rr wr t =
+  let vs,bod = strip_abs t in
+  let p,q = dest_conj bod in
+  list_mk_abs(vs,mk_conj(memsafe_conj rr wr (last vs) p,q));;
+
+(*** Take such a conjunct of the assumptions apart ***)
+
+let MEMSAFE_STRIP_TAC =
+  REPEAT(FIRST_X_ASSUM(fun th ->
+    if is_memsafe_clause(concl th) then
+      W(fun (asl,w) ->
+        let avoid = itlist (union o frees o concl o snd) asl (frees w) in
+        let v = variant avoid `e_acc:uarch_event list` in
+        X_CHOOSE_THEN v (CONJUNCTS_THEN ASSUME_TAC)
+          (REWRITE_RULE[puff_memsafe] th))
+    else NO_TAC));;
+
+let PUFF_INIT_TAC s = ENSURES_INIT_TAC s THEN MEMSAFE_STRIP_TAC;;
+
+(*** For a call, a theorem th specialized but for a last variable e, for   ***)
+(*** the trace, which is specialized at the trace of the current state     ***)
+
+let current_events (asl,w) =
+  let s = rand w in
+  let rd = list_mk_icomb "read" [`events`; s] in
+  rhs(concl(snd(find (fun (_,th) -> let t = concl th in
+                        is_eq t && lhs t = rd) asl)));;
+
+let EVENTS_SPEC gl th =
+  match concl th with
+    Comb(Const("!",_),Abs(Var("e",ty),_))
+      when ty = `:uarch_event list` -> SPEC (current_events gl) th
+  | _ -> th;;
+
+(*** Before a call, the trace of the current state as a variable e_call, ***)
+(*** so that the rewriting of the theorem of the callee does not change  ***)
+(*** it, and after the call, the trace again                             ***)
+
+let EVENTS_ABBREV_TAC : tactic =
+  fun (asl,w as gl) ->
+    let s = rand w in
+    let rd = list_mk_icomb "read" [`events`; s] in
+    match filter (fun (_,th) -> let t = concl th in
+                    is_eq t && lhs t = rd) asl with
+      (_,th)::_ when not(is_var(rhs(concl th))) ->
+        let avoid = itlist (union o frees o concl o snd) asl (frees w) in
+        let v = variant avoid `e_call:uarch_event list` in
+        ABBREV_TAC (mk_eq(v,rhs(concl th))) gl
+    | _ -> ALL_TAC gl;;
+
+let EVENTS_UNABBREV_TAC : tactic =
+  let is_ecall t =
+    is_var t && type_of t = `:uarch_event list` &&
+    (let n = fst(dest_var t) in
+     String.length n >= 6 && String.sub n 0 6 = "e_call") in
+  REPEAT(FIRST_X_ASSUM(fun th ->
+    let t = concl th in
+    if is_eq t && is_ecall(rhs t) then SUBST_ALL_TAC(SYM th)
+    else NO_TAC));;
+
+(*** The addresses word_sub sp (word k) below the stack pointer sp as      ***)
+(*** offsets from the lowest K in the regions, word_add (word_sub sp       ***)
+(*** (word K)) (word(K - k))                                               ***)
+
+let WORD_SUB_REBASE = prove
+ (`!(x:int64) k d.
+        word_sub x (word k) = word_add (word_sub x (word(k + d))) (word d)`,
+  REWRITE_TAC[WORD_ADD] THEN CONV_TAC WORD_RULE);;
+
+let stack_bases tms =
+  let subs = setify(List.concat(map (find_terms (fun t ->
+    match t with
+      Comb(Comb(Const("word_sub",_),Var(_,_)),Comb(Const("word",_),k)) ->
+        is_numeral k
+    | _ -> false)) tms)) in
+  let add (x,k) bs =
+    try let k0 = assoc x bs in
+        if k >/ k0 then (x,k)::filter ((<>) x o fst) bs else bs
+    with Failure _ -> (x,k)::bs in
+  itlist (fun t -> add (lhand t,dest_numeral(rand(rand t)))) subs [];;
+
+let MEMSAFE_NORM_CONV bases =
+  let conv tm =
+    match tm with
+      Comb(Comb(Const("word_sub",_),x),Comb(Const("word",_),k))
+        when is_numeral k ->
+          let kk = assoc x bases and k0 = dest_numeral k in
+          if k0 </ kk then
+            let th = SPECL [x; k; mk_numeral(kk -/ k0)] WORD_SUB_REBASE in
+            CONV_RULE(RAND_CONV(LAND_CONV(RAND_CONV(RAND_CONV
+              NUM_ADD_CONV)))) th
+          else failwith "MEMSAFE_NORM_CONV"
+    | _ -> failwith "MEMSAFE_NORM_CONV" in
+  if bases = [] then ALL_CONV else ONCE_DEPTH_CONV conv;;
+
+(*** contained_modulo (2 EXP 64) (val a,n) (val b,m), as CONTAINED_TAC     ***)
+(*** proves it, trying first without the assumptions and finally with the  ***)
+(*** arithmetic facts that involve val                                     ***)
+
+let MEMSAFE_VAL_ARITH_TAC =
+  let numty = `:num` in
+  let is_num_relop tm =
+    exists (fun op -> is_binary op tm &&
+                      (let x,_ = dest_binary op tm in type_of x = numty))
+           ["=";"<";"<=";">";">="] in
+  let avoiderp tm =
+    match tm with Const(n,_) -> mem n ["read"; "write"] | _ -> false in
+  let filtered tm =
+    (is_num_relop tm || (is_neg tm && is_num_relop (dest_neg tm))) &&
+    not(can (find_term avoiderp) tm) in
+  let tweak = GEN_REWRITE_RULE TRY_CONV [ARITH_RULE `~(n = 0) <=> 1 <= n`] in
+  W(fun (asl,w) ->
+    let asl' = filter (fun (_,th) -> filtered(concl th)) asl in
+    MAP_EVERY (MP_TAC o tweak o snd) asl' THEN CONV_TAC ARITH_RULE);;
+
+let MEMSAFE_CONTAINED_MODULO_TAC =
+  let closed = CONV_TAC NUM_REDUCE_CONV THEN REWRITE_TAC[] THEN NO_TAC in
+  GEN_REWRITE_TAC I [GSYM CONTAINED_MODULO_MOD2] THEN
+  GEN_REWRITE_TAC (BINOP_CONV o LAND_CONV o LAND_CONV o TOP_DEPTH_CONV)
+   [VAL_WORD_ADD; VAL_WORD] THEN
+  CONV_TAC(ONCE_DEPTH_CONV DIMINDEX_CONV) THEN
+  CONV_TAC(BINOP_CONV(LAND_CONV MOD_DOWN_CONV)) THEN
+  GEN_REWRITE_TAC I [CONTAINED_MODULO_MOD2] THEN
+  FIRST (map (fun arith ->
+    (GEN_REWRITE_TAC I [CONTAINED_MODULO_REFL] THEN arith) ORELSE
+    (MATCH_MP_TAC CONTAINED_MODULO_OFFSET_SIMPLE THEN arith) ORELSE
+    (MATCH_MP_TAC CONTAINED_MODULO_SIMPLE THEN arith))
+    [closed; SIMPLE_ARITH_TAC; MEMSAFE_VAL_ARITH_TAC]);;
+
+(*** A disjunction of such goals for one address and the regions, trying   ***)
+(*** first the regions whose base is that of the address                   ***)
+
+let rec address_base t =
+  match t with
+    Comb(Comb(Const("word_add",_),u),_) -> address_base u
+  | Comb(Const("word",_),Comb(Comb(Const("+",_),x),_)) -> mk_comb(rator t,x)
+  | _ -> t;;
+
+let MEMSAFE_DISJ_TAC : tactic =
+  fun (asl,w as gl) ->
+    let ds = disjuncts w in
+    let n = length ds in
+    let arg i d = rand(lhand(el i (snd(strip_comb d)))) in
+    let idx = 0--(n - 1) in
+    let good,bad =
+      try let a = address_base(arg 1 (hd ds)) in
+          partition (fun i -> address_base(arg 2 (el i ds)) = a) idx
+      with Failure _ -> idx,[] in
+    let sel i = funpow i (fun t -> DISJ2_TAC THEN t)
+                  (if i < n - 1 then DISJ1_TAC else ALL_TAC) in
+    FIRST (map (fun i -> sel i THEN MEMSAFE_CONTAINED_MODULO_TAC)
+               (good @ bad)) gl;;
+
+(*** memaccess_inbounds x rr wr for a list x of events, and for x given    ***)
+(*** by an assumption memaccess_inbounds x rr' wr'                         ***)
+
+let MEMSAFE_CONCRETE_TAC norm =
+  REWRITE_TAC[memaccess_inbounds; ALL; EX; FST; SND] THEN
+  CONV_TAC norm THEN REWRITE_TAC[WORD_ADD_ASSOC_NUM] THEN
+  CONV_TAC(DEPTH_CONV NUM_ADD_CONV) THEN
+  REPEAT CONJ_TAC THEN MEMSAFE_DISJ_TAC;;
+
+let MEMSAFE_OPAQUE_TAC norm =
+  FIRST_ASSUM ACCEPT_TAC ORELSE
+  W(fun (asl,w) ->
+    let x = hd(snd(strip_comb w)) in
+    FIRST_ASSUM(fun th ->
+      match strip_comb(concl th) with
+        Const("memaccess_inbounds",_),[x';rr;wr] when x' = x ->
+          let _,[_;rr';wr'] = strip_comb w in
+          MP_TAC(ISPECL [x; rr; rr'; wr; wr']
+                        MEMACCESS_INBOUNDS_CONTAINED) THEN
+          ANTS_TAC THENL
+           [REWRITE_TAC[ALL; EX; contained; DIMINDEX_64] THEN
+            CONV_TAC norm THEN REWRITE_TAC[WORD_ADD_ASSOC_NUM] THEN
+            CONV_TAC(DEPTH_CONV NUM_ADD_CONV) THEN
+            REPEAT CONJ_TAC THEN MEMSAFE_DISJ_TAC;
+            DISCH_THEN MATCH_MP_TAC THEN ACCEPT_TAC th]
+      | _ -> NO_TAC));;
+
+(*** ?e2. read events s = APPEND e2 e /\ memaccess_inbounds e2 rr wr, or   ***)
+(*** puff_memsafe e rr wr s, from the assumption read events s = x, for x  ***)
+(*** of the form CONS a1 (... (APPEND e1 (CONS ... e))), where there are   ***)
+(*** assumptions memaccess_inbounds e1 rr1 wr1 for the traces e1 there     ***)
+
+let MEMSAFE_TAC : tactic =
+  REWRITE_TAC[puff_memsafe] THEN
+  fun (asl,w) ->
+    let e2v,bod = dest_exists w in
+    let c1,c2 = dest_conj bod in
+    let rd,rhs1 = dest_eq c1 in
+    let e0 = rand rhs1 in
+    let evth = snd(find (fun (_,th) -> is_eq(concl th) && lhs(concl th) = rd)
+                        asl) in
+    let evs = rhs(concl evth) in
+    let ety = hd(snd(dest_type(type_of evs))) in
+    let rec heads t acc =
+      match t with
+        Comb(Comb(Const("CONS",_),h),tl) when t <> e0 -> heads tl (h::acc)
+      | _ -> rev acc,t in
+    let rec chunks t =
+      if t = e0 then [] else
+      match t with
+        Comb(Comb(Const("CONS",_),_),_) ->
+          let hs,tl = heads t [] in mk_list(hs,ety)::chunks tl
+      | Comb(Comb(Const("APPEND",_),a),tl) -> a::chunks tl
+      | _ -> failwith "MEMSAFE_TAC: unexpected tail of the events" in
+    let cs = chunks evs in
+    let x = if cs = [] then mk_list([],ety) else
+            end_itlist (fun a b -> list_mk_icomb "APPEND" [a;b]) cs in
+    let _,[_;rr;wr] = strip_comb c2 in
+    let norm = MEMSAFE_NORM_CONV (stack_bases [rr; wr]) in
+    (EXISTS_TAC x THEN CONJ_TAC THENL
+      [REWRITE_TAC[evth] THEN REWRITE_TAC[APPEND; GSYM APPEND_ASSOC];
+       REWRITE_TAC[MEMACCESS_INBOUNDS_APPEND; MEMACCESS_INBOUNDS_NIL] THEN
+       REPEAT CONJ_TAC THEN
+       FIRST [MEMSAFE_OPAQUE_TAC norm; MEMSAFE_CONCRETE_TAC norm]]) (asl,w);;
+
+(*** Prove the conjuncts about the events of a state for which there is    ***)
+(*** an assumption read events s = x, and remove them from the goal        ***)
+
+let MEMSAFE_ELIM_TAC : tactic =
+  let l1 = TAUT `p ==> (p /\ q <=> q)` and l2 = TAUT `q ==> (p /\ q <=> p)` in
+  let has_events asl s =
+    exists (fun (_,th) -> let t = concl th in
+              is_eq t && is_read_events(lhs t) && rand(lhs t) = s) asl in
+  let expand c = if is_exists c then REFL c else REWR_CONV puff_memsafe c in
+  fun (asl,w as gl) ->
+    let ok t = is_memsafe_clause t &&
+               (let _,_,_,s = memsafe_clause_args t in has_events asl s) in
+    let redex t = is_comb t && is_abs(fst(strip_comb t)) &&
+                  can (find_term is_memsafe_clause) t in
+    ((if can (find_term redex) w then BETA_TAC else ALL_TAC) THEN
+     W(fun (asl,w) ->
+       let cls = setify(find_terms ok w) in
+       if cls = [] then ALL_TAC else
+       let eqs = map expand cls in
+       let exps = setify(map (rhs o concl) eqs) in
+       let pths = map (fun c -> TAC_PROOF((asl,c),MEMSAFE_TAC)) exps in
+       let prove_cl c =
+         let eq = expand c in
+         EQ_MP (SYM eq) (find (fun th -> concl th = rhs(concl eq)) pths) in
+       let ths = map prove_cl cls in
+       let rec conv tm =
+         if is_conj tm then
+           let p,q = dest_conj tm in
+           try let th = find (fun th -> aconv (concl th) p) ths in
+               (REWR_CONV(MP (INST [p,`p:bool`; q,`q:bool`] l1) th) THENC
+                conv) tm
+           with Failure _ ->
+           try let th = find (fun th -> aconv (concl th) q) ths in
+               REWR_CONV(MP (INST [p,`p:bool`; q,`q:bool`] l2) th) tm
+           with Failure _ -> BINOP_CONV conv tm
+         else SUB_CONV conv tm in
+       CONV_TAC conv)) gl;;
+
+let PUFF_FINAL_TAC = ENSURES_FINAL_STATE_TAC THEN MEMSAFE_ELIM_TAC;;
+
+(*** A theorem without the events, from the theorem th with them, whose    ***)
+(*** last quantified variable is e: for the goal of the same form with     ***)
+(*** no read events s = e in the precondition and no conjunct about the    ***)
+(*** events in the postcondition                                           ***)
+
+let EVENTS_FORGET_TAC th =
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  REWRITE_TAC[ensures] THEN BETA_TAC THEN
+  X_GEN_TAC `s:armstate` THEN STRIP_TAC THEN
+  MP_TAC(INST [`read events s:uarch_event list`,`e:uarch_event list`]
+              (SPEC_ALL th)) THEN
+  ASM_REWRITE_TAC[ensures] THEN BETA_TAC THEN
+  DISCH_THEN(MP_TAC o SPEC `s:armstate`) THEN ASM_REWRITE_TAC[] THEN
+  MATCH_MP_TAC(REWRITE_RULE[RIGHT_IMP_FORALL_THM] EVENTUALLY_MONO) THEN
+  SIMP_TAC[];;
+
+(*** The same with a weaker postcondition, implied by that of th ***)
+
+let ENSURES_WEAKEN_TAC th =
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  MATCH_MP_TAC ENSURES_POSTCONDITION_THM THEN
+  EXISTS_TAC(rand(rator(rand(snd(strip_forall(concl th)))))) THEN
+  CONJ_TAC THENL
+   [BETA_TAC THEN SIMP_TAC[];
+    MATCH_MP_TAC(SPEC_ALL th) THEN FIRST_ASSUM ACCEPT_TAC];;
+
+(* ------------------------------------------------------------------------- *)
 (* A call of longjmp(env,1), at step n, at which the PC is the address of    *)
 (* longjmp read from the GOT by the PLT stub, using the contract (which must *)
-(* be an assumption) with the context ctx that env holds.                    *)
+(* be an assumption) with the context ctx that env holds and the current     *)
+(* trace.                                                                    *)
 (* ------------------------------------------------------------------------- *)
 
 let PUFF_LONGJMP_TAC env ctx n =
   let sname = "s"^string_of_int n in
-  FIRST_ASSUM(fun th ->
+  EVENTS_ABBREV_TAC THEN
+  W(fun gl -> FIRST_ASSUM(fun th ->
     match strip_comb(concl th) with
       Const("longjmp_contract",_),[_;_;_;_;_] ->
-        MP_TAC(SPECL [env; `word 1:int64`; ctx]
-                 (REWRITE_RULE[longjmp_contract] th))
-    | _ -> NO_TAC) THEN
+        MP_TAC(EVENTS_SPEC gl (SPECL [env; `word 1:int64`; ctx]
+                                 (REWRITE_RULE[longjmp_contract] th)))
+    | _ -> NO_TAC)) THEN
   REWRITE_TAC[C_ARGUMENTS; MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI;
               MAYCHANGE_JMP_CONTEXT; MODIFIABLE_GPRS; MODIFIABLE_SIMD_REGS;
               MODIFIABLE_UPPER_SIMD_REGS; SOME_FLAGS] THEN
-  ARM_BIGSTEP_TAC PUFF_EXEC sname THEN
+  ARM_BIGSTEP_TAC PUFF_EXEC sname THEN EVENTS_UNABBREV_TAC THEN
   TRY(ASM_REWRITE_TAC[] THEN NO_TAC) THEN
   RULE_ASSUM_TAC(CONV_RULE(ONCE_DEPTH_CONV WORD_REDUCE_CONV));;
 
 (* ------------------------------------------------------------------------- *)
 (* A call of one of the functions of puff from another, at step n, at which  *)
-(* the PC is the address of the callee, using its correctness theorem th     *)
-(* specialized at the terms vars. In these, `ctx0:int64 list`, for the       *)
-(* context of the caller that the callee preserves, is replaced by the       *)
-(* values of the components of jmp_context in the current state, for which   *)
-(* variables are introduced where they are not known.                        *)
+(* the PC is the address of the callee, using its theorem th specialized at  *)
+(* the terms vars, and at the current trace for its last variable e. In      *)
+(* vars, `ctx0:int64 list`, for the context of the caller that the callee    *)
+(* preserves, is replaced by the values of the components of jmp_context in  *)
+(* the current state, for which variables are introduced where they are not  *)
+(* known.                                                                    *)
 (* ------------------------------------------------------------------------- *)
 
 let jmp_components =
@@ -1752,12 +2115,12 @@ let WORD_SUB_SUB_NUM = WORD_RULE
  `word_sub (word_sub (x:int64) (word a)) (word b) = word_sub x (word(a + b))`;;
 
 let PUFF_CALL_TAC th vars n =
-  JMP_VALUES_GHOST_TAC THEN
+  JMP_VALUES_GHOST_TAC THEN EVENTS_ABBREV_TAC THEN
   W(fun gl ->
     let ctx0 = jmp_values gl in
     let vars' = map (fun v -> if v = `ctx0:int64 list` then ctx0 else v)
                     vars in
-    MP_TAC(ISPECL vars' th)) THEN
+    MP_TAC(EVENTS_SPEC gl (ISPECL vars' th))) THEN
   ANTS_TAC THENL [CALLEE_HYPS_TAC; ALL_TAC] THEN
   REWRITE_TAC[C_ARGUMENTS; puff_input; puff_table; jmp_context; CONS_11;
               MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MAYCHANGE_JMP_CONTEXT;
@@ -1765,7 +2128,7 @@ let PUFF_CALL_TAC th vars n =
               MODIFIABLE_UPPER_SIMD_REGS; SOME_FLAGS] THEN
   REWRITE_TAC[WORD_SUB_SUB_NUM] THEN
   CONV_TAC(ONCE_DEPTH_CONV NUM_ADD_CONV) THEN
-  ARM_BIGSTEP_TAC PUFF_EXEC ("s"^string_of_int n) THEN
+  ARM_BIGSTEP_TAC PUFF_EXEC ("s"^string_of_int n) THEN EVENTS_UNABBREV_TAC THEN
   TRY(ASM_REWRITE_TAC[] THEN NO_TAC);;
 
 (*** The same, rewriting with ths and evaluating numerals first, for a     ***)
@@ -1773,12 +2136,12 @@ let PUFF_CALL_TAC th vars n =
 (*** for arguments that are offsets from the frame of the caller           ***)
 
 let PUFF_CALL_THS_TAC ths th vars n =
-  JMP_VALUES_GHOST_TAC THEN
+  JMP_VALUES_GHOST_TAC THEN EVENTS_ABBREV_TAC THEN
   W(fun gl ->
     let ctx0 = jmp_values gl in
     let vars' = map (fun v -> if v = `ctx0:int64 list` then ctx0 else v)
                     vars in
-    MP_TAC(ISPECL vars' th)) THEN
+    MP_TAC(EVENTS_SPEC gl (ISPECL vars' th))) THEN
   REWRITE_TAC ths THEN CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
   ANTS_TAC THENL [CALLEE_HYPS_TAC; ALL_TAC] THEN
   REWRITE_TAC[C_ARGUMENTS; puff_input; puff_output; puff_table; jmp_context;
@@ -1789,7 +2152,7 @@ let PUFF_CALL_THS_TAC ths th vars n =
   REWRITE_TAC ths THEN
   REWRITE_TAC[WORD_SUB_SUB_NUM; WORD_ADD_ASSOC_NUM] THEN
   CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN
-  ARM_BIGSTEP_TAC PUFF_EXEC ("s"^string_of_int n) THEN
+  ARM_BIGSTEP_TAC PUFF_EXEC ("s"^string_of_int n) THEN EVENTS_UNABBREV_TAC THEN
   TRY(ASM_REWRITE_TAC[] THEN NO_TAC);;
 
 (*** After a call of decode at position p, that its symbol is in range and ***)
