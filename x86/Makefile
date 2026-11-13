@@ -53,11 +53,14 @@ SPLIT=tr ';' '\n'
 
 ifeq ($(ARCHTYPE_RESULT),x86_64)
 ASSEMBLE=as
+LINK=ld
 else
 ifeq ($(OSTYPE_RESULT),Darwin)
 ASSEMBLE=as -arch x86_64
+LINK=ld
 else
 ASSEMBLE=x86_64-linux-gnu-as
+LINK=x86_64-linux-gnu-ld
 endif
 endif
 
@@ -514,13 +517,14 @@ libs2nbignum.a: $(OBJ) ; ar -rc libs2nbignum.a $(OBJ)
 
 mlkem_native2/mlkem_native2_image.elf: $(MLKEM_NATIVE2_IMAGE_OBJ) \
                                        mlkem_native2/mlkem_native2_image.ld
-	ld --no-relax -e 0 -T mlkem_native2/mlkem_native2_image.ld \
+	$(LINK) --no-relax -e 0 -T mlkem_native2/mlkem_native2_image.ld \
 	  -o $@ $(MLKEM_NATIVE2_IMAGE_OBJ)
 
 mlkem_native2_avx512/mlkem_native2_avx512_image.elf: \
         $(MLKEM_NATIVE2_AVX512_IMAGE_OBJ) \
         mlkem_native2_avx512/mlkem_native2_avx512_image.ld
-	ld --no-relax -e 0 -T mlkem_native2_avx512/mlkem_native2_avx512_image.ld \
+	$(LINK) --no-relax -e 0 \
+	  -T mlkem_native2_avx512/mlkem_native2_avx512_image.ld \
 	  -o $@ $(MLKEM_NATIVE2_AVX512_IMAGE_OBJ)
 
 # The code of the API is in the template that the files for the parameter
@@ -642,6 +646,53 @@ p521/p521_jscalarmul_alt.native: p521/bignum_mod_n521_9.native
 sm2/sm2_montjscalarmul.native: sm2/sm2_montjadd.native sm2/sm2_montjdouble.native
 sm2/sm2_montjscalarmul_alt.native: sm2/sm2_montjadd_alt.native sm2/sm2_montjdouble_alt.native
 
+# The proofs of the mlkem_native2 functions are about the image of all the
+# functions they call, and use the theorems for the code of those.
+MLKEM_NATIVE2_IMAGE_PROOF = mlkem_native2/mlkem_native2_image.elf \
+                            proofs/mlkem_native2_image.ml \
+                            proofs/utils/mlkem_native2_tools.ml
+MLKEM_NATIVE2_SPONGE_PROOF = $(MLKEM_NATIVE2_IMAGE_PROOF) \
+                             proofs/utils/mlkem_native2_sponge.ml \
+                             proofs/utils/keccak_fips202.ml \
+                             proofs/utils/mlkem_bytes.ml \
+                             proofs/sha3_keccak_f1600_alt.ml \
+                             sha3/sha3_keccak_f1600_alt.o
+mlkem_native2/mlkem_hash_g.native: \
+  proofs/mlkem_hash_g.ml $(BASE_ML) $(MLKEM_NATIVE2_SPONGE_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+mlkem_native2/mlkem_hash_h.native: \
+  proofs/mlkem_hash_h.ml $(BASE_ML) $(MLKEM_NATIVE2_SPONGE_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+MLKEM_NATIVE2_NOISE_PROOF = $(MLKEM_NATIVE2_SPONGE_PROOF) \
+                            proofs/utils/mlkem_native2_noise.ml \
+                            proofs/mlkem_cbd2.ml mlkem/mlkem_cbd2.o \
+                            proofs/mlkem_cbd3.ml mlkem/mlkem_cbd3.o \
+                            proofs/sha3_keccak4_f1600_alt.ml \
+                            sha3/sha3_keccak4_f1600_alt.o \
+                            sha3/sha3_keccak4_f1600_alt.obj
+mlkem_native2/mlkem_getnoise.native: \
+  proofs/mlkem_getnoise.ml $(BASE_ML) $(MLKEM_NATIVE2_NOISE_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+# The proofs of mlkem_gen_matrix, for each k in their own files (each level
+# of the API needs only those for its k)
+MLKEM_NATIVE2_GM_PROOF = $(MLKEM_NATIVE2_NOISE_PROOF) \
+                         proofs/mlkem_getnoise.ml \
+                         proofs/utils/mlkem_native_fips203.ml \
+                         proofs/utils/mlkem_native2_matrix.ml \
+                         proofs/mlkem_rej_uniform_alt_VARIABLE_TIME.ml \
+                         mlkem/mlkem_rej_uniform_alt_VARIABLE_TIME.o \
+                         proofs/mlkem_unpack.ml mlkem/mlkem_unpack.o \
+                         mlkem/mlkem_unpack.obj proofs/mlkem_gen_matrix.ml
+mlkem_native2/mlkem_gen_matrix_k2.native: \
+  proofs/mlkem_gen_matrix_k2.ml $(BASE_ML) $(MLKEM_NATIVE2_GM_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+mlkem_native2/mlkem_gen_matrix_k3.native: \
+  proofs/mlkem_gen_matrix_k3.ml $(BASE_ML) $(MLKEM_NATIVE2_GM_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+mlkem_native2/mlkem_gen_matrix_k4.native: \
+  proofs/mlkem_gen_matrix_k4.ml $(BASE_ML) $(MLKEM_NATIVE2_GM_PROOF) ; \
+  ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
+
 # Tutorial
 
 # safety tutorial does not have safety.o and uses existing ones
@@ -667,6 +718,17 @@ run_proofs: build_proofs $(PROOF_LOGS);
 
 proofs: run_proofs ; ../tools/count-proofs.sh .
 tutorial: build_tutorial $(TUTORIAL_PROOF_LOGS);
+
+# The proofs of the mlkem_native2 functions, which are not in OBJ
+
+MLKEM_NATIVE2_PROOF_LOGS = mlkem_native2/mlkem_gen_matrix_k2.correct \
+                           mlkem_native2/mlkem_gen_matrix_k3.correct \
+                           mlkem_native2/mlkem_gen_matrix_k4.correct \
+                           mlkem_native2/mlkem_getnoise.correct \
+                           mlkem_native2/mlkem_hash_g.correct \
+                           mlkem_native2/mlkem_hash_h.correct
+
+mlkem_native2_proofs: $(MLKEM_NATIVE2_PROOF_LOGS);
 
 
 x86-insns.ml: ; ../tools/list-x86-insns.sh x86-insns.ml
