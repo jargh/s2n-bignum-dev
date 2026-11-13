@@ -803,8 +803,6 @@ let DECOMPRESS_D11_CORRECT = prove(`!(x : 16 word). val x < 3329 ==> compress_d1
   MP_TAC(SPEC `val(x:16 word)` CORE) THEN
   ASM_REWRITE_TAC[WORD_VAL]);;
  
-type asm_info = { label: string; thm: thm; comp: string; addr: term; rhs: term };;
-
 let COMBINE_WBYTES_176_TAC : tactic = fun (asl,w) ->
   let get_comp_addr_rhs tm =
     try let l = lhand tm and r = rand tm in

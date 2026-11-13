@@ -504,3 +504,12 @@ let WORD_PACKED_EQ_D11 = prove(
   CONV_TAC(DEPTH_CONV DIMINDEX_CONV) THEN
   CONV_TAC NUM_REDUCE_CONV THEN
   SIMP_TAC[]);;
+
+(* ------------------------------------------------------------------------- *)
+(* The loads that the tactics of the compression proofs combine into wider   *)
+(* words: one type for all the files that use it, since a native build of    *)
+(* several of them is a single OCaml module.                                 *)
+(* ------------------------------------------------------------------------- *)
+
+type asm_info =
+  { label: string; thm: thm; comp: string; addr: term; rhs: term };;

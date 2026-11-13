@@ -6,12 +6,16 @@
 (* ========================================================================= *)
 (* The API of ML-KEM-768 in the x86 mlkem_native2                            *)
 (* (x86/mlkem_native2/mlkem768.S), in the image: the key checks of FIPS 203  *)
-(* (section 7), with the results and their constant-time and memory          *)
-(* safety, stated as in the proofs of the compiled C of mlkem-native.        *)
-(* As arm/proofs/mlkem768.ml for AArch64.                                    *)
+(* (section 7), with their constant-time and memory safety, the internal     *)
+(* functions for K-PKE encryption and decryption, and key generation,        *)
+(* encapsulation and decapsulation, with the results, stated as in the       *)
+(* proofs of the compiled C of mlkem-native. As arm/proofs/mlkem768.ml for   *)
+(* AArch64.                                                                  *)
 (* ========================================================================= *)
 
 needs "x86/proofs/utils/mlkem_native2_api.ml";;
+needs "x86/proofs/utils/mlkem_native2_kem.ml";;
+needs "x86/proofs/mlkem_gen_matrix_k3.ml";;
 
 (* ------------------------------------------------------------------------- *)
 (* The modulus check of an encapsulation key pk: 0 if the 768 12-bit         *)
@@ -125,3 +129,223 @@ let MLKEM768_CHECK_SK_SUBROUTINE_SAFE = time prove
              MAYCHANGE
               [memory :> bytes(word_sub stackpointer (word 320),320)])`,
   MLKEM_NATIVE2_CHECK_SK_SAFE_TAC MLKEM768_CHECK_SK_EXEC 1184);;
+
+(* ------------------------------------------------------------------------- *)
+(* K-PKE.Encrypt (FIPS 203 Algorithm 14) as the internal function            *)
+(* mlkem768_pke_encrypt(ct, at, pk, m, noise): the ciphertext of the         *)
+(* message m under the encryption key ek at pk with randomness r, given      *)
+(* the transposed matrix at (row i, column j sampled from rho || i || j,     *)
+(* in the order of the coefficients of the x86 NTT domain) and the noise     *)
+(* y, e1, e2 sampled from r as 16-bit coefficients at noise, which are       *)
+(* overwritten. The buffers at and noise are 32-byte aligned.                *)
+(* ------------------------------------------------------------------------- *)
+
+let MLKEM768_PKE_ENCRYPT_EXEC =
+  MLKEM_NATIVE2_IMAGE_EXEC ["mlkem768_pke_encrypt"];;
+
+let MLKEM768_PKE_ENCRYPT_SUBROUTINE_CORRECT = prove
+ (`!ct at pk mp noise (ek:byte list) (m:byte list) (r:byte list)
+    pc stackpointer returnaddress.
+     aligned 32 (word pc:int64) /\ aligned 32 at /\ aligned 32 noise /\
+     LENGTH ek = 1184 /\ LENGTH m = 32 /\
+     nonoverlapping (pk,1184) (word pc,mlkem_native2_image_size) /\
+     PAIRWISE nonoverlapping
+      [(ct,1088); (noise,3584); (word_sub stackpointer (word 4951),4959)] /\
+     ALLPAIRS nonoverlapping
+      [(ct,1088); (noise,3584); (word_sub stackpointer (word 4951),4959)]
+      [(word pc,mlkem_native2_image_size); (at,4608); (pk,1184); (mp,32)]
+     ==> ensures x86
+          (\s. bytes_loaded s (word pc) mlkem_native2_image_mc /\
+               read RIP s = word(pc + mlkem768_pke_encrypt) /\
+               read RSP s = stackpointer /\
+               read (memory :> bytes64 stackpointer) s = returnaddress /\
+               C_ARGUMENTS [ct; at; pk; mp; noise] s /\
+               (!i j t. i < 3 /\ j < 3 /\ t < 256
+                        ==> read(memory :> bytes16(word_add at
+                                 (word(512 * (3 * i + j) + 2 * t)))) s =
+                            iword(mlkem_sample_ntt
+                                   (APPEND (mlkem_slice 1152 32 ek)
+                                           [word i; word j])
+                                   (avx_unorder t))) /\
+               read (memory :> bytes(pk,1184)) s = num_of_bytelist ek /\
+               read (memory :> bytes(mp,32)) s = num_of_bytelist m /\
+               (!i t. i < 7 /\ t < 256
+                      ==> read(memory :> bytes16(word_add noise
+                                 (word(512 * i + 2 * t)))) s =
+                          iword(mlkem_cbd_coeff 2
+                                 (mlkem_prf 2 r (word i)) t)))
+          (\s. read RIP s = returnaddress /\
+               read RSP s = word_add stackpointer (word 8) /\
+               read (memory :> bytes(ct,1088)) s =
+               num_of_bytelist(kpke_encrypt mlkem768 ek m r))
+          (MAYCHANGE [RSP] ,, MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(ct,1088); memory :> bytes(noise,3584);
+                      memory :> bytes(word_sub stackpointer (word 4951),
+                                      4951)])`,
+  MLKEM_NATIVE2_PKE_ENCRYPT_CORRECT_TAC 3 MLKEM768_PKE_ENCRYPT_EXEC);;
+
+(* ------------------------------------------------------------------------- *)
+(* K-PKE.Decrypt (FIPS 203 Algorithm 15) as the internal function            *)
+(* mlkem768_pke_decrypt(m, ct, sk): the message of the ciphertext c at ct    *)
+(* under the decryption key dk at sk.                                        *)
+(* ------------------------------------------------------------------------- *)
+
+let MLKEM768_PKE_DECRYPT_EXEC =
+  MLKEM_NATIVE2_IMAGE_EXEC ["mlkem768_pke_decrypt"];;
+
+let MLKEM768_PKE_DECRYPT_SUBROUTINE_CORRECT = prove
+ (`!mp ct sk (c:byte list) (dk:byte list) pc stackpointer returnaddress.
+     aligned 32 (word pc:int64) /\ LENGTH c = 1088 /\ LENGTH dk = 1152 /\
+     nonoverlapping (sk,1152) (word pc,mlkem_native2_image_size) /\
+     PAIRWISE nonoverlapping
+      [(mp,32); (word_sub stackpointer (word 4951),4959)] /\
+     ALLPAIRS nonoverlapping
+      [(mp,32); (word_sub stackpointer (word 4951),4959)]
+      [(word pc,mlkem_native2_image_size); (ct,1088); (sk,1152)]
+     ==> ensures x86
+          (\s. bytes_loaded s (word pc) mlkem_native2_image_mc /\
+               read RIP s = word(pc + mlkem768_pke_decrypt) /\
+               read RSP s = stackpointer /\
+               read (memory :> bytes64 stackpointer) s = returnaddress /\
+               C_ARGUMENTS [mp; ct; sk] s /\
+               read (memory :> bytes(ct,1088)) s = num_of_bytelist c /\
+               read (memory :> bytes(sk,1152)) s = num_of_bytelist dk)
+          (\s. read RIP s = returnaddress /\
+               read RSP s = word_add stackpointer (word 8) /\
+               read (memory :> bytes(mp,32)) s =
+               num_of_bytelist(kpke_decrypt mlkem768 dk c))
+          (MAYCHANGE [RSP] ,, MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(mp,32);
+                      memory :> bytes(word_sub stackpointer (word 4951),
+                                      4951)])`,
+  MLKEM_NATIVE2_PKE_DECRYPT_CORRECT_TAC 3 MLKEM768_PKE_DECRYPT_EXEC);;
+
+(* ------------------------------------------------------------------------- *)
+(* ML-KEM.KeyGen_internal (FIPS 203 Algorithm 16) from d and z at            *)
+(* coins, the keys at pk and sk; the return value is 0.                      *)
+(* ------------------------------------------------------------------------- *)
+
+let MLKEM768_KEYPAIR_DERAND_EXEC =
+  MLKEM_NATIVE2_IMAGE_EXEC ["mlkem768_keypair_derand"];;
+
+let MLKEM768_KEYPAIR_DERAND_SUBROUTINE_CORRECT = prove
+ (`!pk sk coins (d:byte list) (z:byte list) pc stackpointer returnaddress.
+     aligned 32 (word pc:int64) /\ LENGTH d = 32 /\ LENGTH z = 32 /\
+     PAIRWISE nonoverlapping
+      [(pk,1184); (sk,2400); (word_sub stackpointer (word 14214),14222)] /\
+     ALLPAIRS nonoverlapping
+      [(pk,1184); (sk,2400); (word_sub stackpointer (word 14214),14222)]
+      [(coins,64); (word pc,mlkem_native2_image_size)]
+     ==> ensures x86
+          (\s. bytes_loaded s (word pc) mlkem_native2_image_mc /\
+               read RIP s = word(pc + mlkem768_keypair_derand) /\
+               read RSP s = stackpointer /\
+               read (memory :> bytes64 stackpointer) s = returnaddress /\
+               C_ARGUMENTS [pk; sk; coins] s /\
+               read (memory :> bytes(coins,32)) s = num_of_bytelist d /\
+               read (memory :> bytes(word_add coins (word 32),32)) s =
+               num_of_bytelist z)
+          (\s. read RIP s = returnaddress /\
+               read RSP s = word_add stackpointer (word 8) /\
+               read (memory :> bytes(pk,1184)) s =
+               num_of_bytelist(FST(mlkem_keygen mlkem768 d z)) /\
+               read (memory :> bytes(sk,2400)) s =
+               num_of_bytelist(SND(mlkem_keygen mlkem768 d z)) /\
+               C_RETURN s = word 0)
+          (MAYCHANGE [RSP] ,, MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(pk,1184); memory :> bytes(sk,2400);
+                      memory :> bytes(word_sub stackpointer (word 14214),
+                                      14214)])`,
+  MLKEM_NATIVE2_KEYPAIR_DERAND_CORRECT_TAC 3 MLKEM768_KEYPAIR_DERAND_EXEC
+   MLKEM_GEN_MATRIX_K3_NOISE_SUBROUTINE_CORRECT);;
+
+(* ------------------------------------------------------------------------- *)
+(* ML-KEM.Encaps_internal (FIPS 203 Algorithm 17), after the modulus         *)
+(* check of the encapsulation key (FIPS 203 section 7.2): if the check       *)
+(* passes, the shared secret at ss, the ciphertext at ct and the return      *)
+(* value 0, else -4 (MLK_ERR_INVALID_PK).                                    *)
+(* ------------------------------------------------------------------------- *)
+
+let MLKEM768_ENC_DERAND_EXEC =
+  MLKEM_NATIVE2_IMAGE_EXEC ["mlkem768_enc_derand"];;
+
+let MLKEM768_ENC_DERAND_SUBROUTINE_CORRECT = prove
+ (`!ct ss pk coins (ek:byte list) (m:byte list) pc stackpointer
+    returnaddress.
+     aligned 32 (word pc:int64) /\ LENGTH ek = 1184 /\ LENGTH m = 32 /\
+     nonoverlapping (pk,1184) (word pc,mlkem_native2_image_size) /\
+     PAIRWISE nonoverlapping
+      [(ct,1088); (ss,32); (word_sub stackpointer (word 13454),13462)] /\
+     ALLPAIRS nonoverlapping
+      [(ct,1088); (ss,32); (word_sub stackpointer (word 13454),13462)]
+      [(pk,1184); (coins,32); (word pc,mlkem_native2_image_size)]
+     ==> ensures x86
+          (\s. bytes_loaded s (word pc) mlkem_native2_image_mc /\
+               read RIP s = word(pc + mlkem768_enc_derand) /\
+               read RSP s = stackpointer /\
+               read (memory :> bytes64 stackpointer) s = returnaddress /\
+               C_ARGUMENTS [ct; ss; pk; coins] s /\
+               read (memory :> bytes(pk,1184)) s = num_of_bytelist ek /\
+               read (memory :> bytes(coins,32)) s = num_of_bytelist m)
+          (\s. read RIP s = returnaddress /\
+               read RSP s = word_add stackpointer (word 8) /\
+               (mlkem_ek_check mlkem768 ek
+                ==> read (memory :> bytes(ss,32)) s =
+                    num_of_bytelist
+                     (FST(mlkem_encaps_internal mlkem768 ek m)) /\
+                    read (memory :> bytes(ct,1088)) s =
+                    num_of_bytelist
+                     (SND(mlkem_encaps_internal mlkem768 ek m))) /\
+               C_RETURN s =
+               (if mlkem_ek_check mlkem768 ek then word 0
+                else word 0xfffffffc))
+          (MAYCHANGE [RSP] ,, MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(ct,1088); memory :> bytes(ss,32);
+                      memory :> bytes(word_sub stackpointer (word 13454),
+                                      13454)])`,
+  MLKEM_NATIVE2_ENC_DERAND_CORRECT_TAC 3 MLKEM768_ENC_DERAND_EXEC
+   MLKEM_GEN_MATRIX_K3_HASH_SUBROUTINE_CORRECT
+   MLKEM768_PKE_ENCRYPT_SUBROUTINE_CORRECT);;
+
+(* ------------------------------------------------------------------------- *)
+(* ML-KEM.Decaps_internal (FIPS 203 Algorithm 18), after the hash check      *)
+(* of the decapsulation key (FIPS 203 section 7.3): if the check             *)
+(* passes, the shared secret at ss and the return value 0, else -5           *)
+(* (MLK_ERR_INVALID_SK).                                                     *)
+(* ------------------------------------------------------------------------- *)
+
+let MLKEM768_DEC_EXEC = MLKEM_NATIVE2_IMAGE_EXEC ["mlkem768_dec"];;
+
+let MLKEM768_DEC_SUBROUTINE_CORRECT = prove
+ (`!ss ct sk (dk:byte list) (c:byte list) pc stackpointer returnaddress.
+     aligned 32 (word pc:int64) /\ LENGTH dk = 2400 /\ LENGTH c = 1088 /\
+     nonoverlapping (ct,1088) (word pc,mlkem_native2_image_size) /\
+     nonoverlapping (sk,2400) (word pc,mlkem_native2_image_size) /\
+     nonoverlapping (ss,32) (word_sub stackpointer (word 16438),16446) /\
+     ALLPAIRS nonoverlapping
+      [(ss,32); (word_sub stackpointer (word 16438),16446)]
+      [(ct,1088); (sk,2400); (word pc,mlkem_native2_image_size)]
+     ==> ensures x86
+          (\s. bytes_loaded s (word pc) mlkem_native2_image_mc /\
+               read RIP s = word(pc + mlkem768_dec) /\
+               read RSP s = stackpointer /\
+               read (memory :> bytes64 stackpointer) s = returnaddress /\
+               C_ARGUMENTS [ss; ct; sk] s /\
+               read (memory :> bytes(ct,1088)) s = num_of_bytelist c /\
+               read (memory :> bytes(sk,2400)) s = num_of_bytelist dk)
+          (\s. read RIP s = returnaddress /\
+               read RSP s = word_add stackpointer (word 8) /\
+               (mlkem_decaps_check mlkem768 dk c
+                ==> read (memory :> bytes(ss,32)) s =
+                    num_of_bytelist(mlkem_decaps_internal mlkem768 dk c)) /\
+               C_RETURN s =
+               (if mlkem_decaps_check mlkem768 dk c then word 0
+                else word 0xfffffffb))
+          (MAYCHANGE [RSP] ,, MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+           MAYCHANGE [memory :> bytes(ss,32);
+                      memory :> bytes(word_sub stackpointer (word 16438),
+                                      16438)])`,
+  MLKEM_NATIVE2_DEC_CORRECT_TAC 3 MLKEM768_DEC_EXEC
+   MLKEM_GEN_MATRIX_K3_HASHES_NOISE_SUBROUTINE_CORRECT
+   (MLKEM768_PKE_DECRYPT_SUBROUTINE_CORRECT,
+    MLKEM768_PKE_ENCRYPT_SUBROUTINE_CORRECT));;

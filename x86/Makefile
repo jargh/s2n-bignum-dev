@@ -721,14 +721,63 @@ MLKEM_NATIVE2_API_PROOF = $(MLKEM_NATIVE2_NOISE_PROOF) \
                           proofs/mlkem_hash_h.ml \
                           proofs/mlkem_check_encoding.ml \
                           mlkem/mlkem_check_encoding.o
+MLKEM_NATIVE2_KEM_PROOF = $(MLKEM_NATIVE2_API_PROOF) \
+                          $(MLKEM_NATIVE2_GM_PROOF) \
+                          proofs/utils/mlkem_native2_kpke.ml \
+                          proofs/utils/mlkem_native2_kem.ml \
+                          proofs/mlkem_hash_g.ml \
+                          proofs/mlkem_ntt.ml \
+                          mlkem/mlkem_ntt.o mlkem/mlkem_ntt.obj \
+                          proofs/mlkem_intt.ml \
+                          mlkem/mlkem_intt.o mlkem/mlkem_intt.obj \
+                          proofs/mlkem_mulcache_compute.ml \
+                          mlkem/mlkem_mulcache_compute.o \
+                          mlkem/mlkem_mulcache_compute.obj \
+                          proofs/mlkem_basemul_k2.ml \
+                          mlkem/mlkem_basemul_k2.o mlkem/mlkem_basemul_k2.obj \
+                          proofs/mlkem_basemul_k3.ml \
+                          mlkem/mlkem_basemul_k3.o mlkem/mlkem_basemul_k3.obj \
+                          proofs/mlkem_basemul_k4.ml \
+                          mlkem/mlkem_basemul_k4.o mlkem/mlkem_basemul_k4.obj \
+                          proofs/mlkem_tomont.ml \
+                          mlkem/mlkem_tomont.o mlkem/mlkem_tomont.obj \
+                          proofs/mlkem_reduce.ml \
+                          mlkem/mlkem_reduce.o mlkem/mlkem_reduce.obj \
+                          proofs/mlkem_add_reduce.ml mlkem/mlkem_add_reduce.o \
+                          proofs/mlkem_sub_reduce.ml mlkem/mlkem_sub_reduce.o \
+                          proofs/mlkem_tobytes.ml \
+                          mlkem/mlkem_tobytes.o mlkem/mlkem_tobytes.obj \
+                          proofs/mlkem_frombytes.ml \
+                          mlkem/mlkem_frombytes.o mlkem/mlkem_frombytes.obj \
+                          proofs/mlkem_frommsg.ml mlkem/mlkem_frommsg.o \
+                          proofs/mlkem_tomsg.ml mlkem/mlkem_tomsg.o \
+                          proofs/mlkem_compress_d4_x86.ml \
+                          mlkem/mlkem_compress_d4_x86.o \
+                          proofs/mlkem_compress_d5_x86.ml \
+                          mlkem/mlkem_compress_d5_x86.o \
+                          proofs/mlkem_compress_d10_x86.ml \
+                          mlkem/mlkem_compress_d10_x86.o \
+                          proofs/mlkem_compress_d11_x86.ml \
+                          mlkem/mlkem_compress_d11_x86.o \
+                          proofs/mlkem_decompress_d4_x86.ml \
+                          mlkem/mlkem_decompress_d4_x86.o \
+                          proofs/mlkem_decompress_d5_x86.ml \
+                          mlkem/mlkem_decompress_d5_x86.o \
+                          proofs/mlkem_decompress_d10_x86.ml \
+                          mlkem/mlkem_decompress_d10_x86.o \
+                          proofs/mlkem_decompress_d11_x86.ml \
+                          mlkem/mlkem_decompress_d11_x86.o
 mlkem_native2/mlkem512.native: \
-  proofs/mlkem512.ml $(BASE_ML) $(MLKEM_NATIVE2_API_PROOF) ; \
+  proofs/mlkem512.ml $(BASE_ML) $(MLKEM_NATIVE2_KEM_PROOF) \
+  proofs/mlkem_gen_matrix_k2.ml ; \
   ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
 mlkem_native2/mlkem768.native: \
-  proofs/mlkem768.ml $(BASE_ML) $(MLKEM_NATIVE2_API_PROOF) ; \
+  proofs/mlkem768.ml $(BASE_ML) $(MLKEM_NATIVE2_KEM_PROOF) \
+  proofs/mlkem_gen_matrix_k3.ml ; \
   ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
 mlkem_native2/mlkem1024.native: \
-  proofs/mlkem1024.ml $(BASE_ML) $(MLKEM_NATIVE2_API_PROOF) ; \
+  proofs/mlkem1024.ml $(BASE_ML) $(MLKEM_NATIVE2_KEM_PROOF) \
+  proofs/mlkem_gen_matrix_k4.ml ; \
   ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
 
 # Tutorial

@@ -728,8 +728,6 @@ let READ_MEMORY_WBYTES_MERGE_128_32 = prove(
 (* Tactic to combine 128+32 byte reads into 160-bit words                    *)
 (* ------------------------------------------------------------------------- *)
 
-type asm_info = { label: string; thm: thm; comp: string; addr: term; rhs: term };;
-
 let COMBINE_WBYTES_160_TAC : tactic = fun (asl,w) ->
   let get_comp_addr_rhs tm =
     try let l = lhand tm and r = rand tm in
