@@ -767,17 +767,20 @@ MLKEM_NATIVE2_KEM_PROOF = $(MLKEM_NATIVE2_API_PROOF) \
                           mlkem/mlkem_decompress_d10_x86.o \
                           proofs/mlkem_decompress_d11_x86.ml \
                           mlkem/mlkem_decompress_d11_x86.o
+MLKEM_NATIVE2_KEM_SAFE_PROOF = $(MLKEM_NATIVE2_KEM_PROOF) \
+                               $(MLKEM_NATIVE2_GM_SAFE_PROOF) \
+                               proofs/utils/mlkem_native2_kem_safe.ml
 mlkem_native2/mlkem512.native: \
-  proofs/mlkem512.ml $(BASE_ML) $(MLKEM_NATIVE2_KEM_PROOF) \
-  proofs/mlkem_gen_matrix_k2.ml ; \
+  proofs/mlkem512.ml $(BASE_ML) $(MLKEM_NATIVE2_KEM_SAFE_PROOF) \
+  proofs/mlkem_gen_matrix_k2.ml proofs/mlkem_gen_matrix_k2_safe.ml ; \
   ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
 mlkem_native2/mlkem768.native: \
-  proofs/mlkem768.ml $(BASE_ML) $(MLKEM_NATIVE2_KEM_PROOF) \
-  proofs/mlkem_gen_matrix_k3.ml ; \
+  proofs/mlkem768.ml $(BASE_ML) $(MLKEM_NATIVE2_KEM_SAFE_PROOF) \
+  proofs/mlkem_gen_matrix_k3.ml proofs/mlkem_gen_matrix_k3_safe.ml ; \
   ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
 mlkem_native2/mlkem1024.native: \
-  proofs/mlkem1024.ml $(BASE_ML) $(MLKEM_NATIVE2_KEM_PROOF) \
-  proofs/mlkem_gen_matrix_k4.ml ; \
+  proofs/mlkem1024.ml $(BASE_ML) $(MLKEM_NATIVE2_KEM_SAFE_PROOF) \
+  proofs/mlkem_gen_matrix_k4.ml proofs/mlkem_gen_matrix_k4_safe.ml ; \
   ../tools/build-proof.sh "$<" "$(HOLLIGHT)" "$@"
 
 # Tutorial

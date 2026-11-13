@@ -106,10 +106,10 @@ parameter set, `mlkemL.o`, needs the middle layer and the constants block
 from here, the leaves in `../mlkem` and the two Keccak permutations in
 `../sha3` (the list `MLKEM_NATIVE2_IMAGE_OBJ` of `../Makefile`).
 
-## The image, for the proofs
+## Proofs
 
-The functions here call others (direct calls only), so their proofs will
-be about the image of all the functions involved: the objects in
+The functions here call others (direct calls only), so their proofs are
+about the image of all the functions involved: the objects in
 `MLKEM_NATIVE2_IMAGE_OBJ` of `../Makefile`, linked at address 0 by
 `mlkem_native2_image.ld` into `mlkem_native2_image.elf` (`make
 mlkem_native2/mlkem_native2_image.elf` in `x86`, with GNU ld): the code of
@@ -121,16 +121,73 @@ call in it is a direct call, and the only RIP-relative references are the
 assembly, so there is no stack-protector code: no instruction uses fs or
 gs, the segment registers with a base in 64-bit mode (`check_noseg.sh` in
 the tests checks this), and the only segment prefixes are the CS prefixes
-of some of the NOPs of the padding.
+of some of the NOPs of the padding. `../proofs/mlkem_native2_image.ml`
+reads the image as one byte list and installs the names of its symbols,
+so that a proof refers to the function f or the label f in the image as
+`pc + f`; the theorems for the leaves and the Keccak permutations, about
+their own code, are used for the same code in the image. The theorems are
+thus for this layout of the image, and are checked again when it changes.
 
 The instructions of the image that are not in `../allowed_asm` (the
 constant-time list) are the conditional branches (on public data only),
 `vpmovmskb`, `vptest`, `setcc`, `popcnt` (in the rejection sampler, whose
 input is public), the byte and word forms of `mov`, `xor` and `movzx`,
 the NOPs of the padding between functions, and `vpsllvq` (rho in
-`sha3_keccak_f1600_alt`, with constant counts). All are decoded by the
-x86 model but `vpsllvq` (VPSLLVQ), which it does not decode yet: the
-proofs need it added, as the 64-bit form of VPSLLVD.
+`sha3_keccak_f1600_alt`, with constant counts). All are in the x86 model.
+
+`make mlkem_native2_proofs` in `x86` runs the proofs, as on AArch64:
+
+- `mlkem_hash_h` (SHA3-256) and `mlkem_hash_g` (SHA3-512), against
+  `sha3_256` and `sha3_512` of `../../common/fips202.ml`, with their
+  constant-time and memory safety (`../proofs/mlkem_hash_h.ml`,
+  `../proofs/mlkem_hash_g.ml`, and `../proofs/utils/mlkem_native2_sponge.ml`
+  for the sponge and the use of `sha3_keccak_f1600_alt`).
+- `mlkem_gen_matrix` for the nine configurations that the API uses (k = 2,
+  3, 4 in key generation, encapsulation and decapsulation, with their hash
+  jobs and noise), against `mlkem_sample_ntt` (in the order of the
+  coefficients of the x86 NTT domain, as `mlkem_unpack` leaves them),
+  `sha3_256`, `shake256` and the coefficients of `mlkem_cbd`
+  (`../proofs/mlkem_gen_matrix_k2.ml`, `_k3.ml` and `_k4.ml`, with the
+  code and the common parts in `../proofs/mlkem_gen_matrix.ml` and
+  `../proofs/utils/mlkem_native2_matrix.ml`, and the lemmas on FIPS 203
+  of the proofs of mlkem-native's compiled C in
+  `../proofs/utils/mlkem_native_fips203.ml`). Its constant-time and memory
+  safety, with the events a function of the addresses and of the public
+  seed rho (and, for decapsulation, the digest H(ek) of the first hash job
+  as a result), are in `../proofs/mlkem_gen_matrix_k2_safe.ml`,
+  `_k3_safe.ml` and `_k4_safe.ml`, with the common parts in
+  `../proofs/utils/mlkem_native2_gm_safe.ml`, the tools for the callees in
+  `../proofs/utils/mlkem_native2_safety.ml`, and theorems of correctness
+  and safety in one for the Keccak permutations and the rejection sampler
+  (`../proofs/utils/mlkem_native2_keccak_full.ml` and
+  `../proofs/utils/mlkem_native2_rej_full.ml`).
+- `mlkem_getnoise` for the configurations that the API uses (n = 4, 7, 8,
+  9 with eta1 = 2, and the first 4 of 4 or 2 of 5 with eta1 = 3), against
+  `mlkem_prf` and the coefficients of `mlkem_cbd`, with its constant-time
+  and memory safety (`../proofs/mlkem_getnoise.ml` and
+  `../proofs/utils/mlkem_native2_noise.ml`).
+- The API functions for the three parameter sets, with the same statements
+  as the proofs of mlkem-native's compiled C: the key checks
+  `mlkemL_check_pk` and `mlkemL_check_sk`, with their constant-time and
+  memory safety, and `mlkemL_keypair_derand`, `mlkemL_enc_derand` and
+  `mlkemL_dec` against ML-KEM.KeyGen_internal, Encaps_internal (after the
+  modulus check) and Decaps_internal (after the hash check), with the
+  internal `mlkemL_pke_encrypt` and `mlkemL_pke_decrypt` against
+  K-PKE.Encrypt and K-PKE.Decrypt, and the constant-time and memory safety
+  of these five, with the events a function of the addresses and of the
+  public data: rho in key generation, ek in encapsulation, and ek and its
+  hash in dk in decapsulation (`../proofs/mlkem512.ml`, `mlkem768.ml` and
+  `mlkem1024.ml`, with the common parts in
+  `../proofs/utils/mlkem_native2_api.ml`,
+  `../proofs/utils/mlkem_native2_kem.ml` and
+  `../proofs/utils/mlkem_native2_kem_safe.ml`, and the lemmas on K-PKE of
+  the proofs of mlkem-native's compiled C in
+  `../proofs/utils/mlkem_native2_kpke.ml`). As on AArch64, no theorem
+  assumes that SampleNTT terminates for the seeds of the matrix. The
+  frames of the API functions are realigned to 32 bytes below the return
+  address, so the theorems allow any alignment of the stack pointer, and
+  in the safety theorems the offset of the frame is a function of the
+  stack pointer.
 
 There are no AT&T versions of these files, or of the new leaves and of
 `sha3_keccak_f1600_alt`, in `../../x86_att`.
