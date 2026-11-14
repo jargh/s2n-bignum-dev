@@ -456,6 +456,12 @@ TUTORIAL_OBJ = $(filter-out tutorial/aes_encrypt_decrypt.o tutorial/safety.o, $(
 	$(OBJDUMP) $@ | ( ( ! grep --ignore-case -E 'w18|[^0]x18' ) || ( rm $@ ; exit 1 ) )
 	cat $< | $(PREPROCESS) | $(SPLIT) | $(ASSEMBLE) -march=armv8-a+crypto -o $@ -
 
+# The transcription of zstd's code, compiled for Linux, where x18 is an
+# ordinary temporary register that gcc uses, so it is not checked for x18.
+
+zstd/zstd_huf_gcc12_O2.o : zstd/zstd_huf_gcc12_O2.S
+	cat $< | $(PREPROCESS) | $(SPLIT) | $(ASSEMBLE) -march=armv8-a+crypto -o $@ -
+
 libs2nbignum.a: $(OBJ) ; ar -rc libs2nbignum.a $(OBJ)
 
 clean:; rm -f libs2nbignum.a */*.o */*/*.o */*.correct */*.native
