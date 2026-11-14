@@ -5,10 +5,12 @@
 
 (* ========================================================================= *)
 (* Facts about the specification of Huffman-coded literals in the Zstandard  *)
-(* format in rfc8878.ml, for the proofs about zstd's code.                   *)
+(* format in rfc8878.ml, and of the FSE tables used for their weights, for   *)
+(* the proofs about zstd's code.                                             *)
 (* ========================================================================= *)
 
 needs "common/rfc8878.ml";;
+needs "Library/pocklington.ml";;
 
 (* ------------------------------------------------------------------------- *)
 (* The canonical prefix code of a list of weights ws: the symbols present    *)
@@ -596,3 +598,989 @@ let ZSTD_BACK_DIV = prove
   REWRITE_TAC[GSYM MULT_ASSOC] THEN
   GEN_REWRITE_TAC (LAND_CONV o RAND_CONV) [MULT_SYM] THEN
   SIMP_TAC[DIV_MULT2; EXP_EQ_0; ARITH_EQ]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Lemmas about list_of_seq, FILTER, ITLIST and ASSOC.                       *)
+(* ------------------------------------------------------------------------- *)
+
+let LIST_OF_SEQ_0 = prove
+ (`!f:num->A. list_of_seq f 0 = []`,
+  REWRITE_TAC[list_of_seq]);;
+
+let LIST_OF_SEQ_SING = prove
+ (`!f:num->A. list_of_seq f 1 = [f 0]`,
+  REWRITE_TAC[num_CONV `1`; list_of_seq; APPEND]);;
+
+let LIST_OF_SEQ_ADD1 = prove
+ (`!f:num->A n. list_of_seq f (n + 1) = APPEND (list_of_seq f n) [f n]`,
+  REWRITE_TAC[GSYM ADD1; list_of_seq]);;
+
+let LIST_OF_SEQ_ADD_APPEND = prove
+ (`!(f:num->A) m n.
+        list_of_seq f (m + n) =
+        APPEND (list_of_seq f m) (list_of_seq (\i. f(m + i)) n)`,
+  GEN_TAC THEN GEN_TAC THEN INDUCT_TAC THEN
+  REWRITE_TAC[ADD_CLAUSES; LIST_OF_SEQ_0; APPEND_NIL] THEN
+  REWRITE_TAC[ADD1; ADD_ASSOC; LIST_OF_SEQ_ADD1] THEN
+  ASM_REWRITE_TAC[APPEND_ASSOC]);;
+
+let MEM_LIST_OF_SEQ = prove
+ (`!(f:num->A) n x. MEM x (list_of_seq f n) <=> ?i. i < n /\ x = f i`,
+  REWRITE_TAC[MEM_EXISTS_EL; LENGTH_LIST_OF_SEQ] THEN
+  MESON_TAC[EL_LIST_OF_SEQ]);;
+
+let LENGTH_FILTER_LIST_OF_SEQ_SUC = prove
+ (`!P (f:num->A) j.
+        LENGTH(FILTER P (list_of_seq f (j + 1))) =
+        LENGTH(FILTER P (list_of_seq f j)) + (if P(f j) then 1 else 0)`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[LIST_OF_SEQ_ADD1; FILTER_APPEND; LENGTH_APPEND; FILTER] THEN
+  COND_CASES_TAC THEN REWRITE_TAC[LENGTH] THEN ARITH_TAC);;
+
+let LENGTH_FILTER_LIST_OF_SEQ = prove
+ (`!P (f:num->A) n.
+        LENGTH(FILTER P (list_of_seq f n)) = CARD {j | j < n /\ P(f j)}`,
+  GEN_TAC THEN GEN_TAC THEN INDUCT_TAC THEN
+  REWRITE_TAC[LIST_OF_SEQ_0; FILTER; LENGTH; CONJUNCT1 LT; EMPTY_GSPEC;
+              CARD_CLAUSES] THEN
+  REWRITE_TAC[ADD1; LENGTH_FILTER_LIST_OF_SEQ_SUC] THEN ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN `FINITE {j | j < n /\ P((f:num->A) j)}` ASSUME_TAC THENL
+   [MATCH_MP_TAC FINITE_SUBSET THEN EXISTS_TAC `{j:num | j < n}` THEN
+    REWRITE_TAC[FINITE_NUMSEG_LT] THEN SET_TAC[];
+    ALL_TAC] THEN
+  COND_CASES_TAC THENL
+   [SUBGOAL_THEN
+     `{j | j < n + 1 /\ P((f:num->A) j)} = n INSERT {j | j < n /\ P(f j)}`
+    SUBST1_TAC THENL
+     [REWRITE_TAC[EXTENSION; IN_INSERT; IN_ELIM_THM] THEN
+      X_GEN_TAC `j:num` THEN ASM_CASES_TAC `j:num = n` THEN
+      ASM_REWRITE_TAC[ARITH_RULE `j < n + 1 <=> j < n \/ j = n`; LT_REFL];
+      ASM_SIMP_TAC[CARD_CLAUSES; IN_ELIM_THM; LT_REFL; ADD1]];
+    REWRITE_TAC[ADD_CLAUSES] THEN AP_TERM_TAC THEN
+    REWRITE_TAC[EXTENSION; IN_ELIM_THM] THEN
+    X_GEN_TAC `j:num` THEN ASM_CASES_TAC `j:num = n` THEN
+    ASM_REWRITE_TAC[ARITH_RULE `j < n + 1 <=> j < n \/ j = n`; LT_REFL]]);;
+
+let LENGTH_FILTER_LIST_OF_SEQ_MONO = prove
+ (`!P (f:num->A) m n.
+        m <= n
+        ==> LENGTH(FILTER P (list_of_seq f m)) <=
+            LENGTH(FILTER P (list_of_seq f n))`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[LENGTH_FILTER_LIST_OF_SEQ] THEN
+  MATCH_MP_TAC CARD_SUBSET THEN CONJ_TAC THENL
+   [REWRITE_TAC[SUBSET; IN_ELIM_THM] THEN ASM_MESON_TAC[LTE_TRANS];
+    MATCH_MP_TAC FINITE_SUBSET THEN EXISTS_TAC `{j:num | j < n}` THEN
+    REWRITE_TAC[FINITE_NUMSEG_LT] THEN SET_TAC[]]);;
+
+let EL_FILTER_LIST_OF_SEQ = prove
+ (`!P (f:num->A) n j.
+        j < n /\ P(f j)
+        ==> EL (LENGTH(FILTER P (list_of_seq f j)))
+               (FILTER P (list_of_seq f n)) = f j`,
+  REPEAT STRIP_TAC THEN
+  FIRST_X_ASSUM(X_CHOOSE_THEN `d:num` SUBST1_TAC o
+    REWRITE_RULE[LT_EXISTS]) THEN
+  REWRITE_TAC[ARITH_RULE `j + SUC d = j + 1 + d`] THEN
+  REWRITE_TAC[LIST_OF_SEQ_ADD_APPEND; LIST_OF_SEQ_SING; ADD_CLAUSES] THEN
+  REWRITE_TAC[FILTER_APPEND; FILTER] THEN ASM_REWRITE_TAC[] THEN
+  REWRITE_TAC[EL_APPEND; LT_REFL; SUB_REFL; LENGTH; ARITH; EL; HD]);;
+
+let EL_FILTER_LIST_OF_SEQ_EXISTS = prove
+ (`!P (f:num->A) n i.
+        i < LENGTH(FILTER P (list_of_seq f n))
+        ==> ?j. j < n /\ P(f j) /\ LENGTH(FILTER P (list_of_seq f j)) = i`,
+  GEN_TAC THEN GEN_TAC THEN INDUCT_TAC THEN
+  REWRITE_TAC[LIST_OF_SEQ_0; FILTER; LENGTH; LT] THEN
+  REWRITE_TAC[ADD1; LENGTH_FILTER_LIST_OF_SEQ_SUC] THEN
+  X_GEN_TAC `i:num` THEN
+  ASM_CASES_TAC `i < LENGTH(FILTER P (list_of_seq (f:num->A) n))` THENL
+   [FIRST_X_ASSUM(MP_TAC o SPEC `i:num`) THEN ASM_REWRITE_TAC[] THEN
+    MESON_TAC[ARITH_RULE `j < n ==> j < n + 1`];
+    COND_CASES_TAC THEN ASM_REWRITE_TAC[ADD_CLAUSES] THEN
+    DISCH_TAC THEN EXISTS_TAC `n:num` THEN ASM_REWRITE_TAC[] THEN
+    ASM_ARITH_TAC]);;
+
+let FILTER_LIST_OF_SEQ_INJ = prove
+ (`!P (f:num->A) n i k.
+        (!x y. x < n /\ y < n /\ f x = f y ==> x = y) /\
+        i < LENGTH(FILTER P (list_of_seq f n)) /\
+        k < LENGTH(FILTER P (list_of_seq f n)) /\
+        EL i (FILTER P (list_of_seq f n)) = EL k (FILTER P (list_of_seq f n))
+        ==> i = k`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(ISPECL [`P:A->bool`; `f:num->A`; `n:num`; `i:num`]
+    EL_FILTER_LIST_OF_SEQ_EXISTS) THEN
+  MP_TAC(ISPECL [`P:A->bool`; `f:num->A`; `n:num`; `k:num`]
+    EL_FILTER_LIST_OF_SEQ_EXISTS) THEN
+  ASM_REWRITE_TAC[] THEN
+  DISCH_THEN(X_CHOOSE_THEN `jk:num` STRIP_ASSUME_TAC) THEN
+  DISCH_THEN(X_CHOOSE_THEN `ji:num` STRIP_ASSUME_TAC) THEN
+  MP_TAC(ISPECL [`P:A->bool`; `f:num->A`; `n:num`; `jk:num`]
+    EL_FILTER_LIST_OF_SEQ) THEN
+  MP_TAC(ISPECL [`P:A->bool`; `f:num->A`; `n:num`; `ji:num`]
+    EL_FILTER_LIST_OF_SEQ) THEN
+  ASM_REWRITE_TAC[] THEN REPEAT DISCH_TAC THEN
+  SUBGOAL_THEN `ji:num = jk` (fun th -> ASM_MESON_TAC[th]) THEN
+  FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_MESON_TAC[]);;
+
+let ITLIST_APPEND_NIL = prove
+ (`!l (x:A list). ITLIST APPEND l x = APPEND (ITLIST APPEND l []) x`,
+  LIST_INDUCT_TAC THEN REWRITE_TAC[ITLIST; APPEND] THEN
+  X_GEN_TAC `x:A list` THEN
+  FIRST_X_ASSUM(fun th -> SUBST1_TAC(SPEC `x:A list` th)) THEN
+  REWRITE_TAC[APPEND_ASSOC]);;
+
+let ASSOC_APPEND = prove
+ (`!l1 l2 (a:A).
+        ASSOC a (APPEND l1 (l2:(A#B)list)) =
+        if MEM a (MAP FST l1) then ASSOC a l1 else ASSOC a l2`,
+  LIST_INDUCT_TAC THEN ASM_REWRITE_TAC[APPEND; MAP; MEM; ASSOC] THEN
+  REPEAT GEN_TAC THEN ASM_CASES_TAC `FST(h:A#B) = a` THEN
+  ASM_REWRITE_TAC[]);;
+
+let ASSOC_ZIP_INDEX = prove
+ (`!(l1:A list) (l2:B list) k.
+        LENGTH l1 = LENGTH l2 /\ k < LENGTH l1 /\
+        (!i. i < LENGTH l1 /\ EL i l1 = EL k l1 ==> i = k)
+        ==> ASSOC (EL k l1) (ZIP l1 l2) = EL k l2`,
+  LIST_INDUCT_TAC THEN LIST_INDUCT_TAC THEN
+  REWRITE_TAC[LENGTH; NOT_SUC; ARITH_RULE `~(k < 0)`; SUC_INJ] THEN
+  REWRITE_TAC[ZIP; ASSOC] THEN INDUCT_TAC THEN REWRITE_TAC[EL; HD; TL] THEN
+  REPEAT STRIP_TAC THEN COND_CASES_TAC THENL
+   [FIRST_X_ASSUM(MP_TAC o SPEC `0`) THEN
+    ASM_REWRITE_TAC[EL; HD; LT_0; NOT_SUC];
+    FIRST_X_ASSUM(MATCH_MP_TAC o SPEC `t':B list`) THEN
+    ASM_REWRITE_TAC[] THEN CONJ_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    X_GEN_TAC `i:num` THEN STRIP_TAC THEN
+    FIRST_X_ASSUM(MP_TAC o SPEC `SUC i`) THEN
+    ASM_REWRITE_TAC[EL; TL; LT_SUC; SUC_INJ]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* The spread of the symbols over an FSE table of 2^alog states walks        *)
+(* through the states with the step fse_step alog, visiting the state        *)
+(* fse_pos alog j at its step j. The step is odd for alog >= 5, so the walk  *)
+(* is a permutation of the states. fse_ncell alog H j counts the states      *)
+(* below H visited before step j.                                            *)
+(* ------------------------------------------------------------------------- *)
+
+let FSE_STEP_ODD = prove
+ (`!alog. 5 <= alog ==> ODD(fse_step alog)`,
+  GEN_TAC THEN DISCH_THEN(X_CHOOSE_THEN `k:num` SUBST1_TAC o
+    REWRITE_RULE[LE_EXISTS]) THEN
+  REWRITE_TAC[fse_step] THEN
+  SUBGOAL_THEN `2 EXP (5 + k) DIV 2 = 2 * 2 EXP (k + 3) /\
+                2 EXP (5 + k) DIV 8 = 2 * 2 EXP (k + 1)`
+   (CONJUNCTS_THEN SUBST1_TAC) THENL
+   [REWRITE_TAC[EXP_ADD] THEN CONV_TAC NUM_REDUCE_CONV THEN CONJ_TAC THEN
+    MATCH_MP_TAC DIV_UNIQ THEN EXISTS_TAC `0` THEN ARITH_TAC;
+    REWRITE_TAC[ODD_ADD; ODD_MULT; ARITH]]);;
+
+let FSE_STEP_LT = prove
+ (`!alog. 5 <= alog ==> fse_step alog < 2 EXP alog`,
+  GEN_TAC THEN DISCH_THEN(X_CHOOSE_THEN `k:num` SUBST1_TAC o
+    REWRITE_RULE[LE_EXISTS]) THEN
+  REWRITE_TAC[fse_step; EXP_ADD] THEN CONV_TAC NUM_REDUCE_CONV THEN
+  SIMP_TAC[DIV_MULT2; ARITH_EQ; ARITH_RULE `32 * x = 2 * 16 * x`;
+           ARITH_RULE `32 * x = 8 * 4 * x`] THEN
+  SIMP_TAC[DIV_MULT; ARITH_EQ] THEN
+  MP_TAC(SPEC `k:num` (REWRITE_RULE[GSYM NOT_LE] EXP_EQ_0)) THEN
+  REWRITE_TAC[ARITH_EQ] THEN MP_TAC(SPECL [`2`; `k:num`] EXP_EQ_0) THEN
+  REWRITE_TAC[ARITH_EQ] THEN ARITH_TAC);;
+
+let FSE_POS_INJ = prove
+ (`!alog i j.
+        5 <= alog /\ i < 2 EXP alog /\ j < 2 EXP alog /\
+        (i * fse_step alog) MOD 2 EXP alog = (j * fse_step alog) MOD 2 EXP alog
+        ==> i = j`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `(i == j) (mod (2 EXP alog))` MP_TAC THENL
+   [MATCH_MP_TAC CONG_MULT_RCANCEL THEN EXISTS_TAC `fse_step alog` THEN
+    ASM_REWRITE_TAC[CONG] THEN
+    REWRITE_TAC[COPRIME_REXP] THEN DISJ1_TAC THEN
+    ONCE_REWRITE_TAC[COPRIME_SYM] THEN REWRITE_TAC[COPRIME_2] THEN
+    ASM_SIMP_TAC[FSE_STEP_ODD];
+    ASM_SIMP_TAC[CONG; MOD_LT]]);;
+
+let FSE_POS_SURJ = prove
+ (`!alog u. 5 <= alog /\ u < 2 EXP alog
+            ==> ?j. j < 2 EXP alog /\ (j * fse_step alog) MOD 2 EXP alog = u`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(ISPECL [`{j:num | j < 2 EXP alog}`;
+                 `\j. (j * fse_step alog) MOD 2 EXP alog`]
+    SURJECTIVE_IFF_INJECTIVE) THEN
+  REWRITE_TAC[FINITE_NUMSEG_LT; SUBSET; FORALL_IN_IMAGE; IN_ELIM_THM] THEN
+  REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
+  MATCH_MP_TAC(TAUT `q /\ (p ==> r) ==> (p <=> q) ==> r`) THEN
+  CONJ_TAC THENL
+   [REPEAT STRIP_TAC THEN MATCH_MP_TAC FSE_POS_INJ THEN
+    EXISTS_TAC `alog:num` THEN ASM_REWRITE_TAC[];
+    DISCH_THEN(MP_TAC o SPEC `u:num`) THEN ASM_REWRITE_TAC[]]);;
+
+let FSE_POS_CARD = prove
+ (`!alog H.
+        5 <= alog /\ H <= 2 EXP alog
+        ==> CARD {j | j < 2 EXP alog /\
+                      (j * fse_step alog) MOD 2 EXP alog < H} = H`,
+  REPEAT STRIP_TAC THEN
+  MATCH_MP_TAC EQ_TRANS THEN
+  EXISTS_TAC `CARD(IMAGE (\j. (j * fse_step alog) MOD 2 EXP alog)
+                         {j | j < 2 EXP alog /\
+                              (j * fse_step alog) MOD 2 EXP alog < H})` THEN
+  CONJ_TAC THENL
+   [CONV_TAC SYM_CONV THEN MATCH_MP_TAC CARD_IMAGE_INJ THEN CONJ_TAC THENL
+     [REWRITE_TAC[IN_ELIM_THM] THEN REPEAT STRIP_TAC THEN
+      MATCH_MP_TAC FSE_POS_INJ THEN EXISTS_TAC `alog:num` THEN
+      ASM_REWRITE_TAC[];
+      MATCH_MP_TAC FINITE_SUBSET THEN
+      EXISTS_TAC `{j:num | j < 2 EXP alog}` THEN
+      REWRITE_TAC[FINITE_NUMSEG_LT] THEN SET_TAC[]];
+    GEN_REWRITE_TAC RAND_CONV [GSYM CARD_NUMSEG_LT] THEN AP_TERM_TAC THEN
+    REWRITE_TAC[EXTENSION; IN_IMAGE; IN_ELIM_THM] THEN X_GEN_TAC `u:num` THEN
+    EQ_TAC THENL
+     [STRIP_TAC THEN ASM_REWRITE_TAC[];
+      DISCH_TAC THEN
+      MP_TAC(SPECL [`alog:num`; `u:num`] FSE_POS_SURJ) THEN
+      ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+      DISCH_THEN(X_CHOOSE_THEN `j:num` STRIP_ASSUME_TAC) THEN
+      EXISTS_TAC `j:num` THEN ASM_REWRITE_TAC[]]]);;
+
+let fse_pos = new_definition
+ `fse_pos alog j = (j * fse_step alog) MOD 2 EXP alog`;;
+
+let FSE_POS_LT = prove
+ (`!alog j. fse_pos alog j < 2 EXP alog`,
+  REWRITE_TAC[fse_pos; MOD_LT_EQ; EXP_EQ_0; ARITH_EQ]);;
+
+let FSE_POS_0 = prove
+ (`!alog. fse_pos alog 0 = 0`,
+  REWRITE_TAC[fse_pos; MULT_CLAUSES; MOD_0]);;
+
+let FSE_POS_FULL = prove
+ (`!alog. fse_pos alog (2 EXP alog) = 0`,
+  REWRITE_TAC[fse_pos; MOD_MULT]);;
+
+let FSE_MOD_ADD_MOD = prove
+ (`!a b n. (a MOD n + b) MOD n = (a + b) MOD n /\
+           (a + b MOD n) MOD n = (a + b) MOD n`,
+  REPEAT GEN_TAC THEN ONCE_REWRITE_TAC[GSYM MOD_ADD_MOD] THEN
+  REWRITE_TAC[MOD_MOD_REFL]);;
+
+let FSE_POS_SUC = prove
+ (`!alog j.
+        (fse_pos alog j + fse_step alog) MOD 2 EXP alog =
+        fse_pos alog (j + 1) /\
+        (fse_step alog + fse_pos alog j) MOD 2 EXP alog =
+        fse_pos alog (j + 1) /\
+        (fse_step alog + (fse_step alog + fse_pos alog j)) MOD 2 EXP alog =
+        fse_pos alog (j + 2)`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[fse_pos; ADD_ASSOC; FSE_MOD_ADD_MOD] THEN
+  REPEAT CONJ_TAC THEN AP_THM_TAC THEN AP_TERM_TAC THEN ARITH_TAC);;
+
+let fse_ncell = new_definition
+ `fse_ncell alog H j =
+    LENGTH(FILTER (\u. u < H)
+            (list_of_seq (\i. (i * fse_step alog) MOD 2 EXP alog) j))`;;
+
+let FSE_NCELL_0 = prove
+ (`!alog H. fse_ncell alog H 0 = 0`,
+  REWRITE_TAC[fse_ncell; LIST_OF_SEQ_0; FILTER; LENGTH]);;
+
+let FSE_NCELL_SUC = prove
+ (`!alog H j.
+        fse_ncell alog H (j + 1) =
+        fse_ncell alog H j + (if fse_pos alog j < H then 1 else 0)`,
+  REWRITE_TAC[fse_ncell; LENGTH_FILTER_LIST_OF_SEQ_SUC; fse_pos]);;
+
+let FSE_NCELL_MONO = prove
+ (`!alog H m n. m <= n ==> fse_ncell alog H m <= fse_ncell alog H n`,
+  REWRITE_TAC[fse_ncell] THEN REPEAT STRIP_TAC THEN
+  MATCH_MP_TAC LENGTH_FILTER_LIST_OF_SEQ_MONO THEN ASM_REWRITE_TAC[]);;
+
+let FSE_NCELL_FULL = prove
+ (`!alog H. 5 <= alog /\ H <= 2 EXP alog
+            ==> fse_ncell alog H (2 EXP alog) = H`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[fse_ncell; LENGTH_FILTER_LIST_OF_SEQ] THEN
+  MATCH_MP_TAC FSE_POS_CARD THEN ASM_REWRITE_TAC[]);;
+
+let FSE_NCELL_ALL = prove
+ (`!alog j. fse_ncell alog (2 EXP alog) j = j`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[fse_ncell; LENGTH_FILTER_LIST_OF_SEQ] THEN
+  REWRITE_TAC[MOD_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
+  REWRITE_TAC[CARD_NUMSEG_LT]);;
+
+let FSE_WALK_END = prove
+ (`!alog H j.
+        5 <= alog /\ H <= 2 EXP alog /\ j <= 2 EXP alog /\
+        fse_pos alog j < H /\ fse_ncell alog H j = H
+        ==> j = 2 EXP alog`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[GSYM LE_ANTISYM] THEN ASM_REWRITE_TAC[GSYM NOT_LT] THEN
+  DISCH_TAC THEN
+  MP_TAC(SPECL [`alog:num`; `H:num`; `j + 1`; `2 EXP alog`]
+    FSE_NCELL_MONO) THEN
+  ASM_SIMP_TAC[FSE_NCELL_FULL; FSE_NCELL_SUC] THEN ASM_ARITH_TAC);;
+
+(* ------------------------------------------------------------------------- *)
+(* The symbols of the FSE table for the counts cs. The symbols with a count  *)
+(* of -1 take one state each, downward from the top. The others, fse_syms    *)
+(* cs, each symbol s with a count c >= 1 being there c times in order of s,  *)
+(* are given in turn to the other states, fse_cells cs alog, in the order of *)
+(* the walk. fse_cum cs s counts those of the symbols below s.               *)
+(* ------------------------------------------------------------------------- *)
+
+let fse_syms = new_definition
+ `fse_syms (cs:int list) =
+    ITLIST APPEND
+     (list_of_seq (\s. REPLICATE (num_of_int(max (EL s cs) (&0))) s)
+                  (LENGTH cs)) []`;;
+
+let fse_cells = new_definition
+ `fse_cells (cs:int list) alog =
+    FILTER (\u. u < 2 EXP alog - LENGTH(fse_lowprob cs))
+           (list_of_seq (\j. (j * fse_step alog) MOD 2 EXP alog)
+                        (2 EXP alog))`;;
+
+let FSE_SPREAD_ALT = prove
+ (`!cs alog.
+        fse_spread cs alog =
+        APPEND (ZIP (fse_cells cs alog) (fse_syms cs))
+         (ZIP (list_of_seq (\j. 2 EXP alog - 1 - j) (LENGTH(fse_lowprob cs)))
+              (fse_lowprob cs))`,
+  REWRITE_TAC[fse_spread; fse_cells; fse_syms] THEN
+  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN REWRITE_TAC[]);;
+
+let LENGTH_FSE_CELLS = prove
+ (`!cs alog.
+        5 <= alog /\ LENGTH(fse_lowprob cs) <= 2 EXP alog
+        ==> LENGTH(fse_cells cs alog) = 2 EXP alog - LENGTH(fse_lowprob cs)`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[fse_cells; LENGTH_FILTER_LIST_OF_SEQ] THEN
+  MATCH_MP_TAC FSE_POS_CARD THEN ASM_ARITH_TAC);;
+
+let FSE_EXPAND_L_TAC =
+  FIRST_ASSUM(fun th ->
+    if is_eq(concl th) && rhs(concl th) = `L:num list` &&
+       is_comb(lhs(concl th)) &&
+       fst(strip_comb(lhs(concl th))) =
+         `FILTER:(num->bool)->num list->num list`
+    then SUBST1_TAC(SYM th) else NO_TAC);;
+
+let FSE_SYMBOL_CELL = prove
+ (`!cs alog j.
+        5 <= alog /\
+        LENGTH(fse_syms cs) + LENGTH(fse_lowprob cs) = 2 EXP alog /\
+        j < 2 EXP alog /\
+        (j * fse_step alog) MOD 2 EXP alog <
+        2 EXP alog - LENGTH(fse_lowprob cs)
+        ==> fse_symbol cs alog ((j * fse_step alog) MOD 2 EXP alog) =
+            EL (LENGTH(FILTER (\u. u < 2 EXP alog - LENGTH(fse_lowprob cs))
+                       (list_of_seq (\i. (i * fse_step alog) MOD 2 EXP alog)
+                                    j)))
+               (fse_syms cs)`,
+  REPEAT STRIP_TAC THEN
+  ABBREV_TAC `H = 2 EXP alog - LENGTH(fse_lowprob cs)` THEN
+  ABBREV_TAC `L = FILTER (\u. u < H)
+     (list_of_seq (\i. (i * fse_step alog) MOD 2 EXP alog) (2 EXP alog))` THEN
+  SUBGOAL_THEN `fse_cells cs alog = L` ASSUME_TAC THENL
+   [EXPAND_TAC "L" THEN REWRITE_TAC[fse_cells] THEN ASM_REWRITE_TAC[];
+    ALL_TAC] THEN
+  ABBREV_TAC `k = LENGTH(FILTER (\u. u < H)
+                  (list_of_seq (\i. (i * fse_step alog) MOD 2 EXP alog)
+                               j))` THEN
+  SUBGOAL_THEN `EL k L = (j * fse_step alog) MOD 2 EXP alog` ASSUME_TAC THENL
+   [EXPAND_TAC "k" THEN FSE_EXPAND_L_TAC THEN
+    MP_TAC(ISPECL [`\u:num. u < H`;
+                   `\i. (i * fse_step alog) MOD 2 EXP alog`;
+                   `2 EXP alog`; `j:num`] EL_FILTER_LIST_OF_SEQ) THEN
+    ASM_REWRITE_TAC[];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `LENGTH(L:num list) = H` ASSUME_TAC THENL
+   [FIRST_X_ASSUM(SUBST1_TAC o SYM o check (fun th ->
+      concl th = `fse_cells cs alog = L`)) THEN
+    EXPAND_TAC "H" THEN MATCH_MP_TAC LENGTH_FSE_CELLS THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  SUBGOAL_THEN `k < H` ASSUME_TAC THENL
+   [MATCH_MP_TAC(ARITH_RULE `!b. k < b /\ b <= H ==> k < H`) THEN
+    EXISTS_TAC `LENGTH(FILTER (\u. u < H)
+                  (list_of_seq (\i. (i * fse_step alog) MOD 2 EXP alog)
+                               (j + 1)))` THEN
+    CONJ_TAC THENL
+     [EXPAND_TAC "k" THEN REWRITE_TAC[LENGTH_FILTER_LIST_OF_SEQ_SUC] THEN
+      ASM_REWRITE_TAC[] THEN ARITH_TAC;
+      FIRST_X_ASSUM((fun th -> GEN_REWRITE_TAC RAND_CONV [SYM th]) o
+        check (fun th -> concl th = `LENGTH(L:num list) = H`)) THEN
+      FSE_EXPAND_L_TAC THEN
+      MATCH_MP_TAC LENGTH_FILTER_LIST_OF_SEQ_MONO THEN ASM_ARITH_TAC];
+    ALL_TAC] THEN
+  REWRITE_TAC[fse_symbol; FSE_SPREAD_ALT; ASSOC_APPEND] THEN
+  ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN `MAP FST (ZIP L (fse_syms cs)) = L:num list` SUBST1_TAC THENL
+   [MATCH_MP_TAC MAP_FST_ZIP THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  FIRST_X_ASSUM(SUBST1_TAC o SYM o check (fun th ->
+      concl th = `EL k L = (j * fse_step alog) MOD 2 EXP alog`)) THEN
+  SUBGOAL_THEN `MEM (EL k L) (L:num list)` (fun th -> REWRITE_TAC[th]) THENL
+   [REWRITE_TAC[MEM_EXISTS_EL] THEN EXISTS_TAC `k:num` THEN ASM_REWRITE_TAC[];
+    ALL_TAC] THEN
+  MATCH_MP_TAC ASSOC_ZIP_INDEX THEN ASM_REWRITE_TAC[] THEN
+  CONJ_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  X_GEN_TAC `i:num` THEN STRIP_TAC THEN
+  MP_TAC(ISPECL [`\u:num. u < H`;
+                 `\i. (i * fse_step alog) MOD 2 EXP alog`;
+                 `2 EXP alog`; `i:num`; `k:num`] FILTER_LIST_OF_SEQ_INJ) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN MATCH_MP_TAC THEN
+  ASM_REWRITE_TAC[] THEN BETA_TAC THEN REPEAT STRIP_TAC THEN
+  MATCH_MP_TAC FSE_POS_INJ THEN EXISTS_TAC `alog:num` THEN ASM_REWRITE_TAC[]);;
+
+let FSE_SYMBOL_LOW = prove
+ (`!cs alog i.
+        5 <= alog /\
+        LENGTH(fse_syms cs) + LENGTH(fse_lowprob cs) = 2 EXP alog /\
+        i < LENGTH(fse_lowprob cs)
+        ==> fse_symbol cs alog (2 EXP alog - 1 - i) = EL i (fse_lowprob cs)`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[fse_symbol; FSE_SPREAD_ALT; ASSOC_APPEND] THEN
+  SUBGOAL_THEN `LENGTH(fse_cells cs alog) = LENGTH(fse_syms cs)`
+  ASSUME_TAC THENL
+   [MP_TAC(SPECL [`cs:int list`; `alog:num`] LENGTH_FSE_CELLS) THEN
+    ANTS_TAC THENL [ASM_ARITH_TAC; ASM_ARITH_TAC];
+    ALL_TAC] THEN
+  ASM_SIMP_TAC[MAP_FST_ZIP] THEN
+  SUBGOAL_THEN `~MEM (2 EXP alog - 1 - i) (fse_cells cs alog)`
+   (fun th -> REWRITE_TAC[th]) THENL
+   [REWRITE_TAC[fse_cells; MEM_FILTER] THEN
+    MATCH_MP_TAC(TAUT `~p ==> ~(p /\ q)`) THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  ABBREV_TAC `ll = list_of_seq (\j. 2 EXP alog - 1 - j)
+                               (LENGTH(fse_lowprob cs))` THEN
+  SUBGOAL_THEN `LENGTH(ll:num list) = LENGTH(fse_lowprob cs) /\
+                !j. j < LENGTH(fse_lowprob cs)
+                    ==> EL j ll = 2 EXP alog - 1 - j`
+  STRIP_ASSUME_TAC THENL
+   [EXPAND_TAC "ll" THEN REWRITE_TAC[LENGTH_LIST_OF_SEQ] THEN
+    SIMP_TAC[EL_LIST_OF_SEQ];
+    ALL_TAC] THEN
+  FIRST_ASSUM(fun th -> GEN_REWRITE_TAC (LAND_CONV o LAND_CONV)
+    [SYM(MATCH_MP th (ASSUME `i < LENGTH(fse_lowprob cs)`))]) THEN
+  MATCH_MP_TAC ASSOC_ZIP_INDEX THEN ASM_REWRITE_TAC[] THEN
+  X_GEN_TAC `i':num` THEN STRIP_TAC THEN
+  UNDISCH_TAC `EL i' ll = EL i (ll:num list)` THEN ASM_SIMP_TAC[] THEN
+  ASM_ARITH_TAC);;
+
+let fse_cum = define
+ `(fse_cum (cs:int list) 0 = 0) /\
+  (fse_cum cs (SUC s) = fse_cum cs s + num_of_int(max (EL s cs) (&0)))`;;
+
+let FSE_CUM_SUC = prove
+ (`!cs s. fse_cum cs (s + 1) = fse_cum cs s + num_of_int(max (EL s cs) (&0))`,
+  REWRITE_TAC[GSYM ADD1; fse_cum]);;
+
+let FSE_CUM_MONO = prove
+ (`!cs s t. s <= t ==> fse_cum cs s <= fse_cum cs t`,
+  GEN_TAC THEN GEN_TAC THEN INDUCT_TAC THEN REWRITE_TAC[LE] THENL
+   [DISCH_THEN SUBST1_TAC THEN REWRITE_TAC[LE_REFL];
+    STRIP_TAC THENL
+     [ASM_REWRITE_TAC[LE_REFL];
+      REWRITE_TAC[fse_cum] THEN
+      FIRST_X_ASSUM(MP_TAC o check (is_imp o concl)) THEN
+      ASM_REWRITE_TAC[] THEN ARITH_TAC]]);;
+
+let FSE_CUM_FIND = prove
+ (`!cs n k.
+        k < fse_cum cs n
+        ==> ?s. s < n /\ fse_cum cs s <= k /\ k < fse_cum cs (s + 1)`,
+  GEN_TAC THEN INDUCT_TAC THEN REWRITE_TAC[fse_cum; CONJUNCT1 LT] THEN
+  X_GEN_TAC `k:num` THEN DISCH_TAC THEN
+  ASM_CASES_TAC `k < fse_cum cs n` THENL
+   [FIRST_X_ASSUM(MP_TAC o SPEC `k:num`) THEN ASM_REWRITE_TAC[] THEN
+    MESON_TAC[ARITH_RULE `s < n ==> s < SUC n`];
+    EXISTS_TAC `n:num` THEN REWRITE_TAC[GSYM ADD1; fse_cum] THEN
+    ASM_ARITH_TAC]);;
+
+let LENGTH_FSE_SYMS_PREFIX = prove
+ (`!(cs:int list) s.
+        LENGTH(ITLIST APPEND
+                (list_of_seq (\t. REPLICATE (num_of_int(max (EL t cs) (&0))) t)
+                             s) []) = fse_cum cs s`,
+  GEN_TAC THEN INDUCT_TAC THEN
+  REWRITE_TAC[fse_cum; LIST_OF_SEQ_0; ITLIST; LENGTH] THEN
+  REWRITE_TAC[ADD1; LIST_OF_SEQ_ADD1; ITLIST_APPEND; ITLIST] THEN
+  ONCE_REWRITE_TAC[ITLIST_APPEND_NIL] THEN
+  ASM_REWRITE_TAC[LENGTH_APPEND; APPEND_NIL; LENGTH_REPLICATE; LENGTH;
+                  ADD_CLAUSES]);;
+
+let LENGTH_FSE_SYMS = prove
+ (`!cs. LENGTH(fse_syms cs) = fse_cum cs (LENGTH cs)`,
+  REWRITE_TAC[fse_syms; LENGTH_FSE_SYMS_PREFIX]);;
+
+let EL_FSE_SYMS = prove
+ (`!(cs:int list) s k.
+        s < LENGTH cs /\ fse_cum cs s <= k /\ k < fse_cum cs (s + 1)
+        ==> EL k (fse_syms cs) = s`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[fse_syms] THEN
+  SUBGOAL_THEN `LENGTH(cs:int list) = s + 1 + (LENGTH cs - (s + 1))`
+  SUBST1_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[LIST_OF_SEQ_ADD_APPEND; LIST_OF_SEQ_SING; ITLIST_APPEND;
+              ITLIST] THEN
+  ONCE_REWRITE_TAC[ITLIST_APPEND_NIL] THEN
+  REWRITE_TAC[ADD_CLAUSES; APPEND_NIL] THEN
+  REWRITE_TAC[EL_APPEND; LENGTH_FSE_SYMS_PREFIX; LENGTH_REPLICATE] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[GSYM ADD1; fse_cum]) THEN
+  ASM_SIMP_TAC[ARITH_RULE `a <= k ==> ~(k < a)`] THEN
+  COND_CASES_TAC THENL
+   [W(fun (_,w) -> MP_TAC(ISPECL [rand(lhs w); lhand(lhs w)] MEM_EL)) THEN
+    ASM_REWRITE_TAC[LENGTH_REPLICATE; MEM_REPLICATE] THEN SIMP_TAC[];
+    ASM_ARITH_TAC]);;
+
+let EL_FSE_SYMS_EQ = prove
+ (`!cs s k.
+        k < fse_cum cs (LENGTH cs)
+        ==> (EL k (fse_syms cs) = s <=>
+             s < LENGTH cs /\ fse_cum cs s <= k /\ k < fse_cum cs (s + 1))`,
+  REPEAT STRIP_TAC THEN
+  FIRST_ASSUM(X_CHOOSE_THEN `t:num` STRIP_ASSUME_TAC o
+    MATCH_MP FSE_CUM_FIND) THEN
+  MP_TAC(SPECL [`cs:int list`; `t:num`; `k:num`] EL_FSE_SYMS) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN
+  EQ_TAC THENL
+   [DISCH_THEN(SUBST1_TAC o SYM) THEN ASM_REWRITE_TAC[]; STRIP_TAC] THEN
+  MATCH_MP_TAC(ARITH_RULE `~(t < s) /\ ~(s < t) ==> t = s`) THEN
+  CONJ_TAC THEN DISCH_TAC THENL
+   [MP_TAC(SPECL [`cs:int list`; `t + 1`; `s:num`] FSE_CUM_MONO);
+    MP_TAC(SPECL [`cs:int list`; `s + 1`; `t:num`] FSE_CUM_MONO)] THEN
+  ASM_ARITH_TAC);;
+
+let EL_FSE_SYMS_POS = prove
+ (`!cs k.
+        k < LENGTH(fse_syms cs)
+        ==> EL k (fse_syms cs) < LENGTH cs /\
+            &1 <= EL (EL k (fse_syms cs)) cs`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[LENGTH_FSE_SYMS] THEN DISCH_TAC THEN
+  FIRST_ASSUM(X_CHOOSE_THEN `t:num` STRIP_ASSUME_TAC o
+    MATCH_MP FSE_CUM_FIND) THEN
+  MP_TAC(SPECL [`cs:int list`; `t:num`; `k:num`] EL_FSE_SYMS) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN ASM_REWRITE_TAC[] THEN
+  UNDISCH_TAC `k < fse_cum cs (t + 1)` THEN
+  UNDISCH_TAC `fse_cum cs t <= k` THEN
+  REWRITE_TAC[GSYM ADD1; fse_cum] THEN
+  MP_TAC(ISPEC `max (EL t (cs:int list)) (&0)` INT_OF_NUM_OF_INT) THEN
+  REWRITE_TAC[INT_ARITH `&0:int <= max x (&0)`] THEN
+  SPEC_TAC(`num_of_int(max (EL t (cs:int list)) (&0))`,`n:num`) THEN
+  GEN_TAC THEN DISCH_TAC THEN REPEAT DISCH_TAC THEN
+  SUBGOAL_THEN `1 <= n` MP_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[GSYM INT_OF_NUM_LE] THEN ASM_REWRITE_TAC[] THEN INT_ARITH_TAC);;
+
+let MEM_FSE_LOWPROB = prove
+ (`!cs s. MEM s (fse_lowprob cs) <=> s < LENGTH cs /\ EL s cs = -- &1`,
+  REWRITE_TAC[fse_lowprob; MEM_FILTER; MEM_LIST_OF_SEQ] THEN MESON_TAC[]);;
+
+let EL_FSE_LOWPROB = prove
+ (`!cs i.
+        i < LENGTH(fse_lowprob cs)
+        ==> EL i (fse_lowprob cs) < LENGTH cs /\
+            EL (EL i (fse_lowprob cs)) cs = -- &1`,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN REWRITE_TAC[GSYM MEM_FSE_LOWPROB] THEN
+  REWRITE_TAC[MEM_EXISTS_EL] THEN EXISTS_TAC `i:num` THEN
+  ASM_REWRITE_TAC[]);;
+
+let FSE_CELL_COUNT_LT = prove
+ (`!alog H j.
+        5 <= alog /\ H <= 2 EXP alog /\ j < 2 EXP alog /\
+        (j * fse_step alog) MOD 2 EXP alog < H
+        ==> LENGTH(FILTER (\u. u < H)
+                     (list_of_seq (\i. (i * fse_step alog) MOD 2 EXP alog) j))
+            < H`,
+  REPEAT STRIP_TAC THEN
+  MATCH_MP_TAC(ARITH_RULE `!k b H:num. k < b /\ b <= H ==> k < H`) THEN
+  EXISTS_TAC `LENGTH(FILTER (\u. u < H)
+                (list_of_seq (\i. (i * fse_step alog) MOD 2 EXP alog)
+                             (j + 1)))` THEN
+  CONJ_TAC THENL
+   [REWRITE_TAC[LENGTH_FILTER_LIST_OF_SEQ_SUC] THEN ASM_REWRITE_TAC[] THEN
+    ARITH_TAC;
+    MP_TAC(SPECL [`alog:num`; `H:num`] FSE_POS_CARD) THEN
+    ASM_REWRITE_TAC[] THEN
+    MP_TAC(BETA_RULE(ISPECL
+     [`\u:num. u < H`; `\i. (i * fse_step alog) MOD 2 EXP alog`;
+      `2 EXP alog`] LENGTH_FILTER_LIST_OF_SEQ)) THEN
+    DISCH_THEN(SUBST1_TAC o SYM) THEN
+    DISCH_THEN(fun th -> GEN_REWRITE_TAC RAND_CONV [SYM th]) THEN
+    MATCH_MP_TAC LENGTH_FILTER_LIST_OF_SEQ_MONO THEN ASM_ARITH_TAC]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Counts that fill the table exactly (fse_valid), the first of the next     *)
+(* states of each symbol (fse_init), and so the bounds on the next states,   *)
+(* the numbers of bits and the baselines in the decoding table.              *)
+(* ------------------------------------------------------------------------- *)
+
+let fse_valid = new_definition
+ `fse_valid (cs:int list) alog <=>
+    ALL (\c. -- &1 <= c) cs /\
+    LENGTH(fse_syms cs) + LENGTH(fse_lowprob cs) = 2 EXP alog`;;
+
+let FSE_VALID_LENGTH = prove
+ (`!cs alog. fse_valid cs alog ==> 1 <= LENGTH cs`,
+  REWRITE_TAC[fse_valid; ARITH_RULE `1 <= n <=> ~(n = 0)`; LENGTH_EQ_NIL] THEN
+  REPEAT STRIP_TAC THEN
+  UNDISCH_TAC
+   `LENGTH (fse_syms cs) + LENGTH (fse_lowprob cs) = 2 EXP alog` THEN
+  ASM_REWRITE_TAC[fse_syms; fse_lowprob; LENGTH; LIST_OF_SEQ_0;
+                  ITLIST; FILTER; ADD_CLAUSES] THEN
+  REWRITE_TAC[EQ_SYM_EQ; EXP_EQ_0; ARITH_EQ]);;
+
+let fse_init = new_definition
+ `fse_init (cs:int list) s =
+    if EL s cs = -- &1 then 1 else num_of_int(EL s cs)`;;
+
+let FSE_NEXT_INIT = prove
+ (`!cs alog u.
+        fse_next cs alog u =
+        fse_init cs (fse_symbol cs alog u) +
+        CARD {v | v < u /\ fse_symbol cs alog v = fse_symbol cs alog u}`,
+  REWRITE_TAC[fse_next; fse_init] THEN CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+  REWRITE_TAC[]);;
+
+let FSE_SYMBOL_CASES = prove
+ (`!cs alog v.
+        5 <= alog /\ fse_valid cs alog /\ v < 2 EXP alog
+        ==> (v < 2 EXP alog - LENGTH(fse_lowprob cs) /\
+             ?j. j < 2 EXP alog /\ (j * fse_step alog) MOD 2 EXP alog = v /\
+                 LENGTH(FILTER (\u. u < 2 EXP alog - LENGTH(fse_lowprob cs))
+                    (list_of_seq (\i. (i * fse_step alog) MOD 2 EXP alog) j))
+                 < LENGTH(fse_syms cs) /\
+                 fse_symbol cs alog v =
+                 EL (LENGTH(FILTER
+                       (\u. u < 2 EXP alog - LENGTH(fse_lowprob cs))
+                       (list_of_seq (\i. (i * fse_step alog) MOD 2 EXP alog)
+                                    j)))
+                    (fse_syms cs)) \/
+            (2 EXP alog - LENGTH(fse_lowprob cs) <= v /\
+             2 EXP alog - 1 - v < LENGTH(fse_lowprob cs) /\
+             fse_symbol cs alog v = EL (2 EXP alog - 1 - v) (fse_lowprob cs))`,
+  REWRITE_TAC[fse_valid] THEN REPEAT STRIP_TAC THEN
+  ASM_CASES_TAC `v < 2 EXP alog - LENGTH(fse_lowprob cs)` THEN
+  ASM_REWRITE_TAC[NOT_LT] THENL
+   [DISJ1_TAC THEN
+    MP_TAC(SPECL [`alog:num`; `v:num`] FSE_POS_SURJ) THEN
+    ASM_REWRITE_TAC[] THEN
+    DISCH_THEN(X_CHOOSE_THEN `j:num` STRIP_ASSUME_TAC) THEN
+    EXISTS_TAC `j:num` THEN ASM_REWRITE_TAC[] THEN CONJ_TAC THENL
+     [SUBGOAL_THEN `LENGTH(fse_syms cs) = 2 EXP alog - LENGTH(fse_lowprob cs)`
+      SUBST1_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+      MATCH_MP_TAC FSE_CELL_COUNT_LT THEN ASM_REWRITE_TAC[] THEN ARITH_TAC;
+      FIRST_ASSUM(SUBST1_TAC o SYM o check
+       (fun th -> is_eq(concl th) && rhs(concl th) = `v:num`)) THEN
+      MATCH_MP_TAC FSE_SYMBOL_CELL THEN ASM_REWRITE_TAC[] THEN
+      ASM_MESON_TAC[]];
+    MP_TAC(SPECL [`cs:int list`; `alog:num`; `2 EXP alog - 1 - v`]
+      FSE_SYMBOL_LOW) THEN
+    ASM_REWRITE_TAC[] THEN
+    ANTS_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    SUBGOAL_THEN `2 EXP alog - 1 - (2 EXP alog - 1 - v) = v` SUBST1_TAC THENL
+     [ASM_ARITH_TAC; DISCH_TAC] THEN
+    ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC]);;
+
+let FSE_SYMBOL_RANGE = prove
+ (`!cs alog v.
+        5 <= alog /\ fse_valid cs alog /\ v < 2 EXP alog
+        ==> fse_symbol cs alog v < LENGTH cs /\
+            (EL (fse_symbol cs alog v) cs = -- &1 \/
+             &1 <= EL (fse_symbol cs alog v) cs)`,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  FIRST_ASSUM(MP_TAC o MATCH_MP FSE_SYMBOL_CASES) THEN STRIP_TAC THENL
+   [ABBREV_TAC `k = LENGTH(FILTER
+                (\u. u < 2 EXP alog - LENGTH(fse_lowprob cs))
+                (list_of_seq (\i. (i * fse_step alog) MOD 2 EXP alog) j))` THEN
+    RULE_ASSUM_TAC(REWRITE_RULE[LENGTH_FSE_SYMS]) THEN
+    FIRST_ASSUM(X_CHOOSE_THEN `t:num` STRIP_ASSUME_TAC o
+      MATCH_MP FSE_CUM_FIND) THEN
+    MP_TAC(SPECL [`cs:int list`; `t:num`; `k:num`] EL_FSE_SYMS) THEN
+    ASM_REWRITE_TAC[] THEN DISCH_TAC THEN ASM_REWRITE_TAC[] THEN
+    DISJ2_TAC THEN
+    UNDISCH_TAC `k < fse_cum cs (t + 1)` THEN
+    UNDISCH_TAC `fse_cum cs t <= k` THEN
+    REWRITE_TAC[GSYM ADD1; fse_cum] THEN
+    MP_TAC(ISPEC `max (EL t (cs:int list)) (&0)` INT_OF_NUM_OF_INT) THEN
+    REWRITE_TAC[INT_ARITH `&0:int <= max x (&0)`] THEN
+    SPEC_TAC(`num_of_int(max (EL t (cs:int list)) (&0))`,`n:num`) THEN
+    GEN_TAC THEN DISCH_TAC THEN REPEAT DISCH_TAC THEN
+    SUBGOAL_THEN `1 <= n` MP_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    REWRITE_TAC[GSYM INT_OF_NUM_LE] THEN ASM_REWRITE_TAC[] THEN INT_ARITH_TAC;
+    SUBGOAL_THEN `MEM (fse_symbol cs alog v) (fse_lowprob cs)` MP_TAC THENL
+     [ASM_REWRITE_TAC[MEM_EXISTS_EL] THEN
+      EXISTS_TAC `2 EXP alog - 1 - v` THEN ASM_REWRITE_TAC[];
+      SIMP_TAC[MEM_FSE_LOWPROB]]]);;
+
+let FSE_SYMBOL_POS = prove
+ (`!cs alog j.
+        5 <= alog /\ fse_valid cs alog /\ j < 2 EXP alog /\
+        fse_pos alog j < 2 EXP alog - LENGTH(fse_lowprob cs)
+        ==> fse_symbol cs alog (fse_pos alog j) =
+            EL (fse_ncell alog (2 EXP alog - LENGTH(fse_lowprob cs)) j)
+               (fse_syms cs)`,
+  REWRITE_TAC[fse_valid; fse_pos; fse_ncell] THEN REPEAT STRIP_TAC THEN
+  MATCH_MP_TAC FSE_SYMBOL_CELL THEN ASM_REWRITE_TAC[]);;
+
+let FSE_NLOW_EL = prove
+ (`!cs s.
+        s < LENGTH cs /\ EL s cs = -- &1
+        ==> LENGTH(FILTER (\t. EL t cs = -- &1) (list_of_seq (\t. t) s))
+            < LENGTH(fse_lowprob cs) /\
+            EL (LENGTH(FILTER (\t. EL t cs = -- &1) (list_of_seq (\t. t) s)))
+               (fse_lowprob cs) = s`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN REWRITE_TAC[fse_lowprob] THEN
+  CONJ_TAC THENL
+   [MATCH_MP_TAC(ARITH_RULE `!k b H:num. k < b /\ b <= H ==> k < H`) THEN
+    EXISTS_TAC `LENGTH(FILTER (\t. EL t (cs:int list) = -- &1)
+                  (list_of_seq (\t. t) (s + 1)))` THEN
+    CONJ_TAC THENL
+     [REWRITE_TAC[LENGTH_FILTER_LIST_OF_SEQ_SUC] THEN ASM_REWRITE_TAC[] THEN
+      ARITH_TAC;
+      MATCH_MP_TAC LENGTH_FILTER_LIST_OF_SEQ_MONO THEN ASM_ARITH_TAC];
+    MP_TAC(ISPECL [`\t. EL t (cs:int list) = -- &1`; `\t:num. t`;
+                   `LENGTH(cs:int list)`; `s:num`] EL_FILTER_LIST_OF_SEQ) THEN
+    ASM_REWRITE_TAC[]]);;
+
+let FSE_SYMBOL_CARD_LE = prove
+ (`!cs alog s.
+        5 <= alog /\ fse_valid cs alog /\ s < LENGTH cs
+        ==> CARD {v | v < 2 EXP alog /\ fse_symbol cs alog v = s}
+            <= fse_init cs s`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[fse_init] THEN COND_CASES_TAC THENL
+   [MATCH_MP_TAC LE_TRANS THEN
+    EXISTS_TAC `CARD {2 EXP alog - 1 -
+      LENGTH(FILTER (\t. EL t (cs:int list) = -- &1)
+                    (list_of_seq (\t. t) s))}` THEN
+    CONJ_TAC THENL [ALL_TAC; REWRITE_TAC[CARD_SING; LE_REFL]] THEN
+    MATCH_MP_TAC CARD_SUBSET THEN
+    REWRITE_TAC[FINITE_SING; SUBSET; IN_ELIM_THM; IN_SING] THEN
+    X_GEN_TAC `v:num` THEN STRIP_TAC THEN
+    MP_TAC(SPECL [`cs:int list`; `alog:num`; `v:num`] FSE_SYMBOL_CASES) THEN
+    ANTS_TAC THENL [ASM_REWRITE_TAC[]; STRIP_TAC] THENL
+     [ABBREV_TAC `k = LENGTH(FILTER
+         (\u. u < 2 EXP alog - LENGTH(fse_lowprob cs))
+         (list_of_seq (\i. (i * fse_step alog) MOD 2 EXP alog) j))` THEN
+      SUBGOAL_THEN `EL k (fse_syms cs) = s` ASSUME_TAC THENL
+       [ASM_MESON_TAC[]; ALL_TAC] THEN
+      MP_TAC(SPECL [`cs:int list`; `k:num`] EL_FSE_SYMS_POS) THEN
+      ASM_REWRITE_TAC[] THEN INT_ARITH_TAC;
+      MP_TAC(SPECL [`cs:int list`; `s:num`] FSE_NLOW_EL) THEN
+      ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
+      SUBGOAL_THEN
+       `2 EXP alog - 1 - v =
+        LENGTH(FILTER (\t. EL t (cs:int list) = -- &1)
+                      (list_of_seq (\t. t) s))`
+      MP_TAC THENL [ALL_TAC; UNDISCH_TAC `v < 2 EXP alog` THEN ARITH_TAC] THEN
+      MP_TAC(ISPECL [`\t. EL t (cs:int list) = -- &1`; `\t:num. t`;
+        `LENGTH(cs:int list)`; `2 EXP alog - 1 - v`;
+        `LENGTH(FILTER (\t. EL t (cs:int list) = -- &1)
+                       (list_of_seq (\t. t) s))`]
+        FILTER_LIST_OF_SEQ_INJ) THEN
+      REWRITE_TAC[GSYM fse_lowprob] THEN DISCH_THEN MATCH_MP_TAC THEN
+      ASM_REWRITE_TAC[] THEN ASM_MESON_TAC[]];
+    SUBGOAL_THEN `&0 <= EL s (cs:int list)` ASSUME_TAC THENL
+     [UNDISCH_TAC `fse_valid cs alog` THEN
+      REWRITE_TAC[fse_valid; GSYM ALL_EL] THEN
+      DISCH_THEN(MP_TAC o SPEC `s:num` o CONJUNCT1) THEN
+      ASM_REWRITE_TAC[] THEN POP_ASSUM MP_TAC THEN INT_ARITH_TAC;
+      ALL_TAC] THEN
+    MATCH_MP_TAC LE_TRANS THEN
+    EXISTS_TAC `CARD(IMAGE (\i. EL (fse_cum cs s + i) (fse_cells cs alog))
+                           {i | i < num_of_int(EL s cs)})` THEN
+    CONJ_TAC THENL
+     [MATCH_MP_TAC CARD_SUBSET THEN
+      SIMP_TAC[FINITE_IMAGE; FINITE_NUMSEG_LT] THEN
+      REWRITE_TAC[SUBSET; IN_ELIM_THM; IN_IMAGE] THEN
+      X_GEN_TAC `v:num` THEN STRIP_TAC THEN
+      MP_TAC(SPECL [`cs:int list`; `alog:num`; `v:num`] FSE_SYMBOL_CASES) THEN
+      ANTS_TAC THENL [ASM_REWRITE_TAC[]; STRIP_TAC] THENL
+       [ABBREV_TAC `k = LENGTH(FILTER
+           (\u. u < 2 EXP alog - LENGTH(fse_lowprob cs))
+           (list_of_seq (\i. (i * fse_step alog) MOD 2 EXP alog) j))` THEN
+        SUBGOAL_THEN `EL k (fse_syms cs) = s` MP_TAC THENL
+         [ASM_MESON_TAC[]; ALL_TAC] THEN
+        MP_TAC(SPECL [`cs:int list`; `s:num`; `k:num`] EL_FSE_SYMS_EQ) THEN
+        ANTS_TAC THENL [ASM_MESON_TAC[LENGTH_FSE_SYMS]; ALL_TAC] THEN
+        DISCH_THEN SUBST1_TAC THEN
+        REWRITE_TAC[GSYM ADD1; fse_cum] THEN STRIP_TAC THEN
+        EXISTS_TAC `k - fse_cum cs s` THEN CONJ_TAC THENL
+         [SUBGOAL_THEN `fse_cum cs s + k - fse_cum cs s = k` SUBST1_TAC THENL
+           [ASM_ARITH_TAC; ALL_TAC] THEN
+          EXPAND_TAC "k" THEN REWRITE_TAC[fse_cells] THEN
+          FIRST_ASSUM((fun th -> GEN_REWRITE_TAC LAND_CONV [SYM th]) o
+           check (fun th -> is_eq(concl th) && rhs(concl th) = `v:num`)) THEN
+          CONV_TAC SYM_CONV THEN
+          MP_TAC(BETA_RULE(ISPECL
+           [`\u:num. u < 2 EXP alog - LENGTH(fse_lowprob cs)`;
+            `\i. (i * fse_step alog) MOD 2 EXP alog`;
+            `2 EXP alog`; `j:num`] EL_FILTER_LIST_OF_SEQ)) THEN
+          ASM_MESON_TAC[];
+          UNDISCH_TAC `k < fse_cum cs s + num_of_int (max (EL s cs) (&0))` THEN
+          ASM_SIMP_TAC[INT_ARITH `&0:int <= x ==> max x (&0) = x`] THEN
+          UNDISCH_TAC `fse_cum cs s <= k` THEN ARITH_TAC];
+        SUBGOAL_THEN `EL (2 EXP alog - 1 - v) (fse_lowprob cs) = s` MP_TAC
+        THENL [ASM_MESON_TAC[]; ALL_TAC] THEN
+        MP_TAC(SPECL [`cs:int list`; `2 EXP alog - 1 - v`] EL_FSE_LOWPROB) THEN
+        ASM_REWRITE_TAC[] THEN ASM_MESON_TAC[]];
+      MATCH_MP_TAC LE_TRANS THEN
+      EXISTS_TAC `CARD {i | i < num_of_int(EL s (cs:int list))}` THEN
+      CONJ_TAC THENL
+       [MATCH_MP_TAC CARD_IMAGE_LE THEN REWRITE_TAC[FINITE_NUMSEG_LT];
+        REWRITE_TAC[CARD_NUMSEG_LT; LE_REFL]]]]);;
+
+let FSE_INIT_LE = prove
+ (`!cs alog s.
+        fse_valid cs alog /\ s < LENGTH cs
+        ==> fse_init cs s <= 2 EXP alog`,
+  REWRITE_TAC[fse_valid; fse_init] THEN REPEAT STRIP_TAC THEN
+  COND_CASES_TAC THENL
+   [REWRITE_TAC[ARITH_RULE `1 <= n <=> ~(n = 0)`; EXP_EQ_0; ARITH_EQ];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `&0 <= EL s (cs:int list)` ASSUME_TAC THENL
+   [UNDISCH_TAC `ALL (\c. -- &1 <= c) (cs:int list)` THEN
+    REWRITE_TAC[GSYM ALL_EL] THEN DISCH_THEN(MP_TAC o SPEC `s:num`) THEN
+    ASM_REWRITE_TAC[] THEN POP_ASSUM MP_TAC THEN INT_ARITH_TAC;
+    ALL_TAC] THEN
+  MP_TAC(SPECL [`cs:int list`; `s + 1`; `LENGTH(cs:int list)`]
+    FSE_CUM_MONO) THEN
+  ASM_REWRITE_TAC[ARITH_RULE `s + 1 <= n <=> s < n`; GSYM ADD1; fse_cum] THEN
+  ASM_SIMP_TAC[INT_ARITH `&0:int <= x ==> max x (&0) = x`] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[LENGTH_FSE_SYMS]) THEN ASM_ARITH_TAC);;
+
+let FSE_NEXT_BOUNDS = prove
+ (`!cs alog u.
+        5 <= alog /\ fse_valid cs alog /\ u < 2 EXP alog
+        ==> 1 <= fse_init cs (fse_symbol cs alog u) /\
+            fse_init cs (fse_symbol cs alog u) <= 2 EXP alog /\
+            fse_init cs (fse_symbol cs alog u) <= fse_next cs alog u /\
+            fse_next cs alog u < 2 * fse_init cs (fse_symbol cs alog u)`,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  FIRST_ASSUM(CONJUNCTS_THEN ASSUME_TAC o MATCH_MP FSE_SYMBOL_RANGE) THEN
+  REWRITE_TAC[FSE_NEXT_INIT] THEN
+  ABBREV_TAC `t = fse_symbol cs alog u` THEN
+  REPEAT CONJ_TAC THENL
+   [REWRITE_TAC[fse_init] THEN COND_CASES_TAC THEN REWRITE_TAC[LE_REFL] THEN
+    SUBGOAL_THEN `&1 <= EL t (cs:int list)` ASSUME_TAC THENL
+     [ASM_MESON_TAC[]; ALL_TAC] THEN
+    REWRITE_TAC[GSYM INT_OF_NUM_LE] THEN
+    MP_TAC(ISPEC `EL t (cs:int list)` INT_OF_NUM_OF_INT) THEN
+    ANTS_TAC THENL [POP_ASSUM MP_TAC THEN INT_ARITH_TAC; ALL_TAC] THEN
+    DISCH_THEN SUBST1_TAC THEN ASM_REWRITE_TAC[];
+    MATCH_MP_TAC FSE_INIT_LE THEN ASM_REWRITE_TAC[];
+    ARITH_TAC;
+    MATCH_MP_TAC(ARITH_RULE `!i c. c < i ==> i + c < 2 * i`) THEN
+    MATCH_MP_TAC LTE_TRANS THEN
+    EXISTS_TAC `CARD {v | v < 2 EXP alog /\ fse_symbol cs alog v = t}` THEN
+    CONJ_TAC THENL
+     [MATCH_MP_TAC CARD_PSUBSET THEN CONJ_TAC THENL
+       [REWRITE_TAC[PSUBSET; SUBSET; IN_ELIM_THM; EXTENSION] THEN
+        CONJ_TAC THENL
+         [ASM_MESON_TAC[LT_TRANS];
+          DISCH_THEN(MP_TAC o SPEC `u:num`) THEN ASM_REWRITE_TAC[LT_REFL]];
+        MATCH_MP_TAC FINITE_SUBSET THEN
+        EXISTS_TAC `{v:num | v < 2 EXP alog}` THEN
+        REWRITE_TAC[FINITE_NUMSEG_LT] THEN SET_TAC[]];
+      MATCH_MP_TAC FSE_SYMBOL_CARD_LE THEN ASM_REWRITE_TAC[]]]);;
+
+let FSE_NBITS_BASE = prove
+ (`!cs alog u.
+        5 <= alog /\ fse_valid cs alog /\ u < 2 EXP alog
+        ==> 1 <= fse_next cs alog u /\
+            fse_next cs alog u < 2 EXP (alog + 1) /\
+            fse_nbits cs alog u <= alog /\
+            2 EXP alog <= 2 EXP (fse_nbits cs alog u) * fse_next cs alog u /\
+            2 EXP (fse_nbits cs alog u) * fse_next cs alog u <
+            2 EXP (alog + 1) /\
+            fse_base cs alog u + 2 EXP (fse_nbits cs alog u) <= 2 EXP alog`,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  FIRST_ASSUM(STRIP_ASSUME_TAC o MATCH_MP FSE_NEXT_BOUNDS) THEN
+  REWRITE_TAC[fse_base; fse_nbits] THEN
+  ABBREV_TAC `x = fse_next cs alog u` THEN
+  SUBGOAL_THEN `1 <= x /\ x < 2 EXP (alog + 1)` STRIP_ASSUME_TAC THENL
+   [REWRITE_TAC[EXP_ADD; EXP_1] THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  ASM_REWRITE_TAC[] THEN
+  SUBGOAL_THEN
+   `1 <= bitsize x /\ bitsize x <= alog + 1 /\
+    2 EXP (bitsize x - 1) <= x /\ x < 2 EXP bitsize x`
+  STRIP_ASSUME_TAC THENL
+   [REWRITE_TAC[BITSIZE_LE; BITSIZE; LE_BITSIZE; ARITH_EQ; SUB_REFL; EXP] THEN
+    ASM_REWRITE_TAC[] THEN MATCH_MP_TAC BITSIZE_REV THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  ABBREV_TAC `b = bitsize x` THEN
+  SUBGOAL_THEN
+   `2 EXP ((alog + 1) - b) * 2 EXP (b - 1) = 2 EXP alog /\
+    2 EXP ((alog + 1) - b) * 2 EXP b = 2 EXP (alog + 1)`
+  STRIP_ASSUME_TAC THENL
+   [REWRITE_TAC[GSYM EXP_ADD] THEN CONJ_TAC THEN AP_TERM_TAC THEN
+    ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  ABBREV_TAC `p = 2 EXP ((alog + 1) - b)` THEN
+  SUBGOAL_THEN `~(p = 0)` ASSUME_TAC THENL
+   [EXPAND_TAC "p" THEN REWRITE_TAC[EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
+  SUBGOAL_THEN `2 EXP alog <= p * x` ASSUME_TAC THENL
+   [FIRST_X_ASSUM((fun th -> GEN_REWRITE_TAC LAND_CONV [SYM th]) o
+      check (fun th -> is_eq(concl th) && rhs(concl th) = `2 EXP alog`)) THEN
+    ASM_REWRITE_TAC[LE_MULT_LCANCEL];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `p * x + p <= 2 EXP (alog + 1)` ASSUME_TAC THENL
+   [FIRST_X_ASSUM((fun th -> GEN_REWRITE_TAC RAND_CONV [SYM th]) o
+      check (fun th -> is_eq(concl th) &&
+                       rhs(concl th) = `2 EXP (alog + 1)`)) THEN
+    REWRITE_TAC[ARITH_RULE `p * x + p = p * (x + 1)`; LE_MULT_LCANCEL] THEN
+    ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  UNDISCH_TAC `p * x + p <= 2 EXP (alog + 1)` THEN
+  UNDISCH_TAC `2 EXP alog <= p * x` THEN
+  UNDISCH_TAC `~(p = 0)` THEN UNDISCH_TAC `1 <= b` THEN
+  REWRITE_TAC[EXP_ADD; EXP_1] THEN ARITH_TAC);;
+
+(* ------------------------------------------------------------------------- *)
+(* Prefixes of fse_syms, and the number of counts of -1 among the first u,   *)
+(* for the loop invariants in the proofs of zstd's code.                     *)
+(* ------------------------------------------------------------------------- *)
+
+let fse_symsp = new_definition
+ `fse_symsp (cs:int list) s =
+    ITLIST APPEND
+     (list_of_seq (\t. REPLICATE (num_of_int(max (EL t cs) (&0))) t) s) []`;;
+
+let FSE_SYMSP_0 = prove
+ (`!cs. fse_symsp cs 0 = []`,
+  REWRITE_TAC[fse_symsp; LIST_OF_SEQ_0; ITLIST]);;
+
+let FSE_SYMSP_SUC = prove
+ (`!cs s. fse_symsp cs (s + 1) =
+          APPEND (fse_symsp cs s)
+                 (REPLICATE (num_of_int(max (EL s cs) (&0))) s)`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[fse_symsp; LIST_OF_SEQ_ADD1] THEN
+  REWRITE_TAC[ITLIST_APPEND; ITLIST] THEN
+  ONCE_REWRITE_TAC[ITLIST_APPEND_NIL] THEN REWRITE_TAC[APPEND_NIL]);;
+
+let LENGTH_FSE_SYMSP = prove
+ (`!cs s. LENGTH(fse_symsp cs s) = fse_cum cs s`,
+  REWRITE_TAC[fse_symsp; LENGTH_FSE_SYMS_PREFIX]);;
+
+let FSE_SYMS_SYMSP = prove
+ (`!cs. fse_syms cs = fse_symsp cs (LENGTH cs)`,
+  REWRITE_TAC[fse_syms; fse_symsp]);;
+
+let fse_nlow = new_definition
+ `fse_nlow (cs:int list) u =
+    LENGTH(FILTER (\t. EL t cs = -- &1) (list_of_seq (\t. t) u))`;;
+
+let FSE_NLOW_0 = prove
+ (`!cs. fse_nlow cs 0 = 0`,
+  REWRITE_TAC[fse_nlow; LIST_OF_SEQ_0; FILTER; LENGTH]);;
+
+let FSE_NLOW_SUC = prove
+ (`!cs u. fse_nlow cs (u + 1) =
+          fse_nlow cs u + (if EL u cs = -- &1 then 1 else 0)`,
+  REWRITE_TAC[fse_nlow; LENGTH_FILTER_LIST_OF_SEQ_SUC]);;
+
+let FSE_NLOW_LENGTH = prove
+ (`!cs. fse_nlow cs (LENGTH cs) = LENGTH(fse_lowprob cs)`,
+  REWRITE_TAC[fse_nlow; fse_lowprob]);;
+
+let FSE_NLOW_MONO = prove
+ (`!cs m n. m <= n ==> fse_nlow cs m <= fse_nlow cs n`,
+  REWRITE_TAC[fse_nlow; LENGTH_FILTER_LIST_OF_SEQ_MONO]);;
