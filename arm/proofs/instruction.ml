@@ -1407,6 +1407,12 @@ let arm_BR = define
         (PC := pc_next ,,
          events := CONS (EventJump (pc,pc_next)) (read events s)) s`;;
 
+let arm_RBIT = define
+ `arm_RBIT Rd Rn =
+    \s. let n = read Rn s in
+        let d = word_reversefields 1 n in
+        (Rd := d) s`;;
+
 let arm_REV = define
  `arm_REV Rd Rn =
     \s. let n = read Rn s in
@@ -4208,7 +4214,7 @@ let ARM_OPERATION_CLAUSES =
        arm_ORN; arm_ORR; arm_ORR_VEC;
        arm_PMUL_VEC_ALT;
        arm_PMULL_VEC_ALT; arm_PMULL2_VEC_ALT;
-       arm_RET; arm_REV; arm_REV32_VEC_ALT; arm_REV64_VEC_ALT; arm_RORV;
+       arm_RBIT; arm_RET; arm_REV; arm_REV32_VEC_ALT; arm_REV64_VEC_ALT; arm_RORV;
        arm_RSHRN_ALT; arm_RSHRN2_ALT;
        arm_SADDW_ALT; arm_SADDW2_ALT;
        arm_SBC; arm_SBCS_ALT; arm_SBFM; arm_SHL_VEC_ALT; arm_SHRN_ALT; arm_SHRN2_ALT;

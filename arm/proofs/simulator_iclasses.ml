@@ -152,6 +152,9 @@ let iclasses =
   (*** UBFM, SBFM ***)
   "xx0100110xxxxxxxxxxxxxxxxxxxxxxx";
 
+  (*** RBIT ***)
+  "x101101011000000000000xxxxxxxxxx";
+
   (*** CLZ ***)
   "x101101011000000000100xxxxxxxxxx";
 

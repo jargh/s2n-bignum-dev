@@ -296,6 +296,9 @@ let decode = new_definition `!w:int32. decode w =
     else if sf then SOME(arm_BFM (XREG' Rd) (XREG' Rn) (val immr) (val imms))
     else if val immr >= 32 \/ val imms >= 32 then NONE
     else SOME(arm_BFM (WREG' Rd) (WREG' Rn) (val immr) (val imms))
+  | [sf; 0b101101011000000000000:21; Rn:5; Rd:5] ->
+    SOME (if sf then arm_RBIT (XREG' Rd) (XREG' Rn)
+          else arm_RBIT (WREG' Rd) (WREG' Rn))
   | [sf; 0b101101011000000000100:21; Rn:5; Rd:5] ->
     SOME (if sf then arm_CLZ (XREG' Rd) (XREG' Rn)
           else arm_CLZ (WREG' Rd) (WREG' Rn))
