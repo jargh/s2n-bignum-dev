@@ -79,6 +79,26 @@ let WORD_CLZ_WORD32 = prove
  (`!n. n < 2 EXP 32 ==> word_clz(word n:int32) = 32 - bitsize n`,
   SIMP_TAC[WORD_CLZ_BITSIZE; VAL_WORD; DIMINDEX_32; MOD_LT]);;
 
+let WORD_AND_255_SMALL = prove
+ (`!a. 8 <= dimindex(:N) /\ a < 256
+       ==> word_and (word a) (word 255):N word = word a`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(ISPECL [`a:num`; `8`] WORD_AND_MASK_SMALL) THEN
+  ANTS_TAC THENL
+   [TRANS_TAC LTE_TRANS `2 EXP 8` THEN
+    ASM_REWRITE_TAC[LE_EXP; ARITH_EQ] THEN ASM_ARITH_TAC;
+    CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN ASM_SIMP_TAC[MOD_LT]]);;
+
+let WORD_AND_65535_SMALL = prove
+ (`!a. 16 <= dimindex(:N) /\ a < 65536
+       ==> word_and (word a) (word 65535):N word = word a`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(ISPECL [`a:num`; `16`] WORD_AND_MASK_SMALL) THEN
+  ANTS_TAC THENL
+   [TRANS_TAC LTE_TRANS `2 EXP 16` THEN
+    ASM_REWRITE_TAC[LE_EXP; ARITH_EQ] THEN ASM_ARITH_TAC;
+    CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN ASM_SIMP_TAC[MOD_LT]]);;
+
 let ZSTD_SMALL_WORD_RULES =
   let split th =
     let th' = SPEC_ALL th in
@@ -90,7 +110,7 @@ let ZSTD_SMALL_WORD_RULES =
   List.concat (map split
    [WORD_USHR_WORD_SMALL; WORD_AND_7_SMALL; WORD_SUB_ADD_SMALL;
     WORD_SUB_ZX_ADD; WORD_ADD_SUB_BASE; SUB_REFL; WORD_ADD_0;
-    WORD_CLZ_WORD32]);;
+    WORD_CLZ_WORD32; WORD_AND_255_SMALL; WORD_AND_65535_SMALL]);;
 
 (*** SMALL_WORD_CONV and SMALL_WORD_TAC of puff.ml with these rules ***)
 
@@ -553,3 +573,314 @@ let ZSTD_END_LAST = prove
 let ZSTD_END_UNIQUE = prove
  (`!(st:byte list) r r'. zstd_end st r /\ zstd_end st r' ==> r = r'`,
   REWRITE_TAC[ZSTD_END_BITSIZE] THEN ARITH_TAC);;
+
+(* ------------------------------------------------------------------------- *)
+(* Lists of bytes and of 16-bit words in memory: reading parts of them, and  *)
+(* updating, extending and truncating them.                                  *)
+(* ------------------------------------------------------------------------- *)
+
+let NUM_OF_BYTELIST_AS_WORDLIST = prove
+ (`!l:byte list. num_of_bytelist l = num_of_wordlist l`,
+  LIST_INDUCT_TAC THEN
+  ASM_REWRITE_TAC[num_of_bytelist; num_of_wordlist; DIMINDEX_8] THEN
+  ARITH_TAC);;
+
+let READ_MEMORY_BYTES_0 = prove
+ (`!(a:int64) s. read (memory :> bytes(a,0)) s = 0`,
+  REWRITE_TAC[READ_COMPONENT_COMPOSE; READ_BYTES_TRIVIAL]);;
+
+let READ_MEMORY_BYTES_1 = prove
+ (`!x s:armstate.
+        read (memory :> bytes(x,1)) s = val(read (memory :> bytes8 x) s)`,
+  REWRITE_TAC[READ_COMPONENT_COMPOSE; VAL_READ_MEMORY_BYTES8]);;
+
+let READ_MEMORY_BYTES_2 = prove
+ (`!x s:armstate.
+        read (memory :> bytes(x,2)) s = val(read (memory :> bytes16 x) s)`,
+  REWRITE_TAC[READ_COMPONENT_COMPOSE; VAL_READ_MEMORY_BYTES16]);;
+
+let READ_MEMORY_BYTES_8 = prove
+ (`!x s:armstate.
+        read (memory :> bytes(x,8)) s = val(read (memory :> bytes64 x) s)`,
+  REWRITE_TAC[READ_COMPONENT_COMPOSE; VAL_READ_MEMORY_BYTES64]);;
+
+let READ_MEMORY_BYTES4_SPLIT = prove
+ (`!x s:armstate.
+        read (memory :> bytes(x,4)) s =
+        val(read (memory :> bytes16 x) s) +
+        65536 * (val(read (memory :> bytes8(word_add x (word 2))) s) +
+                 256 * val(read (memory :> bytes8(word_add x (word 3))) s))`,
+  REPEAT GEN_TAC THEN
+  GEN_REWRITE_TAC LAND_CONV [READ_COMPONENT_COMPOSE] THEN
+  SUBST1_TAC(ARITH_RULE `4 = 2 + 1 + 1`) THEN
+  REWRITE_TAC[READ_BYTES_COMBINE] THEN
+  REWRITE_TAC[VAL_READ_MEMORY_BYTES8; VAL_READ_MEMORY_BYTES16] THEN
+  REWRITE_TAC[GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
+  CONV_TAC NUM_REDUCE_CONV);;
+
+let NUM_OF_BYTELIST_SUB_LIST_1 = prove
+ (`!(l:byte list) i.
+        i < LENGTH l ==> num_of_bytelist(SUB_LIST(i,1) l) = val(EL i l)`,
+  SIMP_TAC[SUB_LIST_1; num_of_bytelist; MULT_CLAUSES; ADD_CLAUSES]);;
+
+let NUM_OF_BYTELIST_SUB_LIST_4 = prove
+ (`!(l:byte list) i.
+        i + 4 <= LENGTH l
+        ==> num_of_bytelist(SUB_LIST(i,4) l) =
+            val(EL i l) + 256 * (val(EL (i + 1) l) +
+            256 * (val(EL (i + 2) l) + 256 * val(EL (i + 3) l)))`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN
+   `SUB_LIST(i,4) l:byte list =
+    [EL i l; EL (i + 1) l; EL (i + 2) l; EL (i + 3) l]`
+  SUBST1_TAC THENL
+   [REWRITE_TAC[LIST_EQ; LENGTH_SUB_LIST; LENGTH] THEN
+    CONJ_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    X_GEN_TAC `k:num` THEN DISCH_TAC THEN
+    SUBGOAL_THEN `k < 4` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    ASM_SIMP_TAC[EL_SUB_LIST] THEN
+    FIRST_X_ASSUM(DISJ_CASES_THEN2 SUBST1_TAC MP_TAC o MATCH_MP
+     (ARITH_RULE `k < 4 ==> k = 0 \/ k = 1 \/ k = 2 \/ k = 3`)) THENL
+     [REWRITE_TAC[ADD_CLAUSES; EL; HD]; ALL_TAC] THEN
+    DISCH_THEN(DISJ_CASES_THEN2 SUBST1_TAC MP_TAC) THENL
+     [CONV_TAC(RAND_CONV EL_CONV) THEN REFL_TAC; ALL_TAC] THEN
+    DISCH_THEN(DISJ_CASES_THEN SUBST1_TAC) THEN
+    CONV_TAC(RAND_CONV EL_CONV) THEN REFL_TAC;
+    REWRITE_TAC[num_of_bytelist] THEN ARITH_TAC]);;
+
+let NUM_OF_BYTELIST_SPLIT3 = prove
+ (`!(l:byte list) i k.
+        i + k <= LENGTH l
+        ==> num_of_bytelist l =
+            num_of_bytelist(SUB_LIST(0,i) l) +
+            2 EXP (8 * i) *
+            (num_of_bytelist(SUB_LIST(i,k) l) +
+             2 EXP (8 * k) *
+             num_of_bytelist(SUB_LIST(i + k,LENGTH l - (i + k)) l))`,
+  REPEAT STRIP_TAC THEN
+  ABBREV_TAC `r = LENGTH(l:byte list) - (i + k)` THEN
+  SUBGOAL_THEN `SUB_LIST(0,i + k + r) l:byte list = l` MP_TAC THENL
+   [MATCH_MP_TAC SUB_LIST_REFL THEN ASM_ARITH_TAC;
+    DISCH_THEN(fun th ->
+      GEN_REWRITE_TAC (LAND_CONV o RAND_CONV) [SYM th])] THEN
+  REWRITE_TAC[SUB_LIST_SPLIT; NUM_OF_BYTELIST_APPEND; ADD_CLAUSES] THEN
+  REWRITE_TAC[LENGTH_SUB_LIST] THEN
+  ASM_SIMP_TAC[ARITH_RULE `i + k <= l ==> MIN i (l - 0) = i`;
+               ARITH_RULE `i + k <= l ==> MIN k (l - i) = k`]);;
+
+let READ_MEMORY_BYTELIST_SPLIT = prove
+ (`!a:int64 (l:byte list) i k s:armstate.
+        read (memory :> bytes(a,LENGTH l)) s = num_of_bytelist l /\
+        i + k <= LENGTH l
+        ==> read (memory :> bytes(a,i)) s =
+            num_of_bytelist(SUB_LIST(0,i) l) /\
+            read (memory :> bytes(word_add a (word i),k)) s =
+            num_of_bytelist(SUB_LIST(i,k) l) /\
+            read (memory :> bytes(word_add a (word(i + k)),
+                                  LENGTH l - (i + k))) s =
+            num_of_bytelist(SUB_LIST(i + k,LENGTH l - (i + k)) l)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REWRITE_TAC[NUM_OF_BYTELIST_AS_WORDLIST; NUM_OF_WORDLIST_SUB_LIST_0;
+              NUM_OF_WORDLIST_SUB_LIST; DIMINDEX_8] THEN
+  REWRITE_TAC[GSYM NUM_OF_BYTELIST_AS_WORDLIST] THEN
+  FIRST_X_ASSUM(SUBST1_TAC o SYM o check (is_eq o concl)) THEN
+  REWRITE_TAC[READ_COMPONENT_COMPOSE; READ_BYTES_DIV; READ_BYTES_MOD] THEN
+  REPEAT CONJ_TAC THEN
+  AP_THM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN
+  REWRITE_TAC[PAIR_EQ] THEN ASM_ARITH_TAC);;
+
+let READ_MEMORY_BYTELIST_UPDATE = prove
+ (`!a:int64 (l:byte list) l' i k s:armstate.
+        read (memory :> bytes(a,i)) s = num_of_bytelist(SUB_LIST(0,i) l) /\
+        read (memory :> bytes(word_add a (word i),k)) s =
+        num_of_bytelist(SUB_LIST(i,k) l') /\
+        read (memory :> bytes(word_add a (word(i + k)),
+                              LENGTH l - (i + k))) s =
+        num_of_bytelist(SUB_LIST(i + k,LENGTH l - (i + k)) l) /\
+        i + k <= LENGTH l /\ LENGTH l' = LENGTH l /\
+        (!j. j < LENGTH l /\ ~(i <= j /\ j < i + k) ==> EL j l' = EL j l)
+        ==> read (memory :> bytes(a,LENGTH l)) s = num_of_bytelist l'`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPECL [`l':byte list`; `i:num`; `k:num`] NUM_OF_BYTELIST_SPLIT3) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_THEN SUBST1_TAC THEN
+  SUBGOAL_THEN
+   `SUB_LIST(0,i) l':byte list = SUB_LIST(0,i) l /\
+    SUB_LIST(i + k,LENGTH l - (i + k)) l' =
+    SUB_LIST(i + k,LENGTH l - (i + k)) l`
+  (CONJUNCTS_THEN SUBST1_TAC) THENL
+   [CONJ_TAC THEN MATCH_MP_TAC SUB_LIST_EQ_EL THEN ASM_REWRITE_TAC[] THEN
+    CONJ_TAC THEN TRY(REPEAT STRIP_TAC THEN FIRST_X_ASSUM MATCH_MP_TAC) THEN
+    ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  ABBREV_TAC `r = LENGTH(l:byte list) - (i + k)` THEN
+  SUBGOAL_THEN `LENGTH(l:byte list) = i + k + r` SUBST1_TAC THENL
+   [ASM_ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[READ_COMPONENT_COMPOSE; READ_BYTES_COMBINE] THEN
+  REWRITE_TAC[GSYM WORD_ADD_ASSOC; GSYM WORD_ADD] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[READ_COMPONENT_COMPOSE]) THEN
+  ASM_REWRITE_TAC[]);;
+
+let READ_MEMORY_BYTELIST_UPDATE1 = prove
+ (`!a:int64 (l:byte list) l' i x b s:armstate.
+        read (memory :> bytes(a,i)) s = num_of_bytelist(SUB_LIST(0,i) l) /\
+        read (memory :> bytes8 x) s = b /\ x = word_add a (word i) /\
+        read (memory :> bytes(word_add a (word(i + 1)),
+                              LENGTH l - (i + 1))) s =
+        num_of_bytelist(SUB_LIST(i + 1,LENGTH l - (i + 1)) l) /\
+        i < LENGTH l /\ LENGTH l' = LENGTH l /\ EL i l' = b /\
+        (!j. j < LENGTH l /\ ~(j = i) ==> EL j l' = EL j l)
+        ==> read (memory :> bytes(a,LENGTH l)) s = num_of_bytelist l'`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPECL [`a:int64`; `l:byte list`; `l':byte list`; `i:num`; `1`;
+                `s:armstate`] READ_MEMORY_BYTELIST_UPDATE) THEN
+  DISCH_THEN MATCH_MP_TAC THEN ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
+   [REWRITE_TAC[READ_MEMORY_BYTES_1] THEN
+    SUBGOAL_THEN `i < LENGTH(l':byte list)` ASSUME_TAC THENL
+     [ASM_REWRITE_TAC[]; ASM_SIMP_TAC[NUM_OF_BYTELIST_SUB_LIST_1]] THEN
+    FIRST_X_ASSUM(SUBST1_TAC o SYM o check
+     (fun th -> is_eq(concl th) && lhs(concl th) = `x:int64`)) THEN
+    ASM_REWRITE_TAC[];
+    ASM_ARITH_TAC;
+    REPEAT STRIP_TAC THEN FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_ARITH_TAC]);;
+
+let READ_MEMORY_BYTES_TRUNC = prove
+ (`!a:int64 (l:byte list) n k s:armstate.
+        read (memory :> bytes(a,n)) s = num_of_bytelist l /\
+        LENGTH l = n /\ k <= n
+        ==> read (memory :> bytes(a,k)) s = num_of_bytelist(SUB_LIST(0,k) l)`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(ISPECL [`a:int64`; `l:byte list`; `k:num`; `0`; `s:armstate`]
+    READ_MEMORY_BYTELIST_SPLIT) THEN
+  ASM_REWRITE_TAC[ADD_CLAUSES] THEN SIMP_TAC[]);;
+
+let NUM_OF_BYTELIST_REPLICATE8 = prove
+ (`!b. b < 256
+       ==> num_of_bytelist(REPLICATE 8 (word b:byte)) =
+           b * 72340172838076673`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[num_CONV `8`; num_CONV `7`; num_CONV `6`; num_CONV `5`;
+              num_CONV `4`; num_CONV `3`; num_CONV `2`; num_CONV `1`] THEN
+  REWRITE_TAC[REPLICATE; num_of_bytelist] THEN
+  ASM_SIMP_TAC[VAL_WORD; DIMINDEX_8; ARITH_RULE `256 = 2 EXP 8`; MOD_LT;
+               ARITH_RULE `b < 256 ==> b < 2 EXP 8`] THEN
+  ARITH_TAC);;
+
+let READ_MEMORY_BYTELIST_APPEND64 = prove
+ (`!a:int64 (l:byte list) n x b s:armstate.
+        read (memory :> bytes(a,n)) s = num_of_bytelist l /\
+        LENGTH l = n /\
+        read (memory :> bytes64 x) s = word(b * 72340172838076673) /\
+        x = word_add a (word n) /\ b < 256
+        ==> read (memory :> bytes(a,n + 8)) s =
+            num_of_bytelist(APPEND l (REPLICATE 8 (word b)))`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  FIRST_X_ASSUM(SUBST_ALL_TAC o check
+   (fun th -> is_eq(concl th) && lhs(concl th) = `x:int64`)) THEN
+  REWRITE_TAC[READ_COMPONENT_COMPOSE; READ_BYTES_COMBINE] THEN
+  REWRITE_TAC[VAL_READ_MEMORY_BYTES64; NUM_OF_BYTELIST_APPEND] THEN
+  ASM_REWRITE_TAC[] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[READ_COMPONENT_COMPOSE]) THEN
+  ASM_REWRITE_TAC[] THEN
+  ASM_SIMP_TAC[NUM_OF_BYTELIST_REPLICATE8; VAL_WORD; DIMINDEX_64] THEN
+  SUBGOAL_THEN `b * 72340172838076673 < 2 EXP 64` ASSUME_TAC THENL
+   [CONV_TAC NUM_REDUCE_CONV THEN UNDISCH_TAC `b < 256` THEN ARITH_TAC;
+    ASM_SIMP_TAC[MOD_LT]]);;
+
+let READ_MEMORY_BYTES16_WORDLIST_VAL = prove
+ (`!a:int64 (l:int16 list) n j s:armstate.
+        read (memory :> bytes(a,2 * n)) s = num_of_wordlist l /\
+        LENGTH l = n /\ j < n /\ n < 2 EXP 63
+        ==> read (memory :> bytes16(word_add a (word(2 * val(word j:int64)))))
+                 s = EL j l`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `val(word j:int64) = j` SUBST1_TAC THENL
+   [MATCH_MP_TAC VAL_WORD_LT64 THEN UNDISCH_TAC `n < 2 EXP 63` THEN
+    UNDISCH_TAC `j < n` THEN ARITH_TAC;
+    MATCH_MP_TAC READ_MEMORY_BYTES16_NUM_OF_WORDLIST THEN
+    EXISTS_TAC `n:num` THEN ASM_REWRITE_TAC[]]);;
+
+let READ_MEMORY_WORDLIST16_APPEND1 = prove
+ (`!a:int64 (l:int16 list) x w s:armstate.
+        read (memory :> bytes(a,2 * LENGTH l)) s = num_of_wordlist l /\
+        read (memory :> bytes16 x) s = w /\
+        x = word_add a (word(2 * LENGTH l))
+        ==> read (memory :> bytes(a,2 * (LENGTH l + 1))) s =
+            num_of_wordlist(APPEND l [w])`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  FIRST_X_ASSUM(SUBST_ALL_TAC o check
+   (fun th -> is_eq(concl th) && lhs(concl th) = `x:int64`)) THEN
+  REWRITE_TAC[ARITH_RULE `2 * (n + 1) = 2 * n + 2`] THEN
+  REWRITE_TAC[READ_COMPONENT_COMPOSE; READ_BYTES_COMBINE] THEN
+  REWRITE_TAC[VAL_READ_MEMORY_BYTES16; NUM_OF_WORDLIST_APPEND] THEN
+  ASM_REWRITE_TAC[NUM_OF_WORDLIST_SING; DIMINDEX_16] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[READ_COMPONENT_COMPOSE]) THEN
+  ASM_REWRITE_TAC[] THEN AP_TERM_TAC THEN
+  REWRITE_TAC[MULT_ASSOC] THEN CONV_TAC NUM_REDUCE_CONV);;
+
+(* ------------------------------------------------------------------------- *)
+(* Some other facts about lists, words and pointers.                         *)
+(* ------------------------------------------------------------------------- *)
+
+let FORALL_LT_SUC = prove
+ (`!P u. (!t. t < u + 1 ==> P t) <=> (!t. t < u ==> P t) /\ P u`,
+  REWRITE_TAC[ARITH_RULE `t < u + 1 <=> t < u \/ t = u`] THEN MESON_TAC[]);;
+
+let EXISTS_LT_SUC = prove
+ (`!P u. (?t. t < u + 1 /\ P t) <=> (?t. t < u /\ P t) \/ P u`,
+  REWRITE_TAC[ARITH_RULE `t < u + 1 <=> t < u \/ t = u`] THEN MESON_TAC[]);;
+
+let MAP_REPLICATE = prove
+ (`!(f:A->B) n x. MAP f (REPLICATE n x) = REPLICATE n (f x)`,
+  GEN_TAC THEN INDUCT_TAC THEN ASM_REWRITE_TAC[REPLICATE; MAP]);;
+
+let REPLICATE_ADD = prove
+ (`!m n (x:A). REPLICATE (m + n) x = APPEND (REPLICATE m x) (REPLICATE n x)`,
+  INDUCT_TAC THEN ASM_REWRITE_TAC[REPLICATE; ADD_CLAUSES; APPEND]);;
+
+let SUB_LIST_APPEND_REPLICATE = prove
+ (`!(l:A list) x k m.
+        k <= m
+        ==> SUB_LIST(0,LENGTH l + k) (APPEND l (REPLICATE m x)) =
+            APPEND l (REPLICATE k x)`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[LIST_EQ; LENGTH_SUB_LIST; LENGTH_APPEND; LENGTH_REPLICATE] THEN
+  CONJ_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  X_GEN_TAC `i:num` THEN DISCH_TAC THEN
+  SUBGOAL_THEN `i < LENGTH(l:A list) + k` ASSUME_TAC THENL
+   [ASM_ARITH_TAC; ALL_TAC] THEN
+  ASM_SIMP_TAC[EL_SUB_LIST; LENGTH_APPEND; LENGTH_REPLICATE;
+               ARITH_RULE `k <= m ==> 0 + l + k <= l + m`] THEN
+  REWRITE_TAC[ADD_CLAUSES; EL_APPEND] THEN
+  COND_CASES_TAC THEN REWRITE_TAC[] THEN
+  ASM_SIMP_TAC[EL_REPLICATE;
+    ARITH_RULE `~(i < l) /\ i < l + k /\ k <= m ==> i - l < m /\ i - l < k`]);;
+
+let WORD_INSERT_UPPER16 = prove
+ (`!a b. a < 2 EXP 32 /\ b < 65536
+         ==> word_insert (word a:int32) (16,16) (word b:int32):int32 =
+             word(a MOD 65536 + 65536 * b)`,
+  REPEAT GEN_TAC THEN CONV_TAC(LAND_CONV NUM_REDUCE_CONV) THEN STRIP_TAC THEN
+  REWRITE_TAC[word_insert; VAL_WORD; DIMINDEX_32] THEN
+  CONV_TAC NUM_REDUCE_CONV THEN
+  ASM_SIMP_TAC[MOD_LT; DIV_LT; ARITH_RULE `b < 65536 ==> b < 4294967296`;
+               MULT_CLAUSES; ADD_CLAUSES] THEN
+  AP_TERM_TAC THEN ARITH_TAC);;
+
+let WORD_AND_POW2_WORD = prove
+ (`!a k. k <= dimindex(:N)
+         ==> word_and (word a) (word(2 EXP k - 1)):N word =
+             word(a MOD 2 EXP k) /\
+             word_and (word(2 EXP k - 1)) (word a):N word =
+             word(a MOD 2 EXP k)`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[WORD_AND_MASK_WORD; VAL_WORD; MOD_MOD_EXP_MIN] THEN
+  AP_TERM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC);;
+
+let PTR_EQ_OFFSETS = prove
+ (`!(p:int64) a b.
+        a < 2 EXP 64 /\ b < 2 EXP 64
+        ==> (val(word_add p (word a)) = val(word_add p (word b)) <=> a = b)`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[VAL_EQ; WORD_RULE
+   `!x y z:int64. word_add x y = word_add x z <=> y = z`] THEN
+  ONCE_REWRITE_TAC[GSYM VAL_EQ] THEN ASM_SIMP_TAC[VAL_WORD_LT64]);;

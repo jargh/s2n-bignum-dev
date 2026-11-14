@@ -902,10 +902,6 @@ let HUF_DECODE_0 = prove
  (`!ws ml (st:byte list) q. huf_decode ws ml st q 0 = ([],q,T)`,
   REWRITE_TAC[huf_decode]);;
 
-let READ_MEMORY_BYTES_0 = prove
- (`!(a:int64) s. read (memory :> bytes(a,0)) s = 0`,
-  REWRITE_TAC[READ_COMPONENT_COMPOSE; READ_BYTES_TRIVIAL]);;
-
 let HUF_START_TAC =
   REWRITE_TAC[HUF_DECODE_0; READ_MEMORY_BYTES_0; num_of_bytelist;
               WORD_ADD_0];;
