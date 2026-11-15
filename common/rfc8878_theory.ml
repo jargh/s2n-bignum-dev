@@ -6,8 +6,8 @@
 (* ========================================================================= *)
 (* Facts about the specification of Huffman-coded literals in the Zstandard  *)
 (* format in rfc8878.ml, and of the FSE tables used for their weights, their *)
-(* descriptions and the decoding of the weights, for the proofs about zstd's *)
-(* code.                                                                     *)
+(* descriptions, the decoding of the weights and the Huffman tree            *)
+(* descriptions, for the proofs about zstd's code.                           *)
 (* ========================================================================= *)
 
 needs "common/rfc8878.ml";;
@@ -2371,3 +2371,315 @@ let FSE_WEIGHT_BLOCK_NONE = prove
   REPEAT STRIP_TAC THEN
   FIRST_X_ASSUM(MP_TAC o SPECL [`cs:int list`; `alog:num`; `m:num`]) THEN
   ASM_REWRITE_TAC[] THEN ASM_MESON_TAC[ARITH_RULE `a <= 6 ==> a <= 15`]);;
+
+(* ------------------------------------------------------------------------- *)
+(* The weights of a block, and the description of a Huffman tree at the      *)
+(* start of a list of bytes, are determined by them, and the weights of a    *)
+(* block are at most 255 numbers below 256.                                  *)
+(* ------------------------------------------------------------------------- *)
+
+let FSE_WEIGHTS_DET = prove
+ (`!cs alog (st:byte list) x w w'.
+        fse_weights cs alog st x w /\ fse_weights cs alog st x w' ==> w' = w`,
+  GEN_TAC THEN GEN_TAC THEN GEN_TAC THEN
+  REWRITE_TAC[IMP_CONJ; RIGHT_FORALL_IMP_THM] THEN
+  MATCH_MP_TAC FSE_WEIGHTS_INDUCT THEN CONJ_TAC THEN REPEAT GEN_TAC THEN
+  STRIP_TAC THEN ASM_SIMP_TAC[FSE_WEIGHTS_STOP; FSE_WEIGHTS_STEP]);;
+
+let FSE_WEIGHT_BLOCK_DET = prove
+ (`!(blk:byte list) w w'.
+        fse_weight_block T blk w /\ fse_weight_block T blk w' ==> w' = w`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[fse_weight_block] THEN
+  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+  DISCH_THEN(CONJUNCTS_THEN2
+   (X_CHOOSE_THEN `cs:int list` (X_CHOOSE_THEN `alog:num`
+     (X_CHOOSE_THEN `m:num` (X_CHOOSE_THEN `r:num` STRIP_ASSUME_TAC))))
+   (X_CHOOSE_THEN `cs':int list` (X_CHOOSE_THEN `alog':num`
+     (X_CHOOSE_THEN `m':num` (X_CHOOSE_THEN `r':num` STRIP_ASSUME_TAC))))) THEN
+  MP_TAC(SPECL [`T`; `6`; `6`; `256`; `blk:byte list`; `cs:int list`;
+                `alog:num`; `m:num`; `cs':int list`; `alog':num`; `m':num`]
+    FSE_NCOUNT_DET) THEN
+  ASM_REWRITE_TAC[] THEN
+  DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN SUBST_ALL_TAC) THEN
+  SUBGOAL_THEN `r':num = r` SUBST_ALL_TAC THENL
+   [ASM_MESON_TAC[ZSTD_END_UNIQUE]; ASM_MESON_TAC[FSE_WEIGHTS_DET]]);;
+
+let HUF_HEADER_DET = prove
+ (`!(l:byte list) w h w' h'.
+        huf_header T l w h /\ huf_header T l w' h' ==> w' = w /\ h' = h`,
+  REWRITE_TAC[huf_header] THEN REPEAT GEN_TAC THEN STRIP_TAC THEN
+  REPEAT(FIRST_X_ASSUM(SUBST_ALL_TAC o check (fun th ->
+    let c = concl th in is_eq c && is_var(lhs c)))) THEN
+  REWRITE_TAC[] THEN TRY ASM_ARITH_TAC THEN
+  ASM_MESON_TAC[FSE_WEIGHT_BLOCK_DET]);;
+
+let FSE_WEIGHTS_BOUNDS = prove
+ (`!cs alog (st:byte list) s s' q ws w.
+        5 <= alog /\ fse_valid cs alog /\
+        s < 2 EXP alog /\ s' < 2 EXP alog /\
+        fse_weights cs alog st (s,s',q,ws) w
+        ==> LENGTH w <= 255 /\
+            (ALL (\x. x < LENGTH cs) ws ==> ALL (\x. x < LENGTH cs) w)`,
+  REPEAT GEN_TAC THEN
+  DISCH_THEN(CONJUNCTS_THEN2 ASSUME_TAC
+   (CONJUNCTS_THEN2 ASSUME_TAC MP_TAC)) THEN
+  SUBGOAL_THEN
+   `!x w. fse_weights cs alog (st:byte list) x w
+          ==> FST x < 2 EXP alog /\ FST(SND x) < 2 EXP alog
+              ==> LENGTH w <= 255 /\
+                  (ALL (\x. x < LENGTH cs) (SND(SND(SND x)))
+                   ==> ALL (\x. x < LENGTH cs) w)`
+   (fun th -> STRIP_TAC THEN FIRST_X_ASSUM(MP_TAC o MATCH_MP th) THEN
+              ASM_REWRITE_TAC[FST; SND]) THEN
+  MATCH_MP_TAC FSE_WEIGHTS_INDUCT THEN REWRITE_TAC[FST; SND] THEN
+  CONJ_TAC THEN REPEAT GEN_TAC THENL
+   [STRIP_TAC THEN STRIP_TAC THEN
+    REWRITE_TAC[LENGTH_APPEND; LENGTH; ALL_APPEND; ALL] THEN
+    CONJ_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+    ASM_SIMP_TAC[FSE_SYMBOL_RANGE];
+    DISCH_THEN(CONJUNCTS_THEN2 ASSUME_TAC
+     (CONJUNCTS_THEN2 ASSUME_TAC MP_TAC)) THEN
+    DISCH_THEN(fun ih -> STRIP_TAC THEN MP_TAC ih) THEN
+    ANTS_TAC THENL
+     [ASM_REWRITE_TAC[] THEN
+      MP_TAC(SPECL [`cs:int list`; `alog:num`; `s:num`] FSE_NBITS_BASE) THEN
+      ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
+      MP_TAC(SPECL [`st:byte list`; `q:num`; `fse_nbits cs alog s`]
+        ZSTD_BACK_BOUND) THEN
+      ASM_ARITH_TAC;
+      ALL_TAC] THEN
+    STRIP_TAC THEN ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
+    FIRST_X_ASSUM MATCH_MP_TAC THEN
+    ASM_SIMP_TAC[ALL_APPEND; ALL; FSE_SYMBOL_RANGE]]);;
+
+let FSE_WEIGHT_BLOCK_BOUNDS = prove
+ (`!(blk:byte list) w.
+        fse_weight_block T blk w ==> LENGTH w <= 255 /\ ALL (\x. x < 256) w`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[fse_weight_block] THEN
+  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+  DISCH_THEN(X_CHOOSE_THEN `cs:int list` (X_CHOOSE_THEN `alog:num`
+     (X_CHOOSE_THEN `m:num` (X_CHOOSE_THEN `r:num` STRIP_ASSUME_TAC)))) THEN
+  FIRST_ASSUM(STRIP_ASSUME_TAC o MATCH_MP FSE_NCOUNT_BOUNDS) THEN
+  FIRST_ASSUM(ASSUME_TAC o MATCH_MP FSE_NCOUNT_VALID) THEN
+  FIRST_X_ASSUM(MP_TAC o MATCH_MP (REWRITE_RULE[IMP_CONJ_ALT]
+    FSE_WEIGHTS_BOUNDS)) THEN
+  ASM_REWRITE_TAC[ZSTD_BACK_BOUND; ALL] THEN
+  STRIP_TAC THEN ASM_REWRITE_TAC[] THEN
+  UNDISCH_TAC `ALL (\x. x < LENGTH(cs:int list)) w` THEN
+  MATCH_MP_TAC(REWRITE_RULE[IMP_CONJ] ALL_IMP) THEN
+  REPEAT STRIP_TAC THEN ASM_ARITH_TAC);;
+
+(* ------------------------------------------------------------------------- *)
+(* The sum of 2^(Weight - 1) over the weights, huf_total, as zstd computes   *)
+(* it, adding 2^Weight DIV 2 one weight at a time, and the number of the     *)
+(* weights j, huf_rank ws j. The weights 1 make the sum even or odd.         *)
+(* ------------------------------------------------------------------------- *)
+
+let HUF_EXP_DIV2 = prove
+ (`!x. 2 EXP x DIV 2 = if x = 0 then 0 else 2 EXP (x - 1)`,
+  INDUCT_TAC THEN REWRITE_TAC[EXP; NOT_SUC; SUC_SUB1] THEN
+  CONV_TAC NUM_REDUCE_CONV THEN SIMP_TAC[DIV_MULT; ARITH_EQ]);;
+
+let HUF_TOTAL_ALT = prove
+ (`!ws. huf_total ws = nsum {i | i < LENGTH ws} (\i. 2 EXP (EL i ws) DIV 2)`,
+  GEN_TAC THEN REWRITE_TAC[huf_total; huf_present] THEN
+  SUBGOAL_THEN
+   `{t | t < LENGTH ws /\ ~(EL t ws = 0)} =
+    {t | t IN {t | t < LENGTH ws} /\ ~(EL t ws = 0)}`
+  SUBST1_TAC THENL [SET_TAC[]; ALL_TAC] THEN
+  REWRITE_TAC[NSUM_RESTRICT_SET] THEN MATCH_MP_TAC NSUM_EQ THEN
+  REWRITE_TAC[IN_ELIM_THM; HUF_EXP_DIV2; COND_SWAP]);;
+
+let HUF_TOTAL_SPEC = prove
+ (`!ws. nsum {i | i < LENGTH ws /\ ~(EL i ws = 0)} (\i. 2 EXP (EL i ws - 1)) =
+        huf_total ws`,
+  REWRITE_TAC[huf_total; huf_present]);;
+
+let HUF_TOTAL_NIL = prove
+ (`huf_total [] = 0`,
+  REWRITE_TAC[HUF_TOTAL_ALT; LENGTH; NSUM_CLAUSES_NUMSEG_LT]);;
+
+let HUF_TOTAL_APPEND1 = prove
+ (`!ws x. huf_total (APPEND ws [x]) = huf_total ws + 2 EXP x DIV 2`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[HUF_TOTAL_ALT; LENGTH_APPEND; LENGTH; ADD_CLAUSES;
+              NSUM_CLAUSES_NUMSEG_LT] THEN
+  REWRITE_TAC[EL_APPEND; LT_REFL; SUB_REFL; EL; HD] THEN
+  AP_THM_TAC THEN AP_TERM_TAC THEN MATCH_MP_TAC NSUM_EQ THEN
+  SIMP_TAC[IN_ELIM_THM]);;
+
+let HUF_TOTAL_EL = prove
+ (`!ws i. i < LENGTH ws ==> 2 EXP (EL i ws) DIV 2 <= huf_total ws`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[HUF_TOTAL_ALT] THEN
+  MP_TAC(ISPECL [`\i. 2 EXP (EL i ws) DIV 2`; `{i | i < LENGTH(ws:num list)}`;
+                 `i:num`] NSUM_DELETE) THEN
+  ASM_REWRITE_TAC[FINITE_NUMSEG_LT; IN_ELIM_THM] THEN ARITH_TAC);;
+
+let HUF_TOTAL_BOUND = prove
+ (`!w. ALL (\x. x <= 12) w ==> huf_total w <= 2048 * LENGTH w`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[HUF_TOTAL_ALT] THEN
+  GEN_REWRITE_TAC (RAND_CONV o RAND_CONV) [GSYM CARD_NUMSEG_LT] THEN
+  ONCE_REWRITE_TAC[MULT_SYM] THEN MATCH_MP_TAC NSUM_BOUND THEN
+  REWRITE_TAC[FINITE_NUMSEG_LT; IN_ELIM_THM] THEN
+  X_GEN_TAC `i:num` THEN DISCH_TAC THEN
+  FIRST_X_ASSUM(MP_TAC o SPEC `i:num` o REWRITE_RULE[GSYM ALL_EL]) THEN
+  ASM_REWRITE_TAC[] THEN DISCH_TAC THEN
+  TRANS_TAC LE_TRANS `2 EXP 12 DIV 2` THEN CONJ_TAC THENL
+   [MATCH_MP_TAC DIV_MONO THEN ASM_REWRITE_TAC[LE_EXP] THEN ARITH_TAC;
+    CONV_TAC NUM_REDUCE_CONV]);;
+
+let huf_rank = new_definition
+ `huf_rank (ws:num list) j =
+    nsum {i | i < LENGTH ws} (\i. if EL i ws = j then 1 else 0)`;;
+
+let HUF_RANK_NIL = prove
+ (`!j. huf_rank [] j = 0`,
+  REWRITE_TAC[huf_rank; LENGTH; NSUM_CLAUSES_NUMSEG_LT]);;
+
+let HUF_RANK_APPEND1 = prove
+ (`!ws x j. huf_rank (APPEND ws [x]) j =
+            huf_rank ws j + (if x = j then 1 else 0)`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[huf_rank; LENGTH_APPEND; LENGTH; ADD_CLAUSES;
+              NSUM_CLAUSES_NUMSEG_LT] THEN
+  REWRITE_TAC[EL_APPEND; LT_REFL; SUB_REFL; EL; HD] THEN
+  AP_THM_TAC THEN AP_TERM_TAC THEN MATCH_MP_TAC NSUM_EQ THEN
+  SIMP_TAC[IN_ELIM_THM]);;
+
+let HUF_RANK_LE = prove
+ (`!ws j. huf_rank ws j <= LENGTH ws`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[huf_rank] THEN
+  MP_TAC(ISPECL [`{i | i < LENGTH(ws:num list)}`;
+                 `\i. if EL i ws = (j:num) then 1 else 0`; `1`]
+    NSUM_BOUND) THEN
+  REWRITE_TAC[FINITE_NUMSEG_LT; CARD_NUMSEG_LT; MULT_CLAUSES] THEN
+  ANTS_TAC THENL [GEN_TAC THEN COND_CASES_TAC THEN ARITH_TAC; REWRITE_TAC[]]);;
+
+let HUF_RANK_MEM = prove
+ (`!ws j. ~(huf_rank ws j = 0) <=> MEM j ws`,
+  REPEAT GEN_TAC THEN
+  SIMP_TAC[huf_rank; NSUM_EQ_0_IFF; FINITE_NUMSEG_LT; IN_ELIM_THM] THEN
+  REWRITE_TAC[MEM_EXISTS_EL; ARITH_RULE `(if p then 1 else 0) = 0 <=> ~p`] THEN
+  MESON_TAC[]);;
+
+let HUF_TOTAL_PARITY = prove
+ (`!ws. EVEN(huf_total ws) <=> EVEN(huf_rank ws 1)`,
+  GEN_TAC THEN REWRITE_TAC[HUF_TOTAL_ALT; huf_rank] THEN
+  SPEC_TAC(`LENGTH(ws:num list)`,`n:num`) THEN
+  INDUCT_TAC THEN ASM_REWRITE_TAC[NSUM_CLAUSES_NUMSEG_LT; EVEN_ADD] THEN
+  AP_TERM_TAC THEN REWRITE_TAC[HUF_EXP_DIV2] THEN
+  ASM_CASES_TAC `EL n (ws:num list) = 0` THEN ASM_REWRITE_TAC[EVEN] THEN
+  ASM_CASES_TAC `EL n (ws:num list) = 1` THEN ASM_REWRITE_TAC[EVEN] THEN
+  CONV_TAC NUM_REDUCE_CONV THEN REWRITE_TAC[EVEN_EXP; ARITH_EVEN] THEN
+  ASM_ARITH_TAC);;
+
+(* ------------------------------------------------------------------------- *)
+(* The weights as zstd's HUF_readStats checks them, huf_readstats w ws ml,   *)
+(* for the weights w of a description, ws being them with the last one and   *)
+(* ml Max_Number_of_Bits: every weight at most 12 (which the bound on ml     *)
+(* implies), the sum nonzero with at most 12 bits, the rest to 2^ml a power  *)
+(* of 2, and at least 2 weights 1, an even number of them (which follows     *)
+(* from the sum of ws being 2^ml). For a description of h bytes with the     *)
+(* weights w, these are the weights of huf_weights T.                        *)
+(* ------------------------------------------------------------------------- *)
+
+let huf_readstats = new_definition
+ `huf_readstats w ws ml <=>
+    ALL (\x. x <= 12) w /\ ~(huf_total w = 0) /\
+    ml = bitsize(huf_total w) /\ ml <= 12 /\
+    2 EXP (bitsize(2 EXP ml - huf_total w) - 1) = 2 EXP ml - huf_total w /\
+    ws = APPEND w [bitsize(2 EXP ml - huf_total w)] /\
+    2 <= huf_rank ws 1 /\ EVEN(huf_rank ws 1)`;;
+
+let HUF_READSTATS_NONE = prove
+ (`!w. (!ws ml. ~huf_readstats w ws ml) <=>
+       ~(ALL (\x. x <= 12) w /\ ~(huf_total w = 0) /\
+         bitsize(huf_total w) <= 12 /\
+         2 EXP (bitsize(2 EXP bitsize(huf_total w) - huf_total w) - 1) =
+         2 EXP bitsize(huf_total w) - huf_total w /\
+         2 <= huf_rank (APPEND w [bitsize(2 EXP bitsize(huf_total w) -
+                                          huf_total w)]) 1 /\
+         EVEN(huf_rank (APPEND w [bitsize(2 EXP bitsize(huf_total w) -
+                                          huf_total w)]) 1))`,
+  GEN_TAC THEN REWRITE_TAC[huf_readstats] THEN MESON_TAC[]);;
+
+let HUF_READSTATS_SOME = prove
+ (`!w ws ml.
+        huf_readstats w ws ml <=>
+        ALL (\x. x <= 12) w /\ ~(huf_total w = 0) /\
+        bitsize(huf_total w) <= 12 /\
+        2 EXP (bitsize(2 EXP bitsize(huf_total w) - huf_total w) - 1) =
+        2 EXP bitsize(huf_total w) - huf_total w /\
+        2 <= huf_rank (APPEND w [bitsize(2 EXP bitsize(huf_total w) -
+                                         huf_total w)]) 1 /\
+        EVEN(huf_rank (APPEND w [bitsize(2 EXP bitsize(huf_total w) -
+                                         huf_total w)]) 1) /\
+        ml = bitsize(huf_total w) /\
+        ws = APPEND w [bitsize(2 EXP bitsize(huf_total w) - huf_total w)]`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[huf_readstats] THEN MESON_TAC[]);;
+
+let HUF_WEIGHTS_READSTATS = prove
+ (`!(l:byte list) w h.
+        huf_header T l w h
+        ==> !ws ml h'. huf_weights T l ws ml h' <=>
+                       h' = h /\ huf_readstats w ws ml`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[huf_weights; huf_readstats] THEN
+  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN REWRITE_TAC[HUF_TOTAL_SPEC] THEN
+  EQ_TAC THENL
+   [DISCH_THEN(X_CHOOSE_THEN `w':num list` (X_CHOOSE_THEN `k:num`
+      STRIP_ASSUME_TAC)) THEN
+    MP_TAC(SPECL [`l:byte list`; `w:num list`; `h:num`; `w':num list`;
+                  `h':num`] HUF_HEADER_DET) THEN
+    ASM_REWRITE_TAC[] THEN
+    DISCH_THEN(CONJUNCTS_THEN SUBST_ALL_TAC) THEN
+    FIRST_X_ASSUM(SUBST_ALL_TAC o check (fun th ->
+      lhs(concl th) = `ws:num list`)) THEN
+    FIRST_X_ASSUM(SUBST_ALL_TAC o check (fun th ->
+      lhs(concl th) = `ml:num`)) THEN
+    MP_TAC(SPEC `huf_total w` BITSIZE) THEN DISCH_TAC THEN
+    ASM_REWRITE_TAC[BITSIZE_POW2; ADD_SUB] THEN CONJ_TAC THENL
+     [REWRITE_TAC[GSYM ALL_EL] THEN X_GEN_TAC `i:num` THEN DISCH_TAC THEN
+      REWRITE_TAC[GSYM NOT_LT] THEN DISCH_TAC THEN
+      MP_TAC(SPECL [`w:num list`; `i:num`] HUF_TOTAL_EL) THEN
+      ASM_REWRITE_TAC[HUF_EXP_DIV2] THEN
+      COND_CASES_TAC THENL [ASM_ARITH_TAC; DISCH_TAC] THEN
+      SUBGOAL_THEN `2 EXP 12 <= 2 EXP (EL i w - 1) /\
+                    2 EXP bitsize(huf_total w) <= 2 EXP 12`
+      STRIP_ASSUME_TAC THENL
+       [REWRITE_TAC[LE_EXP] THEN CONV_TAC NUM_REDUCE_CONV THEN
+        ASM_ARITH_TAC;
+        ASM_ARITH_TAC];
+      ALL_TAC] THEN
+    SUBGOAL_THEN `EVEN(huf_rank (APPEND w [k + 1]) 1)` ASSUME_TAC THENL
+     [REWRITE_TAC[GSYM HUF_TOTAL_PARITY; HUF_TOTAL_APPEND1; HUF_EXP_DIV2;
+                  ADD_EQ_0; ARITH_EQ; ADD_SUB] THEN
+      SUBGOAL_THEN `huf_total w + 2 EXP k = 2 EXP bitsize(huf_total w)`
+      SUBST1_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+      ASM_REWRITE_TAC[EVEN_EXP; ARITH_EVEN; BITSIZE_EQ_0];
+      ALL_TAC] THEN
+    ASM_REWRITE_TAC[] THEN
+    MP_TAC(SPECL [`APPEND w [k + 1]`; `1`] HUF_RANK_MEM) THEN
+    ASM_REWRITE_TAC[] THEN
+    UNDISCH_TAC `EVEN(huf_rank (APPEND w [k + 1]) 1)` THEN
+    REWRITE_TAC[EVEN_EXISTS] THEN STRIP_TAC THEN
+    ASM_REWRITE_TAC[MULT_EQ_0; ARITH_EQ] THEN ARITH_TAC;
+    STRIP_TAC THEN
+    FIRST_X_ASSUM(SUBST_ALL_TAC o check (fun th ->
+      lhs(concl th) = `ws:num list`)) THEN
+    FIRST_X_ASSUM(SUBST_ALL_TAC o check (fun th ->
+      lhs(concl th) = `ml:num`)) THEN
+    MAP_EVERY EXISTS_TAC
+     [`w:num list`;
+      `bitsize(2 EXP bitsize(huf_total w) - huf_total w) - 1`] THEN
+    SUBGOAL_THEN `~(2 EXP bitsize(huf_total w) - huf_total w = 0)`
+    ASSUME_TAC THENL
+     [MP_TAC(SPEC `huf_total w` BITSIZE) THEN ARITH_TAC; ALL_TAC] THEN
+    ASM_REWRITE_TAC[] THEN REPEAT CONJ_TAC THENL
+     [ASM_MESON_TAC[BITSIZE_EQ_0;
+                    ARITH_RULE `~(b = 0) ==> b - 1 + 1 = b`];
+      REWRITE_TAC[GSYM HUF_RANK_MEM] THEN ASM_ARITH_TAC]]);;
+
+let HUF_WEIGHTS_NOHEADER = prove
+ (`!(l:byte list).
+        (!w h. ~huf_header T l w h) ==> !ws ml h. ~huf_weights T l ws ml h`,
+  REWRITE_TAC[huf_weights] THEN MESON_TAC[]);;
