@@ -570,6 +570,107 @@ let ZSTD_END_LAST = prove
     MP_TAC(SPEC `val(b:byte)` BITSIZE_EQ_0) THEN ASM_REWRITE_TAC[] THEN
     ARITH_TAC]);;
 
+(*** The address of the last byte, from that of the end ***)
+
+let WORD_PRED_LEMMA = prove
+ (`!k. 1 <= k ==> word(k + 18446744073709551615):int64 = word(k - 1)`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN `k + 18446744073709551615 = (k - 1) + 2 EXP 64`
+  SUBST1_TAC THENL
+   [CONV_TAC NUM_REDUCE_CONV THEN ASM_ARITH_TAC; ALL_TAC] THEN
+  REWRITE_TAC[WORD_ADD] THEN
+  SUBGOAL_THEN `word(2 EXP 64):int64 = word 0` SUBST1_TAC THENL
+   [CONV_TAC(ONCE_DEPTH_CONV NUM_REDUCE_CONV) THEN CONV_TAC WORD_REDUCE_CONV;
+    REWRITE_TAC[WORD_ADD_0]]);;
+
+let ZSTD_LAST_ADDR = prove
+ (`!(a:int64) k.
+        1 <= k
+        ==> word_add (word_add a (word k)) (word 18446744073709551615) =
+            word_add a (word(k - 1))`,
+  SIMP_TAC[GSYM WORD_ADD_ASSOC; GSYM WORD_ADD; WORD_PRED_LEMMA]);;
+
+(* ------------------------------------------------------------------------- *)
+(* The bit container of 64 bits, of which bc have been used, holding the 8   *)
+(* bytes of a stream st from ofs (or all of a shorter one, for ofs = 0). Its *)
+(* next tl bits, as zstd takes them from the top, are those of st at         *)
+(* position 8 * ofs + 64 - bc, provided that it still has tl bits, or holds  *)
+(* the start of the stream, below which there are only 0 bits.               *)
+(* ------------------------------------------------------------------------- *)
+
+let WORD_CONTAINER_0 = prove
+ (`!x. word((x DIV 2 EXP (8 * 0)) MOD 2 EXP 64):int64 = word x`,
+  REWRITE_TAC[MULT_CLAUSES; EXP; DIV_1] THEN
+  REWRITE_TAC[GSYM DIMINDEX_64; WORD_MOD_SIZE]);;
+
+let DIV_MULT2_ALT = prove
+ (`!a b c. ~(a = 0) ==> (a * b) DIV (a * c) = b DIV c`,
+  SIMP_TAC[DIV_MULT2]);;
+
+let ZSTD_WINDOW_ARITH = prove
+ (`!x k bc tl. bc < 64 /\ tl <= 64 /\ (tl + bc <= 64 \/ k = 0)
+             ==> ((((x DIV 2 EXP k) MOD 2 EXP 64) * 2 EXP bc) MOD 2 EXP 64)
+                 DIV 2 EXP (64 - tl) =
+                 (2 EXP tl * (x MOD 2 EXP (k + 64 - bc))) DIV
+                 2 EXP (k + 64 - bc)`,
+  REPEAT GEN_TAC THEN DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
+  SUBGOAL_THEN
+   `(((x DIV 2 EXP k) MOD 2 EXP 64) * 2 EXP bc) MOD 2 EXP 64 =
+    2 EXP bc * (x DIV 2 EXP k) MOD 2 EXP (64 - bc)`
+  SUBST1_TAC THENL
+   [SUBGOAL_THEN `2 EXP 64 = 2 EXP bc * 2 EXP (64 - bc)`
+    (fun th -> GEN_REWRITE_TAC (LAND_CONV o RAND_CONV) [th]) THENL
+     [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC;
+      ALL_TAC] THEN
+    GEN_REWRITE_TAC (LAND_CONV o LAND_CONV) [MULT_SYM] THEN
+    REWRITE_TAC[MOD_MULT2; MOD_MOD_EXP_MIN] THEN
+    AP_TERM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  FIRST_X_ASSUM DISJ_CASES_TAC THENL
+   [SUBGOAL_THEN `2 EXP (64 - tl) = 2 EXP bc * 2 EXP (64 - bc - tl)`
+    SUBST1_TAC THENL
+     [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC;
+      SIMP_TAC[DIV_MULT2_ALT; EXP_EQ_0; ARITH_EQ]] THEN
+    SUBGOAL_THEN `2 EXP (k + 64 - bc) = 2 EXP tl * 2 EXP (k + 64 - bc - tl)`
+    (fun th -> GEN_REWRITE_TAC (RAND_CONV o RAND_CONV) [th]) THENL
+     [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC;
+      SIMP_TAC[DIV_MULT2_ALT; EXP_EQ_0; ARITH_EQ]] THEN
+    SUBGOAL_THEN `2 EXP (64 - bc) = 2 EXP (64 - bc - tl) * 2 EXP tl /\
+                  2 EXP (k + 64 - bc) = 2 EXP (k + 64 - bc - tl) * 2 EXP tl`
+    (CONJUNCTS_THEN SUBST1_TAC) THENL
+     [REWRITE_TAC[GSYM EXP_ADD] THEN CONJ_TAC THEN AP_TERM_TAC THEN
+      ASM_ARITH_TAC;
+      REWRITE_TAC[GSYM DIV_MOD; DIV_DIV; GSYM EXP_ADD]] THEN
+    AP_THM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN
+    ASM_ARITH_TAC;
+    FIRST_X_ASSUM SUBST_ALL_TAC THEN
+    REWRITE_TAC[EXP; DIV_1; ADD_CLAUSES] THEN
+    ABBREV_TAC `y = x MOD 2 EXP (64 - bc)` THEN
+    MATCH_MP_TAC EQ_TRANS THEN
+    EXISTS_TAC
+     `(2 EXP tl * 2 EXP bc * y) DIV (2 EXP tl * 2 EXP (64 - tl))` THEN
+    CONJ_TAC THENL [SIMP_TAC[DIV_MULT2_ALT; EXP_EQ_0; ARITH_EQ]; ALL_TAC] THEN
+    MATCH_MP_TAC EQ_TRANS THEN
+    EXISTS_TAC
+     `(2 EXP bc * 2 EXP tl * y) DIV (2 EXP bc * 2 EXP (64 - bc))` THEN
+    CONJ_TAC THENL
+     [SUBGOAL_THEN `2 EXP tl * 2 EXP (64 - tl) = 2 EXP 64 /\
+                    2 EXP bc * 2 EXP (64 - bc) = 2 EXP 64`
+      (CONJUNCTS_THEN SUBST1_TAC) THENL
+       [REWRITE_TAC[GSYM EXP_ADD] THEN CONJ_TAC THEN AP_TERM_TAC THEN
+        ASM_ARITH_TAC;
+        REWRITE_TAC[MULT_AC]];
+      SIMP_TAC[DIV_MULT2_ALT; EXP_EQ_0; ARITH_EQ]]]);;
+
+let ZSTD_WINDOW = prove
+ (`!(st:byte list) ofs bc tl.
+        bc < 64 /\ tl <= 64 /\ (tl + bc <= 64 \/ ofs = 0)
+        ==> ((((num_of_bytelist st DIV 2 EXP (8 * ofs)) MOD 2 EXP 64) *
+              2 EXP bc) MOD 2 EXP 64) DIV 2 EXP (64 - tl) =
+            zstd_back st (8 * ofs + 64 - bc) tl`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[zstd_back; ZSTD_BITS_NUM; EXP; DIV_1] THEN
+  MATCH_MP_TAC ZSTD_WINDOW_ARITH THEN ASM_REWRITE_TAC[MULT_EQ_0; ARITH_EQ]);;
+
 (* ------------------------------------------------------------------------- *)
 (* Lists of bytes and of 16-bit words in memory: reading parts of them, and  *)
 (* updating, extending and truncating them.                                  *)
@@ -684,6 +785,27 @@ let READ_MEMORY_BYTELIST_SPLIT = prove
   REPEAT CONJ_TAC THEN
   AP_THM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN
   REWRITE_TAC[PAIR_EQ] THEN ASM_ARITH_TAC);;
+
+(*** The bytes of a list after the first m, and 32-bit words in memory ***)
+
+let READ_MEMORY_ZSTD_SUBLIST = prove
+ (`!(a:int64) (l:byte list) m s.
+        read (memory :> bytes(a,LENGTH l)) s = num_of_bytelist l /\
+        m <= LENGTH l
+        ==> read (memory :> bytes(word_add a (word m),LENGTH l - m)) s =
+            num_of_bytelist(zstd_sublist l m (LENGTH l - m))`,
+  REPEAT STRIP_TAC THEN
+  ASM_SIMP_TAC[ZSTD_SUBLIST_SUB_LIST;
+               ARITH_RULE `m <= l ==> m + l - m <= l`] THEN
+  MP_TAC(ISPECL [`a:int64`; `l:byte list`; `m:num`; `LENGTH(l:byte list) - m`;
+                 `s:armstate`] READ_MEMORY_BYTELIST_SPLIT) THEN
+  ASM_SIMP_TAC[ARITH_RULE `m <= l ==> m + l - m <= l`]);;
+
+let VAL_READ_MEMORY_BYTES32 = prove
+ (`!x s:armstate.
+        read (bytes(x,4)) (read memory s) = val(read (memory :> bytes32 x) s)`,
+  REWRITE_TAC[BYTES32_WBYTES; READ_COMPONENT_COMPOSE; VAL_READ_WBYTES] THEN
+  REWRITE_TAC[DIMINDEX_32] THEN CONV_TAC NUM_REDUCE_CONV);;
 
 let READ_MEMORY_BYTELIST_UPDATE = prove
  (`!a:int64 (l:byte list) l' i k s:armstate.
