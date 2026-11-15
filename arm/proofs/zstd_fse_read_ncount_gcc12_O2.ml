@@ -2154,13 +2154,15 @@ let NC_MAIN = prove
 (* buffer of 8 bytes on the stack, zeroed first, calls itself on it and      *)
 (* returns its result if it is an error or at most hbSize, and an error      *)
 (* otherwise. The final theorem has the hypotheses, precondition, regions    *)
-(* and frame of this case, with the stack frame of the inner call too.       *)
+(* and frame of this case, with the stack frame of the inner call too. The   *)
+(* stack pointer must not be 0: the buffer would then be at the very top of  *)
+(* the address space, and the comparisons of the pointers into it by the     *)
+(* code would wrap around.                                                   *)
 (* ------------------------------------------------------------------------- *)
 
 let nc_fin_hyps =
  `aligned 4096 (word pc:int64) /\ pc + 0x20018 <= 2 EXP 64 /\
-  aligned 16 (stackpointer:int64) /\
-  8 <= val stackpointer /\ val stackpointer + 8 < 2 EXP 64 /\
+  aligned 16 (stackpointer:int64) /\ ~(stackpointer = word 0) /\
   memcpy_memsafe_contract fcpy ea el ev /\
   memset_memsafe_contract fset ea el ev /\
   LENGTH(l:byte list) < 2 EXP 24 /\ val(hb:int64) + LENGTH l + 8 < 2 EXP 64 /\
@@ -2221,6 +2223,21 @@ let mk_nc_fin_goal extra =
    mk_imp(list_mk_conj(nc_fin_hyps::extra),
     list_mk_icomb "ensures"
      [`arm`; nc_fin_pre; nc_std_post nc_fin_rr nc_fin_wr; nc_fin_frame]));;
+
+(*** The stack pointer, aligned and nonzero, is not near either end ***)
+
+let NC_STACK_BOUNDS = prove
+ (`!sp:int64. aligned 16 sp /\ ~(sp = word 0)
+              ==> 8 <= val sp /\ val sp + 8 < 2 EXP 64`,
+  GEN_TAC THEN REWRITE_TAC[aligned; DIMINDEX_64; GSYM VAL_EQ_0] THEN
+  DISCH_THEN(CONJUNCTS_THEN2 (MP_TAC o CONJUNCT2) ASSUME_TAC) THEN
+  REWRITE_TAC[divides] THEN DISCH_THEN(X_CHOOSE_TAC `k:num`) THEN
+  MP_TAC(ISPEC `sp:int64` VAL_BOUND_64) THEN
+  UNDISCH_TAC `~(val(sp:int64) = 0)` THEN ASM_REWRITE_TAC[MULT_EQ_0] THEN
+  CONV_TAC NUM_REDUCE_CONV THEN REPEAT STRIP_TAC THENL
+   [ASM_ARITH_TAC;
+    SUBGOAL_THEN `k < 1152921504606846976` MP_TAC THENL
+     [ASM_ARITH_TAC; ARITH_TAC]]);;
 
 (*** The 8-byte buffer of the short path, zeroed and then partly copied ***)
 
@@ -2312,6 +2329,10 @@ let FSE_NCOUNT_PAD = prove
 let NC_SHORT = prove
  (mk_nc_fin_goal [`LENGTH(l:byte list) < 8`],
   REPEAT GEN_TAC THEN DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
+  MP_TAC(MATCH_MP NC_STACK_BOUNDS
+   (CONJ (ASSUME `aligned 16 (stackpointer:int64)`)
+         (ASSUME `~(stackpointer:int64 = word 0)`))) THEN
+  STRIP_TAC THEN
   REWRITE_TAC[MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI; MODIFIABLE_GPRS;
               MODIFIABLE_SIMD_REGS; MODIFIABLE_UPPER_SIMD_REGS;
               SOME_FLAGS] THEN
