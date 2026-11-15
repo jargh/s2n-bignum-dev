@@ -338,7 +338,7 @@ let ZSTD_SIM_UNTIL_TAC stops =
 (* frame, MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI and some memory, which   *)
 (* ZSTD_INTRO_TAC expands. In a simulation, ZSTD_CONTINUE_WITH_TAC wtac th   *)
 (* insts goes on with the theorem th of a later piece, with the              *)
-(* instantiation insts of its variables (the others having the names that   *)
+(* instantiation insts of its variables (the others having the names that    *)
 (* they have in the goal) and its hypotheses among the assumptions, leaving  *)
 (* its precondition to be proved for the current state, and proving with     *)
 (* wtac that its postcondition implies that of the goal (ZSTD_CONTINUE_TAC   *)
@@ -428,7 +428,7 @@ let zstd_is_error = new_definition
  `zstd_is_error (x:int64) <=> 2 EXP 64 - 120 < val x`;;
 
 (* ------------------------------------------------------------------------- *)
-(* The bits of the specification, for a list of bytes in memory.            *)
+(* The bits of the specification, for a list of bytes in memory.             *)
 (* ------------------------------------------------------------------------- *)
 
 let ZSTD_BIT_NUM = prove
@@ -884,3 +884,135 @@ let PTR_EQ_OFFSETS = prove
   REWRITE_TAC[VAL_EQ; WORD_RULE
    `!x y z:int64. word_add x y = word_add x z <=> y = z`] THEN
   ONCE_REWRITE_TAC[GSYM VAL_EQ] THEN ASM_SIMP_TAC[VAL_WORD_LT64]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Calls of memset and memcpy, through the procedure linkage table. What the *)
+(* proofs assume of them: called with the return address in X30, they return *)
+(* to it with X0 = dst, having set or copied the len bytes at dst, changing  *)
+(* only those bytes, X18, X30 and what the ABI allows, and reading only      *)
+(* those bytes, the len bytes at src for memcpy and a region (ea,el) of      *)
+(* their own, which holds ev. ZSTD_MEMSET_TAC and ZSTD_MEMCPY_TAC go on, in  *)
+(* a simulation, over such a call at step n from the branch to the function, *)
+(* for the arguments, the return address and (for memcpy) the bytes copied   *)
+(* given, rewriting the contract with ths first.                             *)
+(* ------------------------------------------------------------------------- *)
+
+let memset_memsafe_contract = new_definition
+ `memset_memsafe_contract (f:int64) (ea:int64) (el:num) (ev:num) <=>
+    !dst c len returnaddress e.
+        nonoverlapping (dst,val len) (ea,el)
+        ==> ensures arm
+             (\s. read PC s = f /\
+                  read X30 s = returnaddress /\
+                  C_ARGUMENTS [dst; c; len] s /\
+                  read (memory :> bytes(ea,el)) s = ev /\
+                  read events s = e)
+             (\s. read PC s = returnaddress /\
+                  read X0 s = dst /\
+                  (!i. i < val len
+                       ==> read (memory :> bytes8(word_add dst (word i))) s =
+                           word_zx c) /\
+                  (?e2. read events s = APPEND e2 e /\
+                        memaccess_inbounds e2 [dst,val len; ea,el]
+                                              [dst,val len]))
+             (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+              MAYCHANGE [X18; X30] ,,
+              MAYCHANGE [memory :> bytes(dst,val len)])`;;
+
+let memcpy_memsafe_contract = new_definition
+ `memcpy_memsafe_contract (f:int64) (ea:int64) (el:num) (ev:num) <=>
+    !dst src len returnaddress x e.
+        nonoverlapping (dst,val len) (src,val len) /\
+        nonoverlapping (dst,val len) (ea,el)
+        ==> ensures arm
+             (\s. read PC s = f /\
+                  read X30 s = returnaddress /\
+                  C_ARGUMENTS [dst; src; len] s /\
+                  read (memory :> bytes(src,val len)) s = x /\
+                  read (memory :> bytes(ea,el)) s = ev /\
+                  read events s = e)
+             (\s. read PC s = returnaddress /\
+                  read X0 s = dst /\
+                  read (memory :> bytes(dst,val len)) s = x /\
+                  (?e2. read events s = APPEND e2 e /\
+                        memaccess_inbounds e2
+                         [dst,val len; src,val len; ea,el] [dst,val len]))
+             (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,,
+              MAYCHANGE [X18; X30] ,,
+              MAYCHANGE [memory :> bytes(dst,val len)])`;;
+
+let ZSTD_MEMSET_TAC ths dst c len ret n =
+  EVENTS_ABBREV_TAC THEN
+  W(fun gl -> FIRST_ASSUM(fun th -> match strip_comb(concl th) with
+      Const("memset_memsafe_contract",_),[_;_;_;_] ->
+        MP_TAC(EVENTS_SPEC gl (SPECL [dst; c; len; ret]
+          (REWRITE_RULE[memset_memsafe_contract] th)))
+    | _ -> NO_TAC)) THEN
+  REWRITE_TAC ths THEN ANTS_TAC THENL [CALLEE_HYPS_TAC; ALL_TAC] THEN
+  REWRITE_TAC[C_ARGUMENTS; MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI;
+              MODIFIABLE_GPRS; MODIFIABLE_SIMD_REGS;
+              MODIFIABLE_UPPER_SIMD_REGS; SOME_FLAGS] THEN
+  ARM_BIGSTEP_TAC ZSTD_EXEC ("s"^string_of_int n) THEN EVENTS_UNABBREV_TAC THEN
+  TRY(ASM_REWRITE_TAC[] THEN NO_TAC);;
+
+let ZSTD_MEMCPY_TAC ths dst src len ret x n =
+  EVENTS_ABBREV_TAC THEN
+  W(fun gl -> FIRST_ASSUM(fun th -> match strip_comb(concl th) with
+      Const("memcpy_memsafe_contract",_),[_;_;_;_] ->
+        MP_TAC(EVENTS_SPEC gl (SPECL [dst; src; len; ret; x]
+          (REWRITE_RULE[memcpy_memsafe_contract] th)))
+    | _ -> NO_TAC)) THEN
+  REWRITE_TAC ths THEN ANTS_TAC THENL [CALLEE_HYPS_TAC; ALL_TAC] THEN
+  REWRITE_TAC[C_ARGUMENTS; MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI;
+              MODIFIABLE_GPRS; MODIFIABLE_SIMD_REGS;
+              MODIFIABLE_UPPER_SIMD_REGS; SOME_FLAGS] THEN
+  ARM_BIGSTEP_TAC ZSTD_EXEC ("s"^string_of_int n) THEN EVENTS_UNABBREV_TAC THEN
+  TRY(ASM_REWRITE_TAC[] THEN NO_TAC);;
+
+let READ_MEMORY_BYTES_ZERO = prove
+ (`!(a:int64) n s.
+        (!i. i < n ==> read (memory :> bytes8(word_add a (word i))) s = word 0)
+        ==> read (memory :> bytes(a,n)) s = 0`,
+  GEN_TAC THEN INDUCT_TAC THEN REWRITE_TAC[READ_MEMORY_BYTES_0] THEN
+  X_GEN_TAC `s:armstate` THEN REWRITE_TAC[LT] THEN DISCH_TAC THEN
+  REWRITE_TAC[ADD1] THEN
+  ONCE_REWRITE_TAC[READ_COMPONENT_COMPOSE] THEN
+  REWRITE_TAC[READ_BYTES_COMBINE] THEN
+  REWRITE_TAC[GSYM READ_COMPONENT_COMPOSE] THEN
+  FIRST_X_ASSUM(MP_TAC o SPEC `s:armstate`) THEN
+  ANTS_TAC THENL [ASM_MESON_TAC[]; DISCH_THEN SUBST1_TAC] THEN
+  REWRITE_TAC[READ_MEMORY_BYTES_1] THEN
+  ASM_SIMP_TAC[VAL_WORD_0; MULT_CLAUSES; ADD_CLAUSES]);;
+
+(* ------------------------------------------------------------------------- *)
+(* A 4-byte load from within a region of bytes, and lists of bytes padded    *)
+(* with 0 bytes, which have the same bits.                                   *)
+(* ------------------------------------------------------------------------- *)
+
+let READ_MEMORY_BYTES32_SLICE = prove
+ (`!a n x ofs s.
+        read (memory :> bytes(a,n)) s = x /\ ofs + 4 <= n
+        ==> read (memory :> bytes32 (word_add a (word ofs))) s =
+            word((x DIV 2 EXP (8 * ofs)) MOD 2 EXP 32)`,
+  REPEAT STRIP_TAC THEN FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN
+  REWRITE_TAC[READ_COMPONENT_COMPOSE; READ_BYTES_DIV] THEN
+  REWRITE_TAC[ARITH_RULE `2 EXP 32 = 2 EXP (8 * 4)`; READ_BYTES_MOD] THEN
+  ASM_SIMP_TAC[ARITH_RULE `ofs + 4 <= n ==> MIN (n - ofs) 4 = 4`] THEN
+  REWRITE_TAC[BYTES32_WBYTES; wbytes; READ_COMPONENT_COMPOSE; asword;
+              through; read; DIMINDEX_32] THEN
+  CONV_TAC NUM_REDUCE_CONV);;
+
+let NUM_OF_BYTELIST_ZEROS = prove
+ (`!k. num_of_bytelist (REPLICATE k (word 0:byte)) = 0`,
+  INDUCT_TAC THEN ASM_REWRITE_TAC[REPLICATE; num_of_bytelist; VAL_WORD_0] THEN
+  ARITH_TAC);;
+
+let NUM_OF_BYTELIST_PAD = prove
+ (`!l k. num_of_bytelist (APPEND l (REPLICATE k (word 0:byte))) =
+         num_of_bytelist l`,
+  REWRITE_TAC[NUM_OF_BYTELIST_APPEND; NUM_OF_BYTELIST_ZEROS] THEN ARITH_TAC);;
+
+let ZSTD_BITS_PAD = prove
+ (`!l k p n. zstd_bits (APPEND l (REPLICATE k (word 0))) p n =
+             zstd_bits l p n`,
+  REWRITE_TAC[ZSTD_BITS_NUM; NUM_OF_BYTELIST_PAD]);;
