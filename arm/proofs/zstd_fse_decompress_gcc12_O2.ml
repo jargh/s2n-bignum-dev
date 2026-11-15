@@ -57,29 +57,6 @@ let ZSTD_BIT_MASK_LOADED = prove
                   LENGTH_ZSTD_HUF_GCC12_O2_MC] THEN
   CONV_TAC NUM_REDUCE_CONV THEN SIMP_TAC[]);;
 
-let READ_MEMORY_BYTES32_NUM_OF_WORDLIST = prove
- (`!a:int64 (l:int32 list) n j s:armstate.
-        read (memory :> bytes(a,4 * n)) s = num_of_wordlist l /\
-        LENGTH l = n /\ j < n
-        ==> read (memory :> bytes32(word_add a (word(4 * j)))) s = EL j l`,
-  REPEAT GEN_TAC THEN
-  DISCH_THEN(CONJUNCTS_THEN2 ASSUME_TAC STRIP_ASSUME_TAC) THEN
-  ONCE_REWRITE_TAC[GSYM VAL_EQ] THEN
-  MP_TAC(ISPECL [`l:int32 list`; `j:num`] NUM_OF_WORDLIST_EL) THEN
-  ASM_REWRITE_TAC[] THEN DISCH_THEN(SUBST1_TAC o SYM) THEN
-  FIRST_X_ASSUM(fun th ->
-    if is_eq(concl th) && is_comb(lhs(concl th)) &&
-       can (term_match [] `read (c:(armstate,num)component) s`)
-           (lhs(concl th))
-    then REWRITE_TAC[GSYM th] else failwith "") THEN
-  REWRITE_TAC[BYTES32_WBYTES; READ_COMPONENT_COMPOSE; VAL_READ_WBYTES] THEN
-  REWRITE_TAC[DIMINDEX_32] THEN CONV_TAC NUM_REDUCE_CONV THEN
-  REWRITE_TAC[ARITH_RULE `32 * j = 8 * (4 * j)`;
-              ARITH_RULE `4294967296 = 2 EXP (8 * 4)`;
-              READ_BYTES_DIV; READ_BYTES_MOD] THEN
-  AP_THM_TAC THEN AP_TERM_TAC THEN AP_TERM_TAC THEN
-  REWRITE_TAC[PAIR_EQ] THEN ASM_ARITH_TAC);;
-
 let ZSTD_BIT_MASK_READ = prove
  (`!s pc k.
         aligned_bytes_loaded s (word pc) zstd_huf_gcc12_O2_mc /\ k < 32
