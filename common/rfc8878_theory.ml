@@ -5,8 +5,9 @@
 
 (* ========================================================================= *)
 (* Facts about the specification of Huffman-coded literals in the Zstandard  *)
-(* format in rfc8878.ml, and of the FSE tables used for their weights and    *)
-(* their descriptions, for the proofs about zstd's code.                     *)
+(* format in rfc8878.ml, and of the FSE tables used for their weights, their *)
+(* descriptions and the decoding of the weights, for the proofs about zstd's *)
+(* code.                                                                     *)
 (* ========================================================================= *)
 
 needs "common/rfc8878.ml";;
@@ -2035,3 +2036,338 @@ let FSE_NCOUNT_SHORT = prove
     UNDISCH_TAC `m <= LENGTH(l:byte list)` THEN
     ASM_REWRITE_TAC[] THEN DISCH_TAC THEN EXISTS_TAC `q:num` THEN
     ASM_REWRITE_TAC[]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* The table descriptions determine their probabilities, the number of       *)
+(* bytes they use and their Accuracy_Log, which are within their bounds.     *)
+(* ------------------------------------------------------------------------- *)
+
+let FSE_ZEROS_DET = prove
+ (`!zstd (l:byte list) x r r'.
+        fse_zeros zstd l x r /\ fse_zeros zstd l x r' ==> r = r'`,
+  GEN_TAC THEN GEN_TAC THEN
+  REWRITE_TAC[IMP_CONJ; RIGHT_FORALL_IMP_THM] THEN
+  MATCH_MP_TAC FSE_ZEROS_INDUCT THEN REPEAT CONJ_TAC THEN
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  ONCE_REWRITE_TAC[FSE_ZEROS_CASES] THEN REWRITE_TAC[PAIR_EQ] THEN
+  REPEAT STRIP_TAC THEN
+  REPEAT(FIRST_X_ASSUM(SUBST_ALL_TAC o SYM o
+    check (fun th -> is_var(rhs(concl th))))) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[PAIR_EQ]) THEN
+  ASM_REWRITE_TAC[] THEN TRY ASM_ARITH_TAC THEN ASM_MESON_TAC[]);;
+
+let FSE_ZEROS_SAME_TAC : tactic = fun (asl,w as gl) ->
+  let is_z th = try fst(dest_const(fst(strip_comb(concl th)))) = "fse_zeros"
+                with Failure _ -> false in
+  let zths = filter is_z (map snd asl) in
+  let rec find2 l =
+    match l with
+      th1::rest ->
+        (try let th2 = find (fun th -> rator(concl th) = rator(concl th1) &&
+                                       rand(concl th) <> rand(concl th1))
+                            rest in
+             (th1,th2)
+         with Failure _ -> find2 rest)
+    | [] -> failwith "FSE_ZEROS_SAME_TAC" in
+  let th1,th2 = find2 zths in
+  STRIP_ASSUME_TAC(REWRITE_RULE[PAIR_EQ]
+    (MATCH_MP FSE_ZEROS_DET (CONJ th1 th2))) gl;;
+
+let FSE_DET_CASE_TAC =
+  FSE_FIELD_SAME_TAC THEN FSE_VAR_SUBST_TAC THEN
+  TRY(FSE_ZEROS_SAME_TAC THEN FSE_VAR_SUBST_TAC) THEN
+  REPEAT(FIRST_X_ASSUM(SUBST_ALL_TAC o check (fun th ->
+    let c = concl th in
+    is_eq c && is_var(lhs c) && not(free_in (lhs c) (rhs c))))) THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[fse_points; ARITH_EQ]) THEN
+  REWRITE_TAC[] THEN
+  FIRST [MATCH_MP_TAC(TAUT `F ==> p`) THEN ASM_ARITH_TAC;
+         FIRST_ASSUM(fun th ->
+           let c = concl th in
+           if is_imp c && is_forall(rand c) then
+             MP_TAC th THEN ANTS_TAC THENL
+              [ASM_ARITH_TAC; DISCH_THEN MATCH_MP_TAC THEN ASM_REWRITE_TAC[]]
+           else NO_TAC)];;
+
+let FSE_COUNTS_DET = prove
+ (`!zstd (l:byte list) n pts cs p r r'.
+        1 <= pts /\ fse_counts zstd l n (pts,cs,p) r /\
+        fse_counts zstd l n (pts,cs,p) r'
+        ==> r = r'`,
+  SUBGOAL_THEN
+   `!zstd (l:byte list) n x r.
+        fse_counts zstd l n x r
+        ==> 1 <= FST x ==> !r'. fse_counts zstd l n x r' ==> r = r'`
+   (fun th -> MESON_TAC[th; FST]) THEN
+  GEN_TAC THEN GEN_TAC THEN GEN_TAC THEN
+  MATCH_MP_TAC FSE_COUNTS_INDUCT THEN REWRITE_TAC[FST] THEN
+  REPEAT CONJ_TAC THEN REPEAT GEN_TAC THEN STRIP_TAC THEN DISCH_TAC THEN
+  GEN_TAC THEN ONCE_REWRITE_TAC[FSE_COUNTS_CASES] THEN
+  REWRITE_TAC[PAIR_EQ] THEN STRIP_TAC THEN FSE_VAR_SUBST_TAC THEN
+  FSE_DET_CASE_TAC);;
+
+let FSE_NCOUNT_DET = prove
+ (`!zstd ma ma' n (l:byte list) cs alog m cs' alog' m'.
+        fse_ncount zstd ma n l (cs,alog,m) /\
+        fse_ncount zstd ma' n l (cs',alog',m')
+        ==> cs' = cs /\ alog' = alog /\ m' = m`,
+  REWRITE_TAC[fse_ncount] THEN REPEAT GEN_TAC THEN
+  DISCH_THEN(CONJUNCTS_THEN2
+   (CONJUNCTS_THEN2 ASSUME_TAC (CONJUNCTS_THEN2 ASSUME_TAC
+      (X_CHOOSE_THEN `q:num` STRIP_ASSUME_TAC)))
+   (CONJUNCTS_THEN2 ASSUME_TAC (CONJUNCTS_THEN2 ASSUME_TAC
+      (X_CHOOSE_THEN `q':num` STRIP_ASSUME_TAC)))) THEN
+  SUBGOAL_THEN `alog':num = alog` SUBST_ALL_TAC THENL
+   [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  MP_TAC(ISPECL [`zstd:bool`; `l:byte list`; `n:num`; `2 EXP alog`;
+                 `[]:int list`; `4`; `(cs:int list,q:num)`;
+                 `(cs':int list,q':num)`] FSE_COUNTS_DET) THEN
+  ASM_REWRITE_TAC[PAIR_EQ; ARITH_RULE `1 <= n <=> ~(n = 0)`; EXP_EQ_0;
+                  ARITH_EQ] THEN
+  STRIP_TAC THEN ASM_REWRITE_TAC[]);;
+
+let FSE_COUNTS_LENGTH_LE = prove
+ (`!zstd (l:byte list) n x r. fse_counts zstd l n x r ==> LENGTH(FST r) <= n`,
+  GEN_TAC THEN GEN_TAC THEN GEN_TAC THEN MATCH_MP_TAC FSE_COUNTS_INDUCT THEN
+  REWRITE_TAC[FST; LENGTH_APPEND; LENGTH] THEN
+  REPEAT CONJ_TAC THEN REPEAT GEN_TAC THEN STRIP_TAC THEN ASM_ARITH_TAC);;
+
+let FSE_NCOUNT_BOUNDS = prove
+ (`!zstd ma n (l:byte list) cs alog m.
+        fse_ncount zstd ma n l (cs,alog,m)
+        ==> LENGTH cs <= n /\ 5 <= alog /\ alog <= ma /\ m <= LENGTH l`,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  FIRST_ASSUM(ASSUME_TAC o MATCH_MP FSE_NCOUNT_LENGTH) THEN
+  POP_ASSUM MP_TAC THEN POP_ASSUM MP_TAC THEN
+  REWRITE_TAC[fse_ncount] THEN REPEAT STRIP_TAC THEN ASM_REWRITE_TAC[] THEN
+  TRY ASM_ARITH_TAC THEN
+  FIRST_X_ASSUM(MP_TAC o MATCH_MP FSE_COUNTS_LENGTH_LE) THEN
+  REWRITE_TAC[FST]);;
+
+(* ------------------------------------------------------------------------- *)
+(* The probabilities of a description fill the table exactly.                *)
+(* ------------------------------------------------------------------------- *)
+
+let FSE_CUM_APPEND = prove
+ (`!cs ds s. s <= LENGTH cs ==> fse_cum (APPEND cs ds) s = fse_cum cs s`,
+  GEN_TAC THEN GEN_TAC THEN INDUCT_TAC THEN
+  REWRITE_TAC[fse_cum; ADD1] THEN DISCH_TAC THEN
+  ASM_SIMP_TAC[ARITH_RULE `s + 1 <= n ==> s <= n`] THEN
+  AP_TERM_TAC THEN AP_TERM_TAC THEN AP_THM_TAC THEN AP_TERM_TAC THEN
+  ASM_SIMP_TAC[EL_APPEND; ARITH_RULE `s + 1 <= n ==> s < n`]);;
+
+let FSE_NLOW_APPEND = prove
+ (`!cs ds u. u <= LENGTH cs ==> fse_nlow (APPEND cs ds) u = fse_nlow cs u`,
+  GEN_TAC THEN GEN_TAC THEN INDUCT_TAC THEN
+  REWRITE_TAC[FSE_NLOW_0; ADD1; FSE_NLOW_SUC] THEN DISCH_TAC THEN
+  ASM_SIMP_TAC[ARITH_RULE `u + 1 <= n ==> u <= n`] THEN
+  ASM_SIMP_TAC[EL_APPEND; ARITH_RULE `u + 1 <= n ==> u < n`]);;
+
+let FSE_POINTS_SNOC = prove
+ (`!cs c. LENGTH(fse_syms (APPEND cs [c])) +
+          LENGTH(fse_lowprob (APPEND cs [c])) =
+          (LENGTH(fse_syms cs) + LENGTH(fse_lowprob cs)) +
+          num_of_int(max c (&0)) + (if c = -- &1 then 1 else 0)`,
+  REPEAT GEN_TAC THEN
+  REWRITE_TAC[LENGTH_FSE_SYMS; GSYM FSE_NLOW_LENGTH; LENGTH_APPEND; LENGTH;
+              ARITH_RULE `n + SUC 0 = n + 1`] THEN
+  REWRITE_TAC[FSE_CUM_SUC; FSE_NLOW_SUC] THEN
+  SIMP_TAC[FSE_CUM_APPEND; FSE_NLOW_APPEND; LE_REFL] THEN
+  REWRITE_TAC[EL_APPEND; LT_REFL; SUB_REFL; EL; HD] THEN ARITH_TAC);;
+
+let FSE_POINTS_COUNT = prove
+ (`!v. num_of_int(max (&v - &1) (&0)) +
+       (if &v - &1:int = -- &1 then 1 else 0) = fse_points v`,
+  GEN_TAC THEN REWRITE_TAC[fse_points] THEN ASM_CASES_TAC `v = 0` THEN
+  ASM_REWRITE_TAC[] THENL
+   [CONV_TAC INT_REDUCE_CONV THEN REWRITE_TAC[NUM_OF_INT_OF_NUM] THEN
+    CONV_TAC NUM_REDUCE_CONV;
+    SUBGOAL_THEN `&v - &1:int = &(v - 1)` SUBST1_TAC THENL
+     [MATCH_MP_TAC INT_OF_NUM_SUB THEN ASM_ARITH_TAC; ALL_TAC] THEN
+    REWRITE_TAC[INT_ARITH `max (&n) (&0):int = &n`; NUM_OF_INT_OF_NUM;
+                INT_ARITH `~(&n:int = -- &1)`] THEN
+    ARITH_TAC]);;
+
+let FSE_POINTS_ZEROS = prove
+ (`!k cs. LENGTH(fse_syms (APPEND cs (REPLICATE k (&0)))) +
+          LENGTH(fse_lowprob (APPEND cs (REPLICATE k (&0)))) =
+          LENGTH(fse_syms cs) + LENGTH(fse_lowprob cs)`,
+  INDUCT_TAC THEN REWRITE_TAC[REPLICATE; APPEND_NIL] THEN GEN_TAC THEN
+  SUBGOAL_THEN `APPEND (cs:int list) (CONS (&0) (REPLICATE k (&0))) =
+                APPEND (APPEND cs [&0]) (REPLICATE k (&0))`
+  SUBST1_TAC THENL [REWRITE_TAC[GSYM APPEND_ASSOC; APPEND]; ALL_TAC] THEN
+  ASM_REWRITE_TAC[FSE_POINTS_SNOC] THEN
+  CONV_TAC(ONCE_DEPTH_CONV INT_REDUCE_CONV) THEN
+  REWRITE_TAC[NUM_OF_INT_OF_NUM] THEN ARITH_TAC);;
+
+let FSE_COUNTS_POINTS = prove
+ (`!zstd l n x y.
+        fse_counts zstd l n x y
+        ==> ALL (\c. -- &1 <= c) (FST(SND x))
+            ==> ALL (\c. -- &1 <= c) (FST y) /\
+                LENGTH(fse_syms (FST y)) + LENGTH(fse_lowprob (FST y)) =
+                (LENGTH(fse_syms (FST(SND x))) +
+                 LENGTH(fse_lowprob (FST(SND x)))) + FST x`,
+  REPEAT GEN_TAC THEN
+  MP_TAC(SPECL [`zstd:bool`; `l:byte list`; `n:num`;
+   `\x:num#int list#num y:int list#num.
+      ALL (\c. -- &1 <= c) (FST(SND x))
+      ==> ALL (\c. -- &1 <= c) (FST y) /\
+          LENGTH(fse_syms (FST y)) + LENGTH(fse_lowprob (FST y)) =
+          (LENGTH(fse_syms (FST(SND x))) +
+           LENGTH(fse_lowprob (FST(SND x)))) + FST x`]
+    FSE_COUNTS_INDUCT) THEN
+  REWRITE_TAC[] THEN ANTS_TAC THENL [ALL_TAC; MESON_TAC[]] THEN
+  REWRITE_TAC[FST; SND; ALL_APPEND; ALL] THEN REPEAT CONJ_TAC THEN
+  REPEAT GEN_TAC THENL
+   [STRIP_TAC THEN DISCH_TAC THEN
+    ASM_REWRITE_TAC[FSE_POINTS_SNOC; FSE_POINTS_COUNT] THEN
+    REWRITE_TAC[INT_ARITH `-- &1:int <= &v - &1`];
+    STRIP_TAC THEN DISCH_TAC THEN FIRST_X_ASSUM(MP_TAC o check
+      (fun th -> is_imp(concl th) && free_in `fse_syms` (concl th))) THEN
+    ASM_REWRITE_TAC[FSE_POINTS_SNOC; FSE_POINTS_COUNT;
+                    INT_ARITH `-- &1:int <= &v - &1`] THEN
+    STRIP_TAC THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+    STRIP_TAC THEN DISCH_TAC THEN FIRST_X_ASSUM(MP_TAC o check
+      (fun th -> is_imp(concl th) && free_in `fse_syms` (concl th))) THEN
+    ASM_REWRITE_TAC[FSE_POINTS_ZEROS; ALL_REPLICATE] THEN
+    CONV_TAC(ONCE_DEPTH_CONV INT_REDUCE_CONV) THEN REWRITE_TAC[]]);;
+
+let FSE_NCOUNT_VALID = prove
+ (`!zstd maxalog n l cs alog m.
+        fse_ncount zstd maxalog n l (cs,alog,m) ==> fse_valid cs alog`,
+  REWRITE_TAC[fse_ncount; fse_valid] THEN REPEAT GEN_TAC THEN STRIP_TAC THEN
+  FIRST_X_ASSUM(MP_TAC o MATCH_MP FSE_COUNTS_POINTS) THEN
+  REWRITE_TAC[FST; SND; ALL] THEN
+  REWRITE_TAC[LENGTH_FSE_SYMS; GSYM FSE_NLOW_LENGTH; LENGTH; fse_cum;
+              FSE_NLOW_0; ADD_CLAUSES]);;
+
+(* ------------------------------------------------------------------------- *)
+(* The steps of fse_weights: too many weights, the last two, and the update  *)
+(* of the state to decode next with the bits after it.                       *)
+(* ------------------------------------------------------------------------- *)
+
+let FSE_WEIGHTS_FULL = prove
+ (`!cs alog (st:byte list) s s' q ws w.
+        ~(LENGTH ws + 2 <= 255) ==> ~fse_weights cs alog st (s,s',q,ws) w`,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  ONCE_REWRITE_TAC[FSE_WEIGHTS_CASES] THEN REWRITE_TAC[PAIR_EQ] THEN
+  STRIP_TAC THEN REPEAT(FIRST_X_ASSUM(SUBST_ALL_TAC o SYM o
+    check (fun th -> is_var(rhs(concl th))))) THEN
+  ASM_MESON_TAC[]);;
+
+let FSE_WEIGHTS_STOP = prove
+ (`!cs alog (st:byte list) s s' q ws w.
+        LENGTH ws + 2 <= 255 /\ q < fse_nbits cs alog s
+        ==> (fse_weights cs alog st (s,s',q,ws) w <=>
+             w = APPEND ws [fse_symbol cs alog s; fse_symbol cs alog s'])`,
+  REPEAT STRIP_TAC THEN
+  GEN_REWRITE_TAC LAND_CONV [FSE_WEIGHTS_CASES] THEN
+  REWRITE_TAC[PAIR_EQ] THEN EQ_TAC THENL
+   [STRIP_TAC THEN REPEAT(FIRST_X_ASSUM(SUBST_ALL_TAC o SYM o
+      check (fun th -> is_var(rhs(concl th))))) THEN
+    ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+    DISCH_TAC THEN DISJ1_TAC THEN
+    MAP_EVERY EXISTS_TAC [`s:num`; `s':num`; `q:num`; `ws:num list`] THEN
+    ASM_REWRITE_TAC[]]);;
+
+let FSE_WEIGHTS_STEP = prove
+ (`!cs alog (st:byte list) s s' q ws w.
+        LENGTH ws + 2 <= 255 /\ fse_nbits cs alog s <= q
+        ==> (fse_weights cs alog st (s,s',q,ws) w <=>
+             fse_weights cs alog st
+              (s',fse_base cs alog s + zstd_back st q (fse_nbits cs alog s),
+               q - fse_nbits cs alog s,APPEND ws [fse_symbol cs alog s]) w)`,
+  REPEAT STRIP_TAC THEN
+  GEN_REWRITE_TAC LAND_CONV [FSE_WEIGHTS_CASES] THEN
+  REWRITE_TAC[PAIR_EQ] THEN EQ_TAC THENL
+   [STRIP_TAC THEN REPEAT(FIRST_X_ASSUM(SUBST_ALL_TAC o SYM o
+      check (fun th -> is_var(rhs(concl th))))) THEN
+    ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+    DISCH_TAC THEN DISJ2_TAC THEN
+    MAP_EVERY EXISTS_TAC [`s:num`; `s':num`; `q:num`; `ws:num list`] THEN
+    ASM_REWRITE_TAC[]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* The weights of the stream st for the probabilities cs and Accuracy_Log    *)
+(* alog, fse_stream cs alog st w, as in fse_weight_block from the end of st; *)
+(* so the weights of a block are those of the stream after its description,  *)
+(* which zstd reads with an Accuracy_Log of at most 15.                      *)
+(* ------------------------------------------------------------------------- *)
+
+let ZSTD_END_UNIQUE = prove
+ (`!(st:byte list) r r'. zstd_end st r /\ zstd_end st r' ==> r = r'`,
+  REWRITE_TAC[zstd_end] THEN MESON_TAC[LT_CASES]);;
+
+let fse_stream = new_definition
+ `fse_stream cs alog (st:byte list) w <=>
+    ?r. zstd_end st r /\ 2 * alog <= r /\
+        fse_weights cs alog st
+          (zstd_back st r alog,zstd_back st (r - alog) alog,r - 2 * alog,[])
+          w`;;
+
+let FSE_STREAM_EQ = prove
+ (`!cs alog (st:byte list) r w.
+        zstd_end st r /\ 2 * alog <= r
+        ==> (fse_stream cs alog st w <=>
+             fse_weights cs alog st
+              (zstd_back st r alog,zstd_back st (r - alog) alog,
+               r - 2 * alog,[]) w)`,
+  REWRITE_TAC[fse_stream] THEN MESON_TAC[ZSTD_END_UNIQUE]);;
+
+let FSE_STREAM_SHORT = prove
+ (`!cs alog (st:byte list) r w.
+        zstd_end st r /\ r < 2 * alog ==> ~fse_stream cs alog st w`,
+  REWRITE_TAC[fse_stream] THEN MESON_TAC[ZSTD_END_UNIQUE; NOT_LE]);;
+
+let FSE_STREAM_NOEND = prove
+ (`!cs alog (st:byte list) w.
+        (!r. ~zstd_end st r) ==> ~fse_stream cs alog st w`,
+  REWRITE_TAC[fse_stream] THEN MESON_TAC[]);;
+
+let ZSTD_SUBLIST_SUB_LIST = prove
+ (`!(l:byte list) a n.
+        a + n <= LENGTH l ==> zstd_sublist l a n = SUB_LIST(a,n) l`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[zstd_sublist; LIST_EQ; LENGTH_LIST_OF_SEQ; LENGTH_SUB_LIST] THEN
+  ASM_SIMP_TAC[ARITH_RULE `a + n <= l ==> MIN n (l - a) = n`] THEN
+  X_GEN_TAC `i:num` THEN DISCH_TAC THEN
+  ASM_SIMP_TAC[EL_LIST_OF_SEQ; EL_SUB_LIST]);;
+
+let LENGTH_ZSTD_SUBLIST = prove
+ (`!(l:byte list) a n. LENGTH(zstd_sublist l a n) = n`,
+  REWRITE_TAC[zstd_sublist; LENGTH_LIST_OF_SEQ]);;
+
+let FSE_WEIGHT_BLOCK_STREAM = prove
+ (`!(blk:byte list) cs alog m w.
+        fse_ncount T 15 256 blk (cs,alog,m)
+        ==> (fse_weight_block T blk w <=>
+             alog <= 6 /\ LENGTH cs <= (if alog = 6 then 12 else 92) /\
+             fse_stream cs alog (zstd_sublist blk m (LENGTH blk - m)) w)`,
+  REPEAT STRIP_TAC THEN
+  REWRITE_TAC[fse_weight_block; fse_stream] THEN
+  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN EQ_TAC THENL
+   [DISCH_THEN(X_CHOOSE_THEN `cs':int list` (X_CHOOSE_THEN `alog':num`
+      (X_CHOOSE_THEN `m':num` (X_CHOOSE_THEN `r:num` STRIP_ASSUME_TAC)))) THEN
+    MP_TAC(SPECL [`T`; `6`; `15`; `256`; `blk:byte list`; `cs':int list`;
+                  `alog':num`; `m':num`; `cs:int list`; `alog:num`; `m:num`]
+      FSE_NCOUNT_DET) THEN
+    ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
+    REPEAT(FIRST_X_ASSUM(SUBST_ALL_TAC o check (is_eq o concl))) THEN
+    ASM_REWRITE_TAC[] THEN CONJ_TAC THENL
+     [UNDISCH_TAC `fse_ncount T 6 256 blk (cs',alog',m')` THEN
+      REWRITE_TAC[fse_ncount] THEN ARITH_TAC;
+      EXISTS_TAC `r:num` THEN ASM_REWRITE_TAC[]];
+    STRIP_TAC THEN MAP_EVERY EXISTS_TAC
+     [`cs:int list`; `alog:num`; `m:num`; `r:num`] THEN
+    ASM_REWRITE_TAC[] THEN
+    UNDISCH_TAC `fse_ncount T 15 256 blk (cs,alog,m)` THEN
+    REWRITE_TAC[fse_ncount] THEN ASM_MESON_TAC[]]);;
+
+let FSE_WEIGHT_BLOCK_NONE = prove
+ (`!(blk:byte list) w.
+        (!r. ~fse_ncount T 15 256 blk r) ==> ~fse_weight_block T blk w`,
+  REWRITE_TAC[fse_weight_block; FORALL_PAIR_THM; fse_ncount] THEN
+  REPEAT STRIP_TAC THEN
+  FIRST_X_ASSUM(MP_TAC o SPECL [`cs:int list`; `alog:num`; `m:num`]) THEN
+  ASM_REWRITE_TAC[] THEN ASM_MESON_TAC[ARITH_RULE `a <= 6 ==> a <= 15`]);;

@@ -570,10 +570,6 @@ let ZSTD_END_LAST = prove
     MP_TAC(SPEC `val(b:byte)` BITSIZE_EQ_0) THEN ASM_REWRITE_TAC[] THEN
     ARITH_TAC]);;
 
-let ZSTD_END_UNIQUE = prove
- (`!(st:byte list) r r'. zstd_end st r /\ zstd_end st r' ==> r = r'`,
-  REWRITE_TAC[ZSTD_END_BITSIZE] THEN ARITH_TAC);;
-
 (* ------------------------------------------------------------------------- *)
 (* Lists of bytes and of 16-bit words in memory: reading parts of them, and  *)
 (* updating, extending and truncating them.                                  *)
