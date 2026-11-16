@@ -6,8 +6,9 @@
 (* ========================================================================= *)
 (* Facts about the specification of Huffman-coded literals in the Zstandard  *)
 (* format in rfc8878.ml, and of the FSE tables used for their weights, their *)
-(* descriptions, the decoding of the weights and the Huffman tree            *)
-(* descriptions, for the proofs about zstd's code.                           *)
+(* descriptions, the decoding of the weights, the Huffman tree descriptions  *)
+(* and the symbols sorted by their weights, as for zstd's decoding tables,   *)
+(* for the proofs about zstd's code.                                         *)
 (* ========================================================================= *)
 
 needs "common/rfc8878.ml";;
@@ -2683,3 +2684,569 @@ let HUF_WEIGHTS_NOHEADER = prove
  (`!(l:byte list).
         (!w h. ~huf_header T l w h) ==> !ws ml h. ~huf_weights T l ws ml h`,
   REWRITE_TAC[huf_weights] THEN MESON_TAC[]);;
+
+(* ------------------------------------------------------------------------- *)
+(* The weights from HUF_readStats: their sum is 2^ml, they make a complete   *)
+(* code with no weight above ml, there are at least 2 and at most 256 of     *)
+(* them, and the description determines them and its size.                   *)
+(* ------------------------------------------------------------------------- *)
+
+let HUF_READSTATS_TOTAL = prove
+ (`!w ws ml. huf_readstats w ws ml ==> huf_total ws = 2 EXP ml`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[huf_readstats] THEN STRIP_TAC THEN
+  ASM_REWRITE_TAC[HUF_TOTAL_APPEND1; HUF_EXP_DIV2] THEN
+  MP_TAC(SPEC `huf_total w` BITSIZE) THEN
+  FIRST_X_ASSUM(SUBST_ALL_TAC o check (fun th ->
+    lhs(concl th) = `ml:num`)) THEN
+  DISCH_TAC THEN
+  ABBREV_TAC `r = 2 EXP bitsize (huf_total w) - huf_total w` THEN
+  SUBGOAL_THEN `~(r = 0)` ASSUME_TAC THENL [ASM_ARITH_TAC; ALL_TAC] THEN
+  ASM_REWRITE_TAC[BITSIZE_EQ_0] THEN ASM_ARITH_TAC);;
+
+let HUF_READSTATS_COMPLETE = prove
+ (`!w ws ml. huf_readstats w ws ml ==> huf_complete ws ml`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[huf_complete] THEN
+  FIRST_ASSUM(ASSUME_TAC o MATCH_MP HUF_READSTATS_TOTAL) THEN
+  ASM_REWRITE_TAC[huf_present; IN_ELIM_THM] THEN
+  X_GEN_TAC `s:num` THEN STRIP_TAC THEN REWRITE_TAC[GSYM NOT_LT] THEN
+  DISCH_TAC THEN
+  SUBGOAL_THEN `1 <= ml` ASSUME_TAC THENL
+   [UNDISCH_TAC `huf_readstats w ws ml` THEN
+    REWRITE_TAC[huf_readstats] THEN STRIP_TAC THEN
+    ASM_REWRITE_TAC[ARITH_RULE `1 <= n <=> ~(n = 0)`; BITSIZE_EQ_0];
+    ALL_TAC] THEN
+  SUBGOAL_THEN `?t. t < LENGTH ws /\ EL t ws = 1 /\ ~(t = s)`
+  STRIP_ASSUME_TAC THENL
+   [UNDISCH_TAC `huf_readstats w ws ml` THEN
+    REWRITE_TAC[huf_readstats] THEN STRIP_TAC THEN
+    SUBGOAL_THEN `MEM 1 (ws:num list)` MP_TAC THENL
+     [REWRITE_TAC[GSYM HUF_RANK_MEM] THEN ASM_ARITH_TAC;
+      REWRITE_TAC[MEM_EXISTS_EL]] THEN
+    DISCH_THEN(X_CHOOSE_THEN `t:num` STRIP_ASSUME_TAC) THEN
+    EXISTS_TAC `t:num` THEN ASM_REWRITE_TAC[] THEN
+    DISCH_THEN SUBST_ALL_TAC THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  MP_TAC(ISPECL [`{s:num,t}`; `{i:num | i < LENGTH(ws:num list)}`;
+                 `\i. 2 EXP (EL i ws) DIV 2`] NSUM_SUBSET_SIMPLE) THEN
+  ANTS_TAC THENL
+   [REWRITE_TAC[FINITE_NUMSEG_LT] THEN ASM SET_TAC[]; ALL_TAC] THEN
+  ASM_REWRITE_TAC[GSYM HUF_TOTAL_ALT] THEN
+  SIMP_TAC[NSUM_CLAUSES; FINITE_INSERT; FINITE_EMPTY; IN_INSERT;
+           NOT_IN_EMPTY] THEN
+  ASM_REWRITE_TAC[HUF_EXP_DIV2] THEN CONV_TAC NUM_REDUCE_CONV THEN
+  SUBGOAL_THEN `2 EXP ml <= 2 EXP (EL s ws - 1)` MP_TAC THENL
+   [REWRITE_TAC[LE_EXP] THEN ASM_ARITH_TAC; ARITH_TAC]);;
+
+let HUF_COMPLETE_ALL_LE = prove
+ (`!ws ml. huf_complete ws ml ==> ALL (\x. x <= ml) ws`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[huf_complete; huf_present; IN_ELIM_THM] THEN
+  STRIP_TAC THEN REWRITE_TAC[GSYM ALL_EL] THEN X_GEN_TAC `s:num` THEN
+  DISCH_TAC THEN ASM_CASES_TAC `EL s (ws:num list) = 0` THEN
+  ASM_SIMP_TAC[LE_0]);;
+
+let HUF_HEADER_BOUNDS = prove
+ (`!(l:byte list) w h.
+        huf_header T l w h ==> LENGTH w <= 255 /\ 1 <= h /\ h <= LENGTH l`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[huf_header] THEN STRIP_TAC THEN
+  ASM_REWRITE_TAC[LENGTH_LIST_OF_SEQ] THENL
+   [MP_TAC(ISPEC `EL 0 (l:byte list)` VAL_BOUND) THEN
+    REWRITE_TAC[DIMINDEX_8] THEN CONV_TAC NUM_REDUCE_CONV THEN ASM_ARITH_TAC;
+    FIRST_X_ASSUM(MP_TAC o MATCH_MP FSE_WEIGHT_BLOCK_BOUNDS) THEN
+    ASM_ARITH_TAC]);;
+
+let HUF_WEIGHTS_HEADER = prove
+ (`!(l:byte list) ws ml h.
+        huf_weights T l ws ml h ==> ?w. huf_header T l w h`,
+  REWRITE_TAC[huf_weights] THEN MESON_TAC[]);;
+
+let HUF_WEIGHTS_DET = prove
+ (`!(l:byte list) ws ml h ws' ml' h'.
+        huf_weights T l ws ml h /\ huf_weights T l ws' ml' h'
+        ==> ws' = ws /\ ml' = ml /\ h' = h`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  FIRST_ASSUM(X_CHOOSE_TAC `w:num list` o MATCH_MP HUF_WEIGHTS_HEADER) THEN
+  FIRST_ASSUM(MP_TAC o MATCH_MP HUF_WEIGHTS_READSTATS) THEN
+  DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
+  ASM_REWRITE_TAC[] THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[HUF_READSTATS_SOME]) THEN ASM_REWRITE_TAC[]);;
+
+let HUF_WEIGHTS_FACTS = prove
+ (`!(l:byte list) ws ml h.
+        huf_weights T l ws ml h
+        ==> huf_complete ws ml /\ ALL (\x. x <= ml) ws /\
+            2 <= LENGTH ws /\ LENGTH ws <= 256 /\
+            huf_total ws = 2 EXP ml /\ 1 <= ml /\ ml <= 12 /\
+            1 <= h /\ h <= LENGTH l`,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  FIRST_ASSUM(X_CHOOSE_TAC `w:num list` o MATCH_MP HUF_WEIGHTS_HEADER) THEN
+  FIRST_ASSUM(STRIP_ASSUME_TAC o MATCH_MP HUF_HEADER_BOUNDS) THEN
+  FIRST_ASSUM(MP_TAC o MATCH_MP HUF_WEIGHTS_READSTATS) THEN
+  DISCH_THEN(fun th -> RULE_ASSUM_TAC(REWRITE_RULE[th])) THEN
+  FIRST_ASSUM(ASSUME_TAC o MATCH_MP HUF_READSTATS_COMPLETE) THEN
+  FIRST_ASSUM(ASSUME_TAC o MATCH_MP HUF_READSTATS_TOTAL) THEN
+  FIRST_ASSUM(ASSUME_TAC o MATCH_MP HUF_COMPLETE_ALL_LE) THEN
+  ASM_REWRITE_TAC[] THEN
+  FIRST_X_ASSUM(MP_TAC o GEN_REWRITE_RULE I [HUF_READSTATS_SOME] o
+    check (fun th ->
+      can (term_match [] `huf_readstats a b c`) (concl th))) THEN
+  STRIP_TAC THEN
+  SUBGOAL_THEN `~(w:num list = [])` ASSUME_TAC THENL
+   [DISCH_THEN SUBST_ALL_TAC THEN
+    UNDISCH_TAC `~(huf_total [] = 0)` THEN REWRITE_TAC[HUF_TOTAL_NIL];
+    ALL_TAC] THEN
+  ASM_REWRITE_TAC[LENGTH_APPEND; LENGTH] THEN REPEAT CONJ_TAC THENL
+   [UNDISCH_TAC `~(w:num list = [])` THEN
+    REWRITE_TAC[GSYM LENGTH_EQ_NIL] THEN ARITH_TAC;
+    UNDISCH_TAC `LENGTH(w:num list) <= 255` THEN ARITH_TAC;
+    ASM_REWRITE_TAC[ARITH_RULE `1 <= n <=> ~(n = 0)`; BITSIZE_EQ_0]]);;
+
+(* ------------------------------------------------------------------------- *)
+(* Raising the weights of the present symbols by k, huf_rescale k ws, as     *)
+(* zstd does to fill a decoding table of 2^k times as many states: the same  *)
+(* symbols in the same order, with 2^k times as many states each, so that    *)
+(* the state x of the new code is for the symbol of the state x DIV 2^k of   *)
+(* the old one.                                                              *)
+(* ------------------------------------------------------------------------- *)
+
+let huf_rescale = new_definition
+ `huf_rescale k (ws:num list) = MAP (\w. if w = 0 then 0 else w + k) ws`;;
+
+let LENGTH_HUF_RESCALE = prove
+ (`!k ws. LENGTH(huf_rescale k ws) = LENGTH ws`,
+  REWRITE_TAC[huf_rescale; LENGTH_MAP]);;
+
+let EL_HUF_RESCALE = prove
+ (`!k ws i. i < LENGTH ws
+            ==> EL i (huf_rescale k ws) =
+                if EL i ws = 0 then 0 else EL i ws + k`,
+  SIMP_TAC[huf_rescale; EL_MAP]);;
+
+let HUF_PRESENT_RESCALE = prove
+ (`!k ws. huf_present(huf_rescale k ws) = huf_present ws`,
+  REWRITE_TAC[huf_present; EXTENSION; IN_ELIM_THM; LENGTH_HUF_RESCALE] THEN
+  GEN_TAC THEN GEN_TAC THEN X_GEN_TAC `t:num` THEN
+  ASM_CASES_TAC `t < LENGTH(ws:num list)` THEN
+  ASM_SIMP_TAC[EL_HUF_RESCALE] THEN
+  COND_CASES_TAC THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC);;
+
+let HUF_BEFORE_RESCALE = prove
+ (`!k ws s t. s IN huf_present ws /\ t IN huf_present ws
+              ==> (huf_before (huf_rescale k ws) t s <=> huf_before ws t s)`,
+  REWRITE_TAC[huf_present; IN_ELIM_THM; huf_before] THEN
+  SIMP_TAC[EL_HUF_RESCALE] THEN ARITH_TAC);;
+
+let HUF_START_RESCALE = prove
+ (`!k ws s. s IN huf_present ws
+            ==> huf_start (huf_rescale k ws) s = 2 EXP k * huf_start ws s`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[huf_start; HUF_PRESENT_RESCALE] THEN
+  SUBGOAL_THEN
+   `{t | t IN huf_present ws /\ huf_before (huf_rescale k ws) t s} =
+    {t | t IN huf_present ws /\ huf_before ws t s}`
+  SUBST1_TAC THENL
+   [REWRITE_TAC[EXTENSION; IN_ELIM_THM] THEN
+    ASM_MESON_TAC[HUF_BEFORE_RESCALE];
+    ALL_TAC] THEN
+  REWRITE_TAC[GSYM NSUM_LMUL] THEN MATCH_MP_TAC NSUM_EQ THEN
+  REWRITE_TAC[IN_ELIM_THM; huf_present] THEN X_GEN_TAC `t:num` THEN
+  STRIP_TAC THEN ASM_SIMP_TAC[EL_HUF_RESCALE; GSYM EXP_ADD] THEN
+  AP_TERM_TAC THEN ASM_ARITH_TAC);;
+
+let HUF_SYMBOL_RESCALE = prove
+ (`!k ws x. x < 2 EXP k * huf_total ws
+            ==> huf_symbol (huf_rescale k ws) x =
+                huf_symbol ws (x DIV 2 EXP k)`,
+  REPEAT STRIP_TAC THEN
+  ABBREV_TAC `y = x DIV 2 EXP k` THEN
+  SUBGOAL_THEN `y < huf_total ws` ASSUME_TAC THENL
+   [EXPAND_TAC "y" THEN SIMP_TAC[RDIV_LT_EQ; EXP_EQ_0; ARITH_EQ] THEN
+    ASM_REWRITE_TAC[];
+    ALL_TAC] THEN
+  FIRST_ASSUM(STRIP_ASSUME_TAC o MATCH_MP HUF_SYMBOL) THEN
+  MATCH_MP_TAC HUF_SYMBOL_UNIQUE THEN
+  ASM_SIMP_TAC[HUF_PRESENT_RESCALE; HUF_START_RESCALE] THEN
+  ABBREV_TAC `s = huf_symbol ws y` THEN
+  RULE_ASSUM_TAC(REWRITE_RULE[huf_present; IN_ELIM_THM]) THEN
+  ASM_SIMP_TAC[EL_HUF_RESCALE] THEN
+  MP_TAC(SPECL [`x:num`; `2 EXP k`] DIVISION) THEN
+  ASM_REWRITE_TAC[EXP_EQ_0; ARITH_EQ] THEN STRIP_TAC THEN
+  SUBGOAL_THEN `2 EXP ((EL s ws + k) - 1) = 2 EXP k * 2 EXP (EL s ws - 1)`
+  SUBST1_TAC THENL
+   [REWRITE_TAC[GSYM EXP_ADD] THEN AP_TERM_TAC THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  CONJ_TAC THENL
+   [TRANS_TAC LE_TRANS `2 EXP k * y` THEN
+    ASM_REWRITE_TAC[LE_MULT_LCANCEL] THEN ASM_ARITH_TAC;
+    TRANS_TAC LTE_TRANS `2 EXP k * (y + 1)` THEN CONJ_TAC THENL
+     [ASM_ARITH_TAC;
+      REWRITE_TAC[GSYM LEFT_ADD_DISTRIB; LE_MULT_LCANCEL] THEN
+      ASM_ARITH_TAC]]);;
+
+let HUF_RANK_RESCALE = prove
+ (`!k ws j.
+        huf_rank (huf_rescale k ws) j =
+        if j = 0 then huf_rank ws 0
+        else if j <= k then 0 else huf_rank ws (j - k)`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[huf_rank; LENGTH_HUF_RESCALE] THEN
+  REPEAT COND_CASES_TAC THEN TRY(MATCH_MP_TAC NSUM_EQ_0) THEN
+  TRY(MATCH_MP_TAC NSUM_EQ) THEN
+  REWRITE_TAC[IN_ELIM_THM] THEN X_GEN_TAC `i:num` THEN DISCH_TAC THEN
+  ASM_SIMP_TAC[EL_HUF_RESCALE] THEN
+  REPEAT COND_CASES_TAC THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC);;
+
+let HUF_RESCALE_BOUND = prove
+ (`!k ws m. ALL (\x. x <= m) ws ==> ALL (\x. x <= m + k) (huf_rescale k ws)`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[GSYM ALL_EL; LENGTH_HUF_RESCALE] THEN
+  REPEAT STRIP_TAC THEN ASM_SIMP_TAC[EL_HUF_RESCALE] THEN
+  FIRST_X_ASSUM(MP_TAC o SPEC `i:num`) THEN ASM_REWRITE_TAC[] THEN
+  ARITH_TAC);;
+
+let HUF_TOTAL_RESCALE = prove
+ (`!k ws. huf_total (huf_rescale k ws) = 2 EXP k * huf_total ws`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[huf_total; HUF_PRESENT_RESCALE] THEN
+  REWRITE_TAC[GSYM NSUM_LMUL] THEN MATCH_MP_TAC NSUM_EQ THEN
+  REWRITE_TAC[huf_present; IN_ELIM_THM] THEN REPEAT STRIP_TAC THEN
+  ASM_SIMP_TAC[EL_HUF_RESCALE; GSYM EXP_ADD] THEN
+  AP_TERM_TAC THEN ASM_ARITH_TAC);;
+
+(* ------------------------------------------------------------------------- *)
+(* Sums over the symbols by their weights.                                   *)
+(* ------------------------------------------------------------------------- *)
+
+let FINITE_NUMSEG_LT_RESTRICT = prove
+ (`!n P. FINITE {t:num | t < n /\ P t}`,
+  REPEAT GEN_TAC THEN MATCH_MP_TAC FINITE_SUBSET THEN
+  EXISTS_TAC `{t:num | t < n}` THEN REWRITE_TAC[FINITE_NUMSEG_LT] THEN
+  SET_TAC[]);;
+
+let NSUM_NUMSEG_LT_RESTRICT = prove
+ (`!n P f. nsum {t:num | t < n /\ P t} f =
+           nsum {t | t < n} (\t. if P t then f t else 0)`,
+  REPEAT GEN_TAC THEN
+  SUBGOAL_THEN `{t:num | t < n /\ P t} = {t | t IN {t | t < n} /\ P t}`
+  SUBST1_TAC THENL [SET_TAC[]; REWRITE_TAC[NSUM_RESTRICT_SET]]);;
+
+let HUF_RANK_CARD = prove
+ (`!ws j. huf_rank ws j = CARD {t | t < LENGTH ws /\ EL t ws = j}`,
+  REPEAT GEN_TAC THEN
+  SIMP_TAC[CARD_EQ_NSUM; FINITE_NUMSEG_LT_RESTRICT] THEN
+  REWRITE_TAC[NSUM_NUMSEG_LT_RESTRICT; huf_rank]);;
+
+let HUF_NSUM_BY_WEIGHT = prove
+ (`!ws (f:num->num) w.
+        nsum {t | t < LENGTH ws /\ EL t ws < w} (\t. f(EL t ws)) =
+        nsum {v | v < w} (\v. huf_rank ws v * f v)`,
+  GEN_TAC THEN GEN_TAC THEN INDUCT_TAC THENL
+   [REWRITE_TAC[LT; NSUM_CLAUSES_NUMSEG_LT; EMPTY_GSPEC; NSUM_CLAUSES];
+    ALL_TAC] THEN
+  REWRITE_TAC[NSUM_CLAUSES_NUMSEG_LT] THEN
+  FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN
+  SUBGOAL_THEN
+   `{t | t < LENGTH ws /\ EL t ws < SUC w} =
+    {t | t < LENGTH ws /\ EL t ws < w} UNION
+    {t | t < LENGTH ws /\ EL t ws = w}`
+  SUBST1_TAC THENL
+   [REWRITE_TAC[EXTENSION; IN_UNION; IN_ELIM_THM] THEN ARITH_TAC;
+    ALL_TAC] THEN
+  W(MP_TAC o PART_MATCH (lhand o rand) NSUM_UNION o lhand o snd) THEN
+  ANTS_TAC THENL
+   [REWRITE_TAC[FINITE_NUMSEG_LT_RESTRICT; DISJOINT; EXTENSION;
+                IN_INTER; IN_ELIM_THM; NOT_IN_EMPTY] THEN ARITH_TAC;
+    DISCH_THEN SUBST1_TAC] THEN
+  AP_TERM_TAC THEN
+  TRANS_TAC EQ_TRANS
+   `nsum {t | t < LENGTH ws /\ EL t ws = w} (\t. (f:num->num) w)` THEN
+  CONJ_TAC THENL
+   [MATCH_MP_TAC NSUM_EQ THEN SIMP_TAC[IN_ELIM_THM];
+    SIMP_TAC[NSUM_CONST; FINITE_NUMSEG_LT_RESTRICT; HUF_RANK_CARD]]);;
+
+let HUF_RANK_ABOVE = prove
+ (`!ws m j. ALL (\x. x <= m) ws /\ m < j ==> huf_rank ws j = 0`,
+  REPEAT STRIP_TAC THEN ONCE_REWRITE_TAC[TAUT `p <=> ~ ~p`] THEN
+  GEN_REWRITE_TAC RAND_CONV [HUF_RANK_MEM] THEN DISCH_TAC THEN
+  FIRST_X_ASSUM(MP_TAC o SPEC `j:num` o GEN_REWRITE_RULE I [GSYM ALL_MEM]) THEN
+  ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC);;
+
+(* ------------------------------------------------------------------------- *)
+(* All the symbols in the order of their weights and then of the symbols,    *)
+(* the absent ones first, as zstd sorts them: the position of each, huf_pos, *)
+(* and the symbol at each position, huf_sorted. Those of weight w start at   *)
+(* huf_bstart ws w, the number of symbols of lower weights, and their states *)
+(* at huf_ustart ws w, so the symbol at the position huf_bstart ws w + j has *)
+(* the states from huf_ustart ws w + j * 2^(w - 1) on.                       *)
+(* ------------------------------------------------------------------------- *)
+
+let huf_pos = new_definition
+ `huf_pos (ws:num list) s = CARD {t | t < LENGTH ws /\ huf_before ws t s}`;;
+
+let FINITE_HUF_BEFORE = prove
+ (`!ws s. FINITE {t | t < LENGTH(ws:num list) /\ huf_before ws t s}`,
+  REPEAT GEN_TAC THEN MATCH_MP_TAC FINITE_SUBSET THEN
+  EXISTS_TAC `{t:num | t < LENGTH(ws:num list)}` THEN
+  REWRITE_TAC[FINITE_NUMSEG_LT] THEN SET_TAC[]);;
+
+let HUF_POS_LT = prove
+ (`!ws s. s < LENGTH ws ==> huf_pos ws s < LENGTH ws`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[huf_pos] THEN
+  MATCH_MP_TAC LET_TRANS THEN
+  EXISTS_TAC `CARD({t:num | t < LENGTH(ws:num list)} DELETE s)` THEN
+  CONJ_TAC THENL
+   [MATCH_MP_TAC CARD_SUBSET THEN
+    SIMP_TAC[FINITE_DELETE; FINITE_NUMSEG_LT] THEN
+    REWRITE_TAC[SUBSET; IN_ELIM_THM; IN_DELETE] THEN
+    MESON_TAC[HUF_BEFORE_IRREFL];
+    SIMP_TAC[CARD_DELETE; FINITE_NUMSEG_LT; CARD_NUMSEG_LT; IN_ELIM_THM] THEN
+    ASM_ARITH_TAC]);;
+
+let HUF_POS_MONO = prove
+ (`!ws s t. s < LENGTH ws /\ t < LENGTH ws /\ huf_before ws s t
+            ==> huf_pos ws s < huf_pos ws t`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[huf_pos] THEN
+  MATCH_MP_TAC CARD_PSUBSET THEN
+  REWRITE_TAC[FINITE_HUF_BEFORE; PSUBSET; SUBSET; IN_ELIM_THM; EXTENSION] THEN
+  CONJ_TAC THENL [ASM_MESON_TAC[HUF_BEFORE_TRANS]; ALL_TAC] THEN
+  DISCH_THEN(MP_TAC o SPEC `s:num`) THEN ASM_REWRITE_TAC[HUF_BEFORE_IRREFL]);;
+
+let HUF_POS_INJ = prove
+ (`!ws s t. s < LENGTH ws /\ t < LENGTH ws /\ huf_pos ws s = huf_pos ws t
+            ==> s = t`,
+  REPEAT STRIP_TAC THEN ASM_CASES_TAC `s:num = t` THEN ASM_REWRITE_TAC[] THEN
+  FIRST_ASSUM(DISJ_CASES_TAC o SPEC `ws:num list` o
+              MATCH_MP HUF_BEFORE_TOTAL) THENL
+   [MP_TAC(SPECL [`ws:num list`; `s:num`; `t:num`] HUF_POS_MONO);
+    MP_TAC(SPECL [`ws:num list`; `t:num`; `s:num`] HUF_POS_MONO)] THEN
+  ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC);;
+
+let huf_bstart = new_definition
+ `huf_bstart ws w = nsum {v | v < w} (huf_rank ws)`;;
+
+let huf_ustart = new_definition
+ `huf_ustart ws w = nsum {v | v < w} (\v. huf_rank ws v * (2 EXP v DIV 2))`;;
+
+let HUF_BSTART_CARD = prove
+ (`!ws w. huf_bstart ws w = CARD {t | t < LENGTH ws /\ EL t ws < w}`,
+  REPEAT GEN_TAC THEN
+  SIMP_TAC[CARD_EQ_NSUM; FINITE_NUMSEG_LT_RESTRICT] THEN
+  MP_TAC(ISPECL [`ws:num list`; `\v:num. 1`; `w:num`] HUF_NSUM_BY_WEIGHT) THEN
+  REWRITE_TAC[MULT_CLAUSES; huf_bstart] THEN
+  DISCH_THEN SUBST1_TAC THEN REWRITE_TAC[ETA_AX]);;
+
+let HUF_USTART_SUM = prove
+ (`!ws w. huf_ustart ws w =
+          nsum {t | t < LENGTH ws /\ EL t ws < w} (\t. 2 EXP (EL t ws) DIV 2)`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[huf_ustart] THEN
+  MP_TAC(ISPECL [`ws:num list`; `\v:num. 2 EXP v DIV 2`; `w:num`]
+    HUF_NSUM_BY_WEIGHT) THEN
+  REWRITE_TAC[] THEN DISCH_THEN(SUBST1_TAC o SYM) THEN REFL_TAC);;
+
+let HUF_BSTART_SUC = prove
+ (`!ws w. huf_bstart ws (w + 1) = huf_bstart ws w + huf_rank ws w`,
+  REWRITE_TAC[huf_bstart; GSYM ADD1; NSUM_CLAUSES_NUMSEG_LT]);;
+
+let HUF_USTART_SUC = prove
+ (`!ws w. huf_ustart ws (w + 1) =
+          huf_ustart ws w + huf_rank ws w * (2 EXP w DIV 2)`,
+  REWRITE_TAC[huf_ustart; GSYM ADD1; NSUM_CLAUSES_NUMSEG_LT]);;
+
+let HUF_BSTART_0 = prove
+ (`!ws. huf_bstart ws 0 = 0`,
+  REWRITE_TAC[huf_bstart; CONJUNCT1 LT; EMPTY_GSPEC; NSUM_CLAUSES]);;
+
+let HUF_START_1 = prove
+ (`!ws. huf_bstart ws 1 = huf_rank ws 0 /\ huf_ustart ws 1 = 0`,
+  REWRITE_TAC[huf_bstart; huf_ustart; ARITH_RULE `1 = SUC 0`;
+              NSUM_CLAUSES_NUMSEG_LT] THEN
+  CONV_TAC NUM_REDUCE_CONV THEN REWRITE_TAC[MULT_CLAUSES; ADD_CLAUSES]);;
+
+let HUF_BSTART_MONO = prove
+ (`!ws v w. v <= w ==> huf_bstart ws v <= huf_bstart ws w`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[HUF_BSTART_CARD] THEN
+  MATCH_MP_TAC CARD_SUBSET THEN REWRITE_TAC[FINITE_NUMSEG_LT_RESTRICT] THEN
+  REWRITE_TAC[SUBSET; IN_ELIM_THM] THEN ASM_ARITH_TAC);;
+
+let HUF_BSTART_LE = prove
+ (`!ws w. huf_bstart ws w <= LENGTH ws`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[HUF_BSTART_CARD] THEN
+  GEN_REWRITE_TAC RAND_CONV [GSYM CARD_NUMSEG_LT] THEN
+  MATCH_MP_TAC CARD_SUBSET THEN REWRITE_TAC[FINITE_NUMSEG_LT] THEN
+  SET_TAC[]);;
+
+let HUF_USTART_MONO = prove
+ (`!ws v w. v <= w ==> huf_ustart ws v <= huf_ustart ws w`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[huf_ustart] THEN
+  MATCH_MP_TAC NSUM_SUBSET_SIMPLE THEN
+  REWRITE_TAC[FINITE_NUMSEG_LT; SUBSET; IN_ELIM_THM] THEN ASM_ARITH_TAC);;
+
+let HUF_USTART_ALL = prove
+ (`!ws m. ALL (\x. x <= m) ws ==> huf_ustart ws (m + 1) = huf_total ws`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[HUF_USTART_SUM; HUF_TOTAL_ALT] THEN
+  AP_THM_TAC THEN AP_TERM_TAC THEN
+  REWRITE_TAC[EXTENSION; IN_ELIM_THM] THEN X_GEN_TAC `t:num` THEN
+  EQ_TAC THEN SIMP_TAC[] THEN DISCH_TAC THEN
+  FIRST_X_ASSUM(MP_TAC o SPEC `t:num` o REWRITE_RULE[GSYM ALL_EL]) THEN
+  ASM_REWRITE_TAC[] THEN ARITH_TAC);;
+
+let HUF_POS_WEIGHTS = prove
+ (`!ws s. s < LENGTH ws
+          ==> huf_pos ws s =
+              huf_bstart ws (EL s ws) +
+              CARD {t | t < s /\ EL t ws = EL s ws}`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[huf_pos; HUF_BSTART_CARD] THEN
+  CONV_TAC SYM_CONV THEN MATCH_MP_TAC CARD_UNION_EQ THEN
+  REWRITE_TAC[FINITE_NUMSEG_LT_RESTRICT] THEN
+  REWRITE_TAC[EXTENSION; IN_INTER; IN_UNION; IN_ELIM_THM; NOT_IN_EMPTY;
+              huf_before] THEN
+  CONJ_TAC THEN GEN_TAC THEN ASM_ARITH_TAC);;
+
+let HUF_CNT_LT_RANK = prove
+ (`!ws s. s < LENGTH ws
+          ==> CARD {t | t < s /\ EL t ws = EL s ws} < huf_rank ws (EL s ws)`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[HUF_RANK_CARD] THEN
+  MATCH_MP_TAC CARD_PSUBSET THEN REWRITE_TAC[FINITE_NUMSEG_LT_RESTRICT] THEN
+  REWRITE_TAC[PSUBSET; SUBSET; IN_ELIM_THM; EXTENSION] THEN
+  CONJ_TAC THENL [ASM_MESON_TAC[LT_TRANS]; ALL_TAC] THEN
+  DISCH_THEN(MP_TAC o SPEC `s:num`) THEN ASM_REWRITE_TAC[LT_REFL]);;
+
+let HUF_START_POS = prove
+ (`!ws s. s < LENGTH ws /\ ~(EL s ws = 0)
+          ==> huf_start ws s =
+              huf_ustart ws (EL s ws) +
+              CARD {t | t < s /\ EL t ws = EL s ws} * 2 EXP (EL s ws - 1)`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[huf_start; HUF_USTART_SUM] THEN
+  SUBGOAL_THEN
+   `{t | t IN huf_present ws /\ huf_before ws t s} =
+    {t | t < LENGTH ws /\ ~(EL t ws = 0) /\ EL t ws < EL s ws} UNION
+    {t | t < s /\ EL t ws = EL s ws}`
+  SUBST1_TAC THENL
+   [REWRITE_TAC[EXTENSION; IN_UNION; IN_ELIM_THM; huf_present; huf_before] THEN
+    GEN_TAC THEN ASM_ARITH_TAC;
+    ALL_TAC] THEN
+  W(MP_TAC o PART_MATCH (lhand o rand) NSUM_UNION o lhand o snd) THEN
+  ANTS_TAC THENL
+   [REWRITE_TAC[DISJOINT; EXTENSION; IN_INTER; IN_ELIM_THM; NOT_IN_EMPTY] THEN
+    REPEAT CONJ_TAC THENL
+     [MATCH_MP_TAC FINITE_SUBSET THEN
+      EXISTS_TAC `{t:num | t < LENGTH(ws:num list)}` THEN
+      REWRITE_TAC[FINITE_NUMSEG_LT] THEN SET_TAC[];
+      REWRITE_TAC[FINITE_NUMSEG_LT_RESTRICT];
+      ARITH_TAC];
+    DISCH_THEN SUBST1_TAC] THEN
+  BINOP_TAC THENL
+   [REWRITE_TAC[NSUM_NUMSEG_LT_RESTRICT] THEN
+    SUBGOAL_THEN
+     `{t | t < LENGTH ws /\ ~(EL t ws = 0) /\ EL t ws < EL s ws} =
+      {t | t IN {t | t < LENGTH ws} /\ ~(EL t ws = 0) /\ EL t ws < EL s ws}`
+    SUBST1_TAC THENL [SET_TAC[]; REWRITE_TAC[NSUM_RESTRICT_SET]] THEN
+    MATCH_MP_TAC NSUM_EQ THEN REWRITE_TAC[IN_ELIM_THM] THEN
+    X_GEN_TAC `t:num` THEN DISCH_TAC THEN
+    REWRITE_TAC[HUF_EXP_DIV2] THEN
+    ASM_CASES_TAC `EL t (ws:num list) = 0` THEN ASM_REWRITE_TAC[COND_ID];
+    TRANS_TAC EQ_TRANS
+     `nsum {t | t < s /\ EL t ws = EL s ws} (\t. 2 EXP (EL s ws - 1))` THEN
+    CONJ_TAC THENL
+     [MATCH_MP_TAC NSUM_EQ THEN SIMP_TAC[IN_ELIM_THM];
+      SIMP_TAC[NSUM_CONST; FINITE_NUMSEG_LT_RESTRICT]]]);;
+
+let huf_sorted = new_definition
+ `huf_sorted ws p = @s. s < LENGTH ws /\ huf_pos ws s = p`;;
+
+let HUF_POS_SURJ = prove
+ (`!ws p. p < LENGTH ws ==> ?s. s < LENGTH ws /\ huf_pos ws s = p`,
+  REPEAT STRIP_TAC THEN
+  SUBGOAL_THEN
+   `IMAGE (huf_pos ws) {s | s < LENGTH ws} = {p | p < LENGTH ws}`
+  MP_TAC THENL
+   [MATCH_MP_TAC CARD_SUBSET_EQ THEN REWRITE_TAC[FINITE_NUMSEG_LT] THEN
+    CONJ_TAC THENL
+     [REWRITE_TAC[SUBSET; FORALL_IN_IMAGE; IN_ELIM_THM] THEN
+      SIMP_TAC[HUF_POS_LT];
+      W(MP_TAC o PART_MATCH (lhand o rand) CARD_IMAGE_INJ o lhand o snd) THEN
+      ANTS_TAC THENL
+       [REWRITE_TAC[FINITE_NUMSEG_LT; IN_ELIM_THM] THEN
+        MESON_TAC[HUF_POS_INJ];
+        DISCH_THEN SUBST1_TAC THEN REWRITE_TAC[]]];
+    REWRITE_TAC[EXTENSION; IN_IMAGE; IN_ELIM_THM] THEN
+    DISCH_THEN(MP_TAC o SPEC `p:num`) THEN ASM_MESON_TAC[]]);;
+
+let HUF_SORTED = prove
+ (`!ws p. p < LENGTH ws
+          ==> huf_sorted ws p < LENGTH ws /\
+              huf_pos ws (huf_sorted ws p) = p`,
+  REPEAT GEN_TAC THEN DISCH_THEN(MP_TAC o MATCH_MP HUF_POS_SURJ) THEN
+  REWRITE_TAC[huf_sorted] THEN CONV_TAC(ONCE_DEPTH_CONV SELECT_CONV) THEN
+  REWRITE_TAC[]);;
+
+let HUF_SORTED_POS = prove
+ (`!ws s. s < LENGTH ws ==> huf_sorted ws (huf_pos ws s) = s`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`ws:num list`; `huf_pos ws s`] HUF_SORTED) THEN
+  ASM_SIMP_TAC[HUF_POS_LT] THEN ASM_MESON_TAC[HUF_POS_INJ]);;
+
+let HUF_SORTED_BUCKET = prove
+ (`!ws w j.
+        j < huf_rank ws w
+        ==> huf_bstart ws w + j < LENGTH ws /\
+            EL (huf_sorted ws (huf_bstart ws w + j)) ws = w /\
+            CARD {t | t < huf_sorted ws (huf_bstart ws w + j) /\
+                      EL t ws = w} = j`,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  SUBGOAL_THEN `huf_bstart ws w + j < LENGTH ws` ASSUME_TAC THENL
+   [MP_TAC(SPECL [`ws:num list`; `w + 1`] HUF_BSTART_LE) THEN
+    REWRITE_TAC[HUF_BSTART_SUC] THEN ASM_ARITH_TAC;
+    ASM_REWRITE_TAC[]] THEN
+  MP_TAC(SPECL [`ws:num list`; `huf_bstart ws w + j`] HUF_SORTED) THEN
+  ASM_REWRITE_TAC[] THEN
+  ABBREV_TAC `s = huf_sorted ws (huf_bstart ws w + j)` THEN STRIP_TAC THEN
+  MP_TAC(SPECL [`ws:num list`; `s:num`] HUF_POS_WEIGHTS) THEN
+  MP_TAC(SPECL [`ws:num list`; `s:num`] HUF_CNT_LT_RANK) THEN
+  ASM_REWRITE_TAC[] THEN
+  ABBREV_TAC `c = CARD {t | t < s /\ EL t ws = EL s (ws:num list)}` THEN
+  ABBREV_TAC `v = EL s (ws:num list)` THEN REPEAT DISCH_TAC THEN
+  SUBGOAL_THEN `v:num = w` SUBST_ALL_TAC THENL
+   [REWRITE_TAC[GSYM LE_ANTISYM; GSYM NOT_LT] THEN CONJ_TAC THEN
+    DISCH_TAC THENL
+     [MP_TAC(SPECL [`ws:num list`; `w + 1`; `v:num`] HUF_BSTART_MONO);
+      MP_TAC(SPECL [`ws:num list`; `v + 1`; `w:num`] HUF_BSTART_MONO)] THEN
+    REWRITE_TAC[HUF_BSTART_SUC] THEN ASM_ARITH_TAC;
+    ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC]);;
+
+let HUF_SORTED_START = prove
+ (`!ws w j.
+        ~(w = 0) /\ j < huf_rank ws w
+        ==> huf_start ws (huf_sorted ws (huf_bstart ws w + j)) =
+            huf_ustart ws w + j * 2 EXP (w - 1)`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`ws:num list`; `w:num`; `j:num`] HUF_SORTED_BUCKET) THEN
+  ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
+  MP_TAC(SPECL [`ws:num list`; `w:num`] HUF_SORTED) THEN
+  MP_TAC(SPECL [`ws:num list`; `huf_bstart ws w + j`] HUF_SORTED) THEN
+  ASM_REWRITE_TAC[] THEN STRIP_TAC THEN DISCH_THEN(K ALL_TAC) THEN
+  ASM_SIMP_TAC[HUF_START_POS]);;
+
+let HUF_SYMBOL_BLOCK = prove
+ (`!ws w j x.
+        ~(w = 0) /\ j < huf_rank ws w /\
+        huf_ustart ws w + j * 2 EXP (w - 1) <= x /\
+        x < huf_ustart ws w + (j + 1) * 2 EXP (w - 1)
+        ==> huf_symbol ws x = huf_sorted ws (huf_bstart ws w + j)`,
+  REPEAT STRIP_TAC THEN MATCH_MP_TAC HUF_SYMBOL_UNIQUE THEN
+  MP_TAC(SPECL [`ws:num list`; `w:num`; `j:num`] HUF_SORTED_BUCKET) THEN
+  ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
+  MP_TAC(SPECL [`ws:num list`; `huf_bstart ws w + j`] HUF_SORTED) THEN
+  ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
+  ASM_SIMP_TAC[HUF_SORTED_START; huf_present; IN_ELIM_THM] THEN
+  UNDISCH_TAC `x < huf_ustart ws w + (j + 1) * 2 EXP (w - 1)` THEN
+  REWRITE_TAC[RIGHT_ADD_DISTRIB; MULT_CLAUSES] THEN ARITH_TAC);;
+
+let HUF_BLOCK_END = prove
+ (`!ws w j.
+        ~(w = 0) /\ j < huf_rank ws w
+        ==> huf_ustart ws w + (j + 1) * 2 EXP (w - 1) <= huf_total ws`,
+  REPEAT STRIP_TAC THEN
+  MP_TAC(SPECL [`ws:num list`; `w:num`; `j:num`] HUF_SORTED_BUCKET) THEN
+  ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
+  MP_TAC(SPECL [`ws:num list`; `huf_bstart ws w + j`] HUF_SORTED) THEN
+  ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
+  MP_TAC(SPECL [`ws:num list`; `huf_sorted ws (huf_bstart ws w + j)`]
+    HUF_START_END) THEN
+  ASM_SIMP_TAC[HUF_SORTED_START; huf_present; IN_ELIM_THM] THEN
+  ARITH_TAC);;
