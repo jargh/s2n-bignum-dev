@@ -8,7 +8,8 @@
 (* format in rfc8878.ml, and of the FSE tables used for their weights, their *)
 (* descriptions, the decoding of the weights, the Huffman tree descriptions  *)
 (* and the symbols sorted by their weights, as for zstd's decoding tables,   *)
-(* for the proofs about zstd's code.                                         *)
+(* for the proofs about zstd's code; and that zstd's reading accepts all     *)
+(* that the RFC reading accepts, with the same result.                       *)
 (* ========================================================================= *)
 
 needs "common/rfc8878.ml";;
@@ -3250,3 +3251,151 @@ let HUF_BLOCK_END = prove
     HUF_START_END) THEN
   ASM_SIMP_TAC[HUF_SORTED_START; huf_present; IN_ELIM_THM] THEN
   ARITH_TAC);;
+
+(* ------------------------------------------------------------------------- *)
+(* The RFC reading and zstd's. An FSE table description that the RFC         *)
+(* accepts lies within its input, and every field takes at least one bit,    *)
+(* so the positions where zstd refills its window are within the input and   *)
+(* do not wrap around. With at most 12 probabilities and codes of at most 11 *)
+(* bits, within zstd's limits, every input that the RFC accepts is accepted  *)
+(* by zstd with the same result, and its table log is at most 11.            *)
+(* ------------------------------------------------------------------------- *)
+
+let FSE_FIELD_ADVANCE = prove
+ (`!l pts p v q. fse_field l pts p = (v,q) ==> p < q`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[fse_field] THEN
+  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+  ABBREV_TAC `nb = bitsize(pts + 1)` THEN
+  SUBGOAL_THEN `1 <= nb` ASSUME_TAC THENL
+   [EXPAND_TAC "nb" THEN
+    REWRITE_TAC[ARITH_RULE `1 <= n <=> ~(n = 0)`; BITSIZE_EQ_0] THEN
+    ARITH_TAC;
+    ALL_TAC] THEN
+  ASM_CASES_TAC `nb = 1` THENL
+   [ASM_REWRITE_TAC[] THEN CONV_TAC NUM_REDUCE_CONV THEN
+    REWRITE_TAC[ARITH_RULE `2 - (pts + 2) = 0`; CONJUNCT1 LT] THEN
+    COND_CASES_TAC THEN REWRITE_TAC[PAIR_EQ] THEN ARITH_TAC;
+    REPEAT(COND_CASES_TAC THEN REWRITE_TAC[PAIR_EQ]) THEN
+    UNDISCH_TAC `1 <= nb` THEN UNDISCH_TAC `~(nb = 1)` THEN ARITH_TAC]);;
+
+let FSE_RELOAD_F = prove
+ (`!(l:byte list) p. fse_reload F l p = p`,
+  REWRITE_TAC[fse_reload] THEN CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+  REWRITE_TAC[]);;
+
+let FSE_RELOAD_INSIDE = prove
+ (`!(l:byte list) p. p < 8 * LENGTH l ==> fse_reload T l p = p`,
+  REPEAT STRIP_TAC THEN REWRITE_TAC[fse_reload] THEN
+  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN
+  COND_CASES_TAC THEN REWRITE_TAC[] THEN
+  POP_ASSUM MP_TAC THEN POP_ASSUM MP_TAC THEN
+  REWRITE_TAC[MAX] THEN ARITH_TAC);;
+
+let FSE_ZEROS_RFC = prove
+ (`!l:byte list. !x y.
+     fse_zeros F l x y
+     ==> SND(SND x) + 2 <= 8 * LENGTH l /\
+         (SND y < 8 * LENGTH l ==> fse_zeros T l x y)`,
+  GEN_TAC THEN
+  MP_TAC(REWRITE_RULE[FSE_INSIDE_T]
+          (SPECL [`T`; `l:byte list`] FSE_ZEROS_RULES)) THEN
+  DISCH_THEN(fun th ->
+    let r1,r23 = CONJ_PAIR th in
+    let r2,r3 = CONJ_PAIR r23 in
+    MATCH_MP_TAC FSE_ZEROS_INDUCT THEN
+    REWRITE_TAC[fse_inside; FSE_RELOAD_F] THEN
+    REPEAT CONJ_TAC THEN REPEAT GEN_TAC THEN STRIP_TAC THEN
+    ASM_REWRITE_TAC[] THEN DISCH_TAC THENL
+     [MP_TAC(SPECL [`k:num`; `z:num`; `p:num`] r1) THEN
+      ASM_SIMP_TAC[FSE_RELOAD_INSIDE];
+      MATCH_MP_TAC r2 THEN ASM_SIMP_TAC[];
+      MATCH_MP_TAC r3 THEN
+      ASM_SIMP_TAC[FSE_RELOAD_INSIDE;
+                   ARITH_RULE `(p + 2) + 2 <= l ==> p + 2 < l`]]));;
+
+let FSE_COUNTS_RFC = prove
+ (`!(l:byte list) n n'.
+     n <= n'
+     ==> !x y. fse_counts F l n x y
+               ==> SND(SND x) < 8 * LENGTH l /\ fse_counts T l n' x y`,
+  REPEAT GEN_TAC THEN DISCH_TAC THEN
+  MP_TAC(REWRITE_RULE[FSE_INSIDE_T]
+          (SPECL [`T`; `l:byte list`; `n':num`] FSE_COUNTS_RULES)) THEN
+  DISCH_THEN(fun th ->
+    let r1,r23 = CONJ_PAIR th in
+    let r2,r3 = CONJ_PAIR r23 in
+    MATCH_MP_TAC FSE_COUNTS_INDUCT THEN
+    REWRITE_TAC[fse_inside; FSE_RELOAD_F; SND] THEN
+    REPEAT CONJ_TAC THEN REPEAT GEN_TAC THEN STRIP_TAC THEN
+    FIRST_ASSUM(ASSUME_TAC o MATCH_MP FSE_FIELD_ADVANCE) THEN
+    (CONJ_TAC THENL [ASM_ARITH_TAC; ALL_TAC]) THENL
+     [MATCH_MP_TAC r1 THEN ASM_REWRITE_TAC[] THEN ASM_ARITH_TAC;
+      MATCH_MP_TAC r2 THEN
+      MAP_EVERY EXISTS_TAC [`v:num`; `q:num`] THEN
+      ASM_SIMP_TAC[FSE_RELOAD_INSIDE] THEN ASM_ARITH_TAC;
+      FIRST_X_ASSUM(MP_TAC o MATCH_MP FSE_ZEROS_RFC) THEN
+      REWRITE_TAC[SND] THEN ASM_REWRITE_TAC[] THEN STRIP_TAC THEN
+      MATCH_MP_TAC r3 THEN
+      MAP_EVERY EXISTS_TAC [`q:num`; `z:num`; `q':num`] THEN
+      ASM_SIMP_TAC[FSE_RELOAD_INSIDE;
+                   ARITH_RULE `q + 2 <= l ==> q < l`] THEN
+      ASM_ARITH_TAC]));;
+
+let FSE_NCOUNT_RFC = prove
+ (`!ma n n' (l:byte list) cs alog m.
+     n <= n' /\ fse_ncount F ma n l (cs,alog,m)
+     ==> fse_ncount T ma n' l (cs,alog,m)`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[fse_ncount] THEN
+  DISCH_THEN(CONJUNCTS_THEN2 (ASSUME_TAC o MATCH_MP FSE_COUNTS_RFC)
+                             MP_TAC) THEN
+  MATCH_MP_TAC MONO_AND THEN REWRITE_TAC[] THEN
+  MATCH_MP_TAC MONO_AND THEN REWRITE_TAC[] THEN
+  MATCH_MP_TAC MONO_EXISTS THEN ASM_SIMP_TAC[]);;
+
+let FSE_WEIGHT_BLOCK_RFC = prove
+ (`!(blk:byte list) w. fse_weight_block F blk w ==> fse_weight_block T blk w`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[fse_weight_block] THEN
+  REPEAT(MATCH_MP_TAC MONO_EXISTS THEN GEN_TAC) THEN
+  STRIP_TAC THEN ASM_REWRITE_TAC[] THEN CONJ_TAC THENL
+   [MATCH_MP_TAC FSE_NCOUNT_RFC THEN EXISTS_TAC `12` THEN
+    ASM_REWRITE_TAC[] THEN CONV_TAC NUM_REDUCE_CONV;
+    FIRST_X_ASSUM(MP_TAC o MATCH_MP FSE_NCOUNT_BOUNDS) THEN
+    COND_CASES_TAC THEN ARITH_TAC]);;
+
+let HUF_HEADER_RFC = prove
+ (`!(l:byte list) w h. huf_header F l w h ==> huf_header T l w h`,
+  REWRITE_TAC[huf_header] THEN MESON_TAC[FSE_WEIGHT_BLOCK_RFC]);;
+
+let HUF_WEIGHTS_RFC = prove
+ (`!(l:byte list) ws ml h.
+     huf_weights F l ws ml h ==> huf_weights T l ws ml h /\ ml <= 11`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[huf_weights] THEN
+  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN REWRITE_TAC[] THEN
+  DISCH_THEN(X_CHOOSE_THEN `w:num list`
+    (X_CHOOSE_THEN `k:num` STRIP_ASSUME_TAC)) THEN
+  CONJ_TAC THENL [ALL_TAC; FIRST_ASSUM ACCEPT_TAC] THEN
+  MAP_EVERY EXISTS_TAC [`w:num list`; `k:num`] THEN
+  REPEAT CONJ_TAC THEN
+  FIRST [FIRST_ASSUM ACCEPT_TAC;
+         MATCH_MP_TAC HUF_HEADER_RFC THEN FIRST_ASSUM ACCEPT_TAC;
+         UNDISCH_TAC `ml <= 11` THEN ARITH_TAC]);;
+
+let HUF_DECOMPRESS1X1_RFC = prove
+ (`!(l:byte list) out.
+     huf_decompress1x1 F l out ==> huf_decompress1x1 T l out`,
+  REWRITE_TAC[huf_decompress1x1] THEN MESON_TAC[HUF_WEIGHTS_RFC]);;
+
+(*** The table log of an input that the RFC accepts, by zstd's reading ***)
+
+let HUF_DECOMPRESS1X1_RFC_TABLELOG = prove
+ (`!(l:byte list) out ws ml h.
+     huf_decompress1x1 F l out /\ huf_weights T l ws ml h ==> ml <= 11`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[huf_decompress1x1] THEN
+  DISCH_THEN(CONJUNCTS_THEN2
+   (X_CHOOSE_THEN `ws0:num list` (X_CHOOSE_THEN `ml0:num`
+     (X_CHOOSE_THEN `h0:num` STRIP_ASSUME_TAC)))
+   ASSUME_TAC) THEN
+  FIRST_X_ASSUM(STRIP_ASSUME_TAC o MATCH_MP HUF_WEIGHTS_RFC) THEN
+  MP_TAC(SPECL [`l:byte list`; `ws0:num list`; `ml0:num`; `h0:num`;
+                `ws:num list`; `ml:num`; `h:num`] HUF_WEIGHTS_DET) THEN
+  ASM_REWRITE_TAC[] THEN STRIP_TAC THEN ASM_REWRITE_TAC[]);;
