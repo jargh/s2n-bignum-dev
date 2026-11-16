@@ -26,14 +26,14 @@ let LENGTH_ZSTD_HUF_GCC12_O2_MC =
 
 (* ------------------------------------------------------------------------- *)
 (* The code: the stubs of the procedure linkage table for memcpy and memset, *)
-(* and the functions in the decoding of single-stream Huffman-coded          *)
-(* literals.                                                                 *)
+(* the functions in the decoding of single-stream Huffman-coded literals,    *)
+(* and those of the fast decoding of four streams.                           *)
 (* ------------------------------------------------------------------------- *)
 
 let ZSTD_EXEC = ARM_MK_EXEC_RANGES_RULE zstd_huf_gcc12_O2_mc
   [0x640,0x650; 0x660,0x670; 0x770,0xc0c; 0xc60,0xc68; 0xca0,0xca4;
-   0xe80,0x10e8; 0x10f4,0x1c20; 0x2850,0x2b2c; 0x66d4,0x6b88;
-   0x7340,0x73d0];;
+   0xe80,0x10e8; 0x10f4,0x1c20; 0x1de0,0x1f5c; 0x24a4,0x2848;
+   0x2850,0x2b2c; 0x66d4,0x6b88; 0x7340,0x73d0];;
 
 (* ------------------------------------------------------------------------- *)
 (* Words of small numbers: the rules of SMALL_WORD_CONV in puff.ml and some  *)
