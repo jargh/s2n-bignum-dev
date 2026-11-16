@@ -3,14 +3,19 @@
 
 # Differential tests of the mirror rfc8878_ref.py against zstd, through the
 # test program zhuf_run (zhuf_run.c, built by ../../arm/zstd/build_zstd.sh
-# with zstd's decoding in the AArch64 library, or natively). The inputs are
-# made from N inputs of each kind: Huffman-coded literals from zstd's
+# with zstd's decoding in the AArch64 library, or natively), or
+# zhuf_run_direct, which also has the decoding of four streams. The inputs
+# are made from N inputs of each kind: Huffman-coded literals from zstd's
 # encoder and mutations of them, raw and FSE-compressed tree descriptions
 # with random and crafted weights, crafted prefix codes up to 12 bits deep,
 # FSE table descriptions with long runs of zeros and running past the end
-# of their input, and the example of RFC 8878 section 4.2.2. zstd must agree
-# exactly with the zstd reading of the mirror, and with the RFC reading
-# except for the reasons in the list allowed below.
+# of their input, the example of RFC 8878 section 4.2.2, and literals in
+# four streams, from zstd's encoder and crafted, with malformed variants.
+# zstd must agree exactly with the zstd reading of the mirror, and with the
+# RFC reading except for the reasons in the list allowed below; for four
+# streams, it is zstd without its fast decoding (the flag
+# HUF_flags_disableFast) that must agree exactly, and with it zstd must give
+# the same output when the mirror accepts the input.
 # usage: python3 -I -B difftest.py ZHUF_RUN SEED N
 import random, subprocess, sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -389,6 +394,88 @@ for _ in range(20 * N):
     cases.append(('D', hdr + bytes([rng.randrange(1, 256)]),
                   rng.randint(0, 9), None))
 
+# 11. four streams (if the program has them): literals from zstd's
+# encoder and crafted ones, with the fast decoding (flags 0) and without it
+# (flags 32), and malformed variants of them
+quad = drive(['Q 0 0 00'])[0] != 'ERR unsupported'
+
+
+def split4(blk):
+    s = [blk[0] | blk[1] << 8, blk[2] | blk[3] << 8, blk[4] | blk[5] << 8]
+    a = [6, 6 + s[0], 6 + s[0] + s[1], 6 + s[0] + s[1] + s[2]]
+    return s + [len(blk) - a[3]], a
+
+
+def mutate4(hdr, blk):
+    # the jump table and streams blk after the tree description hdr
+    blk = bytearray(blk)
+    s, a = split4(blk)
+    k, i = rng.randrange(5), rng.randrange(4)
+    if a[3] > len(blk) or k == 4:
+        return hdr + mutate(bytes(blk))
+    if k == 0:       # an extra byte at the start of stream i
+        blk[a[i]:a[i]] = bytes([rng.randrange(256)])
+        s[i] += 1
+    elif k == 1:     # a byte removed from the start of stream i
+        if s[i] < 2:
+            return hdr + mutate(bytes(blk))
+        del blk[a[i]]
+        s[i] -= 1
+    elif k == 2:     # a 0 byte after the last byte of stream i
+        blk[a[i] + s[i]:a[i] + s[i]] = bytes(1)
+        s[i] += 1
+    else:            # the sizes of two streams swapped
+        j = rng.randrange(3)
+        s[j], s[j + 1] = s[j + 1], s[j]
+    for j in range(3):
+        blk[2 * j], blk[2 * j + 1] = s[j] & 255, (s[j] >> 8) & 255
+    return hdr + bytes(blk)
+
+
+def quad_cases(src, h, n, d):
+    for f in [0, 32]:
+        cases.append(('Q', f, src, n, d))
+        cases.append(('Q', f, src, max(0, n + rng.choice([-1, 1, 4])), None))
+        for _ in range(2):
+            cases.append(('Q', f, mutate4(src[:h], src[h:]), n, None))
+
+
+if quad:
+    datas = [gen_data() for _ in range(N)]
+    datas += [gen_data() * rng.randint(2, 20) for _ in range(N // 4)]
+    comp = drive(['E 255 %d %s' % (rng.choice([11, 11, 12, 8, 6]), d.hex())
+                  for d in datas])
+    for d, c in zip(datas, comp):
+        if c.startswith('OK '):
+            src = bytes.fromhex(c[3:])
+            quad_cases(src, ref.huf_weights(True, src)[2], len(d), d)
+    for lens, wr in zip(trees, written):
+        hdr = raw_header(lens)
+        if hdr is None:
+            continue
+        codes = huf_codes(lens)
+        for m in [rng.randint(0, 8), rng.choice([9, 13, 30, 40, 100, 400])]:
+            msg = rng.choices(sorted(codes), k=m)
+            q = (m + 3) // 4
+            segs = [msg[:q], msg[q:2*q], msg[2*q:3*q], msg[3*q:]]
+            sts = [huf_encode(g, codes) for g in segs]
+            if max(len(t) for t in sts[:3]) > 65535:
+                continue
+            jt = b''.join(bytes([len(t) & 255, len(t) >> 8])
+                          for t in sts[:3])
+            quad_cases(hdr + jt + b''.join(sts), len(hdr), m,
+                       bytes(msg) if 3 * q <= m else None)
+    for _ in range(N):
+        lens = rng.choice(trees)
+        hdr = raw_header(lens)
+        if hdr is None:
+            continue
+        ss = [rng.choice([0, 1, 2, 7, 8, 9, 20]) for _ in range(4)]
+        jt = b''.join(bytes([x, 0]) for x in ss[:3])
+        src = hdr + jt + random_bytes(sum(ss))
+        cases.append(('Q', rng.choice([0, 32]), src, rng.randint(0, 40),
+                      None))
+
 # 8. the example of RFC 8878 section 4.2.2 (weights of Table 24): the
 # stream as printed decodes to 0154 (erratum 8195 swaps the codes of 4 and
 # 5 in Table 26); the corrected stream decodes to 0145
@@ -400,6 +487,8 @@ lines = []
 for c in cases:
     if c[0] == 'D':
         lines.append('D %d %s' % (c[2], c[1].hex()))
+    elif c[0] == 'Q':
+        lines.append('Q %d %d %s' % (c[1], c[3], c[2].hex()))
     else:
         lines.append('%s %s' % (c[0], c[1].hex()))
 res = drive(lines)
@@ -409,6 +498,9 @@ def mirror(c, zstd):
     try:
         if kind == 'D':
             got = ref.huf_decompress1x1(zstd, c[1], c[2])
+            return 'OK ' + got.hex()
+        elif kind == 'Q':
+            got = ref.huf_decompress4x1(zstd, c[2], c[3])
             return 'OK ' + got.hex()
         elif kind == 'N':
             counts, al, n = ref.fse_ncount(zstd, 15, 256, c[1])
@@ -423,10 +515,12 @@ def mirror(c, zstd):
 
 # zstd must agree exactly with the zstd dialect of the mirror, and with the
 # RFC reading except where the RFC reading rejects the input for one of the
-# reasons below (see rfc8878_ref.py).
+# reasons in allowed, or the dialect for one of those in allowed_zstd (see
+# rfc8878_ref.py).
 allowed = ['ERR (%s)' % e for e in
            ['NCount beyond the input', 'tree too deep',
             'too many symbols in NCount']]
+allowed_zstd = ['ERR (fewer than 6 bytes in four streams)']
 bad = 0
 stats = {}
 for c, r in zip(cases, res):
@@ -435,25 +529,35 @@ for c, r in zip(cases, res):
     dial = mirror(c, True).strip()
     rfc = mirror(c, False).strip()
     zok = r.startswith('OK')
-    stats[(kind, zok)] = stats.get((kind, zok), 0) + 1
-    if zok != dial.startswith('OK') or (zok and r != dial):
+    inp = (c[2] if kind == 'Q' else c[1]).hex()[:120]
+    tag = (kind, c[1]) if kind == 'Q' else kind
+    stats[(tag, zok)] = stats.get((tag, zok), 0) + 1
+    if kind == 'Q' and c[1] == 0 and zok and not dial.startswith('OK'):
+        # the fast decoding of four streams accepts many malformed inputs
+        stats[(tag, 'fast decoding accepts')] = \
+            stats.get((tag, 'fast decoding accepts'), 0) + 1
+    elif zok != dial.startswith('OK') or (zok and r != dial):
         bad += 1
         if bad <= 10:
-            print('MISMATCH', kind, c[1].hex()[:120],
+            print('MISMATCH', tag, inp, c[3] if kind == 'Q' else
                   c[2] if kind == 'D' else '')
             print('   zstd   :', r[:150])
             print('   dialect:', dial[:150])
     if rfc != dial:
-        key = (kind, 'rfc ' + rfc[:3].strip(), 'dialect ' + dial[:3].strip(),
+        key = (tag, 'rfc ' + rfc[:3].strip(), 'dialect ' + dial[:3].strip(),
                rfc[4:] if rfc.startswith('ERR') else '')
         stats[key] = stats.get(key, 0) + 1
-        if rfc.startswith('OK') or rfc not in allowed:
+        rok, dok = rfc.startswith('OK'), dial.startswith('OK')
+        if (rok and (dok or dial not in allowed_zstd) or
+            dok and rfc not in allowed):
             bad += 1
-            print('RFC DEVIATION', kind, c[1].hex()[:120])
+            print('RFC DEVIATION', tag, inp)
             print('   rfc    :', rfc[:150])
             print('   dialect:', dial[:150])
-    if kind == 'D' and zok and c[3] is not None and r[3:] != c[3].hex():
-        print('ROUND TRIP FAIL', c[1].hex()[:100])
+    want = c[4] if kind == 'Q' else c[3] if kind == 'D' else None
+    if zok and want is not None and r[3:] != want.hex():
+        bad += 1
+        print('ROUND TRIP FAIL', tag, inp)
 print('cases', len(cases), 'mismatches', bad)
 for k, v in sorted(stats.items(), key=str):
     print('  ', k, v)

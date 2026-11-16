@@ -6,7 +6,9 @@
 # lib/common/fse_decompress.c, lib/decompress/huf_decompress.c and
 # lib/common/error_private.c) as a shared library for AArch64, as described
 # in README.md, with the exported test entry points of zhuf_api.c, and the
-# test program zhuf_run from ../../tests/zstd/zhuf_run.c linked with it. A
+# test program zhuf_run from ../../tests/zstd/zhuf_run.c linked with it. The
+# test program zhuf_run_direct is linked with the same object files of the
+# decoding instead, for the functions that the library does not export. A
 # record of the toolchain and the hashes is written to OUT/toolchain.txt.
 #
 # usage: GCC=<compiler> build_zstd.sh ZSTD OUT
@@ -41,6 +43,10 @@ for f in compress/huf_compress.c compress/fse_compress.c compress/hist.c \
 done
 "$GCC" -O2 -DZHUF_LIB $CPPFLAGS "$HERE/../../tests/zstd/zhuf_run.c" run/*.o \
   -L. -lzstd_huf -Wl,-rpath,'$ORIGIN' -o zhuf_run
+"$GCC" -O2 $CPPFLAGS "$HERE/../../tests/zstd/zhuf_run.c" \
+  lib/entropy_common.o lib/fse_decompress.o lib/huf_decompress.o \
+  lib/error_private.o run/huf_compress.o run/fse_compress.o run/hist.o \
+  -o zhuf_run_direct
 {
   echo "source: zstd $(git -C "$LIB" log -1 --format=%H 2>/dev/null ||
                        echo unknown)"

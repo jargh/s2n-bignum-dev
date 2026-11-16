@@ -1,11 +1,17 @@
 /* Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
    SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
 
-   Test driver for zstd's single-stream Huffman decoding.
+   Test driver for zstd's Huffman decoding of literals.
    Reads commands from stdin, one per line, and prints one result line each:
      D n HEX        HUF_decompress1X1_DCtx_wksp into a buffer of n bytes
                     -> "OK HEXOUT" or "ERR name"
+     Q flags n HEX  HUF_readDTableX1_wksp, and HUF_decompress4X_usingDTable
+                    of the rest into a buffer of n bytes, with the flags
+                    given (32 for HUF_flags_disableFast)
+                    -> "OK HEXOUT" or "ERR name"
      C maxsv log HEX  HUF_compress1X_repeat of the bytes (for test inputs)
+                    -> "OK HEX", "NONE" (not compressed) or "ERR name"
+     E maxsv log HEX  HUF_compress4X_repeat of the bytes (for test inputs)
                     -> "OK HEX", "NONE" (not compressed) or "ERR name"
      N HEX          FSE_readNCount with maxSymbolValue 255
                     -> "OK size maxsv tablelog c0 c1 ..." or "ERR name"
@@ -24,8 +30,9 @@
 
    Built with -DZHUF_LIB, D, N and S use the functions of the library
    libzstd_huf.so made by ../../arm/zstd/build_zstd.sh, through its exported
-   entry points; otherwise they use zstd's functions linked in directly. C,
-   W and F, which make test inputs, always use the encoder linked in.      */
+   entry points, and Q, which has none, answers "ERR unsupported";
+   otherwise they use zstd's functions linked in directly. C, E, W and F,
+   which make test inputs, always use the encoder linked in.               */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -89,13 +96,38 @@ int main(void) {
       if (ERR_isError(r)) printf("ERR %s\n", ERR_getErrorName(r));
       else { printf("OK "); hex(out, r); printf("\n"); }
       free(in); free(out);
-    } else if (p[0] == 'C') {
+    } else if (p[0] == 'Q') {
+      int flags = (int)strtol(p + 2, &p, 10);
+      size_t n = strtoul(p + 1, &p, 10);
+      size_t len = unhex(p + 1, inb);
+#ifdef ZHUF_LIB
+      (void)flags; (void)n; (void)len;
+      printf("ERR unsupported\n");
+#else
+      unsigned char *in = copy(inb, len), *out = malloc(n + 16);
+      dt[0] = (HUF_DTable)(12 * 0x1000001);
+      memset(out, 0xAA, n + 16);
+      size_t h = HUF_readDTableX1_wksp(dt, in, len, wksp, sizeof wksp, flags);
+      size_t r = ERR_isError(h) ? h : h >= len ? ERROR(srcSize_wrong) :
+        HUF_decompress4X_usingDTable(out, n, in + h, len - h, dt, flags);
+      for (size_t i = n; i < n + 16; i++)
+        if (out[i] != 0xAA) { printf("OOB "); break; }
+      if (ERR_isError(r)) printf("ERR %s\n", ERR_getErrorName(r));
+      else { printf("OK "); hex(out, r); printf("\n"); }
+      free(in); free(out);
+#endif
+    } else if (p[0] == 'C' || p[0] == 'E') {
       unsigned maxsv = strtoul(p + 2, &p, 10);
       unsigned lg = strtoul(p + 1, &p, 10);
       size_t len = unhex(p + 1, inb);
       HUF_repeat rep = HUF_repeat_none;
-      size_t r = HUF_compress1X_repeat(outb, sizeof outb, inb, len, maxsv, lg,
-                                       cwksp, sizeof cwksp, NULL, &rep, 0);
+      size_t r;
+      if (line[0] == 'C')
+        r = HUF_compress1X_repeat(outb, sizeof outb, inb, len, maxsv, lg,
+                                  cwksp, sizeof cwksp, NULL, &rep, 0);
+      else
+        r = HUF_compress4X_repeat(outb, sizeof outb, inb, len, maxsv, lg,
+                                  cwksp, sizeof cwksp, NULL, &rep, 0);
       if (ERR_isError(r)) printf("ERR %s\n", ERR_getErrorName(r));
       else if (r == 0 || r == 1) printf("NONE %zu\n", r);
       else { printf("OK "); hex(outb, r); printf("\n"); }

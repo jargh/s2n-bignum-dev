@@ -57,3 +57,43 @@ let run_hol_test (name,rfc,bs,n,out) =
   Printf.printf "%-40s %s\n%!" name (if ok then "OK" else "WRONG"); ok;;
 
 let hol_tests_ok = forall (fun x -> run_hol_test x) hol_tests;;
+
+(* Four streams: name, whether zstd and the RFC reading accept the input,    *)
+(* the input, the number of bytes and the output.                            *)
+
+let hol_tests4 = [
+  ("four streams, 7 bytes", true, true,
+   [128; 16; 1; 0; 1; 0; 1; 0; 5; 6; 6; 2],
+   7,
+   [0; 1; 1; 0; 1; 0; 0]);
+  ("four streams, 3 bytes (RFC only)", false, true,
+   [128; 16; 1; 0; 1; 0; 1; 0; 3; 2; 3; 1],
+   3,
+   [1; 0; 1]);
+  ("four streams, 12-bit codes", true, false,
+   [139; 203; 169; 135; 101; 67; 33; 4; 0; 2; 0; 2; 0; 1; 32; 0; 2; 11; 2;
+    137; 1; 1],
+   9,
+   [12; 11; 0; 5; 1; 0; 0; 3; 2]);
+  ("four streams, FSE weights", true, true,
+   [7; 16; 0; 166; 62; 169; 140; 1; 2; 0; 2; 0; 2; 0; 9; 8; 241; 2; 225; 2; 7],
+   10,
+   [6; 2; 2; 4; 1; 5; 4; 0; 5; 1]);
+  ("four streams, zstd's encoder", true, true,
+   [9; 224; 233; 50; 201; 45; 23; 0; 160; 2; 4; 0; 4; 0; 4; 0; 81; 171; 187;
+    23; 13; 103; 120; 22; 221; 55; 32; 148; 250; 0; 102; 67],
+   40,
+   [101; 102; 101; 104; 102; 99; 104; 104; 99; 97; 101; 97; 102; 103; 97;
+    103; 102; 103; 97; 104; 97; 99; 100; 98; 100; 104; 102; 102; 101;
+    104; 98; 102; 101; 97; 103; 98; 100; 102; 102; 99])];;
+
+let run_hol_test4 (name,zok,rfc,bs,n,out) =
+  let check zstd =
+    let th = HUF_DECOMPRESS4X1_RULE zstd bs n in
+    let expected = list_mk_icomb "huf_decompress4x1"
+      [mk_bool zstd; mk_bytes bs; mk_bytes out] in
+    aconv (concl th) expected && hyp th = [] in
+  let ok = (not zok || check true) && (not rfc || check false) in
+  Printf.printf "%-40s %s\n%!" name (if ok then "OK" else "WRONG"); ok;;
+
+let hol_tests4_ok = forall (fun x -> run_hol_test4 x) hol_tests4;;

@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0 OR ISC OR MIT-0
 
 # A Python mirror of common/rfc8878.ml, the HOL Light specification of
-# zstd's Huffman-coded literals (RFC 8878, sections 4.1 and 4.2): FSE table
-# descriptions and decoding tables, Huffman tree descriptions and single
-# Huffman-coded streams. Each function follows the definition or inductive
-# relation of the same name, to be read side by side with it, not to be
-# fast. Where the HOL definition is a relation, the function computes the
-# result that the relation determines, raising Fail when there is none.
+# zstd's Huffman-coded literals (RFC 8878, sections 4.1, 4.2 and 3.1.1.3.1):
+# FSE table descriptions and decoding tables, Huffman tree descriptions,
+# Huffman-coded streams and literals in one stream or in four. Each
+# function follows the definition or inductive relation of the same name,
+# to be read side by side with it, not to be fast. Where the HOL definition
+# is a relation, the function computes the result that the relation
+# determines, raising Fail when there is none.
 #
 # The flag zstd selects the RFC (False) or zstd 1.5.7 (True); see the HOL
 # file for the differences.
@@ -344,3 +345,40 @@ def huf_decompress1x1(zstd, l, n):
     if not h < len(l):
         raise Fail('no stream after the tree description')
     return huf_stream(ws, ml, zstd_sublist(l, h, len(l) - h), n)
+
+
+# ---------------------------------------------------------------------------
+# Huffman-coded literals in four streams: returns the n bytes out with
+# huf_streams4 zstd ws ml blk out, for the block blk after the tree
+# description, and with huf_decompress4x1 zstd l out.
+# ---------------------------------------------------------------------------
+
+def huf_jump(blk, k):
+    return blk[2 * k] + 256 * blk[2 * k + 1]
+
+
+def huf_streams4(zstd, ws, ml, blk, n):
+    if not 6 <= len(blk):
+        raise Fail('no jump table')
+    s1, s2, s3 = huf_jump(blk, 0), huf_jump(blk, 1), huf_jump(blk, 2)
+    q = (n + 3) // 4
+    a4 = 6 + s1 + s2 + s3
+    if not a4 <= len(blk):
+        raise Fail('streams past the end of the block')
+    if not 3 * q <= n:
+        raise Fail('no fourth segment')
+    if zstd and not 6 <= n:
+        raise Fail('fewer than 6 bytes in four streams')
+    note('four streams')
+    return (huf_stream(ws, ml, zstd_sublist(blk, 6, s1), q) +
+            huf_stream(ws, ml, zstd_sublist(blk, 6 + s1, s2), q) +
+            huf_stream(ws, ml, zstd_sublist(blk, 6 + s1 + s2, s3), q) +
+            huf_stream(ws, ml, zstd_sublist(blk, a4, len(blk) - a4),
+                       n - 3 * q))
+
+
+def huf_decompress4x1(zstd, l, n):
+    ws, ml, h = huf_weights(zstd, l)
+    if not h < len(l):
+        raise Fail('no stream after the tree description')
+    return huf_streams4(zstd, ws, ml, zstd_sublist(l, h, len(l) - h), n)

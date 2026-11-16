@@ -10,7 +10,8 @@
 (* |- huf_decompress1x1 zstd l out for the byte list l with the values bs    *)
 (* and the n bytes out it decodes to, following the inductive relations step *)
 (* by step: the decoding decisions are made in OCaml, and every one of them  *)
-(* is checked in HOL. Intended for small inputs.                             *)
+(* is checked in HOL. HUF_DECOMPRESS4X1_RULE does the same for four streams, *)
+(* proving |- huf_decompress4x1 zstd l out. Intended for small inputs.       *)
 (* ========================================================================= *)
 
 needs "common/rfc8878.ml";;
@@ -310,7 +311,7 @@ let EVAL_STEP_CONV =
   let defc = GEN_REWRITE_CONV I
     [fse_step; fse_points; fse_inside; fse_reload; fse_field; zstd_back;
      huf_code; fse_lowprob; fse_symbol; fse_next; fse_nbits; fse_base;
-     fse_spread; zstd_sublist; huf_bits; huf_stream] in
+     fse_spread; zstd_sublist; huf_bits; huf_stream; huf_jump] in
   let memo = Hashtbl.create 1000 in
   let memo_names = ["fse_spread"; "fse_symbol"; "fse_next"; "fse_nbits";
                     "fse_base"; "huf_code"; "fse_lowprob"; "huf_bits"] in
@@ -359,7 +360,7 @@ let EVAL_RULE tm =
 
 let relation_names =
   ["fse_zeros"; "fse_counts"; "fse_weights"; "fse_ncount"; "fse_weight_block";
-   "huf_header"; "huf_weights"];;
+   "huf_header"; "huf_weights"; "huf_streams4"];;
 
 let is_relation tm =
   match fst(strip_comb tm) with
@@ -698,3 +699,31 @@ let HUF_DECOMPRESS1X1_RULE zstd (bs:int list) n =
   let tm = list_mk_icomb "huf_decompress1x1"
              [mk_bool zstd; inp.ltm; mk_bytes out] in
   DEF_RULE huf_decompress1x1 [mk_nums ws; mk_n ml; mk_n h] [wth] tm;;
+
+(* |- huf_decompress4x1 zstd l out, for the input bs and n output bytes.     *)
+
+let HUF_DECOMPRESS4X1_RULE zstd (bs:int list) n =
+  let inp = input_of(mk_bytes bs) in
+  let wth,(ws,ml,h) = HUF_WEIGHTS_DERIV zstd inp in
+  check (h < Array.length inp.bytes) "no stream after the tree description";
+  let blk = Array.sub inp.bytes h (Array.length inp.bytes - h) in
+  check (Array.length blk >= 6) "no jump table";
+  let jump k = blk.(2 * k) + 256 * blk.(2 * k + 1) in
+  let s1 = jump 0 and s2 = jump 1 and s3 = jump 2 and q = (n + 3) / 4 in
+  let a4 = 6 + s1 + s2 + s3 in
+  check (a4 <= Array.length blk) "streams past the end of the block";
+  check (3 * q <= n) "no fourth segment";
+  check (not zstd || 6 <= n) "fewer than 6 bytes in four streams";
+  let out = ostream ws ml (Array.sub blk 6 s1) q @
+            ostream ws ml (Array.sub blk (6 + s1) s2) q @
+            ostream ws ml (Array.sub blk (6 + s1 + s2) s3) q @
+            ostream ws ml (Array.sub blk a4 (Array.length blk - a4))
+              (n - 3 * q) in
+  let stm = list_mk_icomb "huf_streams4"
+              [mk_bool zstd; mk_nums ws; mk_n ml;
+               mk_bytes(Array.to_list blk); mk_bytes out] in
+  let sth = EQT_ELIM((REWR_CONV huf_streams4 THENC
+                      TOP_DEPTH_CONV let_CONV THENC EVAL_CONV) stm) in
+  let tm = list_mk_icomb "huf_decompress4x1"
+             [mk_bool zstd; inp.ltm; mk_bytes out] in
+  DEF_RULE huf_decompress4x1 [mk_nums ws; mk_n ml; mk_n h] [wth; sth] tm;;

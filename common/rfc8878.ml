@@ -5,8 +5,9 @@
 
 (* ========================================================================= *)
 (* Huffman-coded literals in the Zstandard format, per RFC 8878: FSE table   *)
-(* descriptions and FSE decoding tables (section 4.1), and Huffman tree      *)
-(* descriptions and single Huffman-coded streams (section 4.2).              *)
+(* descriptions and FSE decoding tables (section 4.1), Huffman tree          *)
+(* descriptions and Huffman-coded streams (section 4.2), and literals in one *)
+(* stream or in four (section 3.1.1.3.1).                                    *)
 (*                                                                           *)
 (* The definitions take a flag zstd. With zstd false they follow the RFC,    *)
 (* and with zstd true they describe what zstd 1.5.7 accepts, which differs   *)
@@ -26,6 +27,13 @@
 (*   the last symbol is at most 11 if Accuracy_Log is 6 and at most 91 if it *)
 (*   is 5. The RFC leaves the number of symbols to the context (4.1.1); here *)
 (*   it is at most 12, for the weights 0 to 11.                              *)
+(*                                                                           *)
+(* - zstd rejects four Huffman-coded streams (3.1.1.3.1.6) for fewer than 6  *)
+(*   bytes. Its fast decoding of four streams, which it uses by default for  *)
+(*   tables of 11 bits and streams of at least 8 bytes, does not check that  *)
+(*   the streams are consumed exactly, and so accepts many inputs that both  *)
+(*   readings reject; the definitions here follow its other decoding, with   *)
+(*   the flag HUF_flags_disableFast.                                         *)
 (*                                                                           *)
 (* Where the RFC is silent, both follow zstd: the FSE-compressed weights     *)
 (* must have bits for both initial states, and some symbol must have weight  *)
@@ -318,3 +326,36 @@ let huf_decompress1x1 = new_definition
  `huf_decompress1x1 zstd (l:byte list) (out:byte list) <=>
     ?ws ml h. huf_weights zstd l ws ml h /\ h < LENGTH l /\
               huf_stream ws ml (zstd_sublist l h (LENGTH l - h)) out`;;
+
+(* ------------------------------------------------------------------------- *)
+(* Huffman-coded literals in four streams (Size_Format 01, 10 or 11 of a     *)
+(* Compressed_Literals_Block, section 3.1.1.3.1.6). After the tree           *)
+(* description, the block blk has a jump table of 6 bytes, the sizes of the  *)
+(* first three streams as 2-byte little-endian numbers (huf_jump blk k), and *)
+(* then the four streams, the last taking the rest of blk. Of the n bytes    *)
+(* out, the first three streams decode (n + 3) DIV 4 each and the fourth the *)
+(* rest; zstd rejects fewer than 6 bytes.                                    *)
+(* ------------------------------------------------------------------------- *)
+
+let huf_jump = new_definition
+ `huf_jump (blk:byte list) k =
+    val(EL (2 * k) blk) + 256 * val(EL (2 * k + 1) blk)`;;
+
+let huf_streams4 = new_definition
+ `huf_streams4 zstd ws ml (blk:byte list) (out:byte list) <=>
+    6 <= LENGTH blk /\
+    let s1 = huf_jump blk 0 and s2 = huf_jump blk 1 and s3 = huf_jump blk 2
+    and q = (LENGTH out + 3) DIV 4 in
+    let a4 = 6 + s1 + s2 + s3 in
+    a4 <= LENGTH blk /\ 3 * q <= LENGTH out /\ (zstd ==> 6 <= LENGTH out) /\
+    huf_stream ws ml (zstd_sublist blk 6 s1) (zstd_sublist out 0 q) /\
+    huf_stream ws ml (zstd_sublist blk (6 + s1) s2) (zstd_sublist out q q) /\
+    huf_stream ws ml (zstd_sublist blk (6 + s1 + s2) s3)
+               (zstd_sublist out (2 * q) q) /\
+    huf_stream ws ml (zstd_sublist blk a4 (LENGTH blk - a4))
+               (zstd_sublist out (3 * q) (LENGTH out - 3 * q))`;;
+
+let huf_decompress4x1 = new_definition
+ `huf_decompress4x1 zstd (l:byte list) (out:byte list) <=>
+    ?ws ml h. huf_weights zstd l ws ml h /\ h < LENGTH l /\
+              huf_streams4 zstd ws ml (zstd_sublist l h (LENGTH l - h)) out`;;
