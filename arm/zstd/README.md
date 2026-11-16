@@ -101,6 +101,57 @@ python3 puff/check_transcription.py zstd/zstd_huf_gcc12_O2.o - \
   <build>/libzstd_huf.so 0x0
 ```
 
+## The proofs
+
+The proofs are in `../proofs`, one file for each function, each using the
+theorems for the functions that it calls:
+
+- `zstd_huf_decode1x1_gcc12_O2.ml`: `HUF_DECOMPRESS1X1_USINGDTABLE_CORRECT`
+  for `HUF_decompress1X1_usingDTable_internal`
+- `zstd_fse_build_dtable_gcc12_O2.ml`: `FSE_BUILD_DTABLE_CORRECT` for
+  `FSE_buildDTable_internal`
+- `zstd_fse_read_ncount_gcc12_O2.ml`: `FSE_READ_NCOUNT_CORRECT` for
+  `FSE_readNCount_body_default`
+- `zstd_fse_decompress_gcc12_O2.ml`: `FSE_DECOMPRESS_WKSP_CORRECT` for
+  `FSE_decompress_wksp_bmi2`
+- `zstd_huf_read_stats_gcc12_O2.ml`: `HUF_READSTATS_WKSP_CORRECT` for
+  `HUF_readStats_wksp`
+- `zstd_huf_read_dtable_x1_gcc12_O2.ml`: `HUF_READDTABLEX1_WKSP_CORRECT` for
+  `HUF_readDTableX1_wksp`
+- `zstd_huf_decompress1x1_gcc12_O2.ml`: `HUF_DECOMPRESS1X1_DCTX_WKSP_CORRECT`
+  and `HUF_DECOMPRESS1X1_DCTX_WKSP_RFC` for `HUF_decompress1X1_DCtx_wksp`
+
+Each theorem states the correctness of the function and its memory safety,
+for any input: the loads and stores, in the trace `read events`, are within
+lists of readable and writable regions (`memaccess_inbounds`). The calls of
+`memcpy` and `memset` are given contracts (`memcpy_memsafe_contract` and
+`memset_memsafe_contract`), which say what they write and include the
+regions of their own loads and stores.
+
+`HUF_DECOMPRESS1X1_DCTX_WKSP_CORRECT` says that, with a workspace of at
+least 1492 bytes and a decoding table with room for the table log of the
+Huffman tree description at the start of the input, the result is the size
+n of the output buffer, with the output there, if the input decodes to n
+bytes in the zstd dialect of the specification (`huf_decompress1x1 T`), and
+an error code if it does not; for a smaller workspace or table it is an
+error code. The dialect describes exactly what zstd accepts, and
+`HUF_DECOMPRESS1X1_RFC` in `../../common/rfc8878_theory.ml` shows that it
+accepts every input that the RFC reading (`huf_decompress1x1 F`) accepts,
+with the same output, so `HUF_DECOMPRESS1X1_DCTX_WKSP_RFC` gives the output
+of the RFC for those inputs. zstd also accepts some inputs that the RFC
+does not, as the comments in `../../common/rfc8878.ml` describe.
+
+The theorems for `FSE_readNCount_body_default` and the functions that
+call it, directly or not, assume that the stack pointer is not one
+particular value: 0 for that function and correspondingly higher for the
+others. For an input of fewer than 8 bytes, that function calls itself on
+a copy padded with zeros in its stack frame, and it compares pointers
+unsigned, so a copy ending at address 2^64, where the addresses wrap
+around to 0, would make it read outside the copy. The common definitions
+and tactics are in `../proofs/utils/zstd_huf.ml`, with those of
+`../proofs/utils/puff.ml`, and the facts about the specification in
+`../../common/rfc8878_theory.ml`.
+
 ## License
 
 The code in the transcription is compiled from zstd, which is available
