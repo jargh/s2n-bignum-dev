@@ -639,12 +639,6 @@ let FL_NORM_TAC = FL_INDEX_TAC THEN FL_SHIFT_TAC THEN FL_DROP_TAC THEN
 let FL_STEPS_TAC ns =
   MAP_EVERY (fun n -> ZSTD_STEP_TAC n THEN FL_NORM_TAC) ns;;
 
-let FL_TIMED_STEPS_TAC ns =
-  MAP_EVERY (fun n gl ->
-    let t0 = Unix.gettimeofday() in
-    let r = (ZSTD_STEP_TAC n THEN FL_NORM_TAC) gl in
-    Printf.printf "STEP %d %.2f\n%!" n (Unix.gettimeofday() -. t0); r) ns;;
-
 (*** The postcondition as an abbreviation during the simulation, which is ***)
 (*** much faster with a small goal                                        ***)
 
