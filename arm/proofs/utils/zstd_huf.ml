@@ -409,16 +409,40 @@ let ZSTD_DECIDE_GOAL_TAC =
 
 let ZSTD_FINAL_TAC = PUFF_FINAL_TAC THEN ZSTD_DECIDE_GOAL_TAC;;
 
-(*** Arithmetic, splitting the conjunctions and disjunctions of facts ***)
+(*** Arithmetic from the facts about the variables of the goal and the  ***)
+(*** extra variables only: relations (and their conjunctions, disjunctions ***)
+(*** and negations) not involving the state                               ***)
+
+let ZSTD_ARITHV_TAC (extra:term list) : tactic =
+  fun (asl,w as gl) ->
+    let vs = union extra (frees w) in
+    let numty = `:num` in
+    let rec is_rel t =
+      (is_neg t && is_rel (rand t)) ||
+      (is_disj t && is_rel (lhand t) && is_rel (rand t)) ||
+      (is_conj t && is_rel (lhand t) && is_rel (rand t)) ||
+      exists (fun op -> is_binary op t && type_of(lhand t) = numty)
+             ["="; "<"; "<="] in
+    let ok t = is_rel t &&
+               not(exists (fun v -> type_of v = `:armstate`) (frees t)) &&
+               subset (frees t) vs in
+    let facts = filter (ok o concl) (map snd asl) in
+    (MAP_EVERY MP_TAC facts THEN ARITH_TAC) gl;;
+
+(*** Arithmetic: first from the facts about the variables of the goal and ***)
+(*** ml and tl, then splitting the conjunctions and disjunctions of all   ***)
+(*** the facts (whose case splits and linear arithmetic can take minutes  ***)
+(*** and gigabytes after a long simulation)                               ***)
 
 let ZSTD_ARITH_TAC =
   let is_arith_disj tm =
     is_disj tm &&
     not(exists (fun v -> type_of v = `:armstate`) (frees tm)) in
-  REPEAT(FIRST_X_ASSUM(CONJUNCTS_THEN ASSUME_TAC o
-                       check (is_conj o concl))) THEN
-  REPEAT(FIRST_X_ASSUM(DISJ_CASES_TAC o check (is_arith_disj o concl))) THEN
-  SIMPLE_ARITH_TAC;;
+  ZSTD_ARITHV_TAC [`ml:num`; `tl:num`] ORELSE
+  (REPEAT(FIRST_X_ASSUM(CONJUNCTS_THEN ASSUME_TAC o
+                        check (is_conj o concl))) THEN
+   REPEAT(FIRST_X_ASSUM(DISJ_CASES_TAC o check (is_arith_disj o concl))) THEN
+   SIMPLE_ARITH_TAC);;
 
 (* ------------------------------------------------------------------------- *)
 (* The error codes that zstd's functions return: ERR_isError.                *)
