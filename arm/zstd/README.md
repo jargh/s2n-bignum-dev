@@ -62,21 +62,25 @@ are given as `.quad` directives, and it assembles to exactly the bytes in
 the binary, with no relocations. The code uses the register x18, which is
 an ordinary temporary register on Linux, so the `Makefile` has a rule to
 assemble it without the check for x18 that the other code has. The
-functions in the decoding of single-stream Huffman-coded literals are at
-these addresses:
+functions in the decoding of Huffman-coded literals in one stream and in
+four streams with single-symbol tables are at these addresses:
 
-| Function                                     | Address |
-|----------------------------------------------|---------|
-| `HUF_readStats_body_default`                 | 0x770   |
-| `FSE_readNCount_body_default`                | 0x940   |
-| `FSE_readNCount_bmi2` (a branch to the above)| 0xc60   |
-| `FSE_readNCount` (a branch to the above)     | 0xc64   |
-| `HUF_readStats_wksp` (a branch to the first) | 0xca0   |
-| `FSE_buildDTable_internal`                   | 0xe80   |
-| `FSE_decompress_wksp_bmi2`                   | 0x10f4  |
-| `HUF_decompress1X1_usingDTable_internal` (*) | 0x2850  |
-| `HUF_readDTableX1_wksp`                      | 0x66d4  |
-| `HUF_decompress1X1_DCtx_wksp`                | 0x7340  |
+| Function                                              | Address |
+|-------------------------------------------------------|---------|
+| `HUF_readStats_body_default`                          | 0x770   |
+| `FSE_readNCount_body_default`                         | 0x940   |
+| `FSE_readNCount_bmi2` (a branch to the above)         | 0xc60   |
+| `FSE_readNCount` (a branch to the above)              | 0xc64   |
+| `HUF_readStats_wksp` (a branch to the first)          | 0xca0   |
+| `FSE_buildDTable_internal`                            | 0xe80   |
+| `FSE_decompress_wksp_bmi2`                            | 0x10f4  |
+| `BIT_reloadDStream_internal`                          | 0x1c20  |
+| `HUF_DecompressFastArgs_init`                         | 0x1de0  |
+| `HUF_decompress4X1_usingDTable_internal_fast_c_loop`  | 0x24a4  |
+| `HUF_decompress1X1_usingDTable_internal` (*)          | 0x2850  |
+| `HUF_decompress4X1_usingDTable_internal`              | 0x5300  |
+| `HUF_readDTableX1_wksp`                               | 0x66d4  |
+| `HUF_decompress1X1_DCtx_wksp`                         | 0x7340  |
 
 (*) named `HUF_decompress1X1_usingDTable_internal.constprop.0` in the
 binary, a copy of the function specialized for its constant arguments.
@@ -120,6 +124,15 @@ theorems for the functions that it calls:
   `HUF_readDTableX1_wksp`
 - `zstd_huf_decompress1x1_gcc12_O2.ml`: `HUF_DECOMPRESS1X1_DCTX_WKSP_CORRECT`
   and `HUF_DECOMPRESS1X1_DCTX_WKSP_RFC` for `HUF_decompress1X1_DCtx_wksp`
+- `zstd_huf_decode4x1_fast_gcc12_O2.ml`:
+  `HUF_DECOMPRESSFASTARGS_INIT_CORRECT` for `HUF_DecompressFastArgs_init`
+  and `HUF_DECOMPRESS4X1_FAST_C_LOOP_CORRECT` for
+  `HUF_decompress4X1_usingDTable_internal_fast_c_loop`
+- `zstd_huf_decode4x1_slow_gcc12_O2.ml`: `SP_CORRECT` for the slow path of
+  `HUF_decompress4X1_usingDTable_internal`, from 0x5458 to 0x5444, and
+  `BITR_CORRECT` for `BIT_reloadDStream_internal`, which it calls
+- `zstd_huf_decode4x1_gcc12_O2.ml`: `HUF_DECOMPRESS4X1_USINGDTABLE_CORRECT`
+  for `HUF_decompress4X1_usingDTable_internal`
 
 Each theorem states the correctness of the function and its memory safety,
 for any input: the loads and stores, in the trace `read events`, are within
@@ -140,6 +153,20 @@ accepts every input that the RFC reading (`huf_decompress1x1 F`) accepts,
 with the same output, so `HUF_DECOMPRESS1X1_DCTX_WKSP_RFC` gives the output
 of the RFC for those inputs. zstd also accepts some inputs that the RFC
 does not, as the comments in `../../common/rfc8878.ml` describe.
+
+`HUF_DECOMPRESS4X1_USINGDTABLE_CORRECT` says that for a block of four
+streams that decodes to n bytes in the zstd dialect (`huf_streams4 T`),
+with a decoding table built for the tree, the result is n, with the output
+at dst; that the result is always n or an error code; and that when bit 5
+of the flags (`HUF_flags_disableFast`) is set, it is an error code for a
+block that does not decode. Without that flag, the function first tries
+its fast path, `HUF_DecompressFastArgs_init` and the fast loop and then a
+finish of each stream, which applies when the table log is 11, each of the
+four streams has at least 8 bytes and the fourth has some output. The fast
+path does not check that each stream ends exactly at its start, so for an
+invalid block the theorem only says that the result is n or an error code.
+Its stack region of 688 bytes is the frame of 496 bytes and the 192 bytes
+of the fast loop below it.
 
 The theorems for `FSE_readNCount_body_default` and the functions that
 call it, directly or not, assume that the stack pointer is not one
