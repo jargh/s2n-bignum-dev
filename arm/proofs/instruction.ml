@@ -1223,6 +1223,15 @@ let arm_LSRV = define
         let d:N word = word_jushr m n in
         (Rd := d) s`;;
 
+(*** Division by zero gives zero, as val m DIV 0 = 0 in HOL Light ***)
+
+let arm_UDIV = define
+ `arm_UDIV Rd Rn Rm =
+    \s. let n = read Rn s
+        and m = read Rm s in
+        let d:N word = word_udiv n m in
+        (Rd := d) s`;;
+
 let arm_MADD = define
  `arm_MADD Rd Rn Rm Ra =
     \s. let n:N word = read Rn s
@@ -3121,6 +3130,28 @@ let arm_LDP = define
             else (=))
          else ASSIGNS entirety) s`;;
 
+(*** LDPSW, two 32-bit loads sign-extended to 64 bits, with the same ***)
+(*** CONSTRAINED UNPREDICTABLE cases as LDP                          ***)
+
+let arm_LDPSW = define
+ `arm_LDPSW (Rt1:(armstate,int64)component)
+            (Rt2:(armstate,int64)component) Rn off =
+    \s. let base = read Rn s in
+        let addr = word_add base (offset_address off s) in
+        (if (Rn = SP ==> aligned 16 base) /\
+            ~(Rt1 = Rt2) /\ orthogonal_components Rt1 Rt2 /\
+            (offset_writesback off
+             ==> orthogonal_components Rt1 Rn /\ orthogonal_components Rt2 Rn)
+         then
+           Rt1 := word_sx (read (memory :> bytes32 addr) s) ,,
+           Rt2 := word_sx
+                   (read (memory :> bytes32 (word_add addr (word 4))) s) ,,
+           events := CONS (EventLoad (addr,8)) (read events s) ,,
+           (if offset_writesback off
+            then Rn := word_add base (offset_writeback off s)
+            else (=))
+         else ASSIGNS entirety) s`;;
+
 let arm_STP = define
  `arm_STP (Rt1:(armstate,N word)component)
           (Rt2:(armstate,N word)component) Rn off =
@@ -4236,6 +4267,7 @@ let ARM_OPERATION_CLAUSES =
        arm_TBL_ALT; arm_TBL2_ALT; arm_TBL3_ALT; arm_TBNZ_ALT; arm_TBZ_ALT;
        arm_TRN1_ALT; arm_TRN2_ALT;
        arm_UADALP_ALT; arm_UADDLP_ALT; arm_UADDLV_ALT; arm_UMAX_VEC_ALT; arm_UMAXV_ALT; arm_UBFM; arm_UMOV; arm_UMADDL;
+       arm_UDIV;
        arm_UMLAL_VEC_ALT; arm_UMLAL2_VEC_ALT;
        arm_UMLSL_VEC_ALT; arm_UMLSL2_VEC_ALT;
        arm_UMSUBL;
@@ -4275,6 +4307,6 @@ let ARM_OPERATION_CLAUSES =
 let ARM_LOAD_STORE_CLAUSES =
   map (CONV_RULE(TOP_DEPTH_CONV let_CONV) o SPEC_ALL)
       [arm_LDR; arm_STR; arm_LDRB; arm_STRB; arm_LDRH; arm_STRH;
-       arm_LDRSB; arm_LDRSH; arm_LDRSW; arm_LDP; arm_STP;
+       arm_LDRSB; arm_LDRSH; arm_LDRSW; arm_LDP; arm_LDPSW; arm_STP;
        arm_LDP4; arm_STP4;
        arm_LD2_ALT; arm_ST2_ALT; arm_LD1R; arm_LD3_ALT; arm_ST3_ALT];;

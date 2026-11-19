@@ -286,6 +286,9 @@ let decode = new_definition `!w:int32. decode w =
   | [sf; 0b0011010110:10; Rm:5; 0b0010:4; op2:2; Rn:5; Rd:5] ->
     if sf then arm_lsvop op2 (XREG' Rd) (XREG' Rn) (XREG' Rm)
           else arm_lsvop op2 (WREG' Rd) (WREG' Rn) (WREG' Rm)
+  | [sf; 0b0011010110:10; Rm:5; 0b000010:6; Rn:5; Rd:5] ->
+    SOME (if sf then arm_UDIV (XREG' Rd) (XREG' Rn) (XREG' Rm)
+          else arm_UDIV (WREG' Rd) (WREG' Rn) (WREG' Rm))
   | [sf; uopc; 0b0100110:7; N; immr:6; imms:6; Rn:5; Rd:5] ->
     if ~(sf <=> N) then NONE
     else if sf then arm_bfmop uopc (XREG' Rd) (XREG' Rn) (val immr) (val imms)
@@ -369,6 +372,15 @@ let decode = new_definition `!w:int32. decode w =
   | [x; 0b01010010:8; ld; imm7:7; Rt2:5; Rn:5; Rt:5] ->
     SOME (arm_ldstp ld x Rt Rt2 (XREG_SP Rn)
       (Immediate_Offset (iword (ival imm7 * &(if x then 8 else 4)))))
+
+  // LDPSW, post-index, pre-index and signed offset
+  | [0b0110100:7; pre; 0b11:2; imm7:7; Rt2:5; Rn:5; Rt:5] ->
+    SOME (arm_LDPSW (XREG' Rt) (XREG' Rt2) (XREG_SP Rn)
+      ((if pre then Preimmediate_Offset else Postimmediate_Offset)
+        (iword (ival imm7 * &4))))
+  | [0b0110100101:10; imm7:7; Rt2:5; Rn:5; Rt:5] ->
+    SOME (arm_LDPSW (XREG' Rt) (XREG' Rt2) (XREG_SP Rn)
+      (Immediate_Offset (iword (ival imm7 * &4))))
 
   // NOP
   | [0b11010101000000110010000000011111:32] ->

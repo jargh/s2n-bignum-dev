@@ -600,6 +600,48 @@ let cosimulate_ldstp_gpr() =
     [add_Xn_SP_imm rn stackoff; code; sub_Xn_SP_Xn rn];;
 
 
+(*** LDPSW with post-index, pre-index and signed offset, the registers
+ *** chosen as in cosimulate_ldstp_gpr, so avoiding the CONSTRAINED
+ *** UNPREDICTABLE cases (Rt = Rt2, writeback with Rt or Rt2 = Rn) and any
+ *** use of Rn as Rt or Rt2.
+ ***)
+
+let cosimulate_ldpsw() =
+  let index_rd = Random.int 3 in
+  let index_mode =
+    if index_rd = 0 then 0b001 else if index_rd = 1 then 0b011 else 0b010 in
+  let rn = random_base_reg() in
+  let rec pick avoid =
+    let r = if Random.int 8 = 0 then 31 else Random.int 32 in
+    if List.mem r avoid then pick avoid else r in
+  let rt2 = pick (if rn = 31 then [] else [rn]) in
+  let rt = pick ((if rn = 31 then [] else [rn]) @ [rt2]) in
+  let headroom = 8 in
+  let rawstackoff = Random.int (256 - headroom) in
+  let stackoff =
+    if rn = 31 then 16 * (rawstackoff / 16)
+    else rawstackoff in
+  let extraoff_neg = if stackoff = 0 then 0 else - (Random.int stackoff) in
+  let extraoff_pos = Random.int (256-headroom-stackoff) in
+  let extraoff_rd = Random.int 2 in
+  let extraoff = if extraoff_rd = 0 then extraoff_neg else extraoff_pos in
+  let regoff = extraoff / 4 in
+  let unsigned_regoff = if regoff < 0 then 128 + regoff else regoff in
+  let postinc = if index_rd = 2 then 0 else regoff lsl 2 in
+  let code =
+    pow2 30 */ num 1 +/
+    pow2 26 */ num 0b1010 +/
+    pow2 23 */ num index_mode +/
+    pow2 22 */ num 1 +/
+    pow2 15 */ num unsigned_regoff +/
+    pow2 10 */ num rt2 +/
+    pow2 5 */ num rn +/
+    num rt in
+  if rn = 31 then
+    [add_Xn_SP_imm 31 stackoff; code; sub_Xn_SP_imm 31 (stackoff + postinc)]
+  else
+    [add_Xn_SP_imm rn stackoff; code; sub_Xn_SP_Xn rn];;
+
 (*** The post-register and no-offset modes are exercised only for LD1/ST1
  *** since they are not currently supported for LD2/ST2.
  ***
@@ -1113,7 +1155,8 @@ let cosimulate_ldst_ext() =
   [add_Xn_SP_imm rn stackoff] @ pre @ [code; restore];;
 
 let memclasses =
-   [cosimulate_ldstr; cosimulate_ldstp; cosimulate_ldstp_gpr; cosimulate_ldst_12;
+   [cosimulate_ldstr; cosimulate_ldstp; cosimulate_ldstp_gpr; cosimulate_ldpsw;
+    cosimulate_ldst_12;
     cosimulate_ldst_1_2reg; cosimulate_ldstrb; cosimulate_ld1r;
     cosimulate_ldst3; cosimulate_ldstu; cosimulate_ldst1_4reg;
     cosimulate_ldst_imm; cosimulate_sp_arith; cosimulate_sp_subst;

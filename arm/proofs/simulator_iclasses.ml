@@ -155,6 +155,9 @@ let iclasses =
   (*** RBIT ***)
   "x101101011000000000000xxxxxxxxxx";
 
+  (*** UDIV ***)
+  "x0011010110xxxxx000010xxxxxxxxxx";
+
   (*** CLZ ***)
   "x101101011000000000100xxxxxxxxxx";
 
@@ -660,6 +663,10 @@ let check_insns () =
     (*** ldp ***)
     "x010100x1xxxxxxxxxxxxxxxxxxxxxxx"; (* Preimmediate_Offset or Postimmediate_Offset *)
     "x01010010xxxxxxxxxxxxxxxxxxxxxxx"; (* Immediate_Offset *)
+
+    (*** ldpsw ***)
+    "0110100x11xxxxxxxxxxxxxxxxxxxxxx"; (* pre- or post-index *)
+    "0110100101xxxxxxxxxxxxxxxxxxxxxx"; (* signed offset *)
 
     (*** ldp (SIMD & FP) ***)
     "xx10110011xxxxxxxxxxxxxxxxxxxxxx";
