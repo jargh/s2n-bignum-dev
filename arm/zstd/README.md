@@ -63,8 +63,9 @@ the binary, with no relocations. The code uses the register x18, which is
 an ordinary temporary register on Linux, so the `Makefile` has a rule to
 assemble it without the check for x18 that the other code has. The
 functions in the decoding of Huffman-coded literals in one stream and in
-four streams with single-symbol tables, and those that build the tables for
-double-symbol decoding, are at these addresses:
+four streams with single-symbol tables, those that build the tables for
+double-symbol decoding and the fast loop of the decoding of four streams
+with them are at these addresses:
 
 | Function                                              | Address |
 |-------------------------------------------------------|---------|
@@ -78,6 +79,7 @@ double-symbol decoding, are at these addresses:
 | `BIT_reloadDStream_internal`                          | 0x1c20  |
 | `HUF_fillDTableX2ForWeight`                           | 0x1c50  |
 | `HUF_DecompressFastArgs_init`                         | 0x1de0  |
+| `HUF_decompress4X2_usingDTable_internal_fast_c_loop`  | 0x1f60  |
 | `HUF_decompress4X1_usingDTable_internal_fast_c_loop`  | 0x24a4  |
 | `HUF_decompress1X1_usingDTable_internal` (*)          | 0x2850  |
 | `HUF_decompress4X1_usingDTable_internal`              | 0x5300  |
@@ -139,6 +141,9 @@ theorems for the functions that it calls:
 - `zstd_huf_read_dtable_x2_gcc12_O2.ml`: `HUF_READDTABLEX2_WKSP_CORRECT` for
   `HUF_readDTableX2_wksp`, and `HUF_FILLDTABLEX2FORWEIGHT_CORRECT` for
   `HUF_fillDTableX2ForWeight`, which it calls
+- `zstd_huf_decode4x2_fast_gcc12_O2.ml`:
+  `HUF_DECOMPRESS4X2_FAST_C_LOOP_CORRECT` for
+  `HUF_decompress4X2_usingDTable_internal_fast_c_loop`
 
 Each theorem states the correctness of the function and its memory safety,
 for any input: the loads and stores, in the trace `read events`, are within
