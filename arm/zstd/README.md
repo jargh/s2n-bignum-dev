@@ -63,7 +63,8 @@ the binary, with no relocations. The code uses the register x18, which is
 an ordinary temporary register on Linux, so the `Makefile` has a rule to
 assemble it without the check for x18 that the other code has. The
 functions in the decoding of Huffman-coded literals in one stream and in
-four streams with single-symbol tables are at these addresses:
+four streams with single-symbol tables, and those that build the tables for
+double-symbol decoding, are at these addresses:
 
 | Function                                              | Address |
 |-------------------------------------------------------|---------|
@@ -75,11 +76,13 @@ four streams with single-symbol tables are at these addresses:
 | `FSE_buildDTable_internal`                            | 0xe80   |
 | `FSE_decompress_wksp_bmi2`                            | 0x10f4  |
 | `BIT_reloadDStream_internal`                          | 0x1c20  |
+| `HUF_fillDTableX2ForWeight`                           | 0x1c50  |
 | `HUF_DecompressFastArgs_init`                         | 0x1de0  |
 | `HUF_decompress4X1_usingDTable_internal_fast_c_loop`  | 0x24a4  |
 | `HUF_decompress1X1_usingDTable_internal` (*)          | 0x2850  |
 | `HUF_decompress4X1_usingDTable_internal`              | 0x5300  |
 | `HUF_readDTableX1_wksp`                               | 0x66d4  |
+| `HUF_readDTableX2_wksp`                               | 0x6b90  |
 | `HUF_decompress1X1_DCtx_wksp`                         | 0x7340  |
 
 (*) named `HUF_decompress1X1_usingDTable_internal.constprop.0` in the
@@ -133,6 +136,9 @@ theorems for the functions that it calls:
   `BITR_CORRECT` for `BIT_reloadDStream_internal`, which it calls
 - `zstd_huf_decode4x1_gcc12_O2.ml`: `HUF_DECOMPRESS4X1_USINGDTABLE_CORRECT`
   for `HUF_decompress4X1_usingDTable_internal`
+- `zstd_huf_read_dtable_x2_gcc12_O2.ml`: `HUF_READDTABLEX2_WKSP_CORRECT` for
+  `HUF_readDTableX2_wksp`, and `HUF_FILLDTABLEX2FORWEIGHT_CORRECT` for
+  `HUF_fillDTableX2ForWeight`, which it calls
 
 Each theorem states the correctness of the function and its memory safety,
 for any input: the loads and stores, in the trace `read events`, are within
