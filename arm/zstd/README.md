@@ -64,7 +64,7 @@ an ordinary temporary register on Linux, so the `Makefile` has a rule to
 assemble it without the check for x18 that the other code has. The
 functions in the decoding of Huffman-coded literals in one stream and in
 four streams, with single-symbol and double-symbol tables, and those that
-build the tables are at these addresses:
+build the tables and choose between them are at these addresses:
 
 | Function                                              | Address |
 |-------------------------------------------------------|---------|
@@ -85,7 +85,9 @@ build the tables are at these addresses:
 | `HUF_decompress4X1_usingDTable_internal`              | 0x5300  |
 | `HUF_readDTableX1_wksp`                               | 0x66d4  |
 | `HUF_readDTableX2_wksp`                               | 0x6b90  |
+| `HUF_selectDecoder`                                   | 0x7154  |
 | `HUF_decompress1X1_DCtx_wksp`                         | 0x7340  |
+| `HUF_decompress4X_hufOnly_wksp`                       | 0x73e0  |
 
 (*) named `HUF_decompress1X1_usingDTable_internal.constprop.0` in the
 binary, a copy of the function specialized for its constant arguments.
@@ -96,7 +98,8 @@ functions of `bitstream.h`. The calls of `memcpy` and `memset` go through
 the procedure linkage table, at 0x640 and 0x660. The decoding of the bit
 streams reads the table `BIT_mask` in the read-only data at 0x7b70, and
 takes the address of a word of zeros there (`zeroFilled`, at 0x7b60 and
-0x7bf0) once a stream has been read past its start. The functions use no
+0x7bf0) once a stream has been read past its start; `HUF_selectDecoder`
+reads its table `algoTime` there at 0x7c00. The functions use no
 writable data of the library: their tables and workspaces are given by the
 caller.
 
@@ -148,6 +151,9 @@ theorems for the functions that it calls:
   of `HUF_decompress4X2_usingDTable_internal`, from 0x32d0 to 0x333c
 - `zstd_huf_decode4x2_gcc12_O2.ml`: `HUF_DECOMPRESS4X2_USINGDTABLE_CORRECT`
   for `HUF_decompress4X2_usingDTable_internal`
+- `zstd_huf_decompress4x_gcc12_O2.ml`: `HUF_DECOMPRESS4X_HUFONLY_WKSP_CORRECT`
+  for `HUF_decompress4X_hufOnly_wksp`, and `HUF_SELECTDECODER_CORRECT` for
+  `HUF_selectDecoder`, which it calls
 
 Each theorem states the correctness of the function and its memory safety,
 for any input: the loads and stores, in the trace `read events`, are within
@@ -192,6 +198,16 @@ whose second symbol is cut off at its start. The output must not be at
 address 0, since the loops of five lookups compare the output pointer with
 the end of a segment less 9. Its stack region of 816 bytes is the frame of
 496 bytes and the 320 bytes of the fast loop below it.
+
+`HUF_DECOMPRESS4X_HUFONLY_WKSP_CORRECT` says that for an input with the
+description of a tree and four streams that decodes to n bytes in the zstd
+dialect (`huf_decompress4x1 T`), with a workspace of at least 2124 bytes
+and a table whose maximum table log (the byte 0 of its header) is at least
+that of the description (12 is enough for any), the result is n, with the
+output at dst, whichever kind of table `HUF_selectDecoder` chooses; and
+that the result is always n or an error code. `HUF_SELECTDECODER_CORRECT`
+gives that choice exactly (`huf_select_decoder`); the function changes
+only x0-x5 and the flags, and its caller relies on that.
 
 The theorems for `FSE_readNCount_body_default` and the functions that
 call it, directly or not, assume that the stack pointer is not one
