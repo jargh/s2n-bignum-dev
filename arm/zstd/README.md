@@ -144,6 +144,8 @@ theorems for the functions that it calls:
 - `zstd_huf_decode4x2_fast_gcc12_O2.ml`:
   `HUF_DECOMPRESS4X2_FAST_C_LOOP_CORRECT` for
   `HUF_decompress4X2_usingDTable_internal_fast_c_loop`
+- `zstd_huf_decode4x2_slow_gcc12_O2.ml`: `SP2ALL_CORRECT` for the slow path
+  of `HUF_decompress4X2_usingDTable_internal`, from 0x32d0 to 0x333c
 
 Each theorem states the correctness of the function and its memory safety,
 for any input: the loads and stores, in the trace `read events`, are within
