@@ -240,7 +240,7 @@ and rd_wr =
 
 let rd_hyps =
  `aligned 4096 (word pc:int64) /\ pc + 0x20018 <= 2 EXP 64 /\
-  aligned 16 (stackpointer:int64) /\ mtl <= 11 /\
+  aligned 16 (stackpointer:int64) /\ mtl <= 12 /\
   nonoverlapping (dtable:int64,4 + 2 * 2 EXP (mtl + 1)) (wk:int64,1492) /\
   nonoverlapping (dtable,4 + 2 * 2 EXP (mtl + 1))
                  (word_sub stackpointer (word 432),432) /\
@@ -322,7 +322,7 @@ let rd_common =
 
 let rd_tables =
  `ALL (\x. x <= tl) ws /\ LENGTH ws <= 256 /\ huf_total ws = 2 EXP tl /\
-  1 <= tl /\ tl <= mtl + 1 /\
+  1 <= tl /\ tl <= mtl + 1 /\ tl <= 12 /\
   read (memory :> bytes(wk,4 * (tl + 1))) s =
   num_of_wordlist(list_of_seq (\j. word(huf_rank ws j):int32) (tl + 1)) /\
   read (memory :> bytes(word_add wk (word 980),256)) s =
@@ -557,12 +557,12 @@ let RD_SYMBOL_TAC w =
   MP_TAC(SPECL [`ws:num list`; w; `j:num`] HUF_BLOCK_END) THEN
   ASM_REWRITE_TAC[ARITH_EQ] THEN NUM_REDUCE_TAC THEN
   REWRITE_TAC[MULT_CLAUSES] THEN DISCH_TAC THEN
-  SUBGOAL_THEN `2 EXP tl <= 2 EXP (mtl + 1) /\ 2 EXP (mtl + 1) <= 4096`
+  SUBGOAL_THEN `2 EXP tl <= 2 EXP (mtl + 1) /\ 2 EXP (mtl + 1) <= 8192`
   STRIP_ASSUME_TAC THENL
    [REWRITE_TAC[LE_EXP; ARITH_EQ] THEN
-    SUBST1_TAC(ARITH_RULE `4096 = 2 EXP 12`) THEN
+    SUBST1_TAC(ARITH_RULE `8192 = 2 EXP 13`) THEN
     REWRITE_TAC[LE_EXP; ARITH_EQ] THEN
-    MAP_EVERY UNDISCH_TAC [`tl <= mtl + 1`; `mtl <= 11`] THEN ARITH_TAC;
+    MAP_EVERY UNDISCH_TAC [`tl <= mtl + 1`; `mtl <= 12`] THEN ARITH_TAC;
     ALL_TAC] THEN
   ABBREV_TAC `dsz = 2 EXP (mtl + 1)` THEN
   ABBREV_TAC `tt = 2 EXP tl`;;
@@ -877,12 +877,12 @@ let RD_LG_FACTS_TAC =
   ANTS_TAC THENL [ASM_REWRITE_TAC[] THEN SIMPLE_ARITH_TAC; ALL_TAC] THEN
   ASM_REWRITE_TAC[] THEN DISCH_THEN(ASSUME_TAC o
     REWRITE_RULE[RIGHT_ADD_DISTRIB; MULT_CLAUSES; ADD_ASSOC]) THEN
-  SUBGOAL_THEN `2 EXP tl <= 2 EXP (mtl + 1) /\ 2 EXP (mtl + 1) <= 4096`
+  SUBGOAL_THEN `2 EXP tl <= 2 EXP (mtl + 1) /\ 2 EXP (mtl + 1) <= 8192`
   STRIP_ASSUME_TAC THENL
    [REWRITE_TAC[LE_EXP; ARITH_EQ] THEN
-    SUBST1_TAC(ARITH_RULE `4096 = 2 EXP 12`) THEN
+    SUBST1_TAC(ARITH_RULE `8192 = 2 EXP 13`) THEN
     REWRITE_TAC[LE_EXP; ARITH_EQ] THEN
-    MAP_EVERY UNDISCH_TAC [`tl <= mtl + 1`; `mtl <= 11`] THEN ARITH_TAC;
+    MAP_EVERY UNDISCH_TAC [`tl <= mtl + 1`; `mtl <= 12`] THEN ARITH_TAC;
     ALL_TAC] THEN
   MP_TAC(SPEC `w:num` RD_EXP_16) THEN ASM_REWRITE_TAC[] THEN
   DISCH_THEN(ASSUME_TAC o SYM) THEN
@@ -1118,7 +1118,7 @@ let RD_FILL_FACTS_TAC =
   SUBGOAL_THEN `2 EXP tl <= 4096` ASSUME_TAC THENL
    [SUBST1_TAC(ARITH_RULE `4096 = 2 EXP 12`) THEN
     REWRITE_TAC[LE_EXP; ARITH_EQ] THEN
-    MAP_EVERY UNDISCH_TAC [`tl <= mtl + 1`; `mtl <= 11`] THEN ARITH_TAC;
+    UNDISCH_TAC `tl <= 12` THEN ARITH_TAC;
     ALL_TAC];;
 
 (*** No symbols of the weight w (a numeral), the branch back to 0x6908     ***)
@@ -1276,7 +1276,7 @@ let RD_FILL_GE5_TAC =
   SUBGOAL_THEN `5 <= w /\ w <= 12` STRIP_ASSUME_TAC THENL
    [MAP_EVERY UNDISCH_TAC
      [`~(w = 1)`; `~(w = 2)`; `~(w = 3)`; `~(w = 4)`;
-      `1 <= w`; `w <= tl`; `tl <= mtl + 1`; `mtl <= 11`] THEN
+      `1 <= w`; `w <= tl`; `tl <= 12`] THEN
     ARITH_TAC;
     ALL_TAC] THEN
   ZSTD_STEPS_TAC (1--3) THEN
@@ -1331,7 +1331,8 @@ let RD_FILL = prove
 
 let rd_sortfacts =
  `ALL (\x. x <= tl) ws /\ LENGTH ws <= 256 /\ huf_total ws = 2 EXP tl /\
-  1 <= tl /\ tl <= mtl + 1 /\ LENGTH(l0:byte list) = 256 /\ k <= LENGTH ws /\
+  1 <= tl /\ tl <= mtl + 1 /\ tl <= 12 /\
+  LENGTH(l0:byte list) = 256 /\ k <= LENGTH ws /\
   read X7 s = word tl /\ read X9 s = word tl /\
   read X22 s = word_add wk (word 1236) /\ read X23 s = word(LENGTH ws) /\
   read (memory :> bytes(wk,4 * (tl + 1))) s =
@@ -1446,10 +1447,10 @@ let RD_PLACED_TAC kt s pv =
 (*** weights, from the step n, then RD_FILL                                ***)
 
 let RD_DSZ_ABBREV_TAC =
-  SUBGOAL_THEN `2 EXP (mtl + 1) <= 4096` ASSUME_TAC THENL
-   [SUBST1_TAC(ARITH_RULE `4096 = 2 EXP 12`) THEN
+  SUBGOAL_THEN `2 EXP (mtl + 1) <= 8192` ASSUME_TAC THENL
+   [SUBST1_TAC(ARITH_RULE `8192 = 2 EXP 13`) THEN
     REWRITE_TAC[LE_EXP; ARITH_EQ] THEN
-    UNDISCH_TAC `mtl <= 11` THEN ARITH_TAC;
+    UNDISCH_TAC `mtl <= 12` THEN ARITH_TAC;
     ALL_TAC] THEN
   ABBREV_TAC `dsz = 2 EXP (mtl + 1)`;;
 
@@ -1610,7 +1611,7 @@ let RD_SORT4 = prove
 
 let rd_rsfacts =
  `ALL (\x. x <= tl) ws /\ 2 <= LENGTH ws /\ LENGTH ws <= 256 /\
-  huf_total ws = 2 EXP tl /\ 1 <= tl /\ tl <= mtl + 1 /\
+  huf_total ws = 2 EXP tl /\ 1 <= tl /\ tl <= mtl + 1 /\ tl <= 12 /\
   LENGTH(l0:byte list) = 256 /\
   read X7 s = word tl /\ read X9 s = word tl /\
   read X22 s = word_add wk (word 1236) /\ read X23 s = word(LENGTH ws) /\
@@ -1737,7 +1738,7 @@ let RD_RANKSTART = prove
 
 let rd_hdfacts =
  `ALL (\x. x <= tl) ws /\ 2 <= LENGTH ws /\ LENGTH ws <= 256 /\
-  huf_total ws = 2 EXP tl /\ 1 <= tl /\ tl <= mtl + 1 /\
+  huf_total ws = 2 EXP tl /\ 1 <= tl /\ tl <= mtl + 1 /\ tl <= 12 /\
   LENGTH(l0:byte list) = 256 /\
   read X7 s = word tl /\ read X24 s = word(mtl + 1) /\
   read X25 s = word_zx(dh:int32) /\
@@ -2137,7 +2138,7 @@ let rd_goal =
      aligned 16 (stackpointer:int64) /\ ~(stackpointer = word 272) /\
      memcpy_memsafe_contract fcpy ea el ev /\
      memset_memsafe_contract fset ea el ev /\
-     mtl <= 11 /\ LENGTH l < 2 EXP 24 /\ 8 <= val(src:int64) /\
+     mtl <= 12 /\ LENGTH l < 2 EXP 24 /\ 8 <= val(src:int64) /\
      val src + LENGTH l + 8 < 2 EXP 64 /\ val(wk:int64) + 1492 <= 2 EXP 64 /\
      nonoverlapping (dtable:int64,4 + 2 * 2 EXP (mtl + 1)) (wk,1492) /\
      nonoverlapping (dtable,4 + 2 * 2 EXP (mtl + 1))
@@ -2267,7 +2268,7 @@ let WORD_AND_255_SUBWORD = prove
 
 let RD_HEADER_MTL = prove
  (`!dh:int32 mtl.
-        word mtl:byte = word_subword dh (0,8) /\ mtl <= 11
+        word mtl:byte = word_subword dh (0,8) /\ mtl <= 12
         ==> word_and dh (word 255) = word mtl`,
   REPEAT STRIP_TAC THEN REWRITE_TAC[WORD_AND_255_SUBWORD] THEN
   FIRST_X_ASSUM(SUBST1_TAC o SYM) THEN
@@ -2435,7 +2436,7 @@ let RD_TARGET_TAC =
       ZSTD_STEPS_TAC (37--38) THEN RD_TOP_HEADER_TAC `s38:armstate`];
     FIRST
      [MAP_EVERY UNDISCH_TAC
-       [`~(ml <= mtl + 1)`; `ml <= 12`; `~(mtl + 1 <= 11)`; `mtl <= 11`] THEN
+       [`~(ml <= mtl + 1)`; `ml <= 12`; `~(mtl + 1 <= 11)`] THEN
       ARITH_TAC;
       RD_TOP_TABLELOG_ERROR_TAC]];;
 

@@ -304,7 +304,7 @@ let HUF_DECOMPRESS1X1_DCTX_WKSP_CORRECT = prove
      aligned 16 (stackpointer:int64) /\ ~(stackpointer = word 336) /\
      memcpy_memsafe_contract fcpy ea el ev /\
      memset_memsafe_contract fset ea el ev /\
-     mtl <= 11 /\ LENGTH l < 2 EXP 24 /\ 8 <= val(src:int64) /\
+     mtl <= 12 /\ LENGTH l < 2 EXP 24 /\ 8 <= val(src:int64) /\
      val src + LENGTH l + 8 < 2 EXP 64 /\ val(wk:int64) + 1492 <= 2 EXP 64 /\
      n < 2 EXP 28 /\ val(dst:int64) + n < 2 EXP 64 /\
      nonoverlapping (dctx:int64,4 + 2 * 2 EXP (mtl + 1)) (wk,1492) /\
@@ -382,7 +382,7 @@ let HUF_DECOMPRESS1X1_DCTX_WKSP_RFC = prove
      aligned 16 (stackpointer:int64) /\ ~(stackpointer = word 336) /\
      memcpy_memsafe_contract fcpy ea el ev /\
      memset_memsafe_contract fset ea el ev /\
-     mtl <= 11 /\ LENGTH l < 2 EXP 24 /\ 8 <= val(src:int64) /\
+     mtl <= 12 /\ LENGTH l < 2 EXP 24 /\ 8 <= val(src:int64) /\
      val src + LENGTH l + 8 < 2 EXP 64 /\ val(wk:int64) + 1492 <= 2 EXP 64 /\
      n < 2 EXP 28 /\ val(dst:int64) + n < 2 EXP 64 /\
      nonoverlapping (dctx:int64,4 + 2 * 2 EXP (mtl + 1)) (wk,1492) /\
