@@ -63,9 +63,8 @@ the binary, with no relocations. The code uses the register x18, which is
 an ordinary temporary register on Linux, so the `Makefile` has a rule to
 assemble it without the check for x18 that the other code has. The
 functions in the decoding of Huffman-coded literals in one stream and in
-four streams with single-symbol tables, those that build the tables for
-double-symbol decoding and the fast loop of the decoding of four streams
-with them are at these addresses:
+four streams, with single-symbol and double-symbol tables, and those that
+build the tables are at these addresses:
 
 | Function                                              | Address |
 |-------------------------------------------------------|---------|
@@ -82,6 +81,7 @@ with them are at these addresses:
 | `HUF_decompress4X2_usingDTable_internal_fast_c_loop`  | 0x1f60  |
 | `HUF_decompress4X1_usingDTable_internal_fast_c_loop`  | 0x24a4  |
 | `HUF_decompress1X1_usingDTable_internal` (*)          | 0x2850  |
+| `HUF_decompress4X2_usingDTable_internal`              | 0x30c0  |
 | `HUF_decompress4X1_usingDTable_internal`              | 0x5300  |
 | `HUF_readDTableX1_wksp`                               | 0x66d4  |
 | `HUF_readDTableX2_wksp`                               | 0x6b90  |
@@ -146,6 +146,8 @@ theorems for the functions that it calls:
   `HUF_decompress4X2_usingDTable_internal_fast_c_loop`
 - `zstd_huf_decode4x2_slow_gcc12_O2.ml`: `SP2ALL_CORRECT` for the slow path
   of `HUF_decompress4X2_usingDTable_internal`, from 0x32d0 to 0x333c
+- `zstd_huf_decode4x2_gcc12_O2.ml`: `HUF_DECOMPRESS4X2_USINGDTABLE_CORRECT`
+  for `HUF_decompress4X2_usingDTable_internal`
 
 Each theorem states the correctness of the function and its memory safety,
 for any input: the loads and stores, in the trace `read events`, are within
@@ -180,6 +182,16 @@ path does not check that each stream ends exactly at its start, so for an
 invalid block the theorem only says that the result is n or an error code.
 Its stack region of 688 bytes is the frame of 496 bytes and the 192 bytes
 of the fast loop below it.
+
+`HUF_DECOMPRESS4X2_USINGDTABLE_CORRECT` says the same for the decoding with
+double-symbol tables (`huf_dtable2`), except that for an invalid block it
+only says that the result is n or an error code, with bit 5 of the flags
+set or not: the slow path adds the bits of both symbols of the last
+two-symbol entry of a stream to the bits used, so it also accepts a stream
+whose second symbol is cut off at its start. The output must not be at
+address 0, since the loops of five lookups compare the output pointer with
+the end of a segment less 9. Its stack region of 816 bytes is the frame of
+496 bytes and the 320 bytes of the fast loop below it.
 
 The theorems for `FSE_readNCount_body_default` and the functions that
 call it, directly or not, assume that the stack pointer is not one
