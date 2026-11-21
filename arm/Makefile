@@ -456,6 +456,12 @@ TUTORIAL_OBJ = $(filter-out tutorial/aes_encrypt_decrypt.o tutorial/safety.o, $(
 	$(OBJDUMP) $@ | ( ( ! grep --ignore-case -E 'w18|[^0]x18' ) || ( rm $@ ; exit 1 ) )
 	cat $< | $(PREPROCESS) | $(SPLIT) | $(ASSEMBLE) -march=armv8-a+crypto -o $@ -
 
+# The WireGuard image (wireguard/README.md) is kernel code, which uses x18,
+# so it is assembled without the check above.
+
+wireguard/gcc13_O2/wireguard.o: wireguard/gcc13_O2/wireguard.S
+	cat $< | $(PREPROCESS) | $(SPLIT) | $(ASSEMBLE) -march=armv8-a+crypto -o $@ -
+
 libs2nbignum.a: $(OBJ) ; ar -rc libs2nbignum.a $(OBJ)
 
 clean:; rm -f libs2nbignum.a */*.o */*/*.o */*.correct */*.native
