@@ -81,17 +81,22 @@ build the tables and choose between them are at these addresses:
 | `HUF_decompress4X2_usingDTable_internal_fast_c_loop`  | 0x1f60  |
 | `HUF_decompress4X1_usingDTable_internal_fast_c_loop`  | 0x24a4  |
 | `HUF_decompress1X1_usingDTable_internal` (*)          | 0x2850  |
+| `HUF_decompress1X2_usingDTable_internal` (*)          | 0x2b30  |
 | `HUF_decompress4X2_usingDTable_internal`              | 0x30c0  |
 | `HUF_decompress4X1_usingDTable_internal`              | 0x5300  |
 | `HUF_readDTableX1_wksp`                               | 0x66d4  |
 | `HUF_readDTableX2_wksp`                               | 0x6b90  |
+| `HUF_decompress1X2_DCtx_wksp`                         | 0x70c4  |
 | `HUF_selectDecoder`                                   | 0x7154  |
+| `HUF_decompress1X_DCtx_wksp`                          | 0x71d0  |
+| `HUF_decompress1X_usingDTable`                        | 0x7330  |
 | `HUF_decompress1X1_DCtx_wksp`                         | 0x7340  |
 | `HUF_decompress4X_usingDTable`                        | 0x73d0  |
 | `HUF_decompress4X_hufOnly_wksp`                       | 0x73e0  |
 
-(*) named `HUF_decompress1X1_usingDTable_internal.constprop.0` in the
-binary, a copy of the function specialized for its constant arguments.
+(*) named `HUF_decompress1X1_usingDTable_internal.constprop.0` and
+`HUF_decompress1X2_usingDTable_internal.constprop.0` in the binary, copies
+of the functions specialized for their constant arguments.
 
 gcc has inlined `FSE_decompress_usingDTable_generic` (in both its modes),
 `FSE_decompress_wksp_body`, `HUF_readStats_body` and the bit stream
@@ -152,12 +157,20 @@ theorems for the functions that it calls:
   of `HUF_decompress4X2_usingDTable_internal`, from 0x32d0 to 0x333c
 - `zstd_huf_decode4x2_gcc12_O2.ml`: `HUF_DECOMPRESS4X2_USINGDTABLE_CORRECT`
   for `HUF_decompress4X2_usingDTable_internal`
+- `zstd_huf_decode1x2_gcc12_O2.ml`: `HUF_DECOMPRESS1X2_USINGDTABLE_CORRECT`
+  for `HUF_decompress1X2_usingDTable_internal`
 - `zstd_huf_decompress4x_gcc12_O2.ml`: `HUF_DECOMPRESS4X_HUFONLY_WKSP_CORRECT`
   and `HUF_DECOMPRESS4X_HUFONLY_WKSP_RFC` for
   `HUF_decompress4X_hufOnly_wksp`, `HUF_SELECTDECODER_CORRECT` for
   `HUF_selectDecoder`, which it calls, and
   `HUF_DECOMPRESS4X_USINGDTABLE_X1` and `HUF_DECOMPRESS4X_USINGDTABLE_X2`
   for `HUF_decompress4X_usingDTable`
+- `zstd_huf_decompress1x_gcc12_O2.ml`: `HUF_DECOMPRESS1X_DCTX_WKSP_CORRECT`
+  and `HUF_DECOMPRESS1X_DCTX_WKSP_RFC` for `HUF_decompress1X_DCtx_wksp`,
+  `HUF_DECOMPRESS1X2_DCTX_WKSP_CORRECT` and
+  `HUF_DECOMPRESS1X2_DCTX_WKSP_RFC` for `HUF_decompress1X2_DCtx_wksp`, and
+  `HUF_DECOMPRESS1X_USINGDTABLE_X1` and `HUF_DECOMPRESS1X_USINGDTABLE_X2`
+  for `HUF_decompress1X_usingDTable`
 
 Each theorem states the correctness of the function and its memory safety,
 for any input: the loads and stores, in the trace `read events`, are within
@@ -226,6 +239,43 @@ tables, as `HUF_readDTableX1_wksp` builds them, and otherwise double-symbol
 ones (1 from `HUF_readDTableX2_wksp`). `HUF_DECOMPRESS4X_USINGDTABLE_X1`
 and `HUF_DECOMPRESS4X_USINGDTABLE_X2` give the results of those decodings
 for it.
+
+`HUF_DECOMPRESS1X2_USINGDTABLE_CORRECT` says that for a single stream that
+decodes to n bytes (`huf_stream`), with a double-symbol table built for the
+tree, the result is n, with the output at dst, and that the result is
+always n or an error code. As in the slow path of the four-stream decoding,
+the last symbol adds the bits of both symbols of a two-symbol entry to the
+bits used, so for an invalid stream the theorem only says that the result
+is n or an error code, and the output must not be at address 0, for the
+comparisons of the output pointer with the end of the output less 9.
+
+`HUF_DECOMPRESS1X2_DCTX_WKSP_CORRECT` says that
+`HUF_decompress1X2_DCtx_wksp`, which reads the description of the tree into
+a double-symbol table and decodes the stream after it, gives n, with the
+output at dst, for an input that decodes to n bytes in the zstd dialect
+(`huf_decompress1x1 T`), with a workspace of at least 2124 bytes and a
+table whose maximum table log is at least that of the description; and that
+the result is always n or an error code.
+
+`HUF_DECOMPRESS1X_DCTX_WKSP_CORRECT` says that `HUF_decompress1X_DCtx_wksp`
+gives an error code for no output or an input longer than the output, and
+copies an input as long as the output with `memcpy` and repeats an input of
+one byte for a longer output with `memset`, the result then being n; that
+otherwise, with such a workspace and table, the result is n, with the
+output at dst, for an input that decodes to n bytes
+(`huf_decompress1x1 T`), whichever kind of table `HUF_selectDecoder`
+chooses; that the result is always n or an error code; and that when
+`HUF_selectDecoder` chooses single-symbol tables, it is an error code for
+an input that does not decode, with no condition on the flags (the
+single-stream decodings have no fast path). For an input that the RFC
+reading accepts, of more than one byte and fewer than n, with a maximum
+table log of at least 11 and a workspace of at least 2124 bytes,
+`HUF_DECOMPRESS1X_DCTX_WKSP_RFC` gives the output of the RFC, and
+`HUF_DECOMPRESS1X2_DCTX_WKSP_RFC` does the same for
+`HUF_decompress1X2_DCtx_wksp` and any input that the RFC accepts.
+`HUF_decompress1X_usingDTable` decodes a single stream with a table already
+built, as `HUF_decompress4X_usingDTable` decodes four
+(`HUF_DECOMPRESS1X_USINGDTABLE_X1` and `HUF_DECOMPRESS1X_USINGDTABLE_X2`).
 
 The theorems for `FSE_readNCount_body_default` and the functions that
 call it, directly or not, assume that the stack pointer is not one
