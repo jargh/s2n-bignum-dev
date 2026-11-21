@@ -1,0 +1,147 @@
+--- a/arm/proofs/instruction.ml
++++ b/arm/proofs/instruction.ml
+@@ -16,7 +16,9 @@
+  *** it is often restricted to smaller (signed) portions
+  ***
+  *** We just have the basic flags and ignore exception masking flags, other
+- *** system level stuff (for now)
++ *** system level stuff (for now), except for the system register SP_EL0,
++ *** which the Linux kernel uses for the current task and the model can only
++ *** read (MRS; see arm_MRS_SP_EL0).
+  ***)
+ 
+ let armstate_INDUCT,armstate_RECURSION,armstate_COMPONENTS =
+@@ -27,7 +29,8 @@
+        simdregisters: 5 word->int128;   // 32 SIMD registers
+        flags: 4 word;                   // NZCV flags
+        memory: 64 word -> byte;         // memory
+-       events: uarch_event list            // Observable uarch events
++       events: uarch_event list;           // Observable uarch events
++       SP_EL0: int64                      // System register SP_EL0
+      }";;
+ 
+ loadt "common/code_loading.ml";;
+@@ -1365,6 +1368,39 @@
+ let arm_BTI = new_definition
+   `arm_BTI = \s s':armstate. s = s'`;;
+ 
++(*** Instructions of the Linux kernel's atomics and RCU primitives, in a
++ *** sequential model: one CPU, and no other agent writing the memory.
++ ***
++ ***  - MRS Xt, SP_EL0 reads the system register SP_EL0 (in the arm64
++ ***    kernel, the current task), which no modelled instruction writes.
++ ***
++ ***  - The barriers DMB and the prefetch hint PRFM do nothing, and have
++ ***    their own constants as BTI does.
++ ***
++ ***  - LDXR and STLR are an ordinary load and store (decode.ml), and STXR
++ ***    and STLXR an ordinary store that writes 0 (success) to its status
++ ***    register. The exclusive monitor is not modelled: a store-exclusive
++ ***    is assumed to succeed, as it does after a matching LDXR with no
++ ***    other writer, except for the spurious failures that the
++ ***    architecture allows and the model excludes. The alignment faults of
++ ***    these instructions are not modelled either. The status register
++ ***    being the same as the data or base register is UNPREDICTABLE in the
++ ***    architecture, and gives an undefined state here.
++ ***
++ *** None of them is in the simulator's classes (simulator_iclasses.ml):
++ *** MRS SP_EL0 is not allowed at EL0, and store-exclusives may fail there.
++ ***)
++
++let arm_DMB = new_definition
++  `arm_DMB = \s s':armstate. s = s'`;;
++
++let arm_PRFM = new_definition
++  `arm_PRFM = \s s':armstate. s = s'`;;
++
++let arm_MRS_SP_EL0 = define
++ `arm_MRS_SP_EL0 (Rt:(armstate,int64)component) =
++    \s. (Rt := read SP_EL0 s) s`;;
++
+ let arm_ORN = define
+  `arm_ORN Rd Rm Rn =
+     \s. let m = read Rm s
+@@ -2981,6 +3017,18 @@
+             else (=))
+          else ASSIGNS entirety) s`;;
+ 
++let arm_STXR = define
++ `arm_STXR (Rs:(armstate,int32)component) (Rt:(armstate,N word)component) Rn =
++    \s. let addr = read Rn s in
++        (if (Rn = SP ==> aligned 16 addr) /\
++            orthogonal_components Rs Rt /\ orthogonal_components Rs Rn
++         then
++           memory :> wbytes addr := read Rt s ,,
++           events := CONS (EventStore (addr,dimindex (:N) DIV 8))
++                          (read events s) ,,
++           Rs := word 0
++         else ASSIGNS entirety) s`;;
++
+ let arm_LDRB = define
+  `arm_LDRB (Rt:(armstate,N word)component) Rn off =
+     \s. let base = read Rn s in
+@@ -4297,9 +4345,11 @@
+        arm_MOVI; arm_MOVK_ALT; arm_MOVN; arm_MOVZ; arm_MSUB;
+        arm_MUL_VEC_ALT;
+        arm_BTI;
++       arm_DMB;
++       arm_MRS_SP_EL0;
+        arm_NOP;
+        arm_ORN; arm_ORR; arm_ORR_VEC;
+-       arm_PMUL_VEC_ALT;
++       arm_PMUL_VEC_ALT; arm_PRFM;
+        arm_PMULL_VEC_ALT; arm_PMULL2_VEC_ALT;
+        arm_RET; arm_REV; arm_REV32_VEC_ALT; arm_REV64_VEC_ALT; arm_RORV;
+        arm_RSHRN_ALT; arm_RSHRN2_ALT;
+@@ -4361,7 +4411,7 @@
+ 
+ let ARM_LOAD_STORE_CLAUSES =
+   map (CONV_RULE(TOP_DEPTH_CONV let_CONV) o SPEC_ALL)
+-      [arm_LDR; arm_STR; arm_LDRB; arm_STRB;
++      [arm_LDR; arm_STR; arm_STXR; arm_LDRB; arm_STRB;
+        arm_LDRH; arm_STRH; arm_LDRSB; arm_LDRSH;
+        arm_LDP; arm_STP;
+        arm_LDP3; arm_STP3;
+--- a/arm/proofs/decode.ml
++++ b/arm/proofs/decode.ml
+@@ -78,6 +78,8 @@
+ let arm_ldst = new_definition `arm_ldst ld x Rt =
+   if x then (if ld then arm_LDR else arm_STR) (XREG' Rt)
+        else (if ld then arm_LDR else arm_STR) (WREG' Rt)`;;
++let arm_stxr = new_definition `arm_stxr x Rs Rt =
++  if x then arm_STXR (WREG' Rs) (XREG' Rt) else arm_STXR (WREG' Rs) (WREG' Rt)`;;
+ let arm_ldst_q = new_definition `arm_ldst_q ld Rt =
+   (if ld then arm_LDR else arm_STR) (QREG' Rt)`;;
+ let arm_ldst_d = new_definition `arm_ldst_d ld Rt =
+@@ -447,6 +449,22 @@
+   | [0b11010101000000110010010001011111:32] ->
+     SOME arm_BTI
+ 
++  // DMB (any option), PRFM (immediate) and MRS Xt, SP_EL0; see arm_DMB
++  | [0b11010101000000110011:20; CRm:4; 0b10111111:8] ->
++    SOME arm_DMB
++  | [0b1111100110:10; imm12:12; Rn:5; Rt:5] ->
++    SOME arm_PRFM
++  | [0b110101010011100001000001000:27; Rt:5] ->
++    SOME (arm_MRS_SP_EL0 (XREG' Rt))
++
++  // LDXR and STLR as an ordinary load and store, STXR and STLXR; see arm_DMB
++  | [1:1; x; 0b00100001011111011111:20; Rn:5; Rt:5] ->
++    SOME (arm_ldst T x Rt (XREG_SP Rn) (Immediate_Offset (word 0)))
++  | [1:1; x; 0b00100010011111111111:20; Rn:5; Rt:5] ->
++    SOME (arm_ldst F x Rt (XREG_SP Rn) (Immediate_Offset (word 0)))
++  | [1:1; x; 0b001000000:9; Rs:5; o0; 0b11111:5; Rn:5; Rt:5] ->
++    SOME (arm_stxr x Rs Rt (XREG_SP Rn))
++
+   // SIMD ld,st operations
+   // LDR/STR (immediate, SIMD&FP), Unsigned offset, no writeback
+   // Sizes 128 and 64; sub-64 (32/16/8) handled by the three clauses below.
+@@ -1936,7 +1954,7 @@
+     List.iter (fun tm -> add_conv (tm, 1, REG_CONV) rw) [`XREG'`; `WREG'`; `QREG'`; `DREG'`; `SREG'`; `HREG'`; `BREG'`; `XREG_SP`; `WREG_SP`];
+     add_thms [arm_adcop; arm_addop; arm_adv_simd_expand_imm;
+               arm_bfmop; arm_ccop; arm_csop;
+-              arm_ldst; arm_ldst_q; arm_ldst_d; arm_ldst_s; arm_ldst_h; arm_ldst_b_simd;
++              arm_ldst; arm_stxr; arm_ldst_q; arm_ldst_d; arm_ldst_s; arm_ldst_h; arm_ldst_b_simd;
+               arm_ldstb; arm_ldsth; arm_ldrsb; arm_ldrsh;
+               arm_ldstp; arm_ldstp_q; arm_ldstp_d;
+               arm_ldst2; arm_ldstp_2q; arm_ldstp_3q; arm_ldstp_3d;
