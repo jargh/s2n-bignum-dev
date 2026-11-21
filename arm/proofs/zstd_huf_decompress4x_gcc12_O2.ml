@@ -6,24 +6,31 @@
 (* ========================================================================= *)
 (* zstd's HUF_decompress4X_hufOnly_wksp, the decoding of Huffman-coded       *)
 (* literals in four streams with the description of their tree, compiled by  *)
-(* gcc 12 at -O2 for AArch64 (HUF_DECOMPRESS4X_HUFONLY_WKSP_CORRECT), and    *)
-(* HUF_selectDecoder, which it calls (HUF_SELECTDECODER_CORRECT). The        *)
-(* function reads the description at the start of the input into the table   *)
-(* at dtable with HUF_readDTableX1_wksp or HUF_readDTableX2_wksp, as         *)
-(* HUF_selectDecoder chooses from the sizes of the input and the output, and *)
-(* decodes the four streams after it with the decoding for that kind of      *)
-(* table, by a tail call. For an input l of the n bytes out                  *)
-(* (huf_decompress4x1 T l out: the description and the four streams, in the  *)
-(* zstd dialect), a workspace of at least 2124 bytes and a table with room   *)
-(* for the table log (mtl, the byte 0 of its header, at least the            *)
-(* Max_Number_of_Bits of the description, so that mtl = 12 is enough for any *)
-(* description), the result is n with out at dst; and the result is always n *)
-(* or an error code. The loads are from the input, the table, the workspace, *)
-(* the stack, the GOT entries of memcpy and memset, the region (ea,el) of    *)
-(* their contracts, BIT_mask and algoTime, and the stores to the table, the  *)
-(* workspace, the stack and the n bytes at dst; the stack region of 816      *)
-(* bytes covers the frame of 64 bytes, the frames of the readers below it    *)
-(* and those of the decodings.                                               *)
+(* gcc 12 at -O2 for AArch64 (HUF_DECOMPRESS4X_HUFONLY_WKSP_CORRECT),        *)
+(* HUF_selectDecoder, which it calls (HUF_SELECTDECODER_CORRECT), and        *)
+(* HUF_decompress4X_usingDTable, the decoding of four streams with a table   *)
+(* already built. The function reads the description at the start of the     *)
+(* input into the table at dtable with HUF_readDTableX1_wksp or              *)
+(* HUF_readDTableX2_wksp, as HUF_selectDecoder chooses from the sizes of the *)
+(* input and the output, and decodes the four streams after it with the      *)
+(* decoding for that kind of table, by a tail call. For an input l of the n  *)
+(* bytes out (huf_decompress4x1 T l out: the description and the four        *)
+(* streams, in the zstd dialect), a workspace of at least 2124 bytes and a   *)
+(* table with room for the table log (mtl, the byte 0 of its header, at      *)
+(* least the Max_Number_of_Bits of the description, so that mtl = 12 is      *)
+(* enough for any description), the result is n with out at dst; the result  *)
+(* is always n or an error code; and with bit 5 of the flags set             *)
+(* (HUF_flags_disableFast), the result is an error code for an input that    *)
+(* does not decode when HUF_selectDecoder chooses single-symbol tables (with *)
+(* double-symbol ones, the slow path accepts some inputs that do not         *)
+(* decode). For an input that the RFC accepts with an output of at least 6   *)
+(* bytes, with mtl at least 11 and such a workspace, the result is the RFC's *)
+(* output (HUF_DECOMPRESS4X_HUFONLY_WKSP_RFC). The loads are from the input, *)
+(* the table, the workspace, the stack, the GOT entries of memcpy and        *)
+(* memset, the region (ea,el) of their contracts, BIT_mask and algoTime, and *)
+(* the stores to the table, the workspace, the stack and the n bytes at dst; *)
+(* the stack region of 816 bytes covers the frame of 64 bytes, the frames of *)
+(* the readers below it and those of the decodings.                          *)
 (* ========================================================================= *)
 
 needs "arm/proofs/zstd_huf_decode4x2_gcc12_O2.ml";;
@@ -266,7 +273,8 @@ let HUF_SELECTDECODER_CORRECT = prove(sel_goal, SEL_TAC);;
 (* input, the call of HUF_selectDecoder, then for each kind of table the     *)
 (* call of its reader, its error or the error for no streams after the       *)
 (* description, and the tail call of the four-stream decoding with that      *)
-(* table.                                                                    *)
+(* table. With bit 5 of the flags set and single-symbol tables chosen, an    *)
+(* input that does not decode gives an error.                                *)
 (* ------------------------------------------------------------------------- *)
 
 (*** HUF_decompress4X_hufOnly_wksp at 0x73e0: the description of the      ***)
@@ -325,6 +333,9 @@ let hufonly_goal =
                               read (memory :> bytes(dst,n)) s =
                               num_of_bytelist out) /\
                (read X0 s = word n \/ zstd_is_error(read X0 s)) /\
+               (bit 5 flags /\ huf_select_decoder n (LENGTH l) = 0 /\
+                (!out. LENGTH out = n ==> ~huf_decompress4x1 T l out)
+                ==> zstd_is_error(read X0 s)) /\
                (?e2. read events s = APPEND e2 e /\
                      memaccess_inbounds e2
                       [src,LENGTH l; dtable,4 + 4 * 2 EXP mtl; wk,2124;
@@ -741,6 +752,37 @@ let HO_POST_OK = prove
   DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN SUBST_ALL_TAC) THEN
   FIRST_X_ASSUM MATCH_MP_TAC THEN ASM_REWRITE_TAC[]);;
 
+(*** With bit 5 of the flags set, the single-symbol decoding returns an ***)
+(*** error for a block that does not decode: so for an input that does  ***)
+(*** not decode, once its description has been read                     ***)
+
+let HO_BIT5 = prove
+ (`!x:int64. bit 5 (word_zx (word_zx x:int32):int64) <=> bit 5 x`,
+  SIMP_TAC[BIT_WORD_ZX; DIMINDEX_32; DIMINDEX_64; ARITH]);;
+
+let HO_POST_STRICT = prove
+ (`!(l:byte list) ws ml h n.
+     huf_weights T l ws ml h /\ h < LENGTH l /\
+     (!out. LENGTH out = n ==> ~huf_decompress4x1 T l out)
+     ==> !out. LENGTH out = n
+               ==> ~huf_streams4 T ws ml
+                     (zstd_sublist l h (LENGTH l - h)) out`,
+  REWRITE_TAC[huf_decompress4x1] THEN MESON_TAC[]);;
+
+let HO_STRICT1_TAC : tactic =
+  SUBGOAL_THEN
+   `bit 5 (flags':int64) /\ huf_select_decoder n (LENGTH(l:byte list)) = 0 /\
+    (!out. LENGTH out = n ==> ~huf_decompress4x1 T l out)
+    ==> zstd_is_error(read X0 s43)`
+  ASSUME_TAC THENL
+   [STRIP_TAC THEN
+    FIRST_ASSUM(MATCH_MP_TAC o check (fun th -> is_imp(concl th) &&
+      can (find_term ((=) `huf_streams4`)) (concl th))) THEN
+    REWRITE_TAC[HO_BIT5] THEN CONJ_TAC THENL
+     [FIRST_ASSUM ACCEPT_TAC;
+      MATCH_MP_TAC HO_POST_STRICT THEN ASM_REWRITE_TAC[GSYM NOT_LE]];
+    ALL_TAC];;
+
 let HO_DEC_END_TAC : tactic =
   SUBGOAL_THEN
    `!out. LENGTH out = n /\ huf_decompress4x1 T (l:byte list) out
@@ -751,7 +793,12 @@ let HO_DEC_END_TAC : tactic =
     MAP_EVERY EXISTS_TAC [`ws:num list`; `ml:num`; `h:num`] THEN
     CONJ_TAC THEN FIRST_ASSUM ACCEPT_TAC;
     ALL_TAC] THEN
-  PUFF_FINAL_TAC THEN ASM_REWRITE_TAC[] THEN HO_FRAME_TAC;;
+  PUFF_FINAL_TAC THEN ASM_REWRITE_TAC[ARITH_EQ] THEN REPEAT CONJ_TAC THEN
+  TRY(DISCH_TAC THEN
+      FIRST_X_ASSUM(MP_TAC o check (fun th -> is_imp(concl th) &&
+        can (find_term ((=) `huf_select_decoder`)) (concl th))) THEN
+      ASM_REWRITE_TAC[] THEN NO_TAC) THEN
+  HO_FRAME_TAC;;
 
 (*** The two paths, with single-symbol and double-symbol tables ***)
 
@@ -764,7 +811,7 @@ let HO_X1_TAC : tactic =
      [HO_SHORT_TAC;
       HO_STREAM_PRE_TAC `2 * 2 EXP tl` THEN
       HO_DEC_CALL_TAC HUF_DECOMPRESS4X1_USINGDTABLE_CORRECT THEN
-      HO_DEC_END_TAC];
+      HO_STRICT1_TAC THEN HO_DEC_END_TAC];
     HO_ERROR_TAC HO_POST_ERROR1];;
 
 let HO_X2_TAC : tactic =
@@ -787,3 +834,264 @@ let HO_TAC : tactic =
   SEL_STEPS_TAC (6--10) THEN HO_SEL_TAC THENL [HO_X1_TAC; HO_X2_TAC];;
 
 let HUF_DECOMPRESS4X_HUFONLY_WKSP_CORRECT = prove(hufonly_goal, HO_TAC);;
+
+(* ------------------------------------------------------------------------- *)
+(* The reading of the RFC (HUF_DECOMPRESS4X_HUFONLY_WKSP_RFC): for an input  *)
+(* that the RFC accepts with an output of at least 6 bytes, a table log of   *)
+(* at least 11 and a workspace of at least 2124 bytes, the result is the     *)
+(* output that the RFC gives.                                                *)
+(* ------------------------------------------------------------------------- *)
+
+(*** The four streams in the reading of the RFC: zstd reads every input ***)
+(*** that the RFC accepts with an output of at least 6 bytes (zstd      ***)
+(*** rejects fewer for four streams), with a table log of at most 11    ***)
+
+let HUF_DECOMPRESS4X1_RFC = prove
+ (`!(l:byte list) out.
+     huf_decompress4x1 F l out /\ 6 <= LENGTH out
+     ==> huf_decompress4x1 T l out`,
+  REWRITE_TAC[huf_decompress4x1; huf_streams4] THEN
+  CONV_TAC(TOP_DEPTH_CONV let_CONV) THEN REWRITE_TAC[] THEN
+  MESON_TAC[HUF_WEIGHTS_RFC]);;
+
+let HUF_DECOMPRESS4X1_RFC_TABLELOG = prove
+ (`!(l:byte list) out ws ml h.
+     huf_decompress4x1 F l out /\ huf_weights T l ws ml h ==> ml <= 11`,
+  REPEAT GEN_TAC THEN REWRITE_TAC[huf_decompress4x1] THEN
+  DISCH_THEN(CONJUNCTS_THEN2
+   (X_CHOOSE_THEN `ws0:num list` (X_CHOOSE_THEN `ml0:num`
+     (X_CHOOSE_THEN `h0:num` STRIP_ASSUME_TAC)))
+   ASSUME_TAC) THEN
+  FIRST_X_ASSUM(STRIP_ASSUME_TAC o MATCH_MP HUF_WEIGHTS_RFC) THEN
+  MP_TAC(SPECL [`l:byte list`; `ws0:num list`; `ml0:num`; `h0:num`;
+                `ws:num list`; `ml:num`; `h:num`] HUF_WEIGHTS_DET) THEN
+  ASM_REWRITE_TAC[] THEN STRIP_TAC THEN ASM_REWRITE_TAC[]);;
+
+(*** An input l that the RFC accepts with the output out of n bytes, at ***)
+(*** least 6, for a table with room for a table log of 11 (mtl at least ***)
+(*** 11) and a workspace of at least 2124 bytes: the result is n, with  ***)
+(*** out at dst                                                         ***)
+
+let HUF_DECOMPRESS4X_HUFONLY_WKSP_RFC = prove
+ (`!pc returnaddress stackpointer dtable dst n src (l:byte list) wk wsz flags
+    (dtd:int32) mtl fcpy fset ea el ev e out.
+     aligned 4096 (word pc:int64) /\ pc + 0x20018 <= 2 EXP 64 /\
+     aligned 16 (stackpointer:int64) /\
+     ~(stackpointer = word 336) /\ ~(stackpointer = word 432) /\
+     memcpy_memsafe_contract fcpy ea el ev /\
+     memset_memsafe_contract fset ea el ev /\
+     val dtd MOD 256 = mtl /\ mtl <= 12 /\
+     n < 2 EXP 28 /\ val(dst:int64) + n + 3 < 2 EXP 64 /\ ~(val dst = 0) /\
+     LENGTH l < 2 EXP 24 /\ 8 <= val(src:int64) /\
+     val src + LENGTH l + 8 < 2 EXP 64 /\ val(wk:int64) + 2124 <= 2 EXP 64 /\
+     nonoverlapping (dtable:int64,4 + 4 * 2 EXP mtl) (wk,2124) /\
+     nonoverlapping (dtable,4 + 4 * 2 EXP mtl)
+                    (word_sub stackpointer (word 816),816) /\
+     nonoverlapping (dtable,4 + 4 * 2 EXP mtl) (word pc,0x20018) /\
+     nonoverlapping (dtable,4 + 4 * 2 EXP mtl) (src,LENGTH l) /\
+     nonoverlapping (wk,2124) (word_sub stackpointer (word 816),816) /\
+     nonoverlapping (wk,2124) (word pc,0x20018) /\
+     nonoverlapping (wk,2124) (src,LENGTH l) /\
+     nonoverlapping (wk,2124) (ea:int64,el) /\
+     nonoverlapping (word_sub stackpointer (word 816),816)
+                    (word pc,0x20018) /\
+     nonoverlapping (word_sub stackpointer (word 816),816) (src,LENGTH l) /\
+     nonoverlapping (word_sub stackpointer (word 816),816) (ea,el) /\
+     nonoverlapping (dst,n) (src,LENGTH l) /\
+     nonoverlapping (dst,n) (dtable,4 + 4 * 2 EXP mtl) /\
+     nonoverlapping (dst,n) (word_sub stackpointer (word 816),816) /\
+     nonoverlapping (dst,n) (word pc,0x20018) /\
+     nonoverlapping (src,LENGTH l) (word pc,0x20018) /\
+     11 <= mtl /\ 2124 <= val(wsz:int64) /\
+     LENGTH out = n /\ 6 <= n /\ huf_decompress4x1 F l out
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) zstd_huf_gcc12_O2_mc /\
+               read PC s = word(pc + 0x73e0) /\ read SP s = stackpointer /\
+               read X30 s = returnaddress /\
+               C_ARGUMENTS [dtable; dst; word n; src; word(LENGTH l); wk; wsz;
+                            flags] s /\
+               read (memory :> bytes32 dtable) s = dtd /\
+               read (memory :> bytes(src,LENGTH l)) s = num_of_bytelist l /\
+               read (memory :> bytes64 (word(pc + 0x20000))) s = fcpy /\
+               read (memory :> bytes64 (word(pc + 0x20010))) s = fset /\
+               read (memory :> bytes(ea,el)) s = ev /\
+               read events s = e)
+          (\s. read PC s = returnaddress /\
+               read X0 s = word n /\
+               read (memory :> bytes(dst,n)) s = num_of_bytelist out /\
+               (?e2. read events s = APPEND e2 e /\
+                     memaccess_inbounds e2
+                      [src,LENGTH l; dtable,4 + 4 * 2 EXP mtl; wk,2124;
+                       word_sub stackpointer (word 816),816;
+                       word(pc + 0x20000),8; word(pc + 0x20010),8; ea,el;
+                       word_add (word pc) (word 31600),128;
+                       word(pc + 0x7c00),256]
+                      [dtable,4 + 4 * 2 EXP mtl; wk,2124;
+                       word_sub stackpointer (word 816),816; dst,n]))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,, MAYCHANGE [X18] ,,
+           MAYCHANGE
+            [memory :> bytes(dtable,4 + 4 * 2 EXP mtl);
+             memory :> bytes(wk,2124);
+             memory :> bytes(word_sub stackpointer (word 816),816);
+             memory :> bytes(dst,n)])`,
+  REPEAT GEN_TAC THEN STRIP_TAC THEN
+  MP_TAC(SPECL
+   [`pc:num`; `returnaddress:int64`; `stackpointer:int64`; `dtable:int64`;
+    `dst:int64`; `n:num`; `src:int64`; `l:byte list`; `wk:int64`;
+    `wsz:int64`; `flags':int64`; `dtd:int32`; `mtl:num`; `fcpy:int64`;
+    `fset:int64`; `ea:int64`; `el:num`; `ev:num`; `e:uarch_event list`]
+   HUF_DECOMPRESS4X_HUFONLY_WKSP_CORRECT) THEN
+  ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  DISCH_THEN(MATCH_MP_TAC o MATCH_MP
+    (REWRITE_RULE[IMP_CONJ_ALT] ENSURES_POSTCONDITION_THM)) THEN
+  X_GEN_TAC `s:armstate` THEN REWRITE_TAC[] THEN
+  SUBGOAL_THEN
+   `2124 <= val(wsz:int64) /\
+    (!ws ml h. huf_weights T (l:byte list) ws ml h ==> ml <= mtl)`
+  (fun th -> REWRITE_TAC[th]) THENL
+   [ASM_REWRITE_TAC[] THEN REPEAT STRIP_TAC THEN
+    MP_TAC(SPECL [`l:byte list`; `out:byte list`; `ws:num list`; `ml:num`;
+                  `h:num`] HUF_DECOMPRESS4X1_RFC_TABLELOG) THEN
+    ASM_REWRITE_TAC[] THEN UNDISCH_TAC `11 <= mtl` THEN ARITH_TAC;
+    ALL_TAC] THEN
+  DISCH_THEN(fun th ->
+    let cs = CONJUNCTS th in
+    REWRITE_TAC[el 0 cs; el 4 cs] THEN MATCH_MP_TAC(el 1 cs)) THEN
+  ASM_SIMP_TAC[HUF_DECOMPRESS4X1_RFC]);;
+
+(* ------------------------------------------------------------------------- *)
+(* HUF_decompress4X_usingDTable at 0x73d0 (HUF_DECOMPRESS4X_USINGDTABLE_X1   *)
+(* and HUF_DECOMPRESS4X_USINGDTABLE_X2): the four streams decoded with a     *)
+(* table already built, by the single-symbol decoding when the byte 1 of its *)
+(* header is 0 and by the double-symbol one otherwise.                       *)
+(* ------------------------------------------------------------------------- *)
+
+(*** HUF_decompress4X_usingDTable at 0x73d0: the decoding of the four   ***)
+(*** streams with a table already built, by a tail call of the decoding ***)
+(*** for the kind of table that the byte 1 of its header gives (0 for   ***)
+(*** single-symbol tables, which HUF_readDTableX1_wksp builds; else     ***)
+(*** double-symbol ones, 1 from HUF_readDTableX2_wksp)                  ***)
+
+let DISP_TAC (th:thm) (ftac:tactic) : tactic =
+  REWRITE_TAC[GSYM puff_memsafe] THEN
+  REPEAT GEN_TAC THEN DISCH_THEN(REPEAT_TCL CONJUNCTS_THEN ASSUME_TAC) THEN
+  ftac THEN REWRITE_TAC[C_ARGUMENTS] THEN ENSURES_INIT_TAC "s0" THEN
+  SEL_STEPS_TAC (1--3) THEN EVENTS_ABBREV_TAC THEN
+  W(fun gl -> MP_TAC(EVENTS_SPEC gl (ISPECL
+   [`pc:num`; `returnaddress:int64`; `stackpointer:int64`; `dst:int64`;
+    `n:num`; `src:int64`; `blk:byte list`; `dtable:int64`; `flags':int64`;
+    `ws:num list`; `ml:num`; `tl:num`] th))) THEN
+  ANTS_TAC THENL [ASM_REWRITE_TAC[]; ALL_TAC] THEN
+  REWRITE_TAC[C_ARGUMENTS; MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI;
+              MODIFIABLE_GPRS; MODIFIABLE_SIMD_REGS;
+              MODIFIABLE_UPPER_SIMD_REGS; SOME_FLAGS] THEN
+  ARM_BIGSTEP_TAC SEL_EXEC "s4" THEN EVENTS_UNABBREV_TAC THEN
+  PUFF_FINAL_TAC THEN ASM_REWRITE_TAC[];;
+
+let HUF_DECOMPRESS4X_USINGDTABLE_X1 = prove
+ (`!pc returnaddress stackpointer dst n src (blk:byte list) dtable flags
+    ws ml tl e.
+     aligned 4096 (word pc:int64) /\ pc + 0x8000 <= 2 EXP 64 /\
+     aligned 16 (stackpointer:int64) /\
+     huf_complete ws ml /\ LENGTH ws <= 256 /\
+     1 <= ml /\ ml <= tl /\ tl <= 12 /\
+     n < 2 EXP 28 /\ val(dst:int64) + n + 3 < 2 EXP 64 /\
+     8 <= val(src:int64) /\ val src + LENGTH blk + 8 < 2 EXP 64 /\
+     LENGTH blk < 2 EXP 32 /\
+     nonoverlapping (dst,n) (src,LENGTH blk) /\
+     nonoverlapping (dst,n) (dtable,4 + 2 * 2 EXP tl) /\
+     nonoverlapping (dst,n) (word_sub stackpointer (word 688),688) /\
+     nonoverlapping (dst,n) (word pc,32000) /\
+     nonoverlapping (word_sub stackpointer (word 688),688) (src,LENGTH blk) /\
+     nonoverlapping (word_sub stackpointer (word 688),688)
+                    (dtable,4 + 2 * 2 EXP tl) /\
+     nonoverlapping (word_sub stackpointer (word 688),688) (word pc,32000) /\
+     nonoverlapping (src,LENGTH blk) (dtable,4 + 2 * 2 EXP tl) /\
+     nonoverlapping (src,LENGTH blk) (word pc,32000) /\
+     nonoverlapping (dtable,4 + 2 * 2 EXP tl) (word pc,32000)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) zstd_huf_gcc12_O2_mc /\
+               read PC s = word(pc + 0x73d0) /\ read SP s = stackpointer /\
+               read X30 s = returnaddress /\
+               C_ARGUMENTS [dst; word n; src; word(LENGTH blk); dtable;
+                            flags] s /\
+               read (memory :> bytes(src,LENGTH blk)) s =
+               num_of_bytelist blk /\
+               read (memory :> bytes8(word_add dtable (word 1))) s = word 0 /\
+               read (memory :> bytes8(word_add dtable (word 2))) s = word tl /\
+               read (memory :> bytes(word_add dtable (word 4),2 * 2 EXP tl))
+                    s =
+               num_of_bytelist(huf_dtable ws ml tl) /\
+               read events s = e)
+          (\s. read PC s = returnaddress /\
+               (!out. LENGTH out = n /\ huf_streams4 T ws ml blk out
+                      ==> read X0 s = word n /\
+                          read (memory :> bytes(dst,n)) s =
+                          num_of_bytelist out) /\
+               (read X0 s = word n \/ zstd_is_error(read X0 s)) /\
+               (bit 5 flags /\
+                (!out. LENGTH out = n ==> ~huf_streams4 T ws ml blk out)
+                ==> zstd_is_error(read X0 s)) /\
+               (?e2. read events s = APPEND e2 e /\
+                     memaccess_inbounds e2
+                      [src,LENGTH blk; dtable,4 + 2 * 2 EXP tl;
+                       word_sub stackpointer (word 688),688]
+                      [dst,n; word_sub stackpointer (word 688),688]))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,, MAYCHANGE [X18] ,,
+           MAYCHANGE [memory :> bytes(dst,n);
+                      memory :> bytes(word_sub stackpointer (word 688),688)])`,
+  DISP_TAC HUF_DECOMPRESS4X1_USINGDTABLE_CORRECT ALL_TAC);;
+
+let HUF_DECOMPRESS4X_USINGDTABLE_X2 = prove
+ (`!pc returnaddress stackpointer dst n src (blk:byte list) dtable flags
+    ws ml tl (ttype:byte) e.
+     aligned 4096 (word pc:int64) /\ pc + 0x8000 <= 2 EXP 64 /\
+     ~(ttype = word 0) /\
+     aligned 16 (stackpointer:int64) /\
+     huf_complete ws ml /\ LENGTH ws <= 256 /\
+     1 <= ml /\ ml <= tl /\ tl <= 12 /\
+     n < 2 EXP 28 /\ val(dst:int64) + n + 3 < 2 EXP 64 /\ ~(val dst = 0) /\
+     8 <= val(src:int64) /\ val src + LENGTH blk + 8 < 2 EXP 64 /\
+     LENGTH blk < 2 EXP 32 /\
+     nonoverlapping (dst,n) (src,LENGTH blk) /\
+     nonoverlapping (dst,n) (dtable,4 + 4 * 2 EXP tl) /\
+     nonoverlapping (dst,n) (word_sub stackpointer (word 816),816) /\
+     nonoverlapping (dst,n) (word pc,32000) /\
+     nonoverlapping (word_sub stackpointer (word 816),816) (src,LENGTH blk) /\
+     nonoverlapping (word_sub stackpointer (word 816),816)
+                    (dtable,4 + 4 * 2 EXP tl) /\
+     nonoverlapping (word_sub stackpointer (word 816),816) (word pc,32000) /\
+     nonoverlapping (src,LENGTH blk) (dtable,4 + 4 * 2 EXP tl) /\
+     nonoverlapping (src,LENGTH blk) (word pc,32000) /\
+     nonoverlapping (dtable,4 + 4 * 2 EXP tl) (word pc,32000)
+     ==> ensures arm
+          (\s. aligned_bytes_loaded s (word pc) zstd_huf_gcc12_O2_mc /\
+               read PC s = word(pc + 0x73d0) /\ read SP s = stackpointer /\
+               read X30 s = returnaddress /\
+               C_ARGUMENTS [dst; word n; src; word(LENGTH blk); dtable;
+                            flags] s /\
+               read (memory :> bytes(src,LENGTH blk)) s =
+               num_of_bytelist blk /\
+               read (memory :> bytes8(word_add dtable (word 1))) s = ttype /\
+               read (memory :> bytes8(word_add dtable (word 2))) s = word tl /\
+               read (memory :> bytes(word_add dtable (word 4),4 * 2 EXP tl))
+                    s =
+               num_of_bytelist(huf_dtable2 ws ml tl) /\
+               read events s = e)
+          (\s. read PC s = returnaddress /\
+               (!out. LENGTH out = n /\ huf_streams4 T ws ml blk out
+                      ==> read X0 s = word n /\
+                          read (memory :> bytes(dst,n)) s =
+                          num_of_bytelist out) /\
+               (read X0 s = word n \/ zstd_is_error(read X0 s)) /\
+               (?e2. read events s = APPEND e2 e /\
+                     memaccess_inbounds e2
+                      [src,LENGTH blk; dtable,4 + 4 * 2 EXP tl;
+                       word_sub stackpointer (word 816),816]
+                      [dst,n; word_sub stackpointer (word 816),816]))
+          (MAYCHANGE_REGS_AND_FLAGS_PERMITTED_BY_ABI ,, MAYCHANGE [X18] ,,
+           MAYCHANGE [memory :> bytes(dst,n);
+                      memory :> bytes(word_sub stackpointer (word 816),816)])`,
+  DISP_TAC HUF_DECOMPRESS4X2_USINGDTABLE_CORRECT
+   (FIRST_X_ASSUM(ASSUME_TAC o REWRITE_RULE[GSYM VAL_EQ_0] o
+      check (fun th -> concl th = `~(ttype:byte = word 0)`))));;
