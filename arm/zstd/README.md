@@ -87,6 +87,7 @@ build the tables and choose between them are at these addresses:
 | `HUF_readDTableX2_wksp`                               | 0x6b90  |
 | `HUF_selectDecoder`                                   | 0x7154  |
 | `HUF_decompress1X1_DCtx_wksp`                         | 0x7340  |
+| `HUF_decompress4X_usingDTable`                        | 0x73d0  |
 | `HUF_decompress4X_hufOnly_wksp`                       | 0x73e0  |
 
 (*) named `HUF_decompress1X1_usingDTable_internal.constprop.0` in the
@@ -152,8 +153,11 @@ theorems for the functions that it calls:
 - `zstd_huf_decode4x2_gcc12_O2.ml`: `HUF_DECOMPRESS4X2_USINGDTABLE_CORRECT`
   for `HUF_decompress4X2_usingDTable_internal`
 - `zstd_huf_decompress4x_gcc12_O2.ml`: `HUF_DECOMPRESS4X_HUFONLY_WKSP_CORRECT`
-  for `HUF_decompress4X_hufOnly_wksp`, and `HUF_SELECTDECODER_CORRECT` for
-  `HUF_selectDecoder`, which it calls
+  and `HUF_DECOMPRESS4X_HUFONLY_WKSP_RFC` for
+  `HUF_decompress4X_hufOnly_wksp`, `HUF_SELECTDECODER_CORRECT` for
+  `HUF_selectDecoder`, which it calls, and
+  `HUF_DECOMPRESS4X_USINGDTABLE_X1` and `HUF_DECOMPRESS4X_USINGDTABLE_X2`
+  for `HUF_decompress4X_usingDTable`
 
 Each theorem states the correctness of the function and its memory safety,
 for any input: the loads and stores, in the trace `read events`, are within
@@ -204,10 +208,24 @@ description of a tree and four streams that decodes to n bytes in the zstd
 dialect (`huf_decompress4x1 T`), with a workspace of at least 2124 bytes
 and a table whose maximum table log (the byte 0 of its header) is at least
 that of the description (12 is enough for any), the result is n, with the
-output at dst, whichever kind of table `HUF_selectDecoder` chooses; and
-that the result is always n or an error code. `HUF_SELECTDECODER_CORRECT`
-gives that choice exactly (`huf_select_decoder`); the function changes
-only x0-x5 and the flags, and its caller relies on that.
+output at dst, whichever kind of table `HUF_selectDecoder` chooses; that
+the result is always n or an error code; and that when bit 5 of the flags
+is set and `HUF_selectDecoder` chooses single-symbol tables, it is an error
+code for an input that does not decode. `HUF_SELECTDECODER_CORRECT` gives
+that choice exactly (`huf_select_decoder`); the function changes only
+x0-x5 and the flags, and its caller relies on that. For an input that the
+RFC reading accepts (`huf_decompress4x1 F`) with an output of at least 6
+bytes, with a maximum table log of at least 11 in the header of the table
+and a workspace of at least 2124 bytes, `HUF_DECOMPRESS4X_HUFONLY_WKSP_RFC`
+gives the output of the RFC.
+
+`HUF_decompress4X_usingDTable` decodes four streams with a table already
+built, by a tail call of the four-stream decoding for the kind of table
+that the byte 1 of the header of the table gives: 0 for single-symbol
+tables, as `HUF_readDTableX1_wksp` builds them, and otherwise double-symbol
+ones (1 from `HUF_readDTableX2_wksp`). `HUF_DECOMPRESS4X_USINGDTABLE_X1`
+and `HUF_DECOMPRESS4X_USINGDTABLE_X2` give the results of those decodings
+for it.
 
 The theorems for `FSE_readNCount_body_default` and the functions that
 call it, directly or not, assume that the stack pointer is not one
