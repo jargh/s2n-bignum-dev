@@ -859,8 +859,9 @@ let check_insns () =
     "xx0100010xxxxxxxxxxxxx11111xxxxx";
     "11001011001xxxxxxxxxxx11111xxxxx";
 
-    (*** ret ***)
+    (*** ret, br ***)
     "1101011001011111000000xxxxx00000";
+    "1101011000011111000000xxxxx00000";
 
     (*** bti c: the BTI landing pad at the head of an indirectly-called   ***)
     (*** subroutine.  A hint with no register or memory effect, so there  ***)

@@ -312,6 +312,8 @@ let decode = new_definition `!w:int32. decode w =
                   (XREG' Rd) (XREG' Rn) (XREG' Rm) (XREG' Ra)
                 else (if o0 then arm_MSUB else arm_MADD)
                   (WREG' Rd) (WREG' Rn) (WREG' Rm) (WREG' Ra))
+  | [0b1101011000011111000000:22; Rn:5; 0:5] ->
+    SOME (arm_BR (XREG' Rn))
   | [0b1101011001011111000000:22; Rn:5; 0:5] ->
     SOME (arm_RET (XREG' Rn))
   | [sf; 0b10110101100000000001:20; N; Rn:5; Rd:5] ->
